@@ -648,43 +648,16 @@ impl<'heap> Mutator<'heap> {
     /// per-mutator event logging, active-major-mark assist,
     /// and remembered-set fallback — is either atomic, uses
     /// its own internal mutex, or mutates per-mutator state.
-    fn post_write_barrier_with_core(
+    fn post_write_barrier_slow(
         &mut self,
-        core: &crate::heap::HeapCore,
         owner_erased: GcErased,
-        slot: Option<usize>,
         old_erased: Option<GcErased>,
         new_erased: Option<GcErased>,
+        active_major_mark: bool,
+        needs_remembered_edge: bool,
     ) {
-        let local = &mut self.local;
-        assert!(
-            !core.prepared_full_reclaim_active(),
-            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
-        );
-
+        let core = self.heap.read_core();
         let collector = core.collector_handle_ref();
-        let active_major_mark = collector.has_active_major_mark();
-        let record_satb = old_erased.is_some() && active_major_mark;
-
-        core.bump_barrier_stats(BarrierKind::PostWrite);
-        local.push_barrier_event(
-            BarrierKind::PostWrite,
-            owner_erased,
-            slot,
-            old_erased,
-            new_erased,
-        );
-        if record_satb {
-            core.bump_barrier_stats(BarrierKind::SatbPreWrite);
-            local.push_barrier_event(
-                BarrierKind::SatbPreWrite,
-                owner_erased,
-                slot,
-                old_erased,
-                new_erased,
-            );
-        }
-
         if active_major_mark {
             let objects = core.objects();
             collector
@@ -702,7 +675,64 @@ impl<'heap> Mutator<'heap> {
                 .expect("post-write active major-mark assist should not fail");
         }
 
-        core.record_remembered_edge_if_needed(owner_erased, new_erased);
+        if needs_remembered_edge {
+            core.record_remembered_edge_if_needed(owner_erased, new_erased);
+        }
+    }
+
+    fn post_write_barrier_erased(
+        &mut self,
+        owner_erased: GcErased,
+        slot: Option<usize>,
+        old_erased: Option<GcErased>,
+        new_erased: Option<GcErased>,
+    ) {
+        self.handle_scope_state.ensure_safepoint();
+        let _safepoint =
+            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
+        assert!(
+            !self.heap.prepared_full_reclaim_active(),
+            "cannot mutate heap edges while prepared full reclaim is active; finish the active full collection first"
+        );
+        let active_major_mark = self.heap.has_active_major_mark();
+        let record_satb = old_erased.is_some() && active_major_mark;
+
+        self.heap.bump_barrier_stats(BarrierKind::PostWrite);
+        self.local.push_barrier_event(
+            BarrierKind::PostWrite,
+            owner_erased,
+            slot,
+            old_erased,
+            new_erased,
+        );
+        if record_satb {
+            self.heap.bump_barrier_stats(BarrierKind::SatbPreWrite);
+            self.local.push_barrier_event(
+                BarrierKind::SatbPreWrite,
+                owner_erased,
+                slot,
+                old_erased,
+                new_erased,
+            );
+        }
+
+        let needs_remembered_edge = new_erased.is_some_and(|target| {
+            let owner_space = unsafe { owner_erased.header().as_ref().space() };
+            let target_space = unsafe { target.header().as_ref().space() };
+            owner_space != crate::object::SpaceKind::Nursery
+                && owner_space != crate::object::SpaceKind::Immortal
+                && target_space == crate::object::SpaceKind::Nursery
+        });
+        if !active_major_mark && !needs_remembered_edge {
+            return;
+        }
+        self.post_write_barrier_slow(
+            owner_erased,
+            old_erased,
+            new_erased,
+            active_major_mark,
+            needs_remembered_edge,
+        );
     }
 
     /// Record a post-write barrier for one mutated GC edge.
@@ -719,12 +749,7 @@ impl<'heap> Mutator<'heap> {
         old_value: Option<Gc<Value>>,
         new_value: Option<Gc<Value>>,
     ) {
-        self.handle_scope_state.ensure_safepoint();
-        let _safepoint =
-            (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
-        let core = self.heap.read_core();
-        self.post_write_barrier_with_core(
-            &core,
+        self.post_write_barrier_erased(
             owner.erase(),
             slot,
             old_value.map(Gc::erase),
@@ -747,9 +772,7 @@ impl<'heap> Mutator<'heap> {
             (!self.handle_scope_state.has_safepoint()).then(|| self.heap.read_safepoint());
         let edge = project(owner_ref);
         let old_value = edge.replace(new_value);
-        let core = self.heap.read_core();
-        self.post_write_barrier_with_core(
-            &core,
+        self.post_write_barrier_erased(
             owner_gc.erase(),
             Some(slot),
             old_value.map(Gc::erase),

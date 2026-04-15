@@ -116,7 +116,7 @@ pub(crate) struct HeapCore {
     /// the heap write lock entirely. Observers read a
     /// [`crate::stats::BarrierStats`] snapshot via
     /// [`crate::stats::AtomicBarrierStats::snapshot`].
-    barrier_stats: crate::stats::AtomicBarrierStats,
+    barrier_stats: std::sync::Arc<crate::stats::AtomicBarrierStats>,
     // --- arena buffers (drops last, after all records) ---
     /// Bump-pointer semispace nursery arenas.
     nursery: NurseryState,
@@ -132,6 +132,7 @@ unsafe impl Send for HeapCore {}
 struct HeapState {
     objects: std::sync::Arc<ObjectStore>,
     alloc_counters: std::sync::Arc<crate::stats::AtomicAllocationCounters>,
+    barrier_stats: std::sync::Arc<crate::stats::AtomicBarrierStats>,
     safepoint: std::sync::RwLock<()>,
     core: std::sync::RwLock<HeapCore>,
     allocation_config: HeapConfig,
@@ -180,13 +181,15 @@ impl Heap {
         let collector = core.collector_handle();
         let objects = core.object_store_handle();
         let alloc_counters = core.alloc_counters_handle();
+        let barrier_stats = core.barrier_stats_handle();
         let nursery_generation = core.nursery().generation();
         Self {
             state: std::sync::Arc::new(HeapState {
-                safepoint: std::sync::RwLock::new(()),
-                core: std::sync::RwLock::new(core),
                 objects,
                 alloc_counters,
+                barrier_stats,
+                safepoint: std::sync::RwLock::new(()),
+                core: std::sync::RwLock::new(core),
                 allocation_config: config,
                 collector,
                 nursery_generation: std::sync::atomic::AtomicU64::new(nursery_generation),
@@ -460,12 +463,12 @@ impl Heap {
 
     /// Cumulative write-barrier traffic counters.
     pub fn barrier_stats(&self) -> crate::stats::BarrierStats {
-        self.read_core().barrier_stats()
+        self.state.barrier_stats.snapshot()
     }
 
     /// Reset cumulative barrier traffic counters.
     pub fn clear_barrier_stats(&self) {
-        self.read_core().clear_barrier_stats();
+        self.state.barrier_stats.clear();
     }
 
     /// Create a mutator bound to this heap.
@@ -639,6 +642,21 @@ impl Heap {
         self.state
             .nursery_generation
             .store(generation, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(crate) fn has_active_major_mark(&self) -> bool {
+        self.state.collector.has_active_major_mark()
+    }
+
+    pub(crate) fn prepared_full_reclaim_active(&self) -> bool {
+        self.state.collector.has_prepared_full_reclaim()
+    }
+
+    pub(crate) fn bump_barrier_stats(&self, kind: BarrierKind) {
+        match kind {
+            BarrierKind::PostWrite => self.state.barrier_stats.bump_post_write(),
+            BarrierKind::SatbPreWrite => self.state.barrier_stats.bump_satb_pre_write(),
+        }
     }
 
     pub(crate) fn mark_collector_plans_dirty(&self) {
@@ -1034,7 +1052,7 @@ impl HeapCore {
             pause_stats: PauseStatsHandle::new(),
             pacer,
             compaction_stats: crate::stats::CompactionStats::default(),
-            barrier_stats: crate::stats::AtomicBarrierStats::new(),
+            barrier_stats: std::sync::Arc::new(crate::stats::AtomicBarrierStats::new()),
             alloc_counters: std::sync::Arc::new(crate::stats::AtomicAllocationCounters::default()),
             nursery,
         };
@@ -1071,6 +1089,10 @@ impl HeapCore {
         &self,
     ) -> std::sync::Arc<crate::stats::AtomicAllocationCounters> {
         std::sync::Arc::clone(&self.alloc_counters)
+    }
+
+    pub(crate) fn barrier_stats_handle(&self) -> std::sync::Arc<crate::stats::AtomicBarrierStats> {
+        std::sync::Arc::clone(&self.barrier_stats)
     }
 
     /// Borrow the collector-state handle without cloning the
