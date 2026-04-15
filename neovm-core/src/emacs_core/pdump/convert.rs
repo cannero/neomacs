@@ -376,7 +376,8 @@ impl LoadDecoder {
                 value.set_cdr(self.load_value(&cdr));
             }
             DumpHeapObject::Vector(items) => {
-                let _ = value.replace_vector_data(items.iter().map(|item| self.load_value(item)).collect());
+                let _ = value
+                    .replace_vector_data(items.iter().map(|item| self.load_value(item)).collect());
             }
             DumpHeapObject::HashTable(ht) => {
                 let _ = value.with_hash_table_mut(|table| {
@@ -396,8 +397,11 @@ impl LoadDecoder {
                         .iter()
                         .map(|(k, v)| (load_hash_key(self, k), self.load_value(v)))
                         .collect();
-                    table.insertion_order =
-                        ht.insertion_order.iter().map(|key| load_hash_key(self, key)).collect();
+                    table.insertion_order = ht
+                        .insertion_order
+                        .iter()
+                        .map(|key| load_hash_key(self, key))
+                        .collect();
                 });
             }
             DumpHeapObject::Str { text_props, .. } => {
@@ -415,8 +419,9 @@ impl LoadDecoder {
             }
             DumpHeapObject::Float(_) => {}
             DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-                let _ =
-                    value.replace_closure_slots(slots.iter().map(|slot| self.load_value(slot)).collect());
+                let _ = value.replace_closure_slots(
+                    slots.iter().map(|slot| self.load_value(slot)).collect(),
+                );
             }
             DumpHeapObject::ByteCode(bc) => {
                 let _ = value
@@ -427,7 +432,8 @@ impl LoadDecoder {
                     .transpose()?;
             }
             DumpHeapObject::Record(items) => {
-                let _ = value.replace_record_data(items.iter().map(|item| self.load_value(item)).collect());
+                let _ = value
+                    .replace_record_data(items.iter().map(|item| self.load_value(item)).collect());
             }
             DumpHeapObject::Marker(marker) => {
                 let _ = value.with_marker_data_mut(|data| {
@@ -518,7 +524,6 @@ pub(crate) fn dump_sym_id(id: SymId) -> DumpSymId {
 pub(crate) fn dump_name_id(id: NameId) -> DumpNameId {
     DumpNameId(id.0)
 }
-
 
 // --- Op ---
 
@@ -623,10 +628,17 @@ pub(crate) fn dump_lambda_params(p: &LambdaParams) -> DumpLambdaParams {
     }
 }
 
-pub(crate) fn dump_bytecode(encoder: &mut DumpEncoder, bc: &ByteCodeFunction) -> DumpByteCodeFunction {
+pub(crate) fn dump_bytecode(
+    encoder: &mut DumpEncoder,
+    bc: &ByteCodeFunction,
+) -> DumpByteCodeFunction {
     DumpByteCodeFunction {
         ops: bc.ops.iter().map(dump_op).collect(),
-        constants: bc.constants.iter().map(|value| encoder.dump_value(value)).collect(),
+        constants: bc
+            .constants
+            .iter()
+            .map(|value| encoder.dump_value(value))
+            .collect(),
         max_stack: bc.max_stack,
         params: dump_lambda_params(&bc.params),
         lexical: bc.lexical,
@@ -665,15 +677,13 @@ pub(crate) fn dump_hash_key(encoder: &mut DumpEncoder, k: &HashKey) -> DumpHashK
                 DumpHashKey::Ptr(*p as u64)
             }
         }
-        HashKey::EqualCons(a, b) => {
-            DumpHashKey::EqualCons(
-                Box::new(dump_hash_key(encoder, a)),
-                Box::new(dump_hash_key(encoder, b)),
-            )
-        }
-        HashKey::EqualVec(v) => DumpHashKey::EqualVec(
-            v.iter().map(|key| dump_hash_key(encoder, key)).collect(),
+        HashKey::EqualCons(a, b) => DumpHashKey::EqualCons(
+            Box::new(dump_hash_key(encoder, a)),
+            Box::new(dump_hash_key(encoder, b)),
         ),
+        HashKey::EqualVec(v) => {
+            DumpHashKey::EqualVec(v.iter().map(|key| dump_hash_key(encoder, key)).collect())
+        }
         HashKey::Cycle(index) => DumpHashKey::Cycle(*index),
         HashKey::Text(text) => DumpHashKey::Text(text.clone()),
     }
@@ -767,24 +777,20 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
                 .map(|item| encoder.dump_value(item))
                 .collect(),
         ),
-        ValueKind::Veclike(VecLikeType::HashTable) => {
-            DumpHeapObject::HashTable(dump_hash_table(
-                encoder,
-                value.as_hash_table().expect("hash-table"),
-            ))
-        }
+        ValueKind::Veclike(VecLikeType::HashTable) => DumpHeapObject::HashTable(dump_hash_table(
+            encoder,
+            value.as_hash_table().expect("hash-table"),
+        )),
         ValueKind::Veclike(VecLikeType::Lambda) => {
             DumpHeapObject::Lambda(dump_closure_slots(encoder, value))
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
             DumpHeapObject::Macro(dump_closure_slots(encoder, value))
         }
-        ValueKind::Veclike(VecLikeType::ByteCode) => {
-            DumpHeapObject::ByteCode(dump_bytecode(
-                encoder,
-                value.get_bytecode_data().expect("bytecode"),
-            ))
-        }
+        ValueKind::Veclike(VecLikeType::ByteCode) => DumpHeapObject::ByteCode(dump_bytecode(
+            encoder,
+            value.get_bytecode_data().expect("bytecode"),
+        )),
         ValueKind::Veclike(VecLikeType::Record) => DumpHeapObject::Record(
             value
                 .as_record_data()
@@ -793,12 +799,10 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
                 .map(|item| encoder.dump_value(item))
                 .collect(),
         ),
-        ValueKind::Veclike(VecLikeType::Overlay) => {
-            DumpHeapObject::Overlay(dump_overlay(
-                encoder,
-                value.as_overlay_data().expect("overlay"),
-            ))
-        }
+        ValueKind::Veclike(VecLikeType::Overlay) => DumpHeapObject::Overlay(dump_overlay(
+            encoder,
+            value.as_overlay_data().expect("overlay"),
+        )),
         ValueKind::Veclike(VecLikeType::Marker) => {
             DumpHeapObject::Marker(dump_marker_object(value.as_marker_data().expect("marker")))
         }
@@ -947,7 +951,10 @@ fn dump_marker(m: &MarkerEntry) -> DumpMarkerEntry {
     }
 }
 
-fn dump_property_interval(encoder: &mut DumpEncoder, pi: &PropertyInterval) -> DumpPropertyInterval {
+fn dump_property_interval(
+    encoder: &mut DumpEncoder,
+    pi: &PropertyInterval,
+) -> DumpPropertyInterval {
     DumpPropertyInterval {
         start: pi.start,
         end: pi.end,
@@ -1107,7 +1114,11 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         // Previously blocked on the BLV GC trace bug (5699c3569);
         // with BLVs traced as roots, slot round-trip is safe for
         // the slot vector overall.
-        slots: buf.slots.iter().map(|slot| encoder.dump_value(slot)).collect(),
+        slots: buf
+            .slots
+            .iter()
+            .map(|slot| encoder.dump_value(slot))
+            .collect(),
         // Phase 11: per-slot local-flag bitmap. Mirrors
         // `Buffer::local_flags` (Phase 10D bitset). Safe to
         // round-trip — it's a `u64`.
@@ -1256,10 +1267,7 @@ fn dump_mode_custom_type(encoder: &mut DumpEncoder, ct: &ModeCustomType) -> Dump
     }
 }
 
-pub(crate) fn dump_mode_registry(
-    encoder: &mut DumpEncoder,
-    mr: &ModeRegistry,
-) -> DumpModeRegistry {
+pub(crate) fn dump_mode_registry(encoder: &mut DumpEncoder, mr: &ModeRegistry) -> DumpModeRegistry {
     DumpModeRegistry {
         major_modes: mr
             .dump_major_modes()
@@ -1660,11 +1668,9 @@ pub(crate) fn dump_register_manager(
                             DumpRegisterContent::FrameConfig(encoder.dump_value(v))
                         }
                         RegisterContent::File(s) => DumpRegisterContent::File(s.clone()),
-                        RegisterContent::KbdMacro(keys) => {
-                            DumpRegisterContent::KbdMacro(
-                                keys.iter().map(|value| encoder.dump_value(value)).collect(),
-                            )
-                        }
+                        RegisterContent::KbdMacro(keys) => DumpRegisterContent::KbdMacro(
+                            keys.iter().map(|value| encoder.dump_value(value)).collect(),
+                        ),
                     },
                 )
             })
@@ -2005,7 +2011,11 @@ pub(crate) fn load_bytecode(
 ) -> Result<ByteCodeFunction, DumpError> {
     Ok(ByteCodeFunction {
         ops: bc.ops.iter().map(load_op).collect::<Result<Vec<_>, _>>()?,
-        constants: bc.constants.iter().map(|value| decoder.load_value(value)).collect(),
+        constants: bc
+            .constants
+            .iter()
+            .map(|value| decoder.load_value(value))
+            .collect(),
         max_stack: bc.max_stack,
         params: load_lambda_params(&bc.params),
         lexical: bc.lexical,
@@ -2039,15 +2049,15 @@ pub(crate) fn load_hash_key(decoder: &mut LoadDecoder, k: &DumpHashKey) -> HashK
         DumpHashKey::Window(w) => HashKey::Window(*w),
         DumpHashKey::Frame(f) => HashKey::Frame(*f),
         DumpHashKey::Ptr(p) => HashKey::Ptr(*p as usize),
-        DumpHashKey::HeapRef(a) => {
-            HashKey::Ptr(decoder.heap_ref_to_value(TaggedHeapRef { index: *a }).bits())
-        }
-        DumpHashKey::EqualCons(a, b) => {
-            HashKey::EqualCons(
-                Box::new(load_hash_key(decoder, a)),
-                Box::new(load_hash_key(decoder, b)),
-            )
-        }
+        DumpHashKey::HeapRef(a) => HashKey::Ptr(
+            decoder
+                .heap_ref_to_value(TaggedHeapRef { index: *a })
+                .bits(),
+        ),
+        DumpHashKey::EqualCons(a, b) => HashKey::EqualCons(
+            Box::new(load_hash_key(decoder, a)),
+            Box::new(load_hash_key(decoder, b)),
+        ),
         DumpHashKey::EqualVec(v) => {
             HashKey::EqualVec(v.iter().map(|item| load_hash_key(decoder, item)).collect())
         }
@@ -2073,10 +2083,7 @@ pub(crate) fn load_hash_table_weakness(w: &DumpHashTableWeakness) -> HashTableWe
     }
 }
 
-pub(crate) fn load_hash_table(
-    decoder: &mut LoadDecoder,
-    ht: &DumpLispHashTable,
-) -> LispHashTable {
+pub(crate) fn load_hash_table(decoder: &mut LoadDecoder, ht: &DumpLispHashTable) -> LispHashTable {
     let data: HashMap<HashKey, Value> = ht
         .entries
         .iter()
@@ -2281,7 +2288,10 @@ fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
     }
 }
 
-fn load_property_interval(decoder: &mut LoadDecoder, pi: &DumpPropertyInterval) -> PropertyInterval {
+fn load_property_interval(
+    decoder: &mut LoadDecoder,
+    pi: &DumpPropertyInterval,
+) -> PropertyInterval {
     let properties: std::collections::HashMap<String, crate::emacs_core::value::Value> = pi
         .properties
         .iter()
@@ -3087,11 +3097,9 @@ pub(crate) fn load_register_manager(
                         RegisterContent::FrameConfig(decoder.load_value(v))
                     }
                     DumpRegisterContent::File(s) => RegisterContent::File(s.clone()),
-                    DumpRegisterContent::KbdMacro(keys) => {
-                        RegisterContent::KbdMacro(
-                            keys.iter().map(|value| decoder.load_value(value)).collect(),
-                        )
-                    }
+                    DumpRegisterContent::KbdMacro(keys) => RegisterContent::KbdMacro(
+                        keys.iter().map(|value| decoder.load_value(value)).collect(),
+                    ),
                 },
             )
         })

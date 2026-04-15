@@ -893,7 +893,7 @@ pub(crate) fn eager_expand_toplevel_forms_with_extra_roots(
         };
         let d3 = t3.elapsed();
         ctx.note_eager_macro_perf_step3(d3);
-        if d3.as_millis() > 200 {
+        if ctx.macro_perf_enabled() && d3.as_millis() > 200 {
             let head = if val.is_cons() {
                 val.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
             } else {
@@ -931,7 +931,7 @@ pub(crate) fn eager_expand_eval(
                 let value = ctx.eval_value(&expanded).map_err(map_flow)?;
                 let d4 = t4.elapsed();
                 ctx.note_eager_macro_perf_step4(d4);
-                if d4.as_millis() > 200 {
+                if ctx.macro_perf_enabled() && d4.as_millis() > 200 {
                     tracing::warn!("eager_expand step4 (eval) took {d4:.2?}");
                 }
                 Ok(value)

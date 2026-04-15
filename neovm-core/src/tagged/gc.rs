@@ -417,11 +417,12 @@ pub struct TaggedHeap {
     /// like clearing markers when buffers are killed.
     marker_ptrs: Vec<*mut MarkerObj>,
 
-    /// Canonical subr heap objects keyed by `SymId`.
+    /// Canonical subr heap objects keyed by `NameId`.
     ///
     /// These are rooted by the heap itself so builtin `PVEC_SUBR` objects
     /// survive function-cell rebinding, matching GNU's permanent subr objects.
     subr_registry: Vec<Option<TaggedValue>>,
+    subr_slot_registry: Vec<Option<*mut SubrObj>>,
 
     /// Canonical runtime handle wrappers keyed by their underlying object id.
     buffer_registry: FxHashMap<crate::buffer::BufferId, TaggedValue>,
@@ -459,6 +460,7 @@ impl TaggedHeap {
             cons_live_count: 0,
             marker_ptrs: Vec::new(),
             subr_registry: Vec::new(),
+            subr_slot_registry: Vec::new(),
             buffer_registry: FxHashMap::default(),
             window_registry: FxHashMap::default(),
             frame_registry: FxHashMap::default(),
@@ -538,6 +540,27 @@ impl TaggedHeap {
         self.subr_registry.get(id.0 as usize).copied().flatten()
     }
 
+    pub fn subr_slot(&self, id: crate::emacs_core::intern::NameId) -> Option<&'static SubrObj> {
+        let ptr = self
+            .subr_slot_registry
+            .get(id.0 as usize)
+            .copied()
+            .flatten()?;
+        Some(unsafe { &*ptr })
+    }
+
+    pub fn subr_slot_mut(
+        &mut self,
+        id: crate::emacs_core::intern::NameId,
+    ) -> Option<&'static mut SubrObj> {
+        let ptr = self
+            .subr_slot_registry
+            .get(id.0 as usize)
+            .copied()
+            .flatten()?;
+        Some(unsafe { &mut *ptr })
+    }
+
     pub fn register_subr_value(
         &mut self,
         id: crate::emacs_core::intern::NameId,
@@ -547,11 +570,20 @@ impl TaggedHeap {
         if self.subr_registry.len() <= index {
             self.subr_registry.resize(index + 1, None);
         }
+        if self.subr_slot_registry.len() <= index {
+            self.subr_slot_registry.resize(index + 1, None);
+        }
         self.subr_registry[index] = Some(value);
+        self.subr_slot_registry[index] = Some(
+            value
+                .as_veclike_ptr()
+                .expect("subr registry points to non-subr value") as *mut SubrObj,
+        );
     }
 
     pub fn clear_subr_registry(&mut self) {
         self.subr_registry.clear();
+        self.subr_slot_registry.clear();
     }
 
     pub fn buffer_value(&self, id: crate::buffer::BufferId) -> Option<TaggedValue> {
@@ -1252,19 +1284,24 @@ impl TaggedHeap {
                         return;
                     }
                     (*ptr).header.marked = true;
-                    let mut roots = Vec::new();
-                    (*ptr).text_props.trace_roots(&mut roots);
-                    for root in roots {
-                        if root.is_heap_object() {
-                            self.gray_queue.push(root);
-                        }
+                    if !(*ptr).text_props.is_empty() {
+                        (*ptr).text_props.for_each_root(|root| {
+                            if root.is_heap_object() {
+                                self.gray_queue.push(root);
+                            }
+                        });
                     }
                 };
             }
             0b110 => {
                 // Float — no children
                 let ptr = val.as_float_ptr().unwrap() as *mut FloatObj;
-                unsafe { (*ptr).header.marked = true };
+                unsafe {
+                    if (*ptr).header.marked {
+                        return;
+                    }
+                    (*ptr).header.marked = true;
+                };
             }
             0b011 => {
                 // Vectorlike

@@ -532,6 +532,14 @@ impl TextPropertyTable {
                 .collect(),
         }
     }
+
+    pub(crate) fn for_each_root(&self, mut f: impl FnMut(Value)) {
+        for interval in self.intervals.values() {
+            for value in interval.properties.values() {
+                f(*value);
+            }
+        }
+    }
 }
 
 impl Default for TextPropertyTable {
@@ -542,11 +550,7 @@ impl Default for TextPropertyTable {
 
 impl GcTrace for TextPropertyTable {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
-        for interval in self.intervals.values() {
-            for value in interval.properties.values() {
-                roots.push(*value);
-            }
-        }
+        self.for_each_root(|value| roots.push(value));
     }
 }
 

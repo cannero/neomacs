@@ -757,13 +757,19 @@ impl Obarray {
     /// Follows `Alias` chains (with cycle detection, max 50 hops).
     pub fn symbol_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
-        for _ in 0..50 {
-            match self.slot(current)?.value {
+        let mut hops = 0usize;
+        while hops < 50 {
+            let sym = match self.symbols.get(Self::slot_index(current)) {
+                Some(Some(sym)) => sym,
+                _ => return None,
+            };
+            match sym.value {
                 SymbolValue::Plain(ref v) => return v.as_ref(),
                 SymbolValue::Alias(target) => current = target,
                 SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
                 SymbolValue::Forwarded => return None,
             }
+            hops += 1;
         }
         None // alias cycle — give up
     }

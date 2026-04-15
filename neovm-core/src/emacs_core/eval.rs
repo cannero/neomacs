@@ -61,6 +61,7 @@ const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 8;
 const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
 const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
 const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
+const GC_PERCENT_SCALE: u64 = 1_000_000;
 pub(crate) const INTERNAL_COMPILER_FUNCTION_OVERRIDES: &str =
     "internal--compiler-function-overrides";
 
@@ -169,32 +170,22 @@ pub(crate) enum SpecBinding {
 
 #[derive(Debug)]
 pub(crate) enum RuntimeBacktraceArgs {
-    Borrowed { ptr: *const Value, len: usize },
     Owned(LispArgVec),
 }
 
 impl RuntimeBacktraceArgs {
-    fn borrowed(args: &[Value]) -> Self {
-        Self::Borrowed {
-            ptr: args.as_ptr(),
-            len: args.len(),
-        }
-    }
-
     fn owned_from_slice(args: &[Value]) -> Self {
         Self::Owned(args.iter().copied().collect())
     }
 
     fn as_slice(&self) -> &[Value] {
         match self {
-            Self::Borrowed { ptr, len } => unsafe { std::slice::from_raw_parts(*ptr, *len) },
             Self::Owned(values) => values.as_slice(),
         }
     }
 
     fn len(&self) -> usize {
         match self {
-            Self::Borrowed { len, .. } => *len,
             Self::Owned(values) => values.len(),
         }
     }
@@ -236,27 +227,6 @@ pub(crate) struct PendingSafeFuncall {
 }
 
 pub(crate) type LispArgVec = SmallVec<[Value; 8]>;
-
-#[derive(Clone, Copy, Debug)]
-struct BorrowedRootSlice {
-    ptr: *const Value,
-    len: usize,
-}
-
-impl BorrowedRootSlice {
-    #[inline]
-    fn from_slice(values: &[Value]) -> Self {
-        Self {
-            ptr: values.as_ptr(),
-            len: values.len(),
-        }
-    }
-
-    #[inline]
-    fn as_slice(&self) -> &[Value] {
-        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
@@ -553,18 +523,90 @@ struct NamedCallCacheEntry {
     target: NamedCallTarget,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct LexenvAssqCacheEntry {
     lexenv_bits: usize,
     symbol: SymId,
     cell: Value,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
+struct LexenvAssqCache {
+    entries: [Option<LexenvAssqCacheEntry>; LEXENV_ASSQ_CACHE_CAPACITY],
+    len: u8,
+    next: u8,
+}
+
+impl LexenvAssqCache {
+    #[inline]
+    fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<Value> {
+        let len = usize::from(self.len);
+        let mut checked = 0usize;
+        while checked < len {
+            let index = (usize::from(self.next) + LEXENV_ASSQ_CACHE_CAPACITY - 1 - checked)
+                % LEXENV_ASSQ_CACHE_CAPACITY;
+            if let Some(entry) = self.entries[index] {
+                if entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id {
+                    return Some(entry.cell);
+                }
+            }
+            checked += 1;
+        }
+        None
+    }
+
+    #[inline]
+    fn push(&mut self, entry: LexenvAssqCacheEntry) {
+        let index = usize::from(self.next);
+        self.entries[index] = Some(entry);
+        self.next = ((index + 1) % LEXENV_ASSQ_CACHE_CAPACITY) as u8;
+        if usize::from(self.len) < LEXENV_ASSQ_CACHE_CAPACITY {
+            self.len += 1;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
 struct LexenvSpecialCacheEntry {
     lexenv_bits: usize,
     symbol: SymId,
     declared_special: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+struct LexenvSpecialCache {
+    entries: [Option<LexenvSpecialCacheEntry>; LEXENV_SPECIAL_CACHE_CAPACITY],
+    len: u8,
+    next: u8,
+}
+
+impl LexenvSpecialCache {
+    #[inline]
+    fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<bool> {
+        let len = usize::from(self.len);
+        let mut checked = 0usize;
+        while checked < len {
+            let index = (usize::from(self.next) + LEXENV_SPECIAL_CACHE_CAPACITY - 1 - checked)
+                % LEXENV_SPECIAL_CACHE_CAPACITY;
+            if let Some(entry) = self.entries[index] {
+                if entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id {
+                    return Some(entry.declared_special);
+                }
+            }
+            checked += 1;
+        }
+        None
+    }
+
+    #[inline]
+    fn push(&mut self, entry: LexenvSpecialCacheEntry) {
+        let index = usize::from(self.next);
+        self.entries[index] = Some(entry);
+        self.next = ((index + 1) % LEXENV_SPECIAL_CACHE_CAPACITY) as u8;
+        if usize::from(self.len) < LEXENV_SPECIAL_CACHE_CAPACITY {
+            self.len += 1;
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -676,10 +718,10 @@ impl InterpretedClosureValueCacheEntry {
 fn value_from_symbol_id(sym_id: SymId) -> Value {
     let (name, is_canonical) = resolve_sym_metadata(sym_id);
     if is_canonical {
-        if name == "nil" {
+        if sym_id == nil_symbol() {
             return Value::NIL;
         }
-        if name == "t" {
+        if sym_id == t_symbol() {
             return Value::T;
         }
         if name.starts_with(':') {
@@ -697,6 +739,16 @@ fn hidden_internal_interpreter_environment_symbol() -> SymId {
 fn lexical_binding_symbol() -> SymId {
     static SYMBOL: OnceLock<SymId> = OnceLock::new();
     *SYMBOL.get_or_init(|| intern("lexical-binding"))
+}
+
+fn nil_symbol() -> SymId {
+    static SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *SYMBOL.get_or_init(|| intern("nil"))
+}
+
+fn t_symbol() -> SymId {
+    static SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *SYMBOL.get_or_init(|| intern("t"))
 }
 
 fn macroexp_dynvars_symbol() -> SymId {
@@ -1327,9 +1379,6 @@ pub struct Context {
     /// Temporary GC roots — Values that must survive collection but aren't
     /// in any other rooted structure (e.g. intermediate results in eval_str_each).
     temp_roots: Vec<Value>,
-    /// Borrowed GC roots whose backing storage is guaranteed by a scoped
-    /// helper to stay alive until the matching truncate.
-    borrowed_gc_roots: Vec<BorrowedRootSlice>,
     /// VM GC roots — Values that must remain GC-visible while the bytecode VM
     /// crosses into evaluator code that may trigger collection.
     pub(crate) vm_gc_roots: Vec<Value>,
@@ -1360,9 +1409,9 @@ pub struct Context {
     /// installation immediately invalidates stale lookups.
     named_call_cache: HashMap<SymId, NamedCallCacheEntry>,
     /// Small hot cache for GNU-shaped lexical env alist lookups.
-    lexenv_assq_cache: RefCell<Vec<LexenvAssqCacheEntry>>,
+    lexenv_assq_cache: RefCell<LexenvAssqCache>,
     /// Small hot cache for GNU-shaped lexical special declarations.
-    lexenv_special_cache: RefCell<Vec<LexenvSpecialCacheEntry>>,
+    lexenv_special_cache: RefCell<LexenvSpecialCache>,
     /// Nested depth of active macro-expansion scopes.
     macro_expansion_scope_depth: usize,
     /// Monotonic counter for Lisp-visible mutations performed while a macro
@@ -1410,7 +1459,7 @@ pub struct ShutdownRequest {
 #[derive(Clone, Copy, Debug)]
 struct GcRuntimeSettingsCache {
     gc_cons_threshold_bytes: usize,
-    gc_cons_percentage: Option<f64>,
+    gc_cons_percentage_scaled: Option<u64>,
     memory_full: bool,
     dirty: bool,
 }
@@ -1419,7 +1468,7 @@ impl Default for GcRuntimeSettingsCache {
     fn default() -> Self {
         Self {
             gc_cons_threshold_bytes: GC_DEFAULT_THRESHOLD_BYTES,
-            gc_cons_percentage: Some(0.1),
+            gc_cons_percentage_scaled: Some(100_000),
             memory_full: false,
             dirty: true,
         }
@@ -1906,6 +1955,8 @@ fn begin_macro_expansion_scope_in_state(
     lexenv: Value,
     temp_roots: &mut Vec<Value>,
 ) -> ActiveMacroExpansionScopeState {
+    let nil_symbol = nil_symbol();
+    let t_symbol = t_symbol();
     let saved_temp_roots_len = temp_roots.len();
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
@@ -1918,8 +1969,7 @@ fn begin_macro_expansion_scope_in_state(
 
     let mut dynvars = old_dynvars;
     for sym in lexenv_bare_symbols(lexenv) {
-        let name = resolve_sym(sym);
-        if name == "t" || name == "nil" {
+        if sym == t_symbol || sym == nil_symbol {
             continue;
         }
         dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
@@ -1932,8 +1982,7 @@ fn begin_macro_expansion_scope_in_state(
             | SpecBinding::LetDefault { sym_id, .. } => sym_id,
             SpecBinding::LexicalEnv { .. } => continue,
         };
-        let name = resolve_sym(*sym_id);
-        if name == "t" || name == "nil" {
+        if *sym_id == t_symbol || *sym_id == nil_symbol {
             continue;
         }
         dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
@@ -1990,16 +2039,12 @@ impl Context {
 
     #[inline]
     pub(crate) fn subr_slot(&self, sym_id: SymId) -> Option<&'static SubrObj> {
-        let value = self.subr_value(symbol_name_id(sym_id))?;
-        let ptr = value.as_veclike_ptr()? as *const SubrObj;
-        Some(unsafe { &*ptr })
+        self.tagged_heap.subr_slot(symbol_name_id(sym_id))
     }
 
     #[inline]
     fn subr_slot_mut(&mut self, sym_id: SymId) -> Option<&'static mut SubrObj> {
-        let value = self.subr_value(symbol_name_id(sym_id))?;
-        let ptr = value.as_veclike_ptr()? as *mut SubrObj;
-        Some(unsafe { &mut *ptr })
+        self.tagged_heap.subr_slot_mut(symbol_name_id(sym_id))
     }
 
     #[inline]
@@ -2101,7 +2146,6 @@ impl Context {
         ev.gc_count = 0;
         ev.gc_stress = false;
         ev.temp_roots.clear();
-        ev.borrowed_gc_roots.clear();
         ev.condition_stack.clear();
         ev.next_resume_id = 1;
         ev.saved_lexenvs.clear();
@@ -3976,7 +4020,6 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
-            borrowed_gc_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -3986,8 +4029,8 @@ impl Context {
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
-            lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
+            lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
+            lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
@@ -4112,7 +4155,6 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             temp_roots: Vec::new(),
-            borrowed_gc_roots: Vec::new(),
             vm_gc_roots: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
@@ -4122,8 +4164,8 @@ impl Context {
             pending_safe_funcalls: Vec::new(),
             saved_lexenvs: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            lexenv_assq_cache: RefCell::new(Vec::with_capacity(LEXENV_ASSQ_CACHE_CAPACITY)),
-            lexenv_special_cache: RefCell::new(Vec::with_capacity(LEXENV_SPECIAL_CACHE_CAPACITY)),
+            lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
+            lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
@@ -4171,9 +4213,6 @@ impl Context {
 
         // Direct Context fields
         roots.extend(self.temp_roots.iter().cloned());
-        for roots_slice in &self.borrowed_gc_roots {
-            roots.extend_from_slice(roots_slice.as_slice());
-        }
         roots.extend(self.vm_gc_roots.iter().cloned());
         roots.extend(self.treesit.roots());
         // Scan bytecode stack buffer — all live stack values across all frames
@@ -4336,13 +4375,14 @@ impl Context {
             .and_then(|value| value.as_fixnum())
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(GC_DEFAULT_THRESHOLD_BYTES);
-        self.gc_runtime_settings_cache.gc_cons_percentage = self
+        self.gc_runtime_settings_cache.gc_cons_percentage_scaled = self
             .obarray
             .symbol_value_id(gc_cons_percentage_symbol())
             .copied()
             .unwrap_or(Value::NIL)
             .as_number_f64()
-            .filter(|float| float.is_finite() && *float > 0.0);
+            .filter(|float| float.is_finite() && *float > 0.0)
+            .map(|float| ((float * GC_PERCENT_SCALE as f64).ceil() as u64).clamp(1, u64::MAX));
         self.gc_runtime_settings_cache.memory_full = !self
             .obarray
             .symbol_value_id(memory_full_symbol())
@@ -4368,13 +4408,16 @@ impl Context {
             .gc_runtime_settings_cache
             .gc_cons_threshold_bytes
             .max(GC_THRESHOLD_FLOOR_BYTES);
-        if let Some(percentage) = self.gc_runtime_settings_cache.gc_cons_percentage {
+        if let Some(percentage_scaled) = self.gc_runtime_settings_cache.gc_cons_percentage_scaled {
             let live_estimate = self
                 .tagged_heap
                 .live_bytes()
                 .saturating_add(self.tagged_heap.bytes_since_gc() / 2);
-            let pct_threshold = (percentage * live_estimate as f64)
-                .clamp(0.0, GC_HI_THRESHOLD_BYTES as f64) as usize;
+            let pct_threshold = ((live_estimate as u128)
+                .saturating_mul(percentage_scaled as u128)
+                .saturating_add((GC_PERCENT_SCALE - 1) as u128)
+                / GC_PERCENT_SCALE as u128)
+                .min(GC_HI_THRESHOLD_BYTES as u128) as usize;
             threshold = threshold.max(pct_threshold);
         }
         threshold.clamp(1, GC_HI_THRESHOLD_BYTES)
@@ -4570,9 +4613,12 @@ impl Context {
     }
 
     fn run_exit_wrapped_command_loop(&mut self, increment_depth: bool) -> EvalResult {
-        // Batch mode: no interactive input, return immediately.
-        if self.input_rx.is_none() {
-            tracing::info!("recursive_edit_inner: batch mode, returning immediately");
+        // Interactive command loops need an input source. Batch mode is
+        // different: GNU still runs `top-level`/`normal-top-level` and lets
+        // `read_char` terminate the loop via noninteractive EOF, even when
+        // there is no input channel at all.
+        if self.input_rx.is_none() && !self.command_loop_noninteractive() {
+            tracing::info!("recursive_edit_inner: no input receiver, returning immediately");
             return Ok(Value::NIL);
         }
 
@@ -5527,8 +5573,8 @@ impl Context {
         extra_root_slices: &[&[Value]],
     ) {
         let start = std::time::Instant::now();
-        self.lexenv_assq_cache.borrow_mut().clear();
-        self.lexenv_special_cache.borrow_mut().clear();
+        *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
+        *self.lexenv_special_cache.borrow_mut() = LexenvSpecialCache::default();
         let roots = self.collect_roots_with_extra_root_slices(extra_root_slices);
         match mode {
             crate::tagged::gc::RootScanMode::ExactOnly => {
@@ -5869,29 +5915,11 @@ impl Context {
     }
 
     #[inline]
-    fn with_borrowed_gc_root_descriptors<T>(
-        &mut self,
-        roots: &[BorrowedRootSlice],
-        f: impl FnOnce(&mut Self) -> T,
-    ) -> T {
-        let saved_len = self.borrowed_gc_roots.len();
-        self.borrowed_gc_roots.extend_from_slice(roots);
-        let result = f(self);
-        self.borrowed_gc_roots.truncate(saved_len);
-        result
-    }
-
-    #[inline]
-    fn with_borrowed_gc_root_descriptors_result<T>(
-        &mut self,
-        roots: &[BorrowedRootSlice],
-        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
-    ) -> Result<T, Flow> {
-        let saved_len = self.borrowed_gc_roots.len();
-        self.borrowed_gc_roots.extend_from_slice(roots);
-        let result = f(self);
-        self.borrowed_gc_roots.truncate(saved_len);
-        result
+    fn maybe_gc_and_quit_with_extra_roots(&mut self, extra_roots: &[Value]) -> Result<(), Flow> {
+        self.poll_pending_input_for_throw_on_input();
+        self.maybe_quit()?;
+        self.gc_safe_point_exact_with_extra_roots(extra_roots);
+        Ok(())
     }
 
     /// Save the current length of temp_roots for later restoration.
@@ -6146,9 +6174,13 @@ impl Context {
             Value::NIL
         };
         self.temp_roots.clear();
-        self.borrowed_gc_roots.clear();
         self.condition_stack.clear();
         self.depth = 0;
+        // Named-call resolution is a runtime memoization layer, not part of
+        // GNU's persisted Lisp surface. If it survives bootstrap/pdump
+        // boundaries it can disagree with restored function cells while still
+        // carrying a matching function epoch.
+        self.named_call_cache.clear();
     }
 
     #[cfg(test)]
@@ -6159,7 +6191,6 @@ impl Context {
             && clean_lexenv
             && self.saved_lexenvs.is_empty()
             && self.temp_roots.is_empty()
-            && self.borrowed_gc_roots.is_empty()
             && self.condition_stack.is_empty()
             && self.depth == 0
     }
@@ -6911,16 +6942,16 @@ impl Context {
         // aren't explicitly stored in the obarray and aren't
         // specbound, they resolve to their canonical values.
         // Mirrors the vm.rs `lookup_var` fallback path.
-        if symbol_is_canonical && symbol == "nil" {
+        if symbol_is_canonical && sym_id == nil_symbol() {
             return Ok(Value::NIL);
         }
-        if symbol_is_canonical && symbol == "t" {
+        if symbol_is_canonical && sym_id == t_symbol() {
             return Ok(Value::T);
         }
-        if resolved_is_canonical && resolved_name == "nil" {
+        if resolved_is_canonical && resolved == nil_symbol() {
             return Ok(Value::NIL);
         }
-        if resolved_is_canonical && resolved_name == "t" {
+        if resolved_is_canonical && resolved == t_symbol() {
             return Ok(Value::T);
         }
 
@@ -8901,18 +8932,6 @@ impl Context {
         });
     }
 
-    /// Internal fast path for active calls where `args` is guaranteed to stay
-    /// alive and immutable until the matching `pop_runtime_backtrace_frame`.
-    #[inline]
-    pub(crate) fn push_runtime_backtrace_frame_borrowed(&mut self, function: Value, args: &[Value]) {
-        self.runtime_backtrace.push(RuntimeBacktraceFrame {
-            function,
-            args: RuntimeBacktraceArgs::borrowed(args),
-            evaluated: true,
-            debug_on_exit: false,
-        });
-    }
-
     pub(crate) fn pop_runtime_backtrace_frame(&mut self) {
         self.runtime_backtrace.pop();
     }
@@ -8929,43 +8948,26 @@ impl Context {
         result
     }
 
-    #[inline]
-    pub(crate) fn with_runtime_backtrace_frame_borrowed(
-        &mut self,
-        function: Value,
-        args: Vec<Value>,
-        f: impl FnOnce(&mut Self, Vec<Value>) -> EvalResult,
-    ) -> EvalResult {
-        self.push_runtime_backtrace_frame_borrowed(function, &args);
-        let result = f(self, args);
-        self.pop_runtime_backtrace_frame();
-        result
-    }
-
     fn apply_internal(
         &mut self,
         function: Value,
         args: Vec<Value>,
         record_backtrace: bool,
     ) -> EvalResult {
-        let function_roots = [function];
-        let borrowed_roots = [
-            BorrowedRootSlice::from_slice(&function_roots),
-            BorrowedRootSlice::from_slice(args.as_slice()),
-        ];
-        self.with_borrowed_gc_root_descriptors_result(&borrowed_roots, |ctx| {
-            ctx.maybe_gc_and_quit()?;
-            // GNU does not probe stack space for every funcall. Keep growth
-            // checks at the function-application boundary, but only on coarse
-            // depth intervals so normal startup is not dominated by TLS lookups
-            // in stacker::maybe_grow.
-            ctx.maybe_grow_eval_stack(|ctx| {
-                if record_backtrace {
-                    ctx.funcall_general(function, args)
-                } else {
-                    ctx.funcall_general_untraced(function, args)
-                }
-            })
+        let mut gc_roots = LispArgVec::with_capacity(args.len() + 1);
+        gc_roots.push(function);
+        gc_roots.extend(args.iter().copied());
+        self.maybe_gc_and_quit_with_extra_roots(gc_roots.as_slice())?;
+        // GNU does not probe stack space for every funcall. Keep growth
+        // checks at the function-application boundary, but only on coarse
+        // depth intervals so normal startup is not dominated by TLS lookups
+        // in stacker::maybe_grow.
+        self.maybe_grow_eval_stack(|ctx| {
+            if record_backtrace {
+                ctx.funcall_general(function, args)
+            } else {
+                ctx.funcall_general_untraced(function, args)
+            }
         })
     }
 
@@ -8993,31 +8995,23 @@ impl Context {
         func: Value,
         args: Vec<Value>,
     ) -> EvalResult {
-        let frame_function_roots = [frame_function];
-        let func_roots = [func];
-        let borrowed_roots = [
-            BorrowedRootSlice::from_slice(&frame_function_roots),
-            BorrowedRootSlice::from_slice(&func_roots),
-            BorrowedRootSlice::from_slice(args.as_slice()),
-        ];
-        self.with_borrowed_gc_root_descriptors_result(
-            &borrowed_roots,
-            |ctx| {
-                ctx.maybe_gc_and_quit()?;
-                ctx.maybe_grow_eval_stack(|ctx| {
-                    ctx.with_runtime_backtrace_frame_borrowed(frame_function, args, |eval, args| {
-                        eval.funcall_general_untraced(func, args)
-                    })
-                })
-            },
-        )
+        let mut gc_roots = LispArgVec::with_capacity(args.len() + 2);
+        gc_roots.push(frame_function);
+        gc_roots.push(func);
+        gc_roots.extend(args.iter().copied());
+        self.maybe_gc_and_quit_with_extra_roots(gc_roots.as_slice())?;
+        self.maybe_grow_eval_stack(|ctx| {
+            ctx.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
+                eval.funcall_general_untraced(func, args)
+            })
+        })
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.with_runtime_backtrace_frame_borrowed(function, args, |eval, args| {
+        self.with_runtime_backtrace_frame(function, args, |eval, args| {
             eval.funcall_general_untraced(function, args)
         })
     }
@@ -9277,9 +9271,8 @@ impl Context {
                     // callable, not an obarray indirection cycle.
                     ValueKind::Veclike(VecLikeType::Subr) if func.as_subr_id() == Some(sym_id) => {
                         let name = resolve_sym(sym_id);
-                        match super::subr_info::subr_dispatch_kind_from_value(&func).unwrap_or_else(
-                            || super::subr_info::compat_subr_dispatch_kind(name),
-                        )
+                        match super::subr_info::subr_dispatch_kind_from_value(&func)
+                            .unwrap_or_else(|| super::subr_info::compat_subr_dispatch_kind(name))
                         {
                             SubrDispatchKind::Builtin => NamedCallTarget::Builtin,
                             SubrDispatchKind::ContextCallable => NamedCallTarget::ContextCallable,
@@ -9341,7 +9334,7 @@ impl Context {
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        self.with_runtime_backtrace_frame_borrowed(Value::from_sym_id(sym_id), args, |eval, args| {
+        self.with_runtime_backtrace_frame(Value::from_sym_id(sym_id), args, |eval, args| {
             eval.apply_named_callable_by_id_core(
                 sym_id,
                 args,
@@ -9360,7 +9353,7 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::symbol(name);
-        self.with_runtime_backtrace_frame_borrowed(frame_function, args, |eval, args| {
+        self.with_runtime_backtrace_frame(frame_function, args, |eval, args| {
             eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
         })
     }
@@ -9775,7 +9768,7 @@ impl Context {
         let context_key = self.macro_expansion_context_key_for_environment(environment);
         let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp, context_key);
         let cache_entry = RuntimeMacroExpansionCacheEntry::new(*expanded_value, current_fp);
-        if expand_elapsed.as_millis() > 50 {
+        if self.macro_perf_enabled && expand_elapsed.as_millis() > 50 {
             let macro_head = if form.is_cons() {
                 form.cons_car().as_symbol_name().unwrap_or("<non-symbol>")
             } else {
@@ -9920,6 +9913,11 @@ impl Context {
         }
 
         Some(parts.join(" | "))
+    }
+
+    #[inline]
+    pub(crate) fn macro_perf_enabled(&self) -> bool {
+        self.macro_perf_enabled
     }
 
     // -----------------------------------------------------------------------
@@ -10869,26 +10867,18 @@ impl Context {
 
     pub(crate) fn lexenv_assq_cached_in(&self, lexenv: Value, sym_id: SymId) -> Option<Value> {
         let lexenv_bits = lexenv.bits();
-        if let Some(entry) = self
-            .lexenv_assq_cache
-            .borrow()
-            .iter()
-            .rev()
-            .find(|entry| entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
-        {
-            return Some(entry.cell);
+        if let Some(cell) = self.lexenv_assq_cache.borrow().find(lexenv_bits, sym_id) {
+            return Some(cell);
         }
 
         let cell = lexenv_assq(lexenv, sym_id)?;
-        let mut cache = self.lexenv_assq_cache.borrow_mut();
-        cache.push(LexenvAssqCacheEntry {
-            lexenv_bits,
-            symbol: sym_id,
-            cell,
-        });
-        if cache.len() > LEXENV_ASSQ_CACHE_CAPACITY {
-            cache.remove(0);
-        }
+        self.lexenv_assq_cache
+            .borrow_mut()
+            .push(LexenvAssqCacheEntry {
+                lexenv_bits,
+                symbol: sym_id,
+                cell,
+            });
         Some(cell)
     }
 
@@ -10899,26 +10889,19 @@ impl Context {
 
     pub(crate) fn lexenv_declares_special_cached_in(&self, lexenv: Value, sym_id: SymId) -> bool {
         let lexenv_bits = lexenv.bits();
-        if let Some(entry) = self
-            .lexenv_special_cache
-            .borrow()
-            .iter()
-            .rev()
-            .find(|entry| entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
+        if let Some(declared_special) = self.lexenv_special_cache.borrow().find(lexenv_bits, sym_id)
         {
-            return entry.declared_special;
+            return declared_special;
         }
 
         let declared_special = lexenv_declares_special(lexenv, sym_id);
-        let mut cache = self.lexenv_special_cache.borrow_mut();
-        cache.push(LexenvSpecialCacheEntry {
-            lexenv_bits,
-            symbol: sym_id,
-            declared_special,
-        });
-        if cache.len() > LEXENV_SPECIAL_CACHE_CAPACITY {
-            cache.remove(0);
-        }
+        self.lexenv_special_cache
+            .borrow_mut()
+            .push(LexenvSpecialCacheEntry {
+                lexenv_bits,
+                symbol: sym_id,
+                declared_special,
+            });
         declared_special
     }
 
@@ -11101,10 +11084,10 @@ impl Context {
             return Some(value);
         }
 
-        if resolved_is_canonical && resolved_name == "nil" {
+        if resolved_is_canonical && resolved == nil_symbol() {
             return Some(Value::NIL);
         }
-        if resolved_is_canonical && resolved_name == "t" {
+        if resolved_is_canonical && resolved == t_symbol() {
             return Some(Value::T);
         }
         if resolved_is_canonical && resolved_name.starts_with(':') {
