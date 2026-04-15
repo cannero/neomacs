@@ -41,6 +41,7 @@ use super::value::{
 };
 use crate::buffer::BufferManager;
 use crate::gc_trace::GcTrace;
+use crate::heap_types::LispString;
 use crate::window::FrameManager;
 
 // ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ pub enum ProcessKind {
 /// A tracked process record.
 pub struct Process {
     pub id: ProcessId,
-    pub name: String,
+    pub name: LispString,
     pub command: String,
     pub args: Vec<String>,
     pub kind: ProcessKind,
@@ -149,7 +150,7 @@ impl std::fmt::Debug for Process {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Process")
             .field("id", &self.id)
-            .field("name", &self.name)
+            .field("name", &process_name_runtime(&self.name))
             .field("command", &self.command)
             .field("kind", &self.kind)
             .field("status", &self.status)
@@ -189,6 +190,14 @@ impl Default for ProcessManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn process_name_lisp_string(name: &str) -> LispString {
+    super::builtins::runtime_string_to_lisp_string(name, true)
+}
+
+fn process_name_runtime(name: &LispString) -> String {
+    super::builtins::runtime_string_from_lisp_string(name)
 }
 
 impl ProcessManager {
@@ -235,7 +244,7 @@ impl ProcessManager {
         };
         let proc = Process {
             id,
-            name,
+            name: process_name_lisp_string(&name),
             command,
             args,
             kind,
@@ -717,9 +726,10 @@ impl ProcessManager {
 
     /// Find a process by name.
     pub fn find_by_name(&self, name: &str) -> Option<ProcessId> {
+        let wanted = process_name_lisp_string(name);
         self.processes
             .values()
-            .find(|p| p.name == name)
+            .find(|p| p.name == wanted)
             .map(|p| p.id)
     }
 
@@ -1418,7 +1428,7 @@ fn signal_process_not_active(eval: &super::eval::Context, id: ProcessId) -> Flow
 fn signal_process_not_active_in_manager(processes: &ProcessManager, id: ProcessId) -> Flow {
     let name = processes
         .get_any(id)
-        .map(|proc| proc.name.clone())
+        .map(|proc| process_name_runtime(&proc.name))
         .unwrap_or_else(|| id.to_string());
     signal(
         "error",
@@ -1446,7 +1456,7 @@ fn signal_process_not_running_in_manager(processes: &ProcessManager, id: Process
         .get_any(id)
         .map(|proc| {
             (
-                proc.name.clone(),
+                process_name_runtime(&proc.name),
                 stale_process_not_running_reason(&proc.status),
             )
         })
@@ -4869,7 +4879,7 @@ pub(crate) fn builtin_process_name_impl(
     expect_args("process-name", &args, 1)?;
     let id = resolve_process_or_wrong_type_any_in_manager(processes, &args[0])?;
     match processes.get_any(id) {
-        Some(proc) => Ok(Value::string(proc.name.clone())),
+        Some(proc) => Ok(Value::heap_string(proc.name.clone())),
         None => Err(signal_wrong_type_processp(args[0])),
     }
 }
@@ -5771,7 +5781,7 @@ pub(crate) fn builtin_process_contact_impl(
             } else if key == Value::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
-                    Value::string(proc.name.clone()),
+                    Value::heap_string(proc.name.clone()),
                     Value::keyword(":server"),
                     Value::T,
                     Value::keyword(":service"),
@@ -5782,7 +5792,7 @@ pub(crate) fn builtin_process_contact_impl(
             } else {
                 match key.kind() {
                     ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
-                        Ok(Value::string(proc.name.clone()))
+                        Ok(Value::heap_string(proc.name.clone()))
                     }
                     ValueKind::Symbol(k) if resolve_sym(k) == ":server" => Ok(Value::T),
                     ValueKind::Symbol(k) if resolve_sym(k) == ":service" => Ok(Value::fixnum(port)),
@@ -5797,12 +5807,12 @@ pub(crate) fn builtin_process_contact_impl(
             } else if key == Value::T {
                 Ok(Value::list(vec![
                     Value::keyword(":name"),
-                    Value::string(proc.name.clone()),
+                    Value::heap_string(proc.name.clone()),
                 ]))
             } else {
                 match key.kind() {
                     ValueKind::Symbol(k) if resolve_sym(k) == ":name" => {
-                        Ok(Value::string(proc.name.clone()))
+                        Ok(Value::heap_string(proc.name.clone()))
                     }
                     _ => Ok(Value::NIL),
                 }
