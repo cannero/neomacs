@@ -3717,6 +3717,33 @@ fn bootstrap_find_file_prefers_ldefs_boot_over_runtime_loaddefs() {
 }
 
 #[test]
+fn collect_loaddefs_autoload_args_preserves_raw_unibyte_file_name() {
+    crate::test_utils::init_test_tracing();
+    let source: String = [
+        b'(', b'a', b'u', b't', b'o', b'l', b'o', b'a', b'd', b' ', b'\'', b'r', b'a', b'w', b'-',
+        b'f', b'n', b' ', b'"', 0xFF, b'"', b' ', b'n', b'i', b'l', b' ', b't', b')',
+    ]
+    .into_iter()
+    .map(char::from)
+    .collect();
+    let form = crate::emacs_core::value_reader::read_one_with_source_multibyte(&source, false, 0)
+        .expect("parse unibyte autoload form")
+        .expect("autoload form should parse")
+        .0;
+
+    let mut state = LoaddefsSurfaceState::default();
+    collect_loaddefs_autoload_args(form, None, None, &mut state);
+
+    assert_eq!(state.names.len(), 1);
+    assert_eq!(state.autoload_args.len(), 1);
+    let file = state.autoload_args[0][1]
+        .as_lisp_string()
+        .expect("autoload file should stay a LispString");
+    assert!(!file.is_multibyte());
+    assert_eq!(file.as_bytes(), &[0xFF]);
+}
+
+#[test]
 fn find_file_prefers_earlier_load_path_directory() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

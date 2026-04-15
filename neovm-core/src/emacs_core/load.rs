@@ -172,9 +172,7 @@ pub(crate) fn decode_emacs_utf8(bytes: &[u8]) -> String {
 fn format_value_for_error(v: &Value) -> String {
     match v.kind() {
         ValueKind::Symbol(sid) => super::intern::resolve_sym(sid).to_string(),
-        ValueKind::String => {
-            format!("\"{}\"", v.as_str().unwrap_or(""))
-        }
+        ValueKind::String => format!("\"{}\"", super::builtins::lisp_string_to_runtime_string(*v)),
         ValueKind::Fixnum(n) => format!("{}", n),
         ValueKind::Nil => "nil".to_string(),
         ValueKind::T => "t".to_string(),
@@ -2167,14 +2165,18 @@ fn collect_loaddefs_autoload_args(
     let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
         return;
     };
-    let Some(file) = items.get(2).and_then(|v| v.as_str().map(|s| s.to_owned())) else {
+    let Some(file_value) = items.get(2).and_then(|v| value_runtime_literal(*v)) else {
         return;
     };
+    let ValueKind::String = file_value.kind() else {
+        return;
+    };
+    let file = super::builtins::lisp_string_to_runtime_string(file_value);
     if let Some(files) = allowed_files
         && !files.contains(&file)
     {
         return;
-    }
+    };
     if let Some(names) = allowed_names
         && !names.contains(&name)
     {
@@ -2182,7 +2184,7 @@ fn collect_loaddefs_autoload_args(
     }
 
     state.names.insert(name.clone());
-    let mut args = vec![Value::symbol(&name), Value::string(file)];
+    let mut args = vec![Value::symbol(&name), file_value];
     for item in items.iter().skip(3).take(3) {
         let Some(value) = value_runtime_literal(*item) else {
             return;
