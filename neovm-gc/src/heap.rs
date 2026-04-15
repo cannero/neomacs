@@ -780,6 +780,18 @@ impl Heap {
             .store(generation, std::sync::atomic::Ordering::Relaxed);
     }
 
+    #[inline(always)]
+    pub(crate) fn current_nursery_generation(&self) -> u64 {
+        self.state
+            .nursery_generation
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    #[inline(always)]
+    pub(crate) fn allocation_config(&self) -> HeapConfig {
+        self.state.allocation_config
+    }
+
     pub(crate) fn has_active_major_mark(&self) -> bool {
         self.state.collector.has_active_major_mark()
     }

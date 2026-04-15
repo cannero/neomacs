@@ -8041,7 +8041,8 @@ fn shared_mutator_can_allocate_during_background_worker_session() {
     shared
         .with_mutator(|mutator| {
             let mut keep_scope = mutator.handle_scope();
-            for byte in 0..128u8 {
+            for i in 0..1024u16 {
+                let byte = i as u8;
                 mutator
                     .alloc(&mut keep_scope, OldLeaf([byte; 32]))
                     .expect("alloc old leaf");

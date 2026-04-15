@@ -3,12 +3,14 @@ use crate::barrier::{BarrierEvent, BarrierKind};
 use crate::descriptor::{GcErased, Trace, TypeDesc};
 use crate::edge::EdgeCell;
 use crate::heap::{AllocError, Heap};
+use crate::object::SpaceKind;
 use crate::plan::{
     BackgroundCollectionStatus, CollectionKind, CollectionPlan, MajorMarkProgress,
     RuntimeWorkStatus,
 };
 use crate::root::{Gc, HandleScope, Root, RootStack};
 use crate::stats::CollectionStats;
+use core::alloc::Layout;
 use core::ptr::NonNull;
 use std::any::TypeId;
 
@@ -38,6 +40,15 @@ const MAX_BARRIER_EVENTS: usize = 1024;
 /// between `MAX_BARRIER_EVENTS` and
 /// `BARRIER_EVENT_HIGH_WATER`, both bounded.
 const BARRIER_EVENT_HIGH_WATER: usize = 2 * MAX_BARRIER_EVENTS;
+
+#[derive(Clone, Copy, Debug)]
+struct CachedAllocProfile {
+    type_id: TypeId,
+    desc: &'static TypeDesc,
+    layout: Layout,
+    payload_offset: usize,
+    space: SpaceKind,
+}
 
 /// Per-mutator local state.
 ///
@@ -84,9 +95,9 @@ pub struct MutatorLocal {
     /// collector still operates on a single `&mut MutatorLocal`
     /// threaded in from the caller.
     pub(crate) roots: RootStack,
-    /// Single-entry descriptor cache for the most recently
-    /// allocated payload type in this mutator.
-    descriptor_cache: Option<(TypeId, &'static TypeDesc)>,
+    /// Single-entry allocation profile cache for the most
+    /// recently allocated payload type in this mutator.
+    alloc_profile_cache: Option<CachedAllocProfile>,
     /// Per-mutator object-store publish reservations. Each
     /// reservation owns one append-only shard chunk so the
     /// common allocation path only has to touch the shard
@@ -100,6 +111,9 @@ pub struct MutatorLocal {
     /// mutator has observed while dirtying the shared
     /// cached-plan snapshot.
     collector_plans_refresh_epoch_seen: u64,
+    /// Current nursery generation observed while this
+    /// mutator holds the safepoint read guard.
+    nursery_generation: u64,
 }
 
 impl Default for MutatorLocal {
@@ -108,10 +122,11 @@ impl Default for MutatorLocal {
             tlab: None,
             barrier_events: Vec::new(),
             roots: RootStack::default(),
-            descriptor_cache: None,
+            alloc_profile_cache: None,
             publish_local: crate::object_store::ObjectPublishLocal::default(),
             alloc_counter_local: crate::stats::AllocationCounterLocal::default(),
             collector_plans_refresh_epoch_seen: u64::MAX,
+            nursery_generation: 0,
         }
     }
 }
@@ -141,13 +156,34 @@ impl MutatorLocal {
         &mut self.roots
     }
 
-    fn cached_descriptor<T: Trace + 'static>(&self) -> Option<&'static TypeDesc> {
-        self.descriptor_cache
-            .and_then(|(type_id, desc)| (type_id == TypeId::of::<T>()).then_some(desc))
+    fn cached_alloc_profile<T: Trace + 'static>(&self) -> Option<CachedAllocProfile> {
+        self.alloc_profile_cache
+            .filter(|profile| profile.type_id == TypeId::of::<T>())
     }
 
-    fn remember_descriptor<T: Trace + 'static>(&mut self, desc: &'static TypeDesc) {
-        self.descriptor_cache = Some((TypeId::of::<T>(), desc));
+    fn remember_alloc_profile(&mut self, profile: CachedAllocProfile) {
+        self.alloc_profile_cache = Some(profile);
+    }
+
+    fn refresh_safepoint_fast_path_state(&mut self, heap: &Heap) {
+        let nursery_generation = heap.current_nursery_generation();
+        self.set_nursery_generation(nursery_generation);
+        self.publish_local.clear();
+    }
+
+    fn set_nursery_generation(&mut self, generation: u64) {
+        self.nursery_generation = generation;
+        if self
+            .tlab
+            .as_ref()
+            .is_some_and(|tlab| tlab.generation() != generation)
+        {
+            self.tlab = None;
+        }
+    }
+
+    fn nursery_generation(&self) -> u64 {
+        self.nursery_generation
     }
 
     pub(crate) fn publish_local_mut(&mut self) -> &mut crate::object_store::ObjectPublishLocal {
@@ -233,6 +269,7 @@ impl<'heap> Mutator<'heap> {
     pub(crate) fn new(heap: &'heap Heap) -> Self {
         let mut local = MutatorLocal::default();
         local.set_alloc_counter_local(heap.allocation_counter_local());
+        local.set_nursery_generation(heap.current_nursery_generation());
         Self {
             heap,
             local,
@@ -261,8 +298,9 @@ impl<'heap> Mutator<'heap> {
         let result = f(&mut runtime);
         drop(runtime);
         self.heap.note_collector_plans_refreshed();
-        self.heap
-            .store_nursery_generation(guard.nursery().generation());
+        let nursery_generation = guard.nursery().generation();
+        self.heap.store_nursery_generation(nursery_generation);
+        self.local.set_nursery_generation(nursery_generation);
         result
     }
 
@@ -272,7 +310,7 @@ impl<'heap> Mutator<'heap> {
         let had_safepoint = self.handle_scope_state.has_safepoint();
         self.handle_scope_state.begin_scope();
         if !had_safepoint {
-            self.local.publish_local_mut().clear();
+            self.local.refresh_safepoint_fast_path_state(self.heap);
         }
         HandleScope::new_with_state(
             self.local.root_stack_ptr(),
@@ -292,27 +330,45 @@ impl<'heap> Mutator<'heap> {
     ) -> Result<Root<'scope, T>, AllocError> {
         if !self.handle_scope_state.has_safepoint() {
             self.handle_scope_state.ensure_safepoint();
-            self.local.publish_local_mut().clear();
+            self.local.refresh_safepoint_fast_path_state(self.heap);
         }
         let Self { heap, local, .. } = self;
-
-        let snapshot = heap.allocation_snapshot::<T>(local.cached_descriptor::<T>())?;
-        let config = snapshot.config;
-        let desc = snapshot.desc;
-        let space = snapshot.space;
-        local.remember_descriptor::<T>(desc);
+        if heap.prepared_full_reclaim_active() {
+            return Err(AllocError::CollectionInProgress);
+        }
+        let config = heap.allocation_config();
+        let alloc_profile = match local.cached_alloc_profile::<T>() {
+            Some(profile) => profile,
+            None => {
+                let snapshot = heap.allocation_snapshot::<T>(None)?;
+                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                let profile = CachedAllocProfile {
+                    type_id: TypeId::of::<T>(),
+                    desc: snapshot.desc,
+                    layout,
+                    payload_offset,
+                    space: snapshot.space,
+                };
+                local.remember_alloc_profile(profile);
+                profile
+            }
+        };
+        let desc = alloc_profile.desc;
+        let space = alloc_profile.space;
         let mut value = Some(value);
         let mut old_reserved_bytes = 0usize;
         let mut nursery_allocation = None;
 
         let record = match space {
             crate::object::SpaceKind::Nursery => {
-                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                let layout = alloc_profile.layout;
+                let payload_offset = alloc_profile.payload_offset;
                 let total_size = layout.size();
+                let nursery_generation = local.nursery_generation();
                 match local
                     .tlab
                     .as_mut()
-                    .and_then(|tlab| tlab.try_alloc(snapshot.nursery_generation, layout))
+                    .and_then(|tlab| tlab.try_alloc(nursery_generation, layout))
                 {
                     Some(base) => unsafe {
                         let (header, layout_align_shift) =
@@ -380,7 +436,8 @@ impl<'heap> Mutator<'heap> {
                 }
             }
             crate::object::SpaceKind::Old => {
-                let (layout, payload_offset) = crate::object::allocation_layout_for::<T>()?;
+                let layout = alloc_profile.layout;
+                let payload_offset = alloc_profile.payload_offset;
                 let mut core = heap.write_core();
                 Some(
                     match core
