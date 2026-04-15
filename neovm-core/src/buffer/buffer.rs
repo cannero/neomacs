@@ -3958,6 +3958,7 @@ impl Default for BufferManager {
 impl GcTrace for BufferManager {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for buffer in self.buffers.values() {
+            roots.push(buffer.name);
             buffer.text.trace_text_prop_roots(roots);
             buffer.undo_state.trace_roots(roots);
             buffer.overlays.trace_roots(roots);
@@ -3976,6 +3977,9 @@ impl GcTrace for BufferManager {
             roots.push(buffer.local_var_alist);
             // `local_map` (buffer's keymap) must also be rooted.
             roots.push(buffer.keymap);
+        }
+        for last_name in self.dead_buffer_last_names.values() {
+            roots.push(*last_name);
         }
         // Phase 10D: `buffer_defaults` holds the global default
         // values for every per-buffer slot. Mirrors GNU's
@@ -4030,6 +4034,26 @@ mod tests {
         assert!(buf.get_multibyte());
         assert!(buf.file_name_value().is_nil());
         assert!(buf.mark().is_none());
+    }
+
+    #[test]
+    fn buffer_manager_gc_traces_buffer_and_dead_buffer_names() {
+        crate::test_utils::init_test_tracing();
+        let mut mgr = BufferManager::new();
+        let live_id = mgr.create_buffer("live");
+        let dead_id = mgr.create_buffer("dead");
+        assert!(mgr.kill_buffer(dead_id));
+
+        let live_name = mgr.get(live_id).expect("live buffer").name_value();
+        let dead_name = mgr
+            .dead_buffer_last_name_value(dead_id)
+            .expect("dead buffer name");
+
+        let mut roots = Vec::new();
+        mgr.trace_roots(&mut roots);
+
+        assert!(roots.contains(&live_name));
+        assert!(roots.contains(&dead_name));
     }
 
     #[test]

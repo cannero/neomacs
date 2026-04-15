@@ -2879,6 +2879,8 @@ impl GcTrace for FrameManager {
         }
         // Frame and window tree parameters
         for frame in self.frames.values() {
+            roots.push(frame.name);
+            roots.push(frame.title);
             for v in frame.parameters.values() {
                 roots.push(*v);
             }
@@ -2937,6 +2939,27 @@ mod tests {
         assert_eq!(frame.window_count(), 1);
         assert!(frame.selected_window().is_some());
         assert!(frame.selected_window().unwrap().is_leaf());
+    }
+
+    #[test]
+    fn frame_manager_gc_traces_name_and_title_values() {
+        crate::test_utils::init_test_tracing();
+        let mut mgr = FrameManager::new();
+        let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+        {
+            let frame = mgr.get_mut(fid).expect("frame");
+            frame.title = Value::string("Frame Title");
+        }
+
+        let frame = mgr.get(fid).expect("frame");
+        let name = frame.name_value();
+        let title = frame.title_value();
+
+        let mut roots = Vec::new();
+        mgr.trace_roots(&mut roots);
+
+        assert!(roots.contains(&name));
+        assert!(roots.contains(&title));
     }
 
     #[test]
