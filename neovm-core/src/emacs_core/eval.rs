@@ -7992,39 +7992,20 @@ impl Context {
         self.sf_unwind_protect_value_named("unwind-protect", tail)
     }
 
-    fn sf_unwind_protect_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
+    fn sf_unwind_protect_value_named(&mut self, _call_name: &str, tail: Value) -> EvalResult {
         if tail.is_nil() {
-            return Err(signal(
-                "wrong-number-of-arguments",
-                vec![Value::symbol(call_name), Value::fixnum(0)],
-            ));
+            return Ok(Value::NIL);
         }
-        if !tail.is_cons() {
-            return Err(self.listp_error(tail));
-        }
-        let primary = self.eval_sub(tail.cons_car());
-        let specpdl_root_scope = self.save_specpdl_roots();
-        match &primary {
-            Ok(val) => self.push_specpdl_root(*val),
-            Err(Flow::Signal(sig)) => {
-                for v in &sig.data {
-                    self.push_specpdl_root(*v);
-                }
-                if let Some(raw) = &sig.raw_data {
-                    self.push_specpdl_root(*raw);
-                }
-            }
-            Err(Flow::Throw { tag, value }) => {
-                self.push_specpdl_root(*tag);
-                self.push_specpdl_root(*value);
-            }
-        }
-        let cleanup = self.sf_progn_value(tail.cons_cdr());
-        self.restore_specpdl_roots(specpdl_root_scope);
-        match cleanup {
-            Ok(_) => primary,
-            Err(flow) => Err(flow),
-        }
+        let body = tail.cons_car();
+        let cleanup_forms = tail.cons_cdr();
+        let count = self.specpdl.len();
+        self.specpdl.push(SpecBinding::UnwindProtect {
+            forms: cleanup_forms,
+            lexenv: self.lexenv,
+        });
+        let result = self.eval_sub(body);
+        self.unbind_to(count);
+        result
     }
 
     fn sf_condition_case_value(&mut self, tail: Value) -> EvalResult {
