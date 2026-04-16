@@ -20,14 +20,15 @@ fn define_and_expand() {
 
     // Check count incremented
     let tbl = mgr.get_table("global-abbrev-table").unwrap();
-    assert_eq!(tbl.abbrevs.get("btw").unwrap().count, 1);
+    let key_btw = super::runtime_string_to_abbrev_string("btw");
+    assert_eq!(tbl.abbrevs.get(&key_btw).unwrap().count, 1);
 
     // Expand again
     let result = mgr.expand_abbrev("global-abbrev-table", "btw");
     assert_eq!(result, Some("by the way".to_string()));
 
     let tbl = mgr.get_table("global-abbrev-table").unwrap();
-    assert_eq!(tbl.abbrevs.get("btw").unwrap().count, 2);
+    assert_eq!(tbl.abbrevs.get(&key_btw).unwrap().count, 2);
 }
 
 #[test]
@@ -176,7 +177,8 @@ fn define_abbrev_full_with_hook_and_system() {
     );
 
     let tbl = mgr.get_table("global-abbrev-table").unwrap();
-    let ab = tbl.abbrevs.get("hw").unwrap();
+    let key_hw = super::runtime_string_to_abbrev_string("hw");
+    let ab = tbl.abbrevs.get(&key_hw).unwrap();
     assert_eq!(abbrev_runtime(&ab.expansion), "hello world");
     assert_eq!(
         ab.hook.as_ref().map(abbrev_runtime).as_deref(),

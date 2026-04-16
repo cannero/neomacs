@@ -1856,7 +1856,7 @@ pub(crate) fn dump_abbrev_manager(am: &AbbrevManager) -> DumpAbbrevManager {
                             .iter()
                             .map(|(k, a)| {
                                 (
-                                    k.clone(),
+                                    dump_lisp_string(k),
                                     DumpAbbrev {
                                         expansion: dump_lisp_string(&a.expansion),
                                         hook: a.hook.as_ref().map(dump_lisp_string),
@@ -3791,7 +3791,7 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
                             .iter()
                             .map(|(k, a)| {
                                 (
-                                    k.clone(),
+                                    load_lisp_string(k),
                                     Abbrev {
                                         expansion: load_lisp_string(&a.expansion),
                                         hook: a.hook.as_ref().map(load_lisp_string),
@@ -3821,7 +3821,7 @@ pub(crate) fn load_abbrev_manager(dam: &DumpAbbrevManager) -> AbbrevManager {
                             .iter()
                             .map(|(k, a)| {
                                 (
-                                    k.clone(),
+                                    load_lisp_string(k),
                                     Abbrev {
                                         expansion: load_lisp_string(&a.expansion),
                                         hook: a.hook.as_ref().map(load_lisp_string),

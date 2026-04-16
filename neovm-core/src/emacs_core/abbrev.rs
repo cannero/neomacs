@@ -36,7 +36,7 @@ pub struct Abbrev {
 #[derive(Clone, Debug)]
 pub struct AbbrevTable {
     pub name: LispString,
-    pub abbrevs: HashMap<String, Abbrev>,
+    pub abbrevs: HashMap<LispString, Abbrev>,
     pub parent: Option<LispString>,
     pub case_fixed: bool,
     pub enable_quoting: bool,
@@ -91,7 +91,7 @@ impl AbbrevManager {
             .tables
             .entry(table_sym)
             .or_insert_with(|| AbbrevTable::new(table));
-        let key = abbrev.to_lowercase();
+        let key = runtime_string_to_abbrev_string(&abbrev.to_lowercase());
         tbl.abbrevs.insert(
             key,
             Abbrev {
@@ -116,7 +116,7 @@ impl AbbrevManager {
             .tables
             .entry(table_sym)
             .or_insert_with(|| AbbrevTable::new(table));
-        let key = abbrev.to_lowercase();
+        let key = runtime_string_to_abbrev_string(&abbrev.to_lowercase());
         tbl.abbrevs.insert(
             key,
             Abbrev {
@@ -133,7 +133,7 @@ impl AbbrevManager {
     }
 
     fn expand_abbrev_by_sym(&mut self, table_sym: SymId, word: &str) -> Option<String> {
-        let key = word.to_lowercase();
+        let key = runtime_string_to_abbrev_string(&word.to_lowercase());
         if let Some(tbl) = self.tables.get_mut(&table_sym) {
             if let Some(ab) = tbl.abbrevs.get_mut(&key) {
                 ab.count += 1;
@@ -172,7 +172,12 @@ impl AbbrevManager {
                 let mut entries: Vec<(String, String)> = tbl
                     .abbrevs
                     .iter()
-                    .map(|(k, v)| (k.clone(), abbrev_string_to_runtime(&v.expansion)))
+                    .map(|(k, v)| {
+                        (
+                            abbrev_string_to_runtime(k),
+                            abbrev_string_to_runtime(&v.expansion),
+                        )
+                    })
                     .collect();
                 entries.sort_by(|left, right| left.0.cmp(&right.0));
                 entries
