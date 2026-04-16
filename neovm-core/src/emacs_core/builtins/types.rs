@@ -25,8 +25,10 @@ pub(crate) fn builtin_nlistp_1(_eval: &mut super::eval::Context, arg: Value) -> 
     Ok(Value::bool_val(!arg.is_list()))
 }
 
-pub(crate) fn builtin_symbolp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
-    Ok(Value::bool_val(arg.is_symbol()))
+pub(crate) fn builtin_symbolp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let is_sym = arg.is_symbol()
+        || (eval.symbols_with_pos_enabled && arg.is_symbol_with_pos());
+    Ok(Value::bool_val(is_sym))
 }
 
 pub(crate) fn builtin_booleanp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {

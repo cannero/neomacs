@@ -1413,6 +1413,33 @@ impl TaggedValue {
         }
     }
 
+    /// Convert to hash key with optional symbol-with-pos transparency.
+    pub fn to_hash_key_swp(&self, test: &HashTableTest, symbols_with_pos_enabled: bool) -> HashKey {
+        match test {
+            HashTableTest::Eq => self.to_eq_key_swp(symbols_with_pos_enabled),
+            HashTableTest::Eql => self.to_eql_key_swp(symbols_with_pos_enabled),
+            HashTableTest::Equal => self.to_equal_key(),
+        }
+    }
+
+    /// EQ hash key with optional symbol-with-pos transparency.
+    pub fn to_eq_key_swp(&self, symbols_with_pos_enabled: bool) -> HashKey {
+        if symbols_with_pos_enabled && self.is_symbol_with_pos() {
+            let sym = self.as_symbol_with_pos_sym().unwrap();
+            return sym.to_eq_key();
+        }
+        self.to_eq_key()
+    }
+
+    /// EQL hash key with optional symbol-with-pos transparency.
+    pub fn to_eql_key_swp(&self, symbols_with_pos_enabled: bool) -> HashKey {
+        if symbols_with_pos_enabled && self.is_symbol_with_pos() {
+            let sym = self.as_symbol_with_pos_sym().unwrap();
+            return sym.to_eql_key();
+        }
+        self.to_eql_key()
+    }
+
     fn to_eq_key(&self) -> HashKey {
         match self.kind() {
             ValueKind::Nil => HashKey::Nil,
@@ -1540,6 +1567,27 @@ pub fn eq_value(left: &Value, right: &Value) -> bool {
     left.bits() == right.bits()
 }
 
+/// EQ with optional symbol-with-pos transparency.
+pub fn eq_value_swp(left: &Value, right: &Value, symbols_with_pos_enabled: bool) -> bool {
+    if left.bits() == right.bits() {
+        return true;
+    }
+    if !symbols_with_pos_enabled {
+        return false;
+    }
+    let l = if left.is_symbol_with_pos() {
+        left.as_symbol_with_pos_sym().unwrap()
+    } else {
+        *left
+    };
+    let r = if right.is_symbol_with_pos() {
+        right.as_symbol_with_pos_sym().unwrap()
+    } else {
+        *right
+    };
+    l.bits() == r.bits()
+}
+
 /// `eql` — like `eq` but also value-equality for numbers of same type.
 pub fn eql_value(left: &Value, right: &Value) -> bool {
     if left.bits() == right.bits() {
@@ -1551,10 +1599,32 @@ pub fn eql_value(left: &Value, right: &Value) -> bool {
     }
 }
 
+/// EQL with optional symbol-with-pos transparency.
+pub fn eql_value_swp(left: &Value, right: &Value, symbols_with_pos_enabled: bool) -> bool {
+    if eq_value_swp(left, right, symbols_with_pos_enabled) {
+        return true;
+    }
+    match (left.kind(), right.kind()) {
+        (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
+        _ => false,
+    }
+}
+
 /// `equal` — structural comparison.
 pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
     let mut seen = HashSet::new();
-    equal_value_inner(left, right, depth, &mut seen)
+    equal_value_inner(left, right, depth, &mut seen, false)
+}
+
+/// `equal` — structural comparison with optional symbol-with-pos transparency.
+pub fn equal_value_swp(
+    left: &Value,
+    right: &Value,
+    depth: usize,
+    symbols_with_pos_enabled: bool,
+) -> bool {
+    let mut seen = HashSet::new();
+    equal_value_inner(left, right, depth, &mut seen, symbols_with_pos_enabled)
 }
 
 fn equal_value_inner(
@@ -1562,6 +1632,7 @@ fn equal_value_inner(
     right: &Value,
     depth: usize,
     seen: &mut HashSet<(usize, usize)>,
+    symbols_with_pos_enabled: bool,
 ) -> bool {
     if depth > 200 {
         return false;
@@ -1590,8 +1661,8 @@ fn equal_value_inner(
             let a_cdr = left.cons_cdr();
             let b_car = right.cons_car();
             let b_cdr = right.cons_cdr();
-            equal_value_inner(&a_car, &b_car, depth + 1, seen)
-                && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen)
+            equal_value_inner(&a_car, &b_car, depth + 1, seen, symbols_with_pos_enabled)
+                && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen, symbols_with_pos_enabled)
         }
         (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector))
         | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
@@ -1608,7 +1679,7 @@ fn equal_value_inner(
                     }
                     a.iter()
                         .zip(b.iter())
-                        .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen))
+                        .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen, symbols_with_pos_enabled))
                 }
                 _ => false,
             }
@@ -1622,7 +1693,40 @@ fn equal_value_inner(
             if !seen.insert(pair) {
                 return true;
             }
-            closure_equal(left, right, depth + 1, seen)
+            closure_equal(left, right, depth + 1, seen, symbols_with_pos_enabled)
+        }
+        // symbol-with-pos: when flag enabled, unwrap and compare as symbols.
+        // When disabled, compare both sym AND pos fields.
+        (
+            ValueKind::Veclike(VecLikeType::SymbolWithPos),
+            ValueKind::Veclike(VecLikeType::SymbolWithPos),
+        ) => {
+            if symbols_with_pos_enabled {
+                let l = left.as_symbol_with_pos_sym().unwrap();
+                let r = right.as_symbol_with_pos_sym().unwrap();
+                l.bits() == r.bits()
+            } else {
+                let l = left.as_symbol_with_pos().unwrap();
+                let r = right.as_symbol_with_pos().unwrap();
+                l.sym.bits() == r.sym.bits() && l.pos.bits() == r.pos.bits()
+            }
+        }
+        // symbol-with-pos vs bare symbol when flag enabled
+        (ValueKind::Symbol(_), ValueKind::Veclike(VecLikeType::SymbolWithPos))
+        | (ValueKind::Veclike(VecLikeType::SymbolWithPos), ValueKind::Symbol(_))
+            if symbols_with_pos_enabled =>
+        {
+            let l = if left.is_symbol_with_pos() {
+                left.as_symbol_with_pos_sym().unwrap()
+            } else {
+                *left
+            };
+            let r = if right.is_symbol_with_pos() {
+                right.as_symbol_with_pos_sym().unwrap()
+            } else {
+                *right
+            };
+            l.bits() == r.bits()
         }
         // For all other same-type veclike comparisons, use identity
         (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),
@@ -1696,6 +1800,7 @@ fn closure_equal(
     right: &Value,
     depth: usize,
     seen: &mut HashSet<(usize, usize)>,
+    symbols_with_pos_enabled: bool,
 ) -> bool {
     let (Some(left_params), Some(right_params)) = (left.closure_params(), right.closure_params())
     else {
@@ -1707,7 +1812,7 @@ fn closure_equal(
 
     let body_equal = match (left.closure_body_value(), right.closure_body_value()) {
         (Some(left_body), Some(right_body)) => {
-            equal_value_inner(&left_body, &right_body, depth + 1, seen)
+            equal_value_inner(&left_body, &right_body, depth + 1, seen, symbols_with_pos_enabled)
         }
         (None, None) => true,
         _ => false,
@@ -1721,7 +1826,9 @@ fn closure_equal(
         right.closure_env().unwrap_or(None),
     ) {
         (None, None) => true,
-        (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen),
+        (Some(l), Some(r)) => {
+            equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled)
+        }
         _ => false,
     };
     if !env_equal || left.closure_docstring().flatten() != right.closure_docstring().flatten() {
@@ -1733,7 +1840,9 @@ fn closure_equal(
         right.closure_doc_form().flatten(),
     ) {
         (None, None) => true,
-        (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen),
+        (Some(l), Some(r)) => {
+            equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled)
+        }
         _ => false,
     }
 }

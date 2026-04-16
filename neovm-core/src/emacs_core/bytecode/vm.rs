@@ -1286,7 +1286,14 @@ impl<'a> Vm<'a> {
                     let len = stk!().len();
                     let b = stk!()[len - 1];
                     let a = stk!()[len - 2];
-                    stk!()[len - 2] = if a.0 == b.0 { Value::T } else { Value::NIL };
+                    let result = if a.0 == b.0 {
+                        true
+                    } else if self.ctx.symbols_with_pos_enabled {
+                        crate::emacs_core::value::eq_value_swp(&a, &b, true)
+                    } else {
+                        false
+                    };
+                    stk!()[len - 2] = if result { Value::T } else { Value::NIL };
                     stk!().pop();
                 }
                 Op::Equal => {
