@@ -708,10 +708,10 @@ impl BufferText {
             scan_backward(&storage.gap, best_above, target)
         };
 
-        // Mirror GNU marker.c:238-241: when the bracket span exceeds the stride,
-        // insert an anchor at the query point so future nearby queries are cheaper.
-        let span = best_above.0.saturating_sub(best_below.0);
-        if span > POSITION_ANCHOR_STRIDE {
+        // Mirror GNU marker.c:238-241: insert an anchor when the scan actually
+        // walked more than POSITION_ANCHOR_STRIDE positions.
+        let walked = walked_below.min(walked_above);
+        if walked > POSITION_ANCHOR_STRIDE {
             storage.anchor_cache.borrow_mut().push((target, result));
         }
 
@@ -791,12 +791,12 @@ impl BufferText {
             scan_backward_bytes(&storage.gap, best_above, target)
         };
 
-        // Mirror GNU marker.c:238-241: when the bracket span exceeds the stride,
-        // insert an anchor at the query point so future nearby queries are cheaper.
+        // Mirror GNU marker.c:238-241: insert an anchor when the scan actually
+        // walked more than POSITION_ANCHOR_STRIDE positions.
         // Store as (charpos, bytepos) like the char→byte direction to keep
         // anchor_cache entries in one canonical order.
-        let span = best_above.0.saturating_sub(best_below.0);
-        if span > POSITION_ANCHOR_STRIDE {
+        let walked = walked_below.min(walked_above);
+        if walked > POSITION_ANCHOR_STRIDE {
             storage.anchor_cache.borrow_mut().push((result, target));
         }
 
