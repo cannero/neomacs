@@ -7358,10 +7358,11 @@ impl Context {
         }
 
         let specpdl_count = self.specpdl.len();
-        // Mirrors GNU Flet: specbind(Qinternal_interpreter_environment, new_env)
-        // BEFORE the dynamic variable specbinds. unbind_to pops in
-        // reverse: dynamic vars first, then lexenv — same as GNU.
-        if !lexical_bindings.is_empty() {
+        // GNU Flet always saves/restores lexenv when in lexical mode
+        // (even if there are no lexical bindings in this particular let),
+        // because the body may modify Vinternal_interpreter_environment
+        // (e.g., via defvar).  Matches GNU eval.c:1188-1190.
+        if use_lexical {
             let saved = self.lexenv;
             self.specpdl
                 .push(SpecBinding::LexicalEnv { old_lexenv: saved });
