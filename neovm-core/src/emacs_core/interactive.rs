@@ -555,7 +555,7 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
     }
 
     match function.kind() {
-        ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::NIL),
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::NIL),
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
             let Some(body) = function
                 .closure_body_value()
@@ -974,6 +974,9 @@ fn command_object_p_in_state(
             .get_bytecode_data()
             .is_some_and(|bc| bc.interactive.is_some()),
         ValueKind::Cons => quoted_lambda_has_interactive_form(value),
+        ValueKind::Subr(id) => {
+            interactive.is_interactive(id) || builtin_command_symbol(id)
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
             interactive.is_interactive(id) || builtin_command_symbol(id)
@@ -2591,11 +2594,12 @@ fn resolve_command_target_in_state(
         }
         let name = resolve_sym(symbol);
         if builtin_command_name(name) {
-            return Some((Some(symbol), Value::subr(symbol)));
+            return Some((Some(symbol), Value::subr_from_sym_id(symbol)));
         }
         return None;
     }
     match designator.kind() {
+        ValueKind::Subr(id) => Some((Some(id), *designator)),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = designator.as_subr_id().unwrap();
             Some((Some(id), *designator))

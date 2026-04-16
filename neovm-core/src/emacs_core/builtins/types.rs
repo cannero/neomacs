@@ -240,7 +240,7 @@ fn is_macro_marker_list(value: &Value) -> bool {
 fn is_runtime_function_object(value: &Value) -> bool {
     match value.kind() {
         ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::ByteCode) => true,
-        ValueKind::Veclike(VecLikeType::Subr) => {
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
             super::subr_info::subr_is_callable_function_value(value)
         }
         _ => false,
@@ -278,6 +278,7 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
     } else {
         match args[0].kind() {
             ValueKind::Veclike(VecLikeType::Lambda)
+            | ValueKind::Subr(_)
             | ValueKind::Veclike(VecLikeType::Subr)
             | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&args[0]),
             ValueKind::Cons => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
@@ -304,7 +305,7 @@ pub(crate) fn builtin_type_of(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => Ok(Value::symbol("symbol")),
         ValueKind::Fixnum(_) => Ok(Value::symbol("integer")),
-        ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::symbol("subr")),
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => Ok(Value::symbol("subr")),
         _ => builtin_cl_type_of(args),
     }
 }

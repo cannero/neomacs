@@ -339,11 +339,12 @@ fn autoload_macro_marker(value: &Value) -> Option<Value> {
 pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
     expect_args("subr-name", &args, 1)?;
     match args[0].kind() {
+        ValueKind::Subr(id) => Ok(Value::string(resolve_sym(id))),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = args[0].as_subr_id().unwrap();
             Ok(Value::string(resolve_sym(id)))
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), args[0]],
         )),
@@ -357,27 +358,27 @@ pub(crate) fn builtin_subr_name(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_subr_arity(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("subr-arity", &args, 1)?;
     match args[0].kind() {
+        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = args[0].as_subr_id().unwrap();
             Ok(subr_arity_from_registry(ctx, id))
         }
-        other => Err(signal(
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), args[0]],
         )),
     }
 }
 
-/// Look up arity from the canonical heap subr object first, then fall back.
+/// Look up arity from the global subr table first, then fall back.
 fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value {
     let name = resolve_sym(sym_id);
 
     // GNU Emacs: special forms (UNEVALLED) return (MIN . unevalled).
     // The Elisp `special-form-p` checks `(eq (cdr (subr-arity x)) 'unevalled)`.
     if ctx.subr_dispatch_kind_or_compat(sym_id) == SubrDispatchKind::SpecialForm {
-        let min = ctx
-            .subr_ref(sym_id)
-            .map(special_form_min_arity)
+        let min = super::eval::lookup_global_subr_entry(sym_id)
+            .map(|e| special_form_min_arity_from_entry(&e))
             .unwrap_or_else(|| {
                 lookup_compat_subr_arity(name)
                     .map(|(min, _)| min as usize)
@@ -386,11 +387,11 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
         return arity_unevalled(min);
     }
 
-    if let Some(subr) = ctx.subr_ref(sym_id) {
+    if let Some(entry) = super::eval::lookup_global_subr_entry(sym_id) {
         // If registration has actual arity (not the default 0/None),
         // use it as the authoritative source.
-        let min = subr.min_args;
-        let max = subr.max_args;
+        let min = entry.min_args;
+        let max = entry.max_args;
         if min > 0 || max.is_some() {
             return arity_cons(min as usize, max.map(|m| m as usize));
         }
@@ -400,6 +401,21 @@ fn subr_arity_from_registry(ctx: &super::eval::Context, sym_id: SymId) -> Value 
 }
 
 fn subr_arity_from_value(subr: Value) -> Option<Value> {
+    // Try global table first (new path)
+    if let Some(sym_id) = subr.as_subr_id() {
+        if let Some(entry) = super::eval::lookup_global_subr_entry(sym_id) {
+            if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
+                return Some(arity_unevalled(special_form_min_arity_from_entry(&entry)));
+            }
+            if entry.min_args > 0 || entry.max_args.is_some() {
+                return Some(arity_cons(
+                    entry.min_args as usize,
+                    entry.max_args.map(|m| m as usize),
+                ));
+            }
+        }
+    }
+    // Old heap path fallback
     if !matches!(subr.kind(), ValueKind::Veclike(VecLikeType::Subr)) {
         return None;
     }
@@ -424,6 +440,17 @@ fn special_form_min_arity(subr: &SubrObj) -> usize {
     } else {
         lookup_special_form_min_arity(resolve_name(subr.name))
             .or_else(|| lookup_compat_subr_arity(resolve_name(subr.name)).map(|(min, _)| min))
+            .map(|min| min as usize)
+            .unwrap_or(0)
+    }
+}
+
+fn special_form_min_arity_from_entry(entry: &super::eval::SubrEntry) -> usize {
+    if entry.min_args > 0 || entry.max_args.is_some() {
+        entry.min_args as usize
+    } else {
+        lookup_special_form_min_arity(resolve_name(entry.name_id))
+            .or_else(|| lookup_compat_subr_arity(resolve_name(entry.name_id)).map(|(min, _)| min))
             .map(|min| min as usize)
             .unwrap_or(0)
     }
@@ -458,7 +485,7 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
     let result = match args[0].kind() {
         ValueKind::Symbol(id) => is_public_special_form_name(resolve_sym(id)),
-        ValueKind::Veclike(VecLikeType::Subr) => subr_dispatch_kind_from_value(&args[0])
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => subr_dispatch_kind_from_value(&args[0])
             .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm),
         _ => false,
     };
@@ -466,6 +493,13 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn subr_dispatch_kind_from_value(value: &Value) -> Option<SubrDispatchKind> {
+    // New path: look up from global table
+    if let Some(sym_id) = value.as_subr_id() {
+        if let Some(entry) = super::eval::lookup_global_subr_entry(sym_id) {
+            return Some(entry.dispatch_kind);
+        }
+    }
+    // Old heap path fallback
     if !matches!(value.kind(), ValueKind::Veclike(VecLikeType::Subr)) {
         return None;
     }
@@ -525,6 +559,7 @@ pub(crate) fn builtin_func_arity_ctx(
             let max = bc.params.max_arity();
             Ok(arity_cons(min, max))
         }
+        ValueKind::Subr(id) => Ok(subr_arity_from_registry(ctx, id)),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = args[0].as_subr_id().unwrap();
             Ok(subr_arity_from_registry(ctx, id))
@@ -535,7 +570,7 @@ pub(crate) fn builtin_func_arity_ctx(
             let max = params.max_arity();
             Ok(arity_cons(min, max))
         }
-        other => Err(signal("invalid-function", vec![args[0]])),
+        _other => Err(signal("invalid-function", vec![args[0]])),
     }
 }
 
@@ -557,6 +592,9 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             let bc = args[0].get_bytecode_data().unwrap();
             Ok(arity_cons(bc.params.min_arity(), bc.params.max_arity()))
         }
+        ValueKind::Subr(id) => {
+            Ok(subr_arity_from_value(args[0]).unwrap_or_else(|| subr_arity_value(resolve_sym(id))))
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = args[0].as_subr_id().unwrap();
             Ok(subr_arity_from_value(args[0]).unwrap_or_else(|| subr_arity_value(resolve_sym(id))))
@@ -565,7 +603,7 @@ pub(crate) fn builtin_func_arity_impl(args: Vec<Value>) -> EvalResult {
             let params = args[0].closure_params().unwrap();
             Ok(arity_cons(params.min_arity(), params.max_arity()))
         }
-        other => Err(signal("invalid-function", vec![args[0]])),
+        _other => Err(signal("invalid-function", vec![args[0]])),
     }
 }
 

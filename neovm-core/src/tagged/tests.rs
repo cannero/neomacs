@@ -106,55 +106,56 @@ fn keyword_is_symbol() {
 }
 
 #[test]
-fn subr_is_veclike() {
+fn subr_is_immediate() {
     crate::test_utils::init_test_tracing();
-    // In GNU Emacs, subrs are PVEC_SUBR heap objects
+    // Subrs now use immediate encoding, not heap veclike objects
     let sym = intern("tagged-subr-test");
     let subr = TaggedValue::subr(sym);
     assert!(subr.is_subr());
-    assert!(subr.is_veclike()); // subrs are veclike, not immediate
+    assert!(subr.is_subr_static());
     assert_eq!(subr.as_subr_id(), Some(sym));
+    assert_eq!(subr.as_subr_sym_id_static(), Some(sym));
 }
 
 #[test]
-fn subr_materializes_gnu_dispatch_kind_metadata() {
+fn subr_dispatch_kind_from_global_table() {
     crate::test_utils::init_test_tracing();
+    // Dispatch kinds are now stored in the global SubrEntry table,
+    // not on heap SubrObj instances. This test verifies that after
+    // a Context is created (which registers builtins), the dispatch
+    // kinds can be looked up from the global table.
+    let _ctx = crate::emacs_core::eval::Context::new();
 
-    let ordinary = TaggedValue::subr(intern("car"));
-    let special = TaggedValue::subr(intern("if"));
-    let context_callable = TaggedValue::subr(intern("throw"));
+    let car_id = intern("car");
+    let if_id = intern("if");
+    let throw_id = intern("throw");
 
-    let ordinary_ptr = ordinary.as_veclike_ptr().expect("ordinary subr") as *const SubrObj;
-    let special_ptr = special.as_veclike_ptr().expect("special subr") as *const SubrObj;
-    let context_ptr = context_callable
-        .as_veclike_ptr()
-        .expect("context callable subr") as *const SubrObj;
+    let car_entry = crate::emacs_core::eval::lookup_global_subr_entry(car_id).expect("car registered");
+    let if_entry = crate::emacs_core::eval::lookup_global_subr_entry(if_id).expect("if registered");
+    let throw_entry = crate::emacs_core::eval::lookup_global_subr_entry(throw_id).expect("throw registered");
 
-    let ordinary = unsafe { &*ordinary_ptr };
-    let special = unsafe { &*special_ptr };
-    let context_callable = unsafe { &*context_ptr };
-
-    assert_eq!(ordinary.dispatch_kind, SubrDispatchKind::Builtin);
-    assert_eq!(special.dispatch_kind, SubrDispatchKind::SpecialForm);
-    assert_eq!(
-        context_callable.dispatch_kind,
-        SubrDispatchKind::ContextCallable
-    );
+    assert_eq!(car_entry.dispatch_kind, SubrDispatchKind::Builtin);
+    assert_eq!(if_entry.dispatch_kind, SubrDispatchKind::SpecialForm);
+    assert_eq!(throw_entry.dispatch_kind, SubrDispatchKind::ContextCallable);
 }
 
 #[test]
-fn subr_registry_keys_by_name_atom_not_symbol_slot() {
+fn subr_immediate_encodes_sym_id_faithfully() {
     crate::test_utils::init_test_tracing();
 
     let canonical = intern("car");
-    let uninterned = intern_uninterned("car");
-
     let canonical_subr = TaggedValue::subr(canonical);
-    let uninterned_subr = TaggedValue::subr(uninterned);
 
-    assert_eq!(canonical_subr, uninterned_subr);
+    // Immediate subr encoding round-trips the SymId
     assert_eq!(canonical_subr.as_subr_id(), Some(canonical));
-    assert_eq!(uninterned_subr.as_subr_id(), Some(canonical));
+    assert_eq!(canonical_subr.as_subr_sym_id_static(), Some(canonical));
+
+    // Uninterned symbols get their OWN SymId in the immediate encoding
+    let uninterned = intern_uninterned("car");
+    let uninterned_subr = TaggedValue::subr(uninterned);
+    assert_eq!(uninterned_subr.as_subr_id(), Some(uninterned));
+    // They are NOT equal because they encode different SymIds
+    assert_ne!(canonical_subr, uninterned_subr);
 }
 
 #[test]

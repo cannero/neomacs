@@ -49,8 +49,8 @@ fn expect_string(value: &Value) -> Result<String, Flow> {
 
 fn expect_subr(value: &Value) -> Result<(), Flow> {
     match value.kind() {
-        ValueKind::Veclike(VecLikeType::Subr) => Ok(()),
-        other => Err(signal(
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => Ok(()),
+        _other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("subrp"), *value],
         )),

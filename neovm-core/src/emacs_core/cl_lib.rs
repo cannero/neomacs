@@ -682,7 +682,7 @@ pub(crate) fn builtin_seq_min(args: Vec<Value>) -> EvalResult {
     if elems.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::subr(intern("min")), Value::fixnum(0)],
+            vec![Value::subr_from_sym_id(intern("min")), Value::fixnum(0)],
         ));
     }
     let mut min_val = &elems[0];
@@ -704,7 +704,7 @@ pub(crate) fn builtin_seq_max(args: Vec<Value>) -> EvalResult {
     if elems.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
-            vec![Value::subr(intern("max")), Value::fixnum(0)],
+            vec![Value::subr_from_sym_id(intern("max")), Value::fixnum(0)],
         ));
     }
     let mut max_val = &elems[0];

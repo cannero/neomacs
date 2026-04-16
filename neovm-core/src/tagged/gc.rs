@@ -397,13 +397,6 @@ pub struct TaggedHeap {
     /// like clearing markers when buffers are killed.
     marker_ptrs: Vec<*mut MarkerObj>,
 
-    /// Canonical subr heap objects keyed by `NameId`.
-    ///
-    /// These are rooted by the heap itself so builtin `PVEC_SUBR` objects
-    /// survive function-cell rebinding, matching GNU's permanent subr objects.
-    subr_registry: Vec<Option<TaggedValue>>,
-    subr_slot_registry: Vec<Option<*mut SubrObj>>,
-
     /// Canonical runtime handle wrappers keyed by their underlying object id.
     buffer_registry: FxHashMap<crate::buffer::BufferId, TaggedValue>,
     window_registry: FxHashMap<u64, TaggedValue>,
@@ -436,8 +429,6 @@ impl TaggedHeap {
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
             marker_ptrs: Vec::new(),
-            subr_registry: Vec::new(),
-            subr_slot_registry: Vec::new(),
             buffer_registry: FxHashMap::default(),
             window_registry: FxHashMap::default(),
             frame_registry: FxHashMap::default(),
@@ -503,47 +494,6 @@ impl TaggedHeap {
 
     pub fn live_bytes(&self) -> usize {
         self.live_bytes
-    }
-
-    pub fn subr_value(&self, id: crate::emacs_core::intern::NameId) -> Option<TaggedValue> {
-        self.subr_registry.get(id.0 as usize).copied().flatten()
-    }
-
-    pub fn subr_slot_mut(
-        &mut self,
-        id: crate::emacs_core::intern::NameId,
-    ) -> Option<&'static mut SubrObj> {
-        let ptr = self
-            .subr_slot_registry
-            .get(id.0 as usize)
-            .copied()
-            .flatten()?;
-        Some(unsafe { &mut *ptr })
-    }
-
-    pub fn register_subr_value(
-        &mut self,
-        id: crate::emacs_core::intern::NameId,
-        value: TaggedValue,
-    ) {
-        let index = id.0 as usize;
-        if self.subr_registry.len() <= index {
-            self.subr_registry.resize(index + 1, None);
-        }
-        if self.subr_slot_registry.len() <= index {
-            self.subr_slot_registry.resize(index + 1, None);
-        }
-        self.subr_registry[index] = Some(value);
-        self.subr_slot_registry[index] = Some(
-            value
-                .as_veclike_ptr()
-                .expect("subr registry points to non-subr value") as *mut SubrObj,
-        );
-    }
-
-    pub fn clear_subr_registry(&mut self) {
-        self.subr_registry.clear();
-        self.subr_slot_registry.clear();
     }
 
     pub fn buffer_value(&self, id: crate::buffer::BufferId) -> Option<TaggedValue> {
@@ -796,37 +746,6 @@ impl TaggedHeap {
         self.allocated_count += 1;
         self.note_allocation_bytes(size_of::<FloatObj>());
         unsafe { TaggedValue::from_float_ptr(ptr) }
-    }
-
-    /// Allocate a canonical subr object.
-    ///
-    /// Documentation strings are NOT stored on the SubrObj — they live
-    /// in the central `subr_docs::GNU_SUBR_DOCS` table indexed by
-    /// symbol name. Lookup is done at documentation-query time via
-    /// `subr_docs::lookup(name)`. Keeping the doc out of `SubrObj`
-    /// avoids extending the struct (cache-line preserving) and avoids
-    /// any new `unsafe` reader path.
-    pub fn alloc_subr(
-        &mut self,
-        name: crate::emacs_core::intern::NameId,
-        function: Option<SubrFn>,
-        min_args: u16,
-        max_args: Option<u16>,
-        dispatch_kind: SubrDispatchKind,
-    ) -> TaggedValue {
-        let obj = Box::new(SubrObj {
-            header: VecLikeHeader::new(VecLikeType::Subr),
-            name,
-            min_args,
-            max_args,
-            dispatch_kind,
-            function,
-        });
-        let ptr = Box::into_raw(obj);
-        self.link_veclike(ptr as *mut VecLikeHeader);
-        self.allocated_count += 1;
-        self.note_allocation_bytes(size_of::<SubrObj>());
-        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
     /// Allocate a vector.
@@ -1124,11 +1043,7 @@ impl TaggedHeap {
     }
 
     fn seed_internal_runtime_roots(&mut self) {
-        for subr in self.subr_registry.iter().flatten() {
-            if subr.is_heap_object() {
-                self.gray_queue.push(*subr);
-            }
-        }
+        // Subrs now use immediate encoding (not heap objects), so no root seeding needed.
         for value in self.buffer_registry.values() {
             if value.is_heap_object() {
                 self.gray_queue.push(*value);

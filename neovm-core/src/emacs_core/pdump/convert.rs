@@ -359,7 +359,15 @@ impl LoadDecoder {
             DumpHeapObject::Window(id) => self.load_cached_window(*id),
             DumpHeapObject::Frame(id) => self.load_cached_frame(*id),
             DumpHeapObject::Timer(id) => self.load_cached_timer(*id),
-            DumpHeapObject::Subr { name, .. } => Value::subr_name_id(load_name_id(name)),
+            DumpHeapObject::Subr { name, .. } => {
+                let name_id = load_name_id(name);
+                if let Some(sym_id) = intern::canonical_symbol_for_name(name_id) {
+                    Value::subr_from_sym_id(sym_id)
+                } else {
+                    let n = intern::resolve_name(name_id);
+                    Value::subr_from_sym_id(intern::intern(n))
+                }
+            }
             DumpHeapObject::Free => Value::NIL,
         };
         self.state.values[id.index as usize] = Some(value);
@@ -488,7 +496,17 @@ impl LoadDecoder {
             DumpValue::HashTable(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Lambda(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Macro(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
-            DumpValue::Subr(s) => Value::subr_name_id(load_name_id(s)),
+            DumpValue::Subr(s) => {
+                let name_id = load_name_id(s);
+                // Convert NameId -> SymId for immediate subr encoding
+                if let Some(sym_id) = intern::canonical_symbol_for_name(name_id) {
+                    Value::subr_from_sym_id(sym_id)
+                } else {
+                    // Fallback: intern the name to get a SymId
+                    let name = intern::resolve_name(name_id);
+                    Value::subr_from_sym_id(intern::intern(name))
+                }
+            }
             DumpValue::ByteCode(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Marker(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Overlay(id) => self.heap_ref_to_value(tagged_heap_ref(id)),

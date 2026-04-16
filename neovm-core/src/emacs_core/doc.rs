@@ -205,19 +205,12 @@ fn function_doc_or_error(func_val: Value) -> EvalResult {
                 .flatten()
                 .map_or(Value::NIL, |doc| Value::heap_string(doc.clone())))
         }
+        ValueKind::Subr(id) => {
+            let name = resolve_sym(id);
+            let doc = super::subr_docs::lookup(name).unwrap_or("Built-in function.");
+            Ok(Value::string(doc))
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
-            // Look up the subr's GNU `DEFUN doc:' text in the central
-            // static table (`subr_docs::GNU_SUBR_DOCS', populated by
-            // Phase A2's bulk-import script from upstream GNU
-            // `src/*.c'). Subrs not in the table fall through to
-            // `"Built-in function."' -- this covers neomacs-specific
-            // primitives that don't exist in upstream GNU.
-            //
-            // Lookup goes through the symbol name (resolved from the
-            // SubrObj's `name' SymId via the existing `as_subr_id'
-            // accessor). The doc is NOT stored on `SubrObj' itself,
-            // which avoids any new `unsafe' read path through the
-            // tagged-pointer boundary.
             let id = func_val.as_subr_id().unwrap();
             let name = resolve_sym(id);
             let doc = super::subr_docs::lookup(name).unwrap_or("Built-in function.");

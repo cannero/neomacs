@@ -39,7 +39,7 @@ use super::value::*;
 use crate::buffer::{BufferManager, InsertionType};
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
-use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrObj};
+use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind};
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 128 * 1024;
@@ -450,6 +450,10 @@ fn value_fingerprint(
             for item in items.iter().take(4) {
                 value_fingerprint(*item, hasher, depth - 1, seen);
             }
+        }
+        ValueKind::Subr(sym_id) => {
+            8u8.hash(hasher);
+            sym_id.0.hash(hasher);
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             8u8.hash(hasher);
@@ -2004,24 +2008,8 @@ impl Default for Context {
 
 impl Context {
     #[inline]
-    pub(crate) fn subr_value(&self, name_id: NameId) -> Option<Value> {
-        self.tagged_heap.subr_value(name_id)
-    }
-
-    #[inline]
-    pub(crate) fn subr_ref(&self, sym_id: SymId) -> Option<&'static SubrObj> {
-        self.subr_value(symbol_name_id(sym_id))
-            .and_then(Value::as_subr_ref)
-    }
-
-    #[inline]
-    fn subr_slot_mut(&mut self, sym_id: SymId) -> Option<&'static mut SubrObj> {
-        self.tagged_heap.subr_slot_mut(symbol_name_id(sym_id))
-    }
-
-    #[inline]
     pub(crate) fn subr_dispatch_kind(&self, sym_id: SymId) -> Option<SubrDispatchKind> {
-        self.subr_ref(sym_id).map(|subr| subr.dispatch_kind)
+        lookup_global_subr_entry(sym_id).map(|e| e.dispatch_kind)
     }
 
     #[inline]
@@ -2042,13 +2030,8 @@ impl Context {
 
     #[inline]
     fn has_registered_subr(&self, sym_id: SymId) -> bool {
-        self.subr_ref(sym_id)
-            .is_some_and(|subr| subr.function.is_some())
-    }
-
-    fn register_subr_slot(&mut self, sym_id: SymId, subr: Value) {
-        self.tagged_heap
-            .register_subr_value(symbol_name_id(sym_id), subr);
+        lookup_global_subr_entry(sym_id)
+            .is_some_and(|e| e.function.is_some())
     }
 
     pub fn new() -> Self {
@@ -3642,7 +3625,7 @@ impl Context {
         // loaded GNU bytecode can capture `nil` for forward/runtime calls into
         // Builtin function cells are set by defsubr() during init_builtins().
         for name in ["mark-marker", "region-beginning", "region-end"] {
-            obarray.set_symbol_function(name, Value::subr(intern(name)));
+            obarray.set_symbol_function(name, Value::subr_from_sym_id(intern(name)));
         }
 
         // `word-at-point` is defined in GNU Emacs Lisp by `thingatpt.el`,
@@ -6449,8 +6432,9 @@ impl Context {
         // the dispatch falls through to the normal apply path,
         // which signals with `fun` itself -- also matching GNU
         // funcall_lambda and funcall_subr.
-        if let Some(subr) = func.as_subr_ref()
-            && subr.dispatch_kind != SubrDispatchKind::SpecialForm
+        if let Some(sym_id) = func.as_subr_id()
+            && let Some(entry) = lookup_global_subr_entry(sym_id)
+            && entry.dispatch_kind != SubrDispatchKind::SpecialForm
         {
             let numargs = match list_length(&original_args) {
                 Some(n) => n,
@@ -6461,8 +6445,8 @@ impl Context {
                     ));
                 }
             };
-            let min = subr.min_args as usize;
-            let max_ok = match subr.max_args {
+            let min = entry.min_args as usize;
+            let max_ok = match entry.max_args {
                 Some(m) => numargs <= m as usize,
                 None => true, // &rest / MANY
             };
@@ -6770,7 +6754,7 @@ impl Context {
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
             let invalid_fn = if self.subr_is_special_form_id(sym_id) {
-                Value::subr(sym_id)
+                Value::subr_from_sym_id(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
             };
@@ -6823,7 +6807,7 @@ impl Context {
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
             let invalid_fn = if self.subr_is_special_form_id(sym_id) {
-                Value::subr(sym_id)
+                Value::subr_from_sym_id(sym_id)
             } else {
                 value_from_symbol_id(sym_id)
             };
@@ -6870,7 +6854,7 @@ impl Context {
             ValueKind::Veclike(VecLikeType::Lambda)
             | ValueKind::Veclike(VecLikeType::ByteCode)
             | ValueKind::Veclike(VecLikeType::Macro) => true,
-            ValueKind::Veclike(VecLikeType::Subr) => {
+            ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
                 super::subr_info::subr_is_callable_function_value(function)
             }
             ValueKind::Cons => {
@@ -8875,6 +8859,7 @@ impl Context {
             }
             ValueKind::Veclike(VecLikeType::Lambda) => self.apply_lambda(function, args),
             ValueKind::Veclike(VecLikeType::Macro) => self.apply_lambda(function, args),
+            ValueKind::Subr(_) => self.apply_subr_object(function, args, true),
             ValueKind::Veclike(VecLikeType::Subr) => self.apply_subr_object(function, args, true),
             ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
@@ -9035,9 +9020,10 @@ impl Context {
     /// registered (opt-out).
     #[inline]
     fn check_funcall_subr_arity_value(&self, function: Value, nargs: usize) -> Option<Flow> {
-        let subr_slot = function.as_subr_ref()?;
-        let min = subr_slot.min_args as usize;
-        let max = subr_slot.max_args.map(|m| m as usize);
+        let sym_id = function.as_subr_id()?;
+        let entry = lookup_global_subr_entry(sym_id)?;
+        let min = entry.min_args as usize;
+        let max = entry.max_args.map(|m| m as usize);
         // Opt-out: a subr registered with (0, None) has declared
         // "I do my own arity check". Keep the legacy behaviour for
         // those until each one is migrated explicitly.
@@ -9057,7 +9043,7 @@ impl Context {
 
     #[inline]
     fn check_funcall_subr_arity(&self, sym_id: SymId, nargs: usize) -> Option<Flow> {
-        self.check_funcall_subr_arity_value(Value::subr(sym_id), nargs)
+        self.check_funcall_subr_arity_value(Value::subr_from_sym_id(sym_id), nargs)
     }
 
     fn dispatch_subr_value_internal(
@@ -9066,12 +9052,13 @@ impl Context {
         args: Vec<Value>,
         wrong_arity_callee: Value,
     ) -> Option<EvalResult> {
-        let subr = function.as_subr_ref()?;
-        let func = subr.function?;
-        let name = resolve_name(subr.name);
+        let sym_id = function.as_subr_id()?;
+        let entry = lookup_global_subr_entry(sym_id)?;
+        let func = entry.function?;
+        let name = resolve_name(entry.name_id);
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
             tracing::error!("(cdr t) called! Lisp backtrace:");
-            for (i, entry) in self.specpdl.iter().rev()
+            for (i, bt_entry) in self.specpdl.iter().rev()
                 .filter_map(|e| match e {
                     SpecBinding::Backtrace { function, .. } => Some(function),
                     _ => None,
@@ -9079,24 +9066,24 @@ impl Context {
                 .take(10)
                 .enumerate()
             {
-                let func_name = super::print::print_value(entry);
+                let func_name = super::print::print_value(bt_entry);
                 tracing::error!("  bt[{}]: {}", i, func_name);
             }
         }
         let nargs = args.len();
-        if (nargs as u16) < subr.min_args {
+        if (nargs as u16) < entry.min_args {
             return Some(Err(signal(
                 "wrong-number-of-arguments",
                 vec![wrong_arity_callee, Value::fixnum(nargs as i64)],
             )));
         }
-        if let Some(max) = subr.max_args
-            && nargs as u16 > max
-        {
-            return Some(Err(signal(
-                "wrong-number-of-arguments",
-                vec![wrong_arity_callee, Value::fixnum(nargs as i64)],
-            )));
+        if let Some(max) = entry.max_args {
+            if nargs as u16 > max {
+                return Some(Err(signal(
+                    "wrong-number-of-arguments",
+                    vec![wrong_arity_callee, Value::fixnum(nargs as i64)],
+                )));
+            }
         }
         Some(match func {
             crate::tagged::header::SubrFn::Many(func) => func(self, args),
@@ -9119,17 +9106,17 @@ impl Context {
         args: Vec<Value>,
         _rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        let Some(subr) = function.as_subr_ref() else {
+        let Some(sym_id) = function.as_subr_id() else {
             return Err(signal("invalid-function", vec![function]));
         };
-        if subr.dispatch_kind == SubrDispatchKind::SpecialForm {
+        let Some(entry) = lookup_global_subr_entry(sym_id) else {
+            return Err(signal("invalid-function", vec![function]));
+        };
+        if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
             return Err(signal("invalid-function", vec![function]));
         }
-        if subr.dispatch_kind == SubrDispatchKind::ContextCallable {
-            if let Some(sym_id) = function.as_subr_id() {
-                return self.apply_evaluator_callable_by_id(sym_id, args);
-            }
-            return Err(signal("void-function", vec![function]));
+        if entry.dispatch_kind == SubrDispatchKind::ContextCallable {
+            return self.apply_evaluator_callable_by_id(sym_id, args);
         }
         if let Some(flow) = self.check_funcall_subr_arity_value(function, args.len()) {
             return Err(flow);
@@ -9137,11 +9124,7 @@ impl Context {
         if let Some(result) = self.dispatch_subr_value_internal(function, args, function) {
             result.map_err(|flow| self.validate_throw(flow))
         } else {
-            let callee = function
-                .as_subr_id()
-                .map(Value::from_sym_id)
-                .unwrap_or(function);
-            Err(signal("void-function", vec![callee]))
+            Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
         }
     }
 
@@ -9172,6 +9155,9 @@ impl Context {
                     // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into
                     // the function cell. Treat this as the canonical callable
                     // object, not an obarray indirection cycle.
+                    ValueKind::Subr(sid) if sid == sym_id => {
+                        NamedCallTarget::Subr(Value::subr_from_sym_id(sid))
+                    }
                     ValueKind::Veclike(VecLikeType::Subr) if func.as_subr_id() == Some(sym_id) => {
                         NamedCallTarget::Subr(func)
                     }
@@ -9179,8 +9165,8 @@ impl Context {
                 }
             } else if self.obarray.is_function_unbound_id(sym_id) {
                 NamedCallTarget::Void
-            } else if let Some(func) = self.subr_value(symbol_name_id(sym_id)) {
-                NamedCallTarget::Subr(func)
+            } else if lookup_global_subr_entry(sym_id).is_some() {
+                NamedCallTarget::Subr(Value::subr_from_sym_id(sym_id))
             } else {
                 NamedCallTarget::Void
             };
@@ -9296,10 +9282,10 @@ impl Context {
                 ) {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Void);
                 }
-                if matches!(
-                    func.as_subr_ref().map(|subr| subr.dispatch_kind),
-                    Some(SubrDispatchKind::SpecialForm)
-                ) {
+                if func.as_subr_id()
+                    .and_then(lookup_global_subr_entry)
+                    .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
+                {
                     Err(signal("invalid-function", vec![invalid_fn]))
                 } else {
                     result
@@ -9346,10 +9332,10 @@ impl Context {
                 ) {
                     self.store_named_call_cache(sym_id, NamedCallTarget::Void);
                 }
-                if matches!(
-                    func.as_subr_ref().map(|subr| subr.dispatch_kind),
-                    Some(SubrDispatchKind::SpecialForm)
-                ) {
+                if func.as_subr_id()
+                    .and_then(lookup_global_subr_entry)
+                    .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
+                {
                     Err(signal("invalid-function", vec![invalid_fn]))
                 } else {
                     result
@@ -9383,13 +9369,14 @@ impl Context {
     ) -> EvalResult {
         // Startup wrappers often expose autoload-shaped function cells for names
         // backed by builtins. Keep the autoload shape while preserving callability.
-        if let Some(subr) = self.subr_value(symbol_name_id(sym_id)) {
+        if lookup_global_subr_entry(sym_id).is_some() {
+            let subr = Value::subr_from_sym_id(sym_id);
             // GNU-faithful pre-check via check_funcall_subr_arity.
             if let Some(flow) = self.check_funcall_subr_arity_value(subr, args.len()) {
                 return Err(flow);
             }
             if let Some(result) =
-                self.dispatch_subr_value_internal(subr, args.clone(), Value::subr(sym_id))
+                self.dispatch_subr_value_internal(subr, args.clone(), Value::subr_from_sym_id(sym_id))
             {
                 return result;
             }
@@ -9441,7 +9428,7 @@ impl Context {
             if args.len() != 2 {
                 return Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::subr(sym_id), Value::fixnum(args.len() as i64)],
+                    vec![Value::subr_from_sym_id(sym_id), Value::fixnum(args.len() as i64)],
                 ));
             }
             let tag = args[0];
@@ -9552,6 +9539,9 @@ impl Context {
                 ValueKind::T => 1,
                 ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
+                ValueKind::Subr(sym) => {
+                    ((sym.0 as u64) << 8) ^ 0x22
+                }
                 ValueKind::Veclike(VecLikeType::Subr) => {
                     let sym = value.as_subr_id().unwrap();
                     ((sym.0 as u64) << 8) ^ 0x22
@@ -10574,9 +10564,20 @@ impl Context {
         // authoritative instead of synthesizing them later from name tables.
         for name in super::subr_info::public_evaluator_subr_names() {
             let sym_id = intern(name);
+            let name_id = symbol_name_id(sym_id);
+            let (min_args, max_args, dispatch_kind) =
+                super::subr_info::lookup_compat_subr_metadata(name, 0, None);
+            // Register in global static table so lookups by sym_id work
+            register_global_subr_entry(sym_id, SubrEntry {
+                function: None, // evaluator-handled, no SubrFn
+                min_args,
+                max_args,
+                dispatch_kind,
+                name_id,
+            });
             self.obarray.intern(name);
             self.obarray
-                .set_symbol_function_id(sym_id, Value::subr(sym_id));
+                .set_symbol_function_id(sym_id, Value::subr_from_sym_id(sym_id));
         }
     }
 
@@ -10645,48 +10646,44 @@ impl Context {
             super::subr_info::lookup_compat_subr_metadata(name, min_args, max_args);
         let sym_id = intern(name);
         let name_id = symbol_name_id(sym_id);
-        let subr_value = if let Some(existing) = self.subr_value(name_id) {
-            let subr = self
-                .subr_slot_mut(sym_id)
-                .expect("subr registry points to non-subr value");
-            subr.name = name_id;
-            subr.min_args = min_args;
-            subr.max_args = max_args;
-            subr.dispatch_kind = dispatch_kind;
-            subr.function = Some(func);
-            existing
-        } else {
-            let value = crate::tagged::gc::with_tagged_heap(|h| {
-                h.alloc_subr(name_id, Some(func), min_args, max_args, dispatch_kind)
-            });
-            crate::tagged::value::register_current_subr(name_id, value);
-            value
-        };
-        self.register_subr_slot(sym_id, subr_value);
-        // Like GNU Emacs's defsubr: set the symbol's function cell in the
-        // obarray so that fboundp, symbol-function, etc. find the builtin
-        // without needing a separate name registry.
+
+        // Register in global static table
+        register_global_subr_entry(sym_id, SubrEntry {
+            function: Some(func),
+            min_args,
+            max_args,
+            dispatch_kind,
+            name_id,
+        });
+
+        // Set symbol function cell to new immediate subr value
         self.obarray.intern(name);
-        self.obarray.set_symbol_function(name, subr_value);
+        self.obarray.set_symbol_function(name, Value::subr_from_sym_id(sym_id));
     }
 
     /// Call a registered subr value directly. Returns None if VALUE is not a
     /// fully registered subr.
     pub fn dispatch_subr_value(&mut self, function: Value, args: Vec<Value>) -> Option<EvalResult> {
-        let wrong_arity_callee = if let Some(sym_id) = function.as_subr_id() {
-            Value::symbol(resolve_sym(sym_id))
-        } else if let Some(name_id) = function.as_subr_name_id() {
-            Value::string(resolve_name(name_id))
-        } else {
-            return None;
-        };
+        let sym_id = function.as_subr_id()?;
+        let wrong_arity_callee = Value::symbol(resolve_sym(sym_id));
         self.dispatch_subr_value_internal(function, args, wrong_arity_callee)
     }
 
     /// Resolve a symbol identity to its canonical subr object and call it.
     /// Returns None if the symbol's canonical name has no registered subr.
+    /// Supports uninterned symbols: falls back to canonical SymId via NameId lookup.
     pub fn dispatch_subr_id(&mut self, sym_id: SymId, args: Vec<Value>) -> Option<EvalResult> {
-        let function = self.subr_value(symbol_name_id(sym_id))?;
+        // Try the sym_id directly first
+        let resolved = if lookup_global_subr_entry(sym_id).is_some() {
+            sym_id
+        } else {
+            // Fall back to canonical symbol for this name (handles uninterned SymIds)
+            let name_id = symbol_name_id(sym_id);
+            let canonical = crate::emacs_core::intern::canonical_symbol_for_name(name_id)?;
+            lookup_global_subr_entry(canonical)?;
+            canonical
+        };
+        let function = Value::subr_from_sym_id(resolved);
         self.dispatch_subr_value(function, args)
     }
 

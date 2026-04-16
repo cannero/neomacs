@@ -1630,7 +1630,7 @@ impl<'a> Vm<'a> {
 
     fn writeback_callable_names(&self, func_val: &Value) -> Option<(String, Option<String>)> {
         match func_val.kind() {
-            ValueKind::Veclike(VecLikeType::Subr) => {
+            ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) if func_val.as_subr_id().is_some() => {
                 let id = func_val.as_subr_id().unwrap();
                 Some((resolve_sym(id).to_owned(), None))
             }
@@ -1642,7 +1642,7 @@ impl<'a> Vm<'a> {
                         .symbol_function(name)
                         .and_then(|bound| match bound.kind() {
                             ValueKind::Symbol(tid) => Some(resolve_sym(tid).to_owned()),
-                            ValueKind::Veclike(VecLikeType::Subr) => {
+                            ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
                                 let tid = bound.as_subr_id().unwrap();
                                 Some(resolve_sym(tid).to_owned())
                             }
@@ -1661,7 +1661,7 @@ impl<'a> Vm<'a> {
         }
         match self.ctx.obarray.symbol_function(name) {
             Some(val) => match val.kind() {
-                ValueKind::Veclike(VecLikeType::Subr) => {
+                ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
                     let id = val.as_subr_id().unwrap();
                     resolve_sym(id) == name
                 }
@@ -3580,7 +3580,7 @@ impl<'a> Vm<'a> {
         // All real builtins go through funcall_general → dispatch_subr.
         // This matches GNU Emacs where the bytecode VM delegates to
         // funcall_general for everything except bytecoded closures.
-        self.ctx.funcall_general(Value::subr(intern(name)), args)
+        self.ctx.funcall_general(Value::subr_from_sym_id(intern(name)), args)
     }
 
     fn with_default_directory_binding<T>(
@@ -4415,7 +4415,7 @@ fn normalize_vm_builtin_error(name: &str, flow: Flow) -> Flow {
         Flow::Signal(mut sig) if sig.symbol_name() == "wrong-number-of-arguments" => {
             if let Some(first) = sig.data.first_mut() {
                 if matches!(first.kind(), ValueKind::Symbol(id) if resolve_sym(id) == name) {
-                    *first = Value::subr(intern(name));
+                    *first = Value::subr_from_sym_id(intern(name));
                 }
             }
             Flow::Signal(sig)

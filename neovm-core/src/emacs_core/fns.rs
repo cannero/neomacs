@@ -1023,7 +1023,7 @@ pub(crate) fn builtin_widget_apply(
                 Err(signal("void-function", vec![Value::symbol(name)]))
             }
         }
-        ValueKind::Veclike(VecLikeType::Subr) => {
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
             if let Some(result) = eval.dispatch_subr_value(function, call_args) {
                 result
             } else {
