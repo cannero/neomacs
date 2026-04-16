@@ -318,14 +318,19 @@ impl<'a> Vm<'a> {
                 // bottom of the frame.  Just install the captured closure
                 // env (if any) and run; the body's stack-ref opcodes find
                 // the params via frame_base.
-                let saved_lexenv = if let Some(env) = func.env {
-                    std::mem::replace(&mut self.ctx.lexenv, env)
-                } else {
-                    self.ctx.lexenv
-                };
+                //
+                // Save/restore lexenv via specpdl (matching GNU's specbind
+                // pattern), not direct save/restore. This ensures unbind_to
+                // handles all LexicalEnv entries consistently.
+                use crate::emacs_core::eval::SpecBinding;
+                self.ctx.specpdl.push(SpecBinding::LexicalEnv {
+                    old_lexenv: self.ctx.lexenv,
+                });
+                if let Some(env) = func.env {
+                    self.ctx.lexenv = env;
+                }
                 let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
                 self.ctx.truncate_condition_stack(condition_stack_base);
-                self.ctx.lexenv = saved_lexenv;
                 self.ctx.unbind_to(specpdl_base);
                 self.ctx.bc_buf.truncate(frame_base);
                 self.ctx.bc_frames.pop();
@@ -387,20 +392,22 @@ impl<'a> Vm<'a> {
         }
 
         // No params: set up lexenv for lexical closures/functions, then run.
-        let saved_lexenv = if let Some(env) = func.env {
-            Some(std::mem::replace(&mut self.ctx.lexenv, env))
-        } else if func.lexical {
-            Some(self.ctx.lexenv)
-        } else {
-            None
-        };
+        // Save/restore via specpdl, matching GNU's specbind pattern.
+        {
+            use crate::emacs_core::eval::SpecBinding;
+            if func.env.is_some() || func.lexical {
+                self.ctx.specpdl.push(SpecBinding::LexicalEnv {
+                    old_lexenv: self.ctx.lexenv,
+                });
+                if let Some(env) = func.env {
+                    self.ctx.lexenv = env;
+                }
+            }
+        }
 
         let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
         self.ctx.truncate_condition_stack(condition_stack_base);
 
-        if let Some(old) = saved_lexenv {
-            self.ctx.lexenv = old;
-        }
         self.ctx.unbind_to(specpdl_base);
         self.ctx.bc_buf.truncate(frame_base);
         self.ctx.bc_frames.pop();
