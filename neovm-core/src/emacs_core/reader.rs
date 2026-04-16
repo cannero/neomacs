@@ -1300,12 +1300,12 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
         .set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
     shared.run_hook_if_bound("minibuffer-setup-hook")?;
 
-    let edit_result = shared.with_gc_scope_result(|eval| {
-        for root in args {
-            eval.push_eval_root(*root);
-        }
-        eval.minibuffer_command_loop_inner()
-    });
+    let gc_roots = shared.save_specpdl_roots();
+    for root in args {
+        shared.push_specpdl_root(*root);
+    }
+    let edit_result = shared.minibuffer_command_loop_inner();
+    shared.restore_specpdl_roots(gc_roots);
 
     let result_text = minibuffer_result_lisp_string(&shared.buffers, minibuf_id, prompt_byte_len);
 
