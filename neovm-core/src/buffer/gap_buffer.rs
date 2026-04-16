@@ -12,12 +12,15 @@
 
 use std::fmt;
 
-/// Default initial gap size in bytes.
-const DEFAULT_GAP_SIZE: usize = 64;
+/// Default extra gap bytes to pre-allocate on any growth.
+/// Matches GNU Emacs `GAP_BYTES_DFL` (`src/buffer.h:205`).
+const GAP_BYTES_DFL: usize = 2000;
 
-/// Growth factor when the gap must be expanded — the new gap will be at least
-/// this many bytes, or the requested size, whichever is larger.
-const MIN_GAP_GROW: usize = 64;
+/// Floor for the gap after shrinking — not enforced today because we don't
+/// shrink yet, but kept as a named constant to match GNU's `GAP_BYTES_MIN`
+/// (`src/buffer.h:210`).
+#[allow(dead_code)]
+const GAP_BYTES_MIN: usize = 20;
 
 /// A gap buffer holding raw Emacs bytes.
 ///
@@ -62,10 +65,10 @@ impl GapBuffer {
 
     pub fn new_with_multibyte(multibyte: bool) -> Self {
         Self {
-            buf: vec![0u8; DEFAULT_GAP_SIZE],
+            buf: vec![0u8; GAP_BYTES_DFL],
             multibyte,
             gap_start: 0,
-            gap_end: DEFAULT_GAP_SIZE,
+            gap_end: GAP_BYTES_DFL,
             gap_start_chars: 0,
             total_chars: 0,
             gap_start_bytes: 0,
@@ -75,7 +78,7 @@ impl GapBuffer {
 
     /// Create a gap buffer pre-loaded with raw Emacs bytes.
     pub fn from_emacs_bytes(text: &[u8], multibyte: bool) -> Self {
-        let gap = DEFAULT_GAP_SIZE;
+        let gap = GAP_BYTES_DFL;
         let char_count = emacs_char_count_bytes(text, multibyte);
         let byte_count = text.len();
         let mut buf = Vec::with_capacity(text.len() + gap);
@@ -550,14 +553,16 @@ impl GapBuffer {
         if self.gap_size() >= min_size {
             return;
         }
-        let grow = (min_size - self.gap_size()).max(MIN_GAP_GROW);
+        // GNU insdel.c:483 (`make_gap_larger`): add GAP_BYTES_DFL beyond the
+        // caller's requested need so a run of sequential inserts is amortized
+        // O(1) rather than paying realloc on every ~64 bytes.
+        let need = min_size - self.gap_size();
+        let grow = need.saturating_add(GAP_BYTES_DFL);
         let old_gap_end = self.gap_end;
         let after_gap_len = self.buf.len() - old_gap_end;
 
-        // Extend the backing buffer.
         self.buf.resize(self.buf.len() + grow, 0);
 
-        // Shift the post-gap segment to the right by `grow` to widen the gap.
         if after_gap_len > 0 {
             self.buf
                 .copy_within(old_gap_end..old_gap_end + after_gap_len, old_gap_end + grow);

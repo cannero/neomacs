@@ -686,3 +686,35 @@ fn copy_emacs_bytes_to_unibyte_storage_sentinels() {
     gb.copy_emacs_bytes_to(1, 3, &mut out);
     assert_eq!(out, vec![b'\n', 0x80]);
 }
+
+// -----------------------------------------------------------------------
+// GNU parity tests (gap-sizing constants)
+// -----------------------------------------------------------------------
+
+#[test]
+fn new_buffer_has_gnu_default_gap_size() {
+    crate::test_utils::init_test_tracing();
+    let gb = GapBuffer::new();
+    assert!(
+        gb.gap_size() >= 2000,
+        "expected gap_size >= 2000, got {}",
+        gb.gap_size()
+    );
+}
+
+#[test]
+fn ensure_gap_grows_beyond_requested_minimum() {
+    crate::test_utils::init_test_tracing();
+    let mut gb = GapBuffer::new();
+    // Fill current gap completely so the next ensure_gap must actually grow.
+    let filler = vec![b'a'; gb.gap_size()];
+    gb.insert_emacs_bytes(0, &filler);
+    assert_eq!(gb.gap_size(), 0);
+    gb.ensure_gap(1);
+    // GNU adds GAP_BYTES_DFL beyond caller's request.
+    assert!(
+        gb.gap_size() >= 2000,
+        "expected ensure_gap(1) to grow gap to >= 2000, got {}",
+        gb.gap_size()
+    );
+}
