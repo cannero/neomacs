@@ -744,18 +744,18 @@ pub(crate) fn builtin_seq_position(
     };
     let elements = seq_position_elements(seq)?;
 
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(target);
-        if let Some(tf) = &test_fn {
-            ctx.root(*tf);
-        }
-        for e in &elements {
-            ctx.root(*e);
-        }
-
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(target);
+    if let Some(tf) = &test_fn {
+        eval.push_specpdl_root(*tf);
+    }
+    for e in &elements {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for (idx, element) in elements.into_iter().enumerate() {
             let matches = if let Some(test) = &test_fn {
-                ctx.apply(*test, vec![element, target])?.is_truthy()
+                eval.apply(*test, vec![element, target])?.is_truthy()
             } else {
                 seq_default_match(&element, &target)
             };
@@ -764,7 +764,9 @@ pub(crate) fn builtin_seq_position(
             }
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(cl-position ITEM SEQ &optional TESTFN)` -- CL argument order wrapper.
@@ -848,19 +850,22 @@ pub(crate) fn builtin_cl_find_if(eval: &mut super::eval::Context, args: Vec<Valu
     expect_args("cl-find-if", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elements {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elements {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for element in elements {
-            let matched = ctx.apply(pred, vec![element])?;
+            let matched = eval.apply(pred, vec![element])?;
             if matched.is_truthy() {
                 return Ok(element);
             }
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(cl-subsetp LIST1 LIST2)` -- return t if every element of LIST1 appears in LIST2.
@@ -983,21 +988,23 @@ pub(crate) fn builtin_cl_remove_if(
     expect_args("cl-remove-if", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elements {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elements {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         let mut out = Vec::new();
-
         for element in elements {
-            let matched = ctx.apply(pred, vec![element])?;
+            let matched = eval.apply(pred, vec![element])?;
             if !matched.is_truthy() {
                 out.push(element);
             }
         }
         Ok(Value::list(out))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(cl-remove-if-not PREDICATE SEQ)` -- keep elements satisfying PREDICATE.
@@ -1009,21 +1016,23 @@ pub(crate) fn builtin_cl_remove_if_not(
     expect_args("cl-remove-if-not", &args, 2)?;
     let pred = args[0];
     let elements = seq_position_elements(&args[1])?;
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elements {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elements {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         let mut out = Vec::new();
-
         for element in elements {
-            let matched = ctx.apply(pred, vec![element])?;
+            let matched = eval.apply(pred, vec![element])?;
             if matched.is_truthy() {
                 out.push(element);
             }
         }
         Ok(Value::list(out))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(cl-map RESULT-TYPE FUNCTION SEQ...)` -- CL map with explicit result type.
@@ -1095,18 +1104,18 @@ pub(crate) fn builtin_seq_contains_p(
     };
     let elements = seq_position_elements(seq)?;
 
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(target);
-        if let Some(tf) = &test_fn {
-            ctx.root(*tf);
-        }
-        for e in &elements {
-            ctx.root(*e);
-        }
-
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(target);
+    if let Some(tf) = &test_fn {
+        eval.push_specpdl_root(*tf);
+    }
+    for e in &elements {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for element in elements {
             let matches = if let Some(test) = &test_fn {
-                ctx.apply(*test, vec![element, target])?.is_truthy()
+                eval.apply(*test, vec![element, target])?.is_truthy()
             } else {
                 seq_default_match(&element, &target)
             };
@@ -1115,7 +1124,9 @@ pub(crate) fn builtin_seq_contains_p(
             }
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-mapn FN &rest SEQS)` — map over multiple sequences.
@@ -1127,22 +1138,25 @@ pub(crate) fn builtin_seq_mapn(eval: &mut super::eval::Context, args: Vec<Value>
         return Ok(Value::NIL);
     }
     let min_len = seqs.iter().map(|s| s.len()).min().unwrap_or(0);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        for seq in &seqs {
-            for e in seq {
-                ctx.root(*e);
-            }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    for seq in &seqs {
+        for e in seq {
+            eval.push_specpdl_root(*e);
         }
+    }
+    let result = (|| {
         let mut results = Vec::new();
         for i in 0..min_len {
             let call_args: Vec<Value> = seqs.iter().map(|s| s[i]).collect();
-            let val = ctx.apply(func, call_args)?;
-            ctx.root(val);
+            let val = eval.apply(func, call_args)?;
+            eval.push_specpdl_root(val);
             results.push(val);
         }
         Ok(Value::list(results))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-do FN SEQ)` — apply fn for side effects, return nil.
@@ -1150,16 +1164,19 @@ pub(crate) fn builtin_seq_do(eval: &mut super::eval::Context, args: Vec<Value>) 
     expect_args("seq-do", &args, 2)?;
     let func = args[0];
     let elems = collect_sequence(&args[1]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        for e in &elems {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    for e in &elems {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for e in elems {
-            ctx.apply(func, vec![e])?;
+            eval.apply(func, vec![e])?;
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-count PRED SEQ)` — count elements matching predicate.
@@ -1167,20 +1184,23 @@ pub(crate) fn builtin_seq_count(eval: &mut super::eval::Context, args: Vec<Value
     expect_args("seq-count", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elems {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elems {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         let mut count = 0i64;
         for e in elems {
-            let r = ctx.apply(pred, vec![e])?;
+            let r = eval.apply(pred, vec![e])?;
             if r.is_truthy() {
                 count += 1;
             }
         }
         Ok(Value::fixnum(count))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-reduce FN SEQ INITIAL)` — reduce with initial value.
@@ -1189,18 +1209,21 @@ pub(crate) fn builtin_seq_reduce(eval: &mut super::eval::Context, args: Vec<Valu
     let func = args[0];
     let elems = collect_sequence(&args[1]);
     let mut acc = args[2];
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        ctx.root(acc);
-        for e in &elems {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    eval.push_specpdl_root(acc);
+    for e in &elems {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for e in elems {
-            acc = ctx.apply(func, vec![acc, e])?;
-            ctx.root(acc);
+            acc = eval.apply(func, vec![acc, e])?;
+            eval.push_specpdl_root(acc);
         }
         Ok(acc)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-some PRED SEQ)` — some element matches predicate.
@@ -1208,19 +1231,22 @@ pub(crate) fn builtin_seq_some(eval: &mut super::eval::Context, args: Vec<Value>
     expect_args("seq-some", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elems {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elems {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for e in elems {
-            let r = ctx.apply(pred, vec![e])?;
+            let r = eval.apply(pred, vec![e])?;
             if r.is_truthy() {
                 return Ok(r);
             }
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-every-p PRED SEQ)` — all elements match predicate.
@@ -1228,19 +1254,22 @@ pub(crate) fn builtin_seq_every_p(eval: &mut super::eval::Context, args: Vec<Val
     expect_args("seq-every-p", &args, 2)?;
     let pred = args[0];
     let elems = collect_sequence(&args[1]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &elems {
-            ctx.root(*e);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &elems {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         for e in elems {
-            let r = ctx.apply(pred, vec![e])?;
+            let r = eval.apply(pred, vec![e])?;
             if r.is_nil() {
                 return Ok(Value::NIL);
             }
         }
         Ok(Value::T)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(seq-sort PRED SEQ)` — sort with predicate.
@@ -1249,18 +1278,18 @@ pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Context, args: Vec<Value>
     let pred = args[0];
     let mut items = collect_sequence(&args[1]);
 
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(pred);
-        for e in &items {
-            ctx.root(*e);
-        }
-
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(pred);
+    for e in &items {
+        eval.push_specpdl_root(*e);
+    }
+    let result = (|| {
         // Insertion sort (stable, supports fallible predicates)
         for i in 1..items.len() {
             let mut j = i;
             while j > 0 {
-                let result = ctx.apply(pred, vec![items[j], items[j - 1]])?;
-                if result.is_truthy() {
+                let r = eval.apply(pred, vec![items[j], items[j - 1]])?;
+                if r.is_truthy() {
                     items.swap(j, j - 1);
                     j -= 1;
                 } else {
@@ -1269,7 +1298,9 @@ pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Context, args: Vec<Value>
             }
         }
         Ok(Value::list(items))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 // ===========================================================================
