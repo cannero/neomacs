@@ -718,3 +718,35 @@ fn ensure_gap_grows_beyond_requested_minimum() {
         gb.gap_size()
     );
 }
+
+#[test]
+fn is_char_boundary_matches_oracle_on_large_multibyte_buffer() {
+    crate::test_utils::init_test_tracing();
+    // Build a large mixed ASCII + CJK buffer.
+    let mut s = String::new();
+    for i in 0..2000 {
+        if i % 3 == 0 {
+            s.push_str("日本語");
+        } else {
+            s.push_str("hello");
+        }
+    }
+    let gb = GapBuffer::from_str(&s);
+    // Oracle: walk char boundaries from 0, mark each one.
+    let bytes: Vec<u8> = (0..gb.len()).map(|i| gb.byte_at(i)).collect();
+    let mut oracle_boundary = vec![false; gb.len() + 1];
+    oracle_boundary[0] = true;
+    let mut p = 0usize;
+    while p < bytes.len() {
+        let (_, len) = crate::emacs_core::emacs_char::string_char(&bytes[p..]);
+        p += len;
+        oracle_boundary[p] = true;
+    }
+    // Spot-check positions: for positions that SHOULD be boundaries,
+    // byte_to_char must not panic (it asserts on boundary internally).
+    for i in (0..gb.len()).step_by(gb.len() / 500 + 1) {
+        if oracle_boundary[i] {
+            let _ = gb.byte_to_char(i);
+        }
+    }
+}

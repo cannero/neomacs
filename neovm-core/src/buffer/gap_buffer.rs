@@ -650,17 +650,16 @@ impl GapBuffer {
     // -----------------------------------------------------------------------
 
     /// Check whether `pos` falls on a logical Emacs-character boundary in the
-    /// text.
+    /// text. O(1): single-byte bit test matching GNU's `CHAR_HEAD_P`
+    /// (character.h). Multibyte trailing bytes have the form 10xxxxxx (0x80..=0xBF).
+    /// Any other byte value is a character head.
     fn is_char_boundary(&self, pos: usize) -> bool {
-        if pos == 0 || pos >= self.len() {
+        if !self.multibyte || pos == 0 || pos >= self.len() {
             return true;
         }
-        if pos < self.gap_start {
-            return is_emacs_char_boundary(&self.buf[..self.gap_start], pos, self.multibyte);
-        }
-
-        let rel_pos = pos - self.gap_start;
-        is_emacs_char_boundary(&self.buf[self.gap_end..], rel_pos, self.multibyte)
+        // Multibyte trailing bytes have the form 10xxxxxx (0x80..=0xBF).
+        // Any other byte value is a character head.
+        (self.byte_at(pos) & 0xC0) != 0x80
     }
 
     // pdump accessors
@@ -765,15 +764,11 @@ fn is_emacs_char_boundary(bytes: &[u8], byte_pos: usize, multibyte: bool) -> boo
     if byte_pos > bytes.len() {
         return false;
     }
-    if !multibyte {
+    if !multibyte || byte_pos == 0 || byte_pos == bytes.len() {
         return true;
     }
-    let mut pos = 0usize;
-    while pos < byte_pos {
-        let (_, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
-        pos += len;
-    }
-    pos == byte_pos
+    // Same CHAR_HEAD_P bit test as the method.
+    (bytes[byte_pos] & 0xC0) != 0x80
 }
 
 // ===========================================================================
