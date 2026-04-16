@@ -493,14 +493,23 @@ pub(crate) fn builtin_autoload_do_load(
     let original_fundef = args.first().copied();
     match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
         AutoloadDoLoadPlan::Return(value) => Ok(value),
-        AutoloadDoLoadPlan::Load { file, funname } => eval.with_gc_scope(|ctx| {
+        AutoloadDoLoadPlan::Load { file, funname } => {
+            let roots = eval.save_specpdl_roots();
             if let Some(fundef) = original_fundef {
-                ctx.root(fundef);
+                eval.push_specpdl_root(fundef);
             }
-            let path = resolve_autoload_load_path(&ctx.obarray, &file)?;
-            ctx.load_file_internal(&path)?;
-            finish_autoload_do_load_in_state(&ctx.obarray, funname, original_fundef.as_ref())
-        }),
+            let result = (|| -> EvalResult {
+                let path = resolve_autoload_load_path(&eval.obarray, &file)?;
+                eval.load_file_internal(&path)?;
+                finish_autoload_do_load_in_state(
+                    &eval.obarray,
+                    funname,
+                    original_fundef.as_ref(),
+                )
+            })();
+            eval.restore_specpdl_roots(roots);
+            result
+        }
     }
 }
 
@@ -513,13 +522,18 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
         AutoloadDoLoadPlan::Return(value) => Ok(value),
         AutoloadDoLoadPlan::Load { file, funname } => {
             let path = resolve_autoload_load_path(&shared.obarray, &file)?;
-            shared.with_gc_scope_result(|eval| {
-                if let Some(fundef) = original_fundef {
-                    eval.push_eval_root(fundef);
-                }
-                eval.load_file_internal(&path)
-            })?;
-            finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())
+            let roots = shared.save_specpdl_roots();
+            if let Some(fundef) = original_fundef {
+                shared.push_specpdl_root(fundef);
+            }
+            let load_result = shared.load_file_internal(&path);
+            shared.restore_specpdl_roots(roots);
+            load_result?;
+            finish_autoload_do_load_in_state(
+                &shared.obarray,
+                funname,
+                original_fundef.as_ref(),
+            )
         }
     }
 }
