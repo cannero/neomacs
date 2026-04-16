@@ -843,11 +843,11 @@ fn lexical_binding_from_cookie(
                 return Ok(default);
             }
 
-            let result = eval.with_gc_scope(|ctx| {
-                ctx.root(hook);
-                ctx.root(from);
-                ctx.apply(hook, vec![from]).map_err(map_flow)
-            });
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(hook);
+            eval.push_specpdl_root(from);
+            let result = eval.apply(hook, vec![from]).map_err(map_flow);
+            eval.restore_specpdl_roots(roots);
             result.map(|value| value.is_truthy())
         }
     }
@@ -1645,62 +1645,67 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 fn record_load_history(eval: &mut super::eval::Context, path_lisp: &LispString) {
     let path_str = load_runtime_string(path_lisp);
     tracing::debug!("record_load_history: {}", path_str);
-    eval.with_gc_scope(|eval| {
-        // GNU protects the same post-load temporaries with GCPRO/specpdl roots
-        // in lread.c. Exact GC needs explicit rooting here as well.
-        let path_value = eval.root(Value::heap_string(path_lisp.clone()));
-        let entry = eval.root(Value::cons(path_value, Value::NIL));
-        let history = eval
-            .obarray()
-            .symbol_value("load-history")
-            .cloned()
-            .unwrap_or(Value::NIL);
-        let filtered_history = eval.root(Value::list(
-            list_to_vec(&history)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|existing| {
-                    if existing.is_cons() {
-                        existing
-                            .cons_car()
-                            .as_lisp_string()
-                            .is_none_or(|loaded| loaded != path_lisp)
-                    } else {
-                        true
-                    }
-                })
-                .collect(),
-        ));
-        let updated_history = eval.root(Value::cons(entry, filtered_history));
-        eval.set_variable("load-history", updated_history);
+    let roots = eval.save_specpdl_roots();
+    // GNU protects the same post-load temporaries with GCPRO/specpdl roots
+    // in lread.c. Exact GC needs explicit rooting here as well.
+    let path_value = Value::heap_string(path_lisp.clone());
+    eval.push_specpdl_root(path_value);
+    let entry = Value::cons(path_value, Value::NIL);
+    eval.push_specpdl_root(entry);
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::NIL);
+    let filtered_history = Value::list(
+        list_to_vec(&history)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|existing| {
+                if existing.is_cons() {
+                    existing
+                        .cons_car()
+                        .as_lisp_string()
+                        .is_none_or(|loaded| loaded != path_lisp)
+                } else {
+                    true
+                }
+            })
+            .collect(),
+    );
+    eval.push_specpdl_root(filtered_history);
+    let updated_history = Value::cons(entry, filtered_history);
+    eval.push_specpdl_root(updated_history);
+    eval.set_variable("load-history", updated_history);
 
-        // GNU Emacs lread.c:1540-1541: after loading a file, call
-        // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
-        let dale_id = super::intern::intern("do-after-load-evaluation");
-        let is_fboundp = eval
-            .obarray()
-            .symbol_function_id(dale_id)
-            .is_some_and(|f| !f.is_nil());
-        if is_fboundp {
-            let abs_path = eval.root(Value::heap_string(path_lisp.clone()));
-            if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
-                let err_msg = match &e {
-                    super::error::Flow::Signal(sig) => {
-                        let sym = super::intern::resolve_sym(sig.symbol);
-                        let data: Vec<String> =
-                            sig.data.iter().map(|v| format_value_for_error(v)).collect();
-                        format!("({} {})", sym, data.join(" "))
-                    }
-                    other => format!("{other:?}"),
-                };
-                tracing::warn!(
-                    "do-after-load-evaluation error for {}: {}",
-                    path_str,
-                    err_msg
-                );
-            }
+    // GNU Emacs lread.c:1540-1541: after loading a file, call
+    // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
+    let dale_id = super::intern::intern("do-after-load-evaluation");
+    let is_fboundp = eval
+        .obarray()
+        .symbol_function_id(dale_id)
+        .is_some_and(|f| !f.is_nil());
+    if is_fboundp {
+        let abs_path = Value::heap_string(path_lisp.clone());
+        eval.push_specpdl_root(abs_path);
+        if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
+            let err_msg = match &e {
+                super::error::Flow::Signal(sig) => {
+                    let sym = super::intern::resolve_sym(sig.symbol);
+                    let data: Vec<String> =
+                        sig.data.iter().map(|v| format_value_for_error(v)).collect();
+                    format!("({} {})", sym, data.join(" "))
+                }
+                other => format!("{other:?}"),
+            };
+            tracing::warn!(
+                "do-after-load-evaluation error for {}: {}",
+                path_str,
+                err_msg
+            );
         }
-    });
+    }
+    eval.restore_specpdl_roots(roots);
 }
 
 /// Register bootstrap variables owned by the file-loading subsystem.
@@ -2567,56 +2572,56 @@ pub(crate) fn apply_ldefs_boot_autoloads_for_names(
         .iter()
         .map(|name| (*name).to_string())
         .collect::<std::collections::BTreeSet<_>>();
-    eval.with_gc_scope(|eval| {
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+
+    let result: Result<(), EvalError> = (|| {
         for form in &forms {
-            eval.push_eval_root(*form);
+            let Some(items) = list_to_vec(form) else {
+                continue;
+            };
+            let Some(head) = items.first() else {
+                continue;
+            };
+            if head.is_symbol_named("autoload")
+                && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
+                && wanted.contains(&name)
+            {
+                eval_generated_loaddefs_form(eval, *form)?;
+            }
         }
 
         let mut property_forms: Vec<Value> = Vec::new();
-        let result: Result<(), EvalError> = (|| {
-            for form in &forms {
-                let Some(items) = list_to_vec(form) else {
-                    continue;
-                };
-                let Some(head) = items.first() else {
-                    continue;
-                };
-                if head.is_symbol_named("autoload")
-                    && let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v))
-                    && wanted.contains(&name)
-                {
-                    eval_generated_loaddefs_form(eval, *form)?;
-                }
+        for form in &forms {
+            let Some(items) = list_to_vec(form) else {
+                continue;
+            };
+            let Some(head) = items.first() else {
+                continue;
+            };
+            let Some(head_name) = head.as_symbol_name() else {
+                continue;
+            };
+            if head_name != "function-put" && head_name != "put" {
+                continue;
             }
+            let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
+                continue;
+            };
+            if wanted.contains(&name) {
+                property_forms.push(*form);
+            }
+        }
 
-            for form in &forms {
-                let Some(items) = list_to_vec(form) else {
-                    continue;
-                };
-                let Some(head) = items.first() else {
-                    continue;
-                };
-                let Some(head_name) = head.as_symbol_name() else {
-                    continue;
-                };
-                if head_name != "function-put" && head_name != "put" {
-                    continue;
-                }
-                let Some(name) = items.get(1).and_then(|v| value_quoted_symbol_name(*v)) else {
-                    continue;
-                };
-                if wanted.contains(&name) {
-                    property_forms.push(*form);
-                }
-            }
-
-            for form in &property_forms {
-                eval_generated_loaddefs_form(eval, *form)?;
-            }
-            Ok(())
-        })();
-        result
-    })?;
+        for form in &property_forms {
+            eval_generated_loaddefs_form(eval, *form)?;
+        }
+        Ok(())
+    })();
+    eval.restore_specpdl_roots(roots);
+    result?;
 
     Ok(())
 }
@@ -2735,43 +2740,43 @@ fn normalize_bootstrap_runtime_surface(
     // etc.) would reclaim the cons cells and leave the Values
     // dangling. Push them all into temp_roots for the duration of
     // the call.
-    eval.with_gc_scope(|eval| {
+    let roots = eval.save_specpdl_roots();
+    for args in runtime_loaded_state
+        .autoload_args
+        .iter()
+        .chain(runtime_loaddefs_state.autoload_args.iter())
+    {
+        for v in args {
+            eval.push_specpdl_root(*v);
+        }
+    }
+    for form in runtime_loaded_state
+        .property_forms
+        .iter()
+        .chain(runtime_loaddefs_state.property_forms.iter())
+    {
+        eval.push_specpdl_root(*form);
+    }
+
+    let result: Result<(), EvalError> = (|| {
         for args in runtime_loaded_state
             .autoload_args
             .iter()
             .chain(runtime_loaddefs_state.autoload_args.iter())
         {
-            for v in args {
-                eval.push_eval_root(*v);
-            }
+            super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
         }
         for form in runtime_loaded_state
             .property_forms
             .iter()
             .chain(runtime_loaddefs_state.property_forms.iter())
         {
-            eval.push_eval_root(*form);
+            eval_runtime_form(eval, *form)?;
         }
-
-        let result: Result<(), EvalError> = (|| {
-            for args in runtime_loaded_state
-                .autoload_args
-                .iter()
-                .chain(runtime_loaddefs_state.autoload_args.iter())
-            {
-                super::autoload::builtin_autoload(eval, args.clone()).map_err(map_flow)?;
-            }
-            for form in runtime_loaded_state
-                .property_forms
-                .iter()
-                .chain(runtime_loaddefs_state.property_forms.iter())
-            {
-                eval_runtime_form(eval, *form)?;
-            }
-            Ok(())
-        })();
-        result
-    })?;
+        Ok(())
+    })();
+    eval.restore_specpdl_roots(roots);
+    result?;
 
     Ok(())
 }
