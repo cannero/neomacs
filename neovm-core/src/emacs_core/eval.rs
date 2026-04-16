@@ -7357,15 +7357,25 @@ impl Context {
             return Err(signal("setting-constant", vec![Value::symbol(name)]));
         }
 
-        // Save lexenv at FUNCTION ENTRY, before any init forms run.
-        // GNU Flet (eval.c:1140) captures SPECPDL_INDEX before everything.
-        // unbind_to(count) restores all state back to this point.
+        // CRITICAL: Restore specpdl roots (drop init-form GcRoot entries) BEFORE
+        // pushing LexicalEnv/Let entries. Otherwise `restore_specpdl_roots`
+        // drains from `saved_len` and re-extends with non-GcRoot entries,
+        // MOVING our LexicalEnv to a lower index. Then `unbind_to(specpdl_count)`
+        // becomes a no-op because specpdl.len() already matches, and the stale
+        // LexicalEnv leaks below. This caused lexical binding leaks — closures
+        // created in the body captured oversized environments.
+        self.restore_specpdl_roots(specpdl_root_scope);
+
+        // Save lexenv AFTER init forms run (matches GNU eval.c:1167:
+        //   `lexenv = Vinternal_interpreter_environment;`).
+        // Capture specpdl_count AFTER restoring so LexicalEnv sits exactly at
+        // specpdl[specpdl_count] and unbind_to will pop it.
         let lexenv_at_entry = self.lexenv;
         let specpdl_count = self.specpdl.len();
 
         // Always save the entry-point lexenv on the specpdl when in lexical
-        // mode, so unbind_to restores it regardless of what init forms or
-        // the body do. Matches GNU's specbind(Qinternal_interpreter_environment).
+        // mode, so unbind_to restores it regardless of what the body does.
+        // Matches GNU's specbind(Qinternal_interpreter_environment).
         if use_lexical {
             self.specpdl.push(SpecBinding::LexicalEnv {
                 old_lexenv: lexenv_at_entry,
@@ -7393,7 +7403,6 @@ impl Context {
         for (sym_id, value) in &dynamic_sym_ids {
             self.specbind(*sym_id, *value);
         }
-        self.restore_specpdl_roots(specpdl_root_scope);
 
         let result = self.sf_progn_value(body);
         self.unbind_to(specpdl_count);
