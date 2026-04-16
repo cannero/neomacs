@@ -50,10 +50,10 @@ fn frame_face_hash_table_eval_is_empty_before_any_face_realization() {
 fn frame_face_hash_table_eval_returns_stable_frame_owned_table() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
-    let first = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
-        .expect("first face hash table");
-    let second = builtin_frame_face_hash_table(&mut eval, vec![Value::NIL])
-        .expect("second face hash table");
+    let first =
+        builtin_frame_face_hash_table(&mut eval, vec![Value::NIL]).expect("first face hash table");
+    let second =
+        builtin_frame_face_hash_table(&mut eval, vec![Value::NIL]).expect("second face hash table");
     assert_eq!(first, second);
 }
 
@@ -103,17 +103,18 @@ fn ensure_startup_compat_variables_backfills_missing_xfaces_state() {
     if !table.is_hash_table() {
         panic!("face--new-frame-defaults must be a hash table");
     };
-    let has_seeded_faces = {
-        let hash_table = table.as_hash_table().unwrap();
-        hash_table
-            .data
-            .contains_key(&HashKey::Symbol(crate::emacs_core::intern::intern(
-                "default",
-            )))
-            && hash_table.data.contains_key(&HashKey::Symbol(
-                crate::emacs_core::intern::intern("mode-line"),
-            ))
-    };
+    let has_seeded_faces =
+        {
+            let hash_table = table.as_hash_table().unwrap();
+            hash_table
+                .data
+                .contains_key(&HashKey::Symbol(crate::emacs_core::intern::intern(
+                    "default",
+                )))
+                && hash_table.data.contains_key(&HashKey::Symbol(
+                    crate::emacs_core::intern::intern("mode-line"),
+                ))
+        };
     assert!(
         has_seeded_faces,
         "face--new-frame-defaults should be preseeded with GNU face entries"

@@ -9,9 +9,9 @@ fn emit_text_span_advances_live_output_before_row_finish() {
         .current_buffer()
         .expect("current buffer")
         .id;
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("output-emitter-span", 320, 120, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("output-emitter-span", 320, 120, buf_id);
     let window_id = eval
         .frame_manager()
         .get(frame_id)

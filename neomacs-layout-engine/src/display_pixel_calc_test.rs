@@ -126,8 +126,7 @@ fn cm_unit_returns_dpi_over_2_54() {
     let ctx = test_ctx();
     let v = Value::symbol("cm");
     assert!(
-        (calc_pixel_width_or_height(&ctx, &v, true, None).unwrap() - (96.0 / 2.54)).abs()
-            < 0.01
+        (calc_pixel_width_or_height(&ctx, &v, true, None).unwrap() - (96.0 / 2.54)).abs() < 0.01
     );
 }
 

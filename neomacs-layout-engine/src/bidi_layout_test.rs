@@ -243,10 +243,7 @@ fn make_cursor_visual(x: f32, width: f32) -> WindowCursorVisual {
     }
 }
 
-fn make_phys_cursor(
-    slot_x: f32,
-    width: f32,
-) -> neomacs_display_protocol::frame_glyphs::PhysCursor {
+fn make_phys_cursor(slot_x: f32, width: f32) -> neomacs_display_protocol::frame_glyphs::PhysCursor {
     neomacs_display_protocol::frame_glyphs::PhysCursor {
         window_id: 0,
         charpos: 0,

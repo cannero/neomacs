@@ -16,12 +16,11 @@ fn make_test_textures() -> Option<(Arc<wgpu::Texture>, Arc<wgpu::Texture>)> {
         force_fallback_adapter: false,
     }))
     .ok()?;
-    let (device, _queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("test device"),
-            ..Default::default()
-        }))
-        .ok()?;
+    let (device, _queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("test device"),
+        ..Default::default()
+    }))
+    .ok()?;
 
     let desc = wgpu::TextureDescriptor {
         label: Some("test texture"),

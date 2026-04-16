@@ -15,12 +15,7 @@ fn assert_color_eq(actual: &Color, expected: &Color) {
     );
 }
 
-fn make_window_info(
-    window_id: i64,
-    buffer_id: u64,
-    window_start: i64,
-    bounds: Rect,
-) -> WindowInfo {
+fn make_window_info(window_id: i64, buffer_id: u64, window_start: i64, bounds: Rect) -> WindowInfo {
     WindowInfo {
         window_id,
         buffer_id,
@@ -1299,13 +1294,7 @@ fn full_frame_simulation() {
         charpos: 15,
         row: 0,
         col: 15,
-        slot_id: DisplaySlotId::from_pixels(
-            1,
-            15.0 * 8.0,
-            0.0,
-            buf.char_width,
-            buf.char_height,
-        ),
+        slot_id: DisplaySlotId::from_pixels(1, 15.0 * 8.0, 0.0, buf.char_width, buf.char_height),
         x: 15.0 * 8.0,
         y: 0.0,
         width: 2.0,

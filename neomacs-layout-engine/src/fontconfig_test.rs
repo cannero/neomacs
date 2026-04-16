@@ -1,11 +1,11 @@
 use super::{
-    FONT_SPACING_MONO, FONT_SPACING_PROPORTIONAL, FcCharSetGuard, FcFontSetGuard,
-    FcLangSetGuard, FcPatternGuard, ListedFont, SpacingClass, build_candidate_object_set,
-    candidate_score, combined_query_langs, fallback_frame_res_y, family_affinity_score,
-    family_search_order, fc_list_candidates, fontconfig_handle, listed_font_from_raw_pattern,
-    normalize_spacing, parse_fontconfig_weight, points_to_pixels_for_dpi, query_charset_ranges,
-    registry_hint, registry_query_chars, representative_char_for_spec, spacing_score,
-    style_weight, wildcard_casefold_match,
+    FONT_SPACING_MONO, FONT_SPACING_PROPORTIONAL, FcCharSetGuard, FcFontSetGuard, FcLangSetGuard,
+    FcPatternGuard, ListedFont, SpacingClass, build_candidate_object_set, candidate_score,
+    combined_query_langs, fallback_frame_res_y, family_affinity_score, family_search_order,
+    fc_list_candidates, fontconfig_handle, listed_font_from_raw_pattern, normalize_spacing,
+    parse_fontconfig_weight, points_to_pixels_for_dpi, query_charset_ranges, registry_hint,
+    registry_query_chars, representative_char_for_spec, spacing_score, style_weight,
+    wildcard_casefold_match,
 };
 use neovm_core::emacs_core::fontset::{FontRepertory, StoredFontSpec};
 use neovm_core::face::{FontSlant, FontWeight, FontWidth};
@@ -148,11 +148,7 @@ fn gb2312_registry_pattern() -> (
     );
     assert_ne!(
         unsafe {
-            fontconfig_sys::FcPatternAddLangSet(
-                pattern.0,
-                fontconfig::FC_LANG.as_ptr(),
-                langset.0,
-            )
+            fontconfig_sys::FcPatternAddLangSet(pattern.0, fontconfig::FC_LANG.as_ptr(), langset.0)
         },
         0
     );
@@ -164,8 +160,7 @@ fn gb2312_registry_pattern() -> (
 fn registry_charset_queries_keep_gnu_fontconfig_candidate_order() {
     let (pattern, _charset, _langset, langs, ranges) = gb2312_registry_pattern();
     let object_set = build_candidate_object_set(false).expect("gnu object set");
-    let fontset =
-        unsafe { fontconfig_sys::FcFontList(ptr::null_mut(), pattern.0, object_set.0) };
+    let fontset = unsafe { fontconfig_sys::FcFontList(ptr::null_mut(), pattern.0, object_set.0) };
     assert!(!fontset.is_null());
     let fontset = FcFontSetGuard(fontset);
     let fonts =
@@ -457,9 +452,8 @@ fn best_candidate_for_pass_prefers_first_family_when_later_style_matches_catch_u
         },
     ];
 
-    let matched =
-        super::best_candidate_for_pass(candidates, 400, false, None, None, true, None)
-            .expect("best candidate");
+    let matched = super::best_candidate_for_pass(candidates, 400, false, None, None, true, None)
+        .expect("best candidate");
     assert_eq!(matched.family, "Noto Sans Mono CJK SC");
     assert_eq!(matched.postscript_name.as_deref(), Some("Mono-Regular"));
 }

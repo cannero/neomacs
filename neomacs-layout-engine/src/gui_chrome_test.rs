@@ -26,8 +26,8 @@ fn parse_tool_bar_item_preserves_raw_unibyte_label_and_help() {
 
 #[test]
 fn collect_gui_menu_bar_items_bootstrap_has_help_menu() {
-    let eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
-        .expect("bootstrap evaluator");
+    let eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     let items = collect_gui_menu_bar_items(&eval);
     assert!(!items.is_empty());
     assert!(items.iter().any(|item| item.key == "help-menu"));
@@ -35,8 +35,8 @@ fn collect_gui_menu_bar_items_bootstrap_has_help_menu() {
 
 #[test]
 fn collect_gui_tool_bar_items_after_setup_has_search_item_and_separator() {
-    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
-        .expect("bootstrap evaluator");
+    let mut eval =
+        create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
     eval.eval_str("(tool-bar-setup)")
         .expect("run GNU tool-bar setup");
     let items = collect_gui_tool_bar_items(&eval);

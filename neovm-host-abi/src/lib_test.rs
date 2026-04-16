@@ -71,7 +71,9 @@ fn primitive_descriptor_clone_and_compare() {
 fn lisp_value_default_is_empty() {
     let v = LispValue::default();
     assert!(v.bytes.is_empty());
-    let v2 = LispValue { bytes: vec![1, 2, 3] };
+    let v2 = LispValue {
+        bytes: vec![1, 2, 3],
+    };
     assert_ne!(v, v2);
 }
 
@@ -128,13 +130,12 @@ fn snapshot_blob_default_is_empty_and_revision_zero() {
 #[test]
 fn patch_result_variants_compare() {
     let applied = PatchResult::Applied { new_revision: 7 };
-    let rejected = PatchResult::Rejected { current_revision: 5 };
+    let rejected = PatchResult::Rejected {
+        current_revision: 5,
+    };
     assert_ne!(applied, rejected);
     assert_eq!(applied, PatchResult::Applied { new_revision: 7 });
-    assert_ne!(
-        applied,
-        PatchResult::Applied { new_revision: 8 }
-    );
+    assert_ne!(applied, PatchResult::Applied { new_revision: 8 });
 }
 
 #[test]
@@ -160,7 +161,9 @@ fn task_error_failed_carries_signal() {
 
 #[test]
 fn select_op_send_carries_payload() {
-    let payload = LispValue { bytes: vec![0xde, 0xad] };
+    let payload = LispValue {
+        bytes: vec![0xde, 0xad],
+    };
     let op = SelectOp::Send(ChannelId(3), payload.clone());
     match op {
         SelectOp::Send(ch, value) => {

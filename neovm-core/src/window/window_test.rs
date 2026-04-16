@@ -1172,11 +1172,7 @@ fn explicit_window_output_finalization_preserves_live_logical_and_physical_curso
     {
         let mut update = frame.window_output_update(wid).expect("window update");
         update.begin_update();
-        update.finalize_with_output_fallback(
-            Some(live_cursor),
-            Some(live_phys.clone()),
-            &snapshot,
-        );
+        update.finalize_with_output_fallback(Some(live_cursor), Some(live_phys.clone()), &snapshot);
     }
 
     let display = frame
@@ -1238,11 +1234,7 @@ fn finish_window_output_update_preserves_live_cursor_state_with_snapshot_output_
     {
         let mut update = frame.window_output_update(wid).expect("window update");
         update.begin_update();
-        update.finalize_with_output_fallback(
-            Some(live_cursor),
-            Some(live_phys.clone()),
-            &snapshot,
-        );
+        update.finalize_with_output_fallback(Some(live_cursor), Some(live_phys.clone()), &snapshot);
     }
 
     let display = frame

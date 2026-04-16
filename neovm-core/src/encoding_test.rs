@@ -245,9 +245,8 @@ fn builtin_coding_string_helpers_enforce_max_arity() {
 #[test]
 fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
     crate::test_utils::init_test_tracing();
-    let encoded =
-        builtin_encode_coding_string(vec![Value::string("é"), Value::symbol("utf-8")])
-            .expect("encode-coding-string should evaluate");
+    let encoded = builtin_encode_coding_string(vec![Value::string("é"), Value::symbol("utf-8")])
+        .expect("encode-coding-string should evaluate");
     let ls = encoded
         .as_lisp_string()
         .expect("encode-coding-string should return a string");
@@ -280,11 +279,9 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let unknown_encode = builtin_encode_coding_string(vec![
-        Value::string("a"),
-        Value::symbol("vm-no-such-coding"),
-    ])
-    .expect_err("unknown coding-system should signal coding-system-error");
+    let unknown_encode =
+        builtin_encode_coding_string(vec![Value::string("a"), Value::symbol("vm-no-such-coding")])
+            .expect_err("unknown coding-system should signal coding-system-error");
     match unknown_encode {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "coding-system-error");
@@ -293,11 +290,9 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let unknown_decode = builtin_decode_coding_string(vec![
-        Value::string("a"),
-        Value::symbol("vm-no-such-coding"),
-    ])
-    .expect_err("unknown coding-system should signal coding-system-error");
+    let unknown_decode =
+        builtin_decode_coding_string(vec![Value::string("a"), Value::symbol("vm-no-such-coding")])
+            .expect_err("unknown coding-system should signal coding-system-error");
     match unknown_decode {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "coding-system-error");
@@ -306,11 +301,9 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
         other => panic!("expected signal, got: {other:?}"),
     }
 
-    let unibyte_val =
-        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
-    let decoded_unibyte =
-        builtin_decode_coding_string(vec![unibyte_val, Value::symbol("utf-8")])
-            .expect("decode-coding-string should preserve invalid bytes");
+    let unibyte_val = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
+    let decoded_unibyte = builtin_decode_coding_string(vec![unibyte_val, Value::symbol("utf-8")])
+        .expect("decode-coding-string should preserve invalid bytes");
     let decoded_ls = decoded_unibyte
         .as_lisp_string()
         .expect("decode-coding-string should return string");
@@ -318,11 +311,9 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
     let codes: Vec<u32> = crate::emacs_core::builtins::lisp_string_char_codes(decoded_ls);
     assert_eq!(codes, vec![0x3FFF00 + 0xE9]);
 
-    let unibyte_val2 =
-        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
-    let encoded_unibyte =
-        builtin_encode_coding_string(vec![unibyte_val2, Value::symbol("utf-8")])
-            .expect("encode-coding-string should preserve unibyte bytes");
+    let unibyte_val2 = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
+    let encoded_unibyte = builtin_encode_coding_string(vec![unibyte_val2, Value::symbol("utf-8")])
+        .expect("encode-coding-string should preserve unibyte bytes");
     let encoded_ls = encoded_unibyte.as_lisp_string().unwrap();
     assert_eq!(encoded_ls.as_bytes(), &[0xE9]);
 }
@@ -436,11 +427,9 @@ fn encoding_utf8_dos_applies_eol_conversion() {
 #[test]
 fn raw_text_dos_preserves_bytes_but_converts_eol() {
     crate::test_utils::init_test_tracing();
-    let encoded = builtin_encode_coding_string(vec![
-        Value::string("a\nb"),
-        Value::symbol("raw-text-dos"),
-    ])
-    .unwrap();
+    let encoded =
+        builtin_encode_coding_string(vec![Value::string("a\nb"), Value::symbol("raw-text-dos")])
+            .unwrap();
     if !encoded.is_string() {
         panic!("encode-coding-string should return a string");
     };

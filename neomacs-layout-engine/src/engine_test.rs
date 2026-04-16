@@ -78,10 +78,7 @@ impl DisplayHost for RecordingImageDisplayHost {
         Ok(())
     }
 
-    fn resolve_image(
-        &self,
-        request: ImageResolveRequest,
-    ) -> Result<Option<ResolvedImage>, String> {
+    fn resolve_image(&self, request: ImageResolveRequest) -> Result<Option<ResolvedImage>, String> {
         self.requests
             .lock()
             .expect("requests lock")
@@ -94,9 +91,7 @@ impl DisplayHost for RecordingImageDisplayHost {
     }
 }
 
-fn window_matrix_text(
-    entry: &neomacs_display_protocol::glyph_matrix::WindowMatrixEntry,
-) -> String {
+fn window_matrix_text(entry: &neomacs_display_protocol::glyph_matrix::WindowMatrixEntry) -> String {
     entry
         .matrix
         .rows
@@ -373,9 +368,9 @@ fn layout_frame_rust_publishes_face_scaled_advances_for_inline_plist_faces() {
             .text_props_put_property(0, buf.text.len(), Value::symbol("face"), plist);
         buf.goto_byte(0);
     }
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-face-advance", 800, 160, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-face-advance", 800, 160, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -697,9 +692,9 @@ fn layout_frame_rust_captures_cursor_at_display_replacement_slot_without_rescan(
         );
     }
 
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-display-cursor", 320, 120, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-display-cursor", 320, 120, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -758,9 +753,9 @@ fn layout_frame_rust_records_display_point_for_display_replacement_slot() {
         );
     }
 
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-display-point", 320, 120, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-display-point", 320, 120, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -822,9 +817,9 @@ fn layout_frame_rust_emits_inline_image_glyphs_for_display_image_specs() {
         );
     }
 
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-inline-image", 320, 120, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-inline-image", 320, 120, buf_id);
 
     let mut engine = LayoutEngine::new();
     engine.layout_frame_rust(&mut eval, frame_id);
@@ -859,9 +854,9 @@ fn layout_frame_rust_captures_cursor_inside_hscroll_skipped_text_without_rescan(
         buf.set_buffer_local("truncate-lines", Value::T);
     }
 
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-hscroll-cursor", 160, 120, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-hscroll-cursor", 160, 120, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -1007,10 +1002,7 @@ fn scaled_face_plist() -> Value {
     ])
 }
 
-fn assert_layout_frame_rust_display_space_cursor_width(
-    x_stretch_cursor: bool,
-    cursor_type: Value,
-) {
+fn assert_layout_frame_rust_display_space_cursor_width(x_stretch_cursor: bool, cursor_type: Value) {
     let mut eval = Context::new();
     let buf_id = eval
         .buffer_manager()
@@ -1272,9 +1264,9 @@ fn layout_frame_rust_keeps_mixed_width_advances_correct_after_mid_line_face_chan
         buf.goto_byte(0);
     }
 
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-face-mid-line", 1400, 160, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-face-mid-line", 1400, 160, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -1406,12 +1398,9 @@ fn layout_frame_rust_keeps_face_positions_after_truncated_multibyte_line() {
         buf.set_buffer_local("truncate-lines", Value::T);
     }
 
-    let frame_id = eval.frame_manager_mut().create_frame(
-        "layout-truncated-multibyte-face",
-        128,
-        160,
-        buf_id,
-    );
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-truncated-multibyte-face", 128, 160, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -1572,12 +1561,9 @@ fn layout_frame_rust_keeps_mixed_width_positions_correct_after_sequential_window
         buf.goto_byte(0);
     }
 
-    let frame_id = eval.frame_manager_mut().create_frame(
-        "layout-sequential-window-point",
-        1400,
-        256,
-        buf_id,
-    );
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-sequential-window-point", 1400, 256, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -2690,9 +2676,9 @@ fn layout_frame_rust_converges_visibility_for_point_line_tail_clipping() {
         buf.goto_byte(0);
         buf.set_buffer_local("word-wrap", Value::T);
     }
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-point-line-tail", 80, 256, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-point-line-tail", 80, 256, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -2744,9 +2730,9 @@ fn layout_frame_rust_keeps_visible_eob_cursor_on_short_trailing_newline_buffer()
         buf.goto_byte(0);
         buf.point_max_char() + 1
     };
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-eob-visible", 320, 640, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-eob-visible", 320, 640, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -2900,12 +2886,9 @@ fn layout_frame_rust_advances_live_output_through_mode_line_rows() {
         let point = buf.point_max_char() + 1;
         buf.goto_byte(point - 1);
     }
-    let frame_id = eval.frame_manager_mut().create_frame(
-        "layout-output-progress-mode-line",
-        640,
-        160,
-        buf_id,
-    );
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-output-progress-mode-line", 640, 160, buf_id);
     let selected_window = eval
         .frame_manager()
         .get(frame_id)
@@ -2943,9 +2926,9 @@ fn layout_frame_rust_renders_header_line_text_for_non_nil_header_line_format() {
         buf.insert("body line\n");
         buf.set_buffer_local("header-line-format", Value::string("LEFT HEADER"));
     }
-    let frame_id =
-        eval.frame_manager_mut()
-            .create_frame("layout-header-line", 640, 160, buf_id);
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-header-line", 640, 160, buf_id);
 
     let mut engine = LayoutEngine::new();
     engine.layout_frame_rust(&mut eval, frame_id);
@@ -3186,8 +3169,7 @@ fn layout_frame_rust_preserves_multiline_overlay_output_rows() {
         display.output_cursor
     );
     assert!(
-        overlay_hit >= overlay_hit_row.charpos_start
-            && overlay_hit <= overlay_hit_row.charpos_end,
+        overlay_hit >= overlay_hit_row.charpos_start && overlay_hit <= overlay_hit_row.charpos_end,
         "expected multiline overlay row hit-testing to land inside the recorded overlay row span, hit={overlay_hit} row={overlay_hit_row:?}"
     );
 }
@@ -3456,8 +3438,8 @@ fn test_flush_run_is_noop() {
 fn test_is_ligature_char() {
     // Ligature-eligible characters
     for ch in [
-        '-', '>', '<', '=', '!', '|', '&', '*', '+', '.', '/', ':', ';', '?', '@', '\\', '^',
-        '~', '#', '$', '%',
+        '-', '>', '<', '=', '!', '|', '&', '*', '+', '.', '/', ':', ';', '?', '@', '\\', '^', '~',
+        '#', '$', '%',
     ] {
         assert!(is_ligature_char(ch), "'{}' should be a ligature char", ch);
     }

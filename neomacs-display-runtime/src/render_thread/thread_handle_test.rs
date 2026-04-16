@@ -4,13 +4,11 @@ use std::time::Duration;
 
 #[test]
 fn spawn_with_state_returns_error_when_startup_fails() {
-    let err = match RenderThread::spawn_with_state::<(), _, _>(
-        || Err("boom".to_string()),
-        |_| Ok(()),
-    ) {
-        Ok(_) => panic!("startup failure should be surfaced to caller"),
-        Err(err) => err,
-    };
+    let err =
+        match RenderThread::spawn_with_state::<(), _, _>(|| Err("boom".to_string()), |_| Ok(())) {
+            Ok(_) => panic!("startup failure should be surfaced to caller"),
+            Err(err) => err,
+        };
 
     assert_eq!(err, "boom");
 }

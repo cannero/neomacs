@@ -746,8 +746,7 @@ fn decode_utf8_sequential_walk() {
 #[test]
 fn wide_and_emoji_mutual_coverage() {
     // Every emoji presentation char should also be wide via is_wide_char
-    let emoji_cps: Vec<u32> =
-        vec![0x1F600, 0x1F4A9, 0x1F680, 0x1F1E6, 0x1F004, 0x1F0CF, 0x2702];
+    let emoji_cps: Vec<u32> = vec![0x1F600, 0x1F4A9, 0x1F680, 0x1F1E6, 0x1F004, 0x1F0CF, 0x2702];
     for cp in emoji_cps {
         if let Some(ch) = char::from_u32(cp) {
             assert!(is_wide_char(ch), "emoji 0x{:X} should be wide", cp);

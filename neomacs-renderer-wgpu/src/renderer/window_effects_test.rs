@@ -5,10 +5,7 @@ use neomacs_display_protocol::types::{AnimatedCursor, Rect};
 use std::time::Instant;
 
 /// Helper to create a test EffectCtx
-fn test_ctx<'a>(
-    effects: &'a EffectsConfig,
-    frame_glyphs: &'a FrameGlyphBuffer,
-) -> EffectCtx<'a> {
+fn test_ctx<'a>(effects: &'a EffectsConfig, frame_glyphs: &'a FrameGlyphBuffer) -> EffectCtx<'a> {
     EffectCtx {
         effects,
         frame_glyphs,

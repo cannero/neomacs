@@ -6,12 +6,7 @@ use cosmic_text::{Family, Metrics, Style, SwashContent, SwashImage, Weight};
 // ---------------------------------------------------------------
 // Helper to construct a SwashImage for testing image_to_rgba
 // ---------------------------------------------------------------
-fn make_swash_image(
-    content: SwashContent,
-    width: u32,
-    height: u32,
-    data: Vec<u8>,
-) -> SwashImage {
+fn make_swash_image(content: SwashContent, width: u32, height: u32, data: Vec<u8>) -> SwashImage {
     SwashImage {
         content,
         placement: cosmic_text::Placement {

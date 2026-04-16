@@ -37,9 +37,7 @@ fn register_bootstrap_vars_matches_gnu_alloc_defaults() {
     assert_eq!(items[0], Value::symbol("error"));
     assert_eq!(
         items[1],
-        Value::string(
-            "Memory exhausted--use M-x save-some-buffers then exit and restart Emacs"
-        )
+        Value::string("Memory exhausted--use M-x save-some-buffers then exit and restart Emacs")
     );
 }
 
