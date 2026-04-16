@@ -943,67 +943,72 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
             .get(2)
             .and_then(|value| if value.is_nil() { None } else { Some(*value) });
         if test_fn.is_some() {
-            return eval.with_gc_scope_result(|ctx| {
-                ctx.root(*key);
-                ctx.root(list);
-                ctx.root(test_fn.unwrap());
-                let mut cursor = list;
-                loop {
-                    match cursor.kind() {
-                        ValueKind::Nil => return Ok(Value::NIL),
-                        ValueKind::Cons => {
-                            let pair_car = cursor.cons_car();
-                            let pair_cdr = cursor.cons_cdr();
-                            if let ValueKind::Cons = pair_car.kind() {
-                                let entry_key = pair_car.cons_car();
-                                let matches = if let Some(test_fn) = &test_fn {
-                                    ctx.apply(*test_fn, vec![entry_key, *key])?.is_truthy()
-                                } else {
-                                    equal_value(key, &entry_key, 0)
-                                };
-                                if matches {
-                                    return Ok(pair_car);
-                                }
-                            }
-                            cursor = pair_cdr;
-                        }
-                        _ => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("listp"), list],
-                            ));
-                        }
-                    }
-                }
-            });
-        }
-        // No test_fn: simple equal-based traversal (no rooting needed)
-        eval.with_gc_scope_result(|ctx| {
-            ctx.root(list);
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(*key);
+            eval.push_specpdl_root(list);
+            eval.push_specpdl_root(test_fn.unwrap());
             let mut cursor = list;
-            loop {
+            let assoc_result = loop {
                 match cursor.kind() {
-                    ValueKind::Nil => return Ok(Value::NIL),
+                    ValueKind::Nil => break Ok(Value::NIL),
                     ValueKind::Cons => {
                         let pair_car = cursor.cons_car();
                         let pair_cdr = cursor.cons_cdr();
                         if let ValueKind::Cons = pair_car.kind() {
                             let entry_key = pair_car.cons_car();
-                            if equal_value(key, &entry_key, 0) {
-                                return Ok(pair_car);
+                            let matches = if let Some(test_fn) = &test_fn {
+                                match eval.apply(*test_fn, vec![entry_key, *key]) {
+                                    Ok(v) => v.is_truthy(),
+                                    Err(e) => { break Err(e); }
+                                }
+                            } else {
+                                equal_value(key, &entry_key, 0)
+                            };
+                            if matches {
+                                break Ok(pair_car);
                             }
                         }
                         cursor = pair_cdr;
                     }
                     _ => {
-                        return Err(signal(
+                        break Err(signal(
                             "wrong-type-argument",
                             vec![Value::symbol("listp"), list],
                         ));
                     }
                 }
+            };
+            eval.restore_specpdl_roots(roots);
+            return assoc_result;
+        }
+        // No test_fn: simple equal-based traversal (no rooting needed)
+        let roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(list);
+        let mut cursor = list;
+        let assoc_result = loop {
+            match cursor.kind() {
+                ValueKind::Nil => break Ok(Value::NIL),
+                ValueKind::Cons => {
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    if let ValueKind::Cons = pair_car.kind() {
+                        let entry_key = pair_car.cons_car();
+                        if equal_value(key, &entry_key, 0) {
+                            break Ok(pair_car);
+                        }
+                    }
+                    cursor = pair_cdr;
+                }
+                _ => {
+                    break Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), list],
+                    ));
+                }
             }
-        })
+        };
+        eval.restore_specpdl_roots(roots);
+        assoc_result
     })
 }
 
