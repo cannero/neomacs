@@ -429,16 +429,17 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
     let old_lexical = eval.lexical_binding();
     let old_lexenv = eval.lexenv;
 
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(old_lexenv);
+    let gc_roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(old_lexenv);
 
+    let result = (|| -> EvalResult {
         let buffer_value = Value::make_buffer(buffer_id);
-        let prior_eval_buffer_list = ctx.visible_variable_value_or_nil("eval-buffer-list");
-        ctx.root(buffer_value);
-        ctx.root(prior_eval_buffer_list);
+        let prior_eval_buffer_list = eval.visible_variable_value_or_nil("eval-buffer-list");
+        eval.push_specpdl_root(buffer_value);
+        eval.push_specpdl_root(prior_eval_buffer_list);
         let eval_buffer_list = Value::cons(buffer_value, prior_eval_buffer_list);
-        ctx.root(eval_buffer_list);
-        ctx.specbind(intern("eval-buffer-list"), eval_buffer_list);
+        eval.push_specpdl_root(eval_buffer_list);
+        eval.specbind(intern("eval-buffer-list"), eval_buffer_list);
 
         let do_allow_print = args.get(4).is_some_and(|v| v.is_truthy());
         let standard_output = if args.get(1).is_none_or(|v| v.is_nil()) && !do_allow_print {
@@ -446,17 +447,17 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         } else {
             args.get(1).copied().unwrap_or(Value::NIL)
         };
-        ctx.specbind(intern("standard-output"), standard_output);
+        eval.specbind(intern("standard-output"), standard_output);
 
         if let Some(filename) = filename.as_ref() {
             let filename_value = Value::heap_string(filename.clone());
-            ctx.root(filename_value);
+            eval.push_specpdl_root(filename_value);
             let current_load_list = Value::cons(filename_value, Value::NIL);
-            ctx.root(current_load_list);
-            ctx.specbind(intern("current-load-list"), current_load_list);
+            eval.push_specpdl_root(current_load_list);
+            eval.specbind(intern("current-load-list"), current_load_list);
         }
 
-        let lexical_binding = if let Some(binding) = ctx
+        let lexical_binding = if let Some(binding) = eval
             .buffers
             .get(buffer_id)
             .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
@@ -466,7 +467,7 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         } else {
             let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
             match super::load::source_lexical_binding_for_load(
-                ctx,
+                eval,
                 &source_runtime,
                 Some(buffer_value),
             ) {
@@ -474,14 +475,14 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
                 Err(err) => return Err(map_eval_error_to_flow(err)),
             }
         };
-        ctx.set_lexical_binding(lexical_binding);
-        ctx.lexenv = if lexical_binding {
+        eval.set_lexical_binding(lexical_binding);
+        eval.lexenv = if lexical_binding {
             Value::list(vec![Value::T])
         } else {
             Value::NIL
         };
 
-        let loading_source_file = ctx
+        let loading_source_file = eval
             .visible_variable_value_or_nil("load-in-progress")
             .is_truthy()
             && filename.is_some();
@@ -494,28 +495,31 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             );
             let path = Path::new(&filename_runtime);
             super::load::eval_decoded_source_file_in_context(
-                ctx,
+                eval,
                 path,
                 &source_runtime,
                 source.is_multibyte(),
             )
             .map_err(map_eval_error_to_flow)
         } else {
-            let result = eval_forms_from_lisp_source(ctx, &source);
+            let result = eval_forms_from_lisp_source(eval, &source);
             if result.is_ok()
                 && let Some(filename) = filename.as_ref()
             {
-                record_eval_buffer_load_history(ctx, filename);
+                record_eval_buffer_load_history(eval, filename);
             }
             result
         };
 
-        ctx.set_lexical_binding(old_lexical);
-        ctx.lexenv = old_lexenv;
-        ctx.unbind_to(specpdl_count);
+        eval.set_lexical_binding(old_lexical);
+        eval.lexenv = old_lexenv;
+        eval.unbind_to(specpdl_count);
 
         result
-    })
+    })();
+
+    eval.restore_specpdl_roots(gc_roots);
+    result
 }
 
 /// `(eval-region START END &optional PRINTFLAG READ-FUNCTION)`
