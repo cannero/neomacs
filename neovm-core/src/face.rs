@@ -278,7 +278,9 @@ pub enum FaceAttrValue {
     Box(BoxBorder),
     Bool(bool),
     Text(Value),
-    Inherit(Vec<Value>),
+    /// Raw `:inherit` face_ref (symbol/list/plist). `None` means nil /
+    /// effectively unspecified. Matches GNU's `LFACE_INHERIT_INDEX` slot.
+    Inherit(Option<Value>),
     Unspecified,
 }
 
@@ -324,8 +326,13 @@ pub struct Face {
     pub stipple: Option<Value>,
     /// Whether to extend face background to end of line.
     pub extend: Option<bool>,
-    /// Inherit from these faces (processed in order).
-    pub inherit: Vec<Value>,
+    /// `:inherit` face reference, stored raw matching GNU's
+    /// `LFACE_INHERIT_INDEX` slot. `None` means unspecified. When set, the
+    /// value is any valid face_ref: a symbol (named face), a list of
+    /// face_refs (merged left-to-right by `merge_face_ref`), or a plist of
+    /// face attributes. Resolution walks this recursively via
+    /// `resolve_face_value_over`, mirroring GNU `xfaces.c:merge_face_ref`.
+    pub inherit: Option<Value>,
     /// Whether bold is simulated via overstrike.
     pub overstrike: bool,
     /// Face documentation string or nil-equivalent absence.
@@ -419,11 +426,7 @@ impl Face {
             inverse_video: overlay.inverse_video.or(self.inverse_video),
             stipple: overlay.stipple.clone().or_else(|| self.stipple.clone()),
             extend: overlay.extend.or(self.extend),
-            inherit: if overlay.inherit.is_empty() {
-                self.inherit.clone()
-            } else {
-                overlay.inherit.clone()
-            },
+            inherit: overlay.inherit.or(self.inherit),
             overstrike: overlay.overstrike || self.overstrike,
             doc: overlay.doc.clone().or_else(|| self.doc.clone()),
             overline_color: overlay.overline_color.or(self.overline_color),
@@ -562,20 +565,15 @@ impl Face {
                     face.extend = Some(val.is_truthy());
                 }
                 "inherit" => {
-                    if let Some(s) = val.as_symbol_name() {
-                        if s != "nil" {
-                            face.inherit = vec![face_symbol_value(s)];
-                        }
-                    } else if let Some(names) = crate::emacs_core::value::list_to_vec(val) {
-                        face.inherit = names
-                            .iter()
-                            .filter(|entry| !entry.is_symbol_named("nil"))
-                            .filter(|entry| {
-                                matches!(entry.kind(), ValueKind::Symbol(_) | ValueKind::T)
-                            })
-                            .copied()
-                            .collect();
-                    }
+                    // Store the raw face_ref. Matches GNU's
+                    // `merge_face_ref` (xfaces.c:2960-2980) which accepts
+                    // any face_ref — symbol, list, or plist — and defers
+                    // type dispatch to the recursive resolver.
+                    face.inherit = if val.is_nil() || val.is_symbol_named("nil") {
+                        None
+                    } else {
+                        Some(*val)
+                    };
                 }
                 "box" => {
                     face.box_border = parse_box_value(val);
@@ -931,20 +929,20 @@ impl FaceTable {
         // bold
         let mut bold = Face::new("bold");
         bold.weight = Some(FontWeight::BOLD);
-        bold.inherit = vec![face_symbol_value("default")];
+        bold.inherit = Some(face_symbol_value("default"));
         self.define("bold", bold);
 
         // italic
         let mut italic = Face::new("italic");
         italic.slant = Some(FontSlant::Italic);
-        italic.inherit = vec![face_symbol_value("default")];
+        italic.inherit = Some(face_symbol_value("default"));
         self.define("italic", italic);
 
         // bold-italic
         let mut bold_italic = Face::new("bold-italic");
         bold_italic.weight = Some(FontWeight::BOLD);
         bold_italic.slant = Some(FontSlant::Italic);
-        bold_italic.inherit = vec![face_symbol_value("default")];
+        bold_italic.inherit = Some(face_symbol_value("default"));
         self.define("bold-italic", bold_italic);
 
         // underline
@@ -954,17 +952,17 @@ impl FaceTable {
             color: None,
             position: None,
         });
-        underline.inherit = vec![face_symbol_value("default")];
+        underline.inherit = Some(face_symbol_value("default"));
         self.define("underline", underline);
 
         // fixed-pitch
         let mut fixed_pitch = Face::new("fixed-pitch");
-        fixed_pitch.inherit = vec![face_symbol_value("default")];
+        fixed_pitch.inherit = Some(face_symbol_value("default"));
         self.define("fixed-pitch", fixed_pitch);
 
         // variable-pitch
         let mut variable_pitch = Face::new("variable-pitch");
-        variable_pitch.inherit = vec![face_symbol_value("default")];
+        variable_pitch.inherit = Some(face_symbol_value("default"));
         self.define("variable-pitch", variable_pitch);
 
         // mode-line
@@ -993,7 +991,7 @@ impl FaceTable {
             width: 2,
             style: BoxStyle::Raised,
         });
-        mode_line_highlight.inherit = vec![face_symbol_value("highlight")];
+        mode_line_highlight.inherit = Some(face_symbol_value("highlight"));
         self.define("mode-line-highlight", mode_line_highlight);
 
         // mode-line-emphasis
@@ -1008,22 +1006,22 @@ impl FaceTable {
 
         // header-line
         let mut header = Face::new("header-line");
-        header.inherit = vec![face_symbol_value("mode-line")];
+        header.inherit = Some(face_symbol_value("mode-line"));
         self.define("header-line", header);
 
         // header-line-highlight
         let mut header_line_highlight = Face::new("header-line-highlight");
-        header_line_highlight.inherit = vec![face_symbol_value("mode-line-highlight")];
+        header_line_highlight.inherit = Some(face_symbol_value("mode-line-highlight"));
         self.define("header-line-highlight", header_line_highlight);
 
         // header-line-active
         let mut header_line_active = Face::new("header-line-active");
-        header_line_active.inherit = vec![face_symbol_value("header-line")];
+        header_line_active.inherit = Some(face_symbol_value("header-line"));
         self.define("header-line-active", header_line_active);
 
         // header-line-inactive
         let mut header_line_inactive = Face::new("header-line-inactive");
-        header_line_inactive.inherit = vec![face_symbol_value("header-line")];
+        header_line_inactive.inherit = Some(face_symbol_value("header-line"));
         self.define("header-line-inactive", header_line_inactive);
 
         // highlight
@@ -1055,7 +1053,7 @@ impl FaceTable {
 
         // vertical-border
         let mut vertical_border = Face::new("vertical-border");
-        vertical_border.inherit = vec![face_symbol_value("mode-line-inactive")];
+        vertical_border.inherit = Some(face_symbol_value("mode-line-inactive"));
         self.define("vertical-border", vertical_border);
 
         // scroll-bar
@@ -1073,14 +1071,14 @@ impl FaceTable {
         // line-number
         let mut line_num = Face::new("line-number");
         line_num.foreground = Some(Color::rgb(160, 160, 160));
-        line_num.inherit = vec![face_symbol_value("default")];
+        line_num.inherit = Some(face_symbol_value("default"));
         self.define("line-number", line_num);
 
         // line-number-current-line
         let mut line_num_cur = Face::new("line-number-current-line");
         line_num_cur.foreground = Some(Color::rgb(0, 0, 0));
         line_num_cur.weight = Some(FontWeight::BOLD);
-        line_num_cur.inherit = vec![face_symbol_value("line-number")];
+        line_num_cur.inherit = Some(face_symbol_value("line-number"));
         self.define("line-number-current-line", line_num_cur);
 
         // shadow
@@ -1106,14 +1104,14 @@ impl FaceTable {
         let mut tab_bar = Face::new("tab-bar");
         tab_bar.foreground = Some(Color::rgb(0, 0, 0));
         tab_bar.background = Some(Color::rgb(217, 217, 217));
-        tab_bar.inherit = vec![face_symbol_value("variable-pitch")];
+        tab_bar.inherit = Some(face_symbol_value("variable-pitch"));
         self.define("tab-bar", tab_bar);
 
         // tab-line
         let mut tab_line = Face::new("tab-line");
         tab_line.foreground = Some(Color::rgb(0, 0, 0));
         tab_line.background = Some(Color::rgb(217, 217, 217));
-        tab_line.inherit = vec![face_symbol_value("variable-pitch")];
+        tab_line.inherit = Some(face_symbol_value("variable-pitch"));
         self.define("tab-line", tab_line);
 
         // error
@@ -1222,7 +1220,7 @@ impl FaceTable {
         if let Some(s) = slant {
             face.slant = Some(s);
         }
-        face.inherit = vec![face_symbol_value("default")];
+        face.inherit = Some(face_symbol_value("default"));
         self.define(name, face);
     }
 
@@ -1312,8 +1310,8 @@ impl FaceTable {
             ":inverse-video" => set_option!(face.inverse_video, Bool),
             ":extend" => set_option!(face.extend, Bool),
             ":inherit" => match value {
-                FaceAttrValue::Inherit(names) => face.inherit = names,
-                FaceAttrValue::Unspecified => face.inherit.clear(),
+                FaceAttrValue::Inherit(v) => face.inherit = v,
+                FaceAttrValue::Unspecified => face.inherit = None,
                 _ => return false,
             },
             _ => return false,
@@ -1344,16 +1342,69 @@ impl FaceTable {
 
         let mut result = face.clone();
 
-        // Apply inheritance.
-        for parent_name in &face.inherit {
-            if let Some(parent_name) = parent_name.as_symbol_name() {
-                let parent = self.resolve_depth(parent_name, depth + 1);
-                // Parent provides defaults — face overrides.
-                result = parent.merge(&result);
-            }
+        // Apply inheritance. Mirrors GNU `merge_face_vectors` (xfaces.c:2310)
+        // which calls `merge_face_ref(from[LFACE_INHERIT_INDEX], to, ...)` —
+        // the raw face_ref value is resolved recursively by shape
+        // (symbol / list of face_refs / plist of attributes).
+        if let Some(inherit_ref) = face.inherit {
+            let parent = self.resolve_face_ref(inherit_ref, depth + 1);
+            // Parent provides defaults — face overrides.
+            result = parent.merge(&result);
         }
 
         result
+    }
+
+    /// Recursively resolve a face_ref value into a `Face` by inheritance.
+    ///
+    /// Dispatches on the value shape, mirroring GNU `merge_face_ref`
+    /// (xfaces.c:2700-3025):
+    /// - `nil` / unset → empty face
+    /// - symbol → named face lookup (`resolve_depth`)
+    /// - list with keyword head → attribute plist (`Face::from_plist`),
+    ///   plus recursive resolution of its own `:inherit`
+    /// - list with non-keyword head → list of face_refs, merged left-to-right
+    ///   (first takes precedence, matching xfaces.c:3005-3014)
+    fn resolve_face_ref(&self, face_ref: Value, depth: usize) -> Face {
+        if depth > 40 {
+            return Face::default();
+        }
+        if face_ref.is_nil() || face_ref.is_symbol_named("nil") {
+            return Face::default();
+        }
+        if let Some(name) = face_ref.as_symbol_name() {
+            return self.resolve_depth(name, depth);
+        }
+        let Some(items) = crate::emacs_core::value::list_to_vec(&face_ref) else {
+            return Face::default();
+        };
+        if items.is_empty() {
+            return Face::default();
+        }
+        let first_is_keyword = items[0]
+            .as_symbol_name()
+            .is_some_and(|s| s.starts_with(':'));
+        if first_is_keyword {
+            // Attribute plist. Parse own attributes, then recursively
+            // merge its :inherit chain as parent (parent provides
+            // defaults; own attributes already take precedence).
+            let own = Face::from_plist("--inline--", &items);
+            let parent = match own.inherit {
+                Some(inherit_ref) => self.resolve_face_ref(inherit_ref, depth + 1),
+                None => Face::default(),
+            };
+            parent.merge(&own)
+        } else {
+            // List of face_refs: merge right-to-left so the head
+            // (left-most entry) takes precedence — matches GNU
+            // xfaces.c:3005-3014 which merges XCDR first, then XCAR.
+            let mut result = Face::default();
+            for item in items.iter().rev() {
+                let next = self.resolve_face_ref(*item, depth + 1);
+                result = result.merge(&next);
+            }
+            result
+        }
     }
 
     /// Resolve face for text: merge a list of face names in order.
@@ -1542,6 +1593,20 @@ impl Default for FaceTable {
     }
 }
 
+/// Root all cells of a face_ref value so nested conses survive GC.
+fn trace_face_ref_roots(value: Value, roots: &mut Vec<Value>) {
+    roots.push(value);
+    if let Some(items) = crate::emacs_core::value::list_to_vec(&value) {
+        for item in items {
+            if item.is_cons() {
+                trace_face_ref_roots(item, roots);
+            } else {
+                roots.push(item);
+            }
+        }
+    }
+}
+
 impl GcTrace for FaceTable {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         roots.extend(self.faces.keys().copied());
@@ -1558,7 +1623,11 @@ impl GcTrace for FaceTable {
             if let Some(doc) = face.doc {
                 roots.push(doc);
             }
-            roots.extend(face.inherit.iter().copied());
+            // `:inherit` can be an arbitrary face_ref — walk it so any
+            // cons cells in list/plist forms stay rooted across GC.
+            if let Some(inherit) = face.inherit {
+                trace_face_ref_roots(inherit, roots);
+            }
         }
     }
 }

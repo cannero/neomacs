@@ -1449,7 +1449,18 @@ impl FaceResolver {
     }
 
     fn apply_inline_face_over(&self, base: &ResolvedFace, face: &NeoFace) -> ResolvedFace {
-        let mut rf = base.clone();
+        // Resolve `:inherit` first so the inline face's own attributes
+        // below override the inherited ones. Mirrors GNU
+        // `merge_face_vectors` (xfaces.c:2305-2314): inherited attrs are
+        // merged first, then the face's own specified attributes take
+        // precedence.
+        let base_after_inherit = match face.inherit {
+            Some(inherit_ref) => self
+                .resolve_face_value_over(base, &inherit_ref)
+                .unwrap_or_else(|| base.clone()),
+            None => base.clone(),
+        };
+        let mut rf = base_after_inherit;
 
         if let Some(c) = &face.foreground {
             rf.fg = color_to_pixel(c);

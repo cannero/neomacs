@@ -1739,11 +1739,27 @@ fn dump_face(encoder: &mut DumpEncoder, f: &Face) -> DumpFace {
         stipple_value: f.stipple.as_ref().map(|value| encoder.dump_value(value)),
         stipple: None,
         extend: f.extend,
-        inherit_syms: f
-            .inherit
-            .iter()
-            .filter_map(|value| value.as_symbol_id().map(dump_sym_id))
-            .collect(),
+        // Legacy dump schema: flatten the face_ref into a symbol list.
+        // A symbol becomes a one-element list; a list of symbols is
+        // preserved; plists and nested refs are dropped (a later schema
+        // revision should store the raw face_ref with full fidelity).
+        inherit_syms: match f.inherit {
+            None => Vec::new(),
+            Some(v) => {
+                if let Some(id) = v.as_symbol_id() {
+                    vec![dump_sym_id(id)]
+                } else {
+                    crate::emacs_core::value::list_to_vec(&v)
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|entry| entry.as_symbol_id().map(dump_sym_id))
+                                .collect()
+                        })
+                        .unwrap_or_default()
+                }
+            }
+        },
         inherit: Vec::new(),
         overstrike: f.overstrike,
         doc_value: f.doc.as_ref().map(|value| encoder.dump_value(value)),
@@ -3624,16 +3640,26 @@ fn load_face(decoder: &mut LoadDecoder, df: &DumpFace) -> Face {
             .map(|value| decoder.load_value(value))
             .or_else(|| df.stipple.as_ref().map(Value::string)),
         extend: df.extend,
-        inherit: if !df.inherit_syms.is_empty() {
-            df.inherit_syms
-                .iter()
-                .map(|name| Value::from_sym_id(load_sym_id(name)))
-                .collect()
-        } else {
-            df.inherit
-                .iter()
-                .map(|name| Value::symbol(name.as_str()))
-                .collect()
+        inherit: {
+            // Dump legacy schema: Vec<symbol-name>. Reconstruct as a
+            // single symbol if exactly one, or a face_ref list otherwise,
+            // matching GNU's LFACE_INHERIT_INDEX value shape.
+            let syms: Vec<Value> = if !df.inherit_syms.is_empty() {
+                df.inherit_syms
+                    .iter()
+                    .map(|name| Value::from_sym_id(load_sym_id(name)))
+                    .collect()
+            } else {
+                df.inherit
+                    .iter()
+                    .map(|name| Value::symbol(name.as_str()))
+                    .collect()
+            };
+            match syms.len() {
+                0 => None,
+                1 => Some(syms[0]),
+                _ => Some(Value::list(syms)),
+            }
         },
         overstrike: df.overstrike,
         doc: df

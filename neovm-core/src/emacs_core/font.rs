@@ -2774,20 +2774,17 @@ fn normalize_face_attr_for_set(
             }
         }
         ":inherit" => {
-            let valid = match normalized.kind() {
-                ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) => true,
-                ValueKind::Cons => list_to_vec(&normalized)
-                    .map(|vals| vals.iter().all(|v| v.is_symbol()))
-                    .unwrap_or(false),
-                _ => false,
-            };
+            // Accept any face_ref: nil / symbol / list of face_refs /
+            // plist of attributes. Matches GNU `merge_face_ref`
+            // (xfaces.c:2700-3025) which accepts any value and
+            // dispatches by shape at resolution time.
+            let valid = matches!(
+                normalized.kind(),
+                ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_) | ValueKind::Cons
+            );
             if !valid {
                 let mut payload = vec![Value::string("Invalid face inheritance")];
-                if let Some(vals) = list_to_vec(&normalized) {
-                    payload.extend(vals);
-                } else {
-                    payload.push(normalized);
-                }
+                payload.push(normalized);
                 return Err(signal("error", payload));
             }
         }
@@ -3204,25 +3201,13 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
         }
         ":inverse-video" | ":extend" => Some(FaceAttrValue::Bool(value.is_truthy())),
         ":inherit" => {
-            if value.is_nil() {
-                return Some(FaceAttrValue::Inherit(Vec::new()));
+            // Store raw face_ref. Matches GNU's `LFACE_INHERIT_INDEX`
+            // slot which holds any face_ref (symbol / list / plist);
+            // `merge_face_ref` dispatches on shape at resolution time.
+            if value.is_nil() || value.is_symbol_named("nil") {
+                return Some(FaceAttrValue::Inherit(None));
             }
-            if let Some(name) = value.as_symbol_name() {
-                if name != "nil" {
-                    return Some(FaceAttrValue::Inherit(vec![Value::symbol(name)]));
-                }
-                return Some(FaceAttrValue::Inherit(Vec::new()));
-            }
-            if let Some(items) = super::value::list_to_vec(&value) {
-                let names: Vec<Value> = items
-                    .iter()
-                    .filter(|v| !v.is_symbol_named("nil"))
-                    .filter(|v| matches!(v.kind(), ValueKind::Symbol(_) | ValueKind::T))
-                    .copied()
-                    .collect();
-                return Some(FaceAttrValue::Inherit(names));
-            }
-            None
+            Some(FaceAttrValue::Inherit(Some(value)))
         }
         _ => None,
     }
@@ -3395,15 +3380,7 @@ pub(crate) fn runtime_face_attribute_value(face: &RuntimeFace, attr_name: &str) 
             .map(runtime_color_to_lisp_value)
             .unwrap_or_else(|| Value::symbol("unspecified")),
         ":stipple" | ":font" | ":fontset" => Value::symbol("unspecified"),
-        ":inherit" => {
-            if face.inherit.is_empty() {
-                Value::NIL
-            } else if face.inherit.len() == 1 {
-                face.inherit[0]
-            } else {
-                Value::list(face.inherit.clone())
-            }
-        }
+        ":inherit" => face.inherit.unwrap_or(Value::NIL),
         ":extend" => face
             .extend
             .map(Value::bool)

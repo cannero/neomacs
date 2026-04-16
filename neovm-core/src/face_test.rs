@@ -134,10 +134,10 @@ fn face_table_pdump_keeps_inherit_as_symbols() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     let mut face = Face::new("pdump-inherit-face");
-    face.inherit = vec![
+    face.inherit = Some(Value::list(vec![
         Value::symbol("font-lock-keyword-face"),
         Value::symbol("warning"),
-    ];
+    ]));
     eval.face_table.define("pdump-inherit-face", face);
 
     let dump = crate::emacs_core::pdump::convert::dump_evaluator(&eval);
@@ -269,7 +269,7 @@ fn face_table_custom_face() {
     let mut table = FaceTable::new();
     let mut custom = Face::new("my-face");
     custom.foreground = Some(Color::rgb(100, 200, 50));
-    custom.inherit = vec![face_symbol_value("bold")];
+    custom.inherit = Some(face_symbol_value("bold"));
     table.define("my-face", custom);
 
     let resolved = table.resolve("my-face");
@@ -490,13 +490,13 @@ fn face_table_multi_level_inheritance() {
     // parent: inherits grandparent, sets weight
     let mut parent = Face::new("parent");
     parent.weight = Some(FontWeight::BOLD);
-    parent.inherit = vec![face_symbol_value("grandparent")];
+    parent.inherit = Some(face_symbol_value("grandparent"));
     table.define("parent", parent);
 
     // child: inherits parent, sets background
     let mut child = Face::new("child");
     child.background = Some(Color::rgb(200, 200, 200));
-    child.inherit = vec![face_symbol_value("parent")];
+    child.inherit = Some(face_symbol_value("parent"));
     table.define("child", child);
 
     let resolved = table.resolve("child");
@@ -532,7 +532,7 @@ fn face_from_plist_underline_and_flags() {
     assert_eq!(face.strike_through, Some(true));
     assert_eq!(face.inverse_video, Some(true));
     assert_eq!(face.extend, Some(true));
-    assert_eq!(face.inherit, vec![face_symbol_value("bold")]);
+    assert_eq!(face.inherit, Some(face_symbol_value("bold")));
 }
 
 #[test]
@@ -581,7 +581,7 @@ fn face_table_gc_traces_lisp_owned_face_text_fields() {
     face.foundry = Some(Value::string("OpenAI"));
     face.stipple = Some(Value::string("gray3"));
     face.doc = Some(Value::string("Face doc"));
-    face.inherit = vec![Value::symbol("default")];
+    face.inherit = Some(Value::symbol("default"));
     table.define("gc-face", face);
 
     let mut roots = Vec::new();
