@@ -6,7 +6,7 @@
 //! caches, and interval ownership without forcing another tree-wide field-type
 //! rewrite.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
@@ -27,6 +27,22 @@ pub struct BufferTextLayout {
     pub gap_size: usize,
 }
 
+/// Last successful char↔byte conversion. Reused on a subsequent query if the
+/// buffer text has not changed since the entry was stored. Mirrors GNU
+/// `marker.c:202-203` but uses a (total_chars, total_bytes) epoch rather than
+/// `chars_modiff` so it works correctly even when called directly on
+/// `BufferText` without going through the `insdel.rs` tick-bumping path.
+#[derive(Clone, Copy, Default)]
+struct PositionCache {
+    /// Total char count when this entry was stored. 0 = invalid.
+    epoch_chars: usize,
+    /// Total byte length when this entry was stored. 0 = invalid (disambiguates
+    /// a legitimately empty buffer from an uninitialised cache).
+    epoch_bytes: usize,
+    charpos: usize,
+    bytepos: usize,
+}
+
 #[derive(Clone)]
 struct BufferTextStorage {
     layout: BufferTextLayout,
@@ -36,6 +52,8 @@ struct BufferTextStorage {
     save_modified_tick: i64,
     text_props: TextPropertyTable,
     markers: Vec<MarkerEntry>,
+    /// Interior-mutable last-query cache for char↔byte conversion.
+    pos_cache: Cell<PositionCache>,
 }
 
 pub struct BufferText {
@@ -79,6 +97,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                pos_cache: Cell::new(PositionCache::default()),
             })),
         }
     }
@@ -94,6 +113,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                pos_cache: Cell::new(PositionCache::default()),
             })),
         }
     }
@@ -299,6 +319,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                pos_cache: Cell::new(PositionCache::default()),
             })),
         }
     }
@@ -607,6 +628,69 @@ impl BufferText {
     pub fn marker_entries_snapshot(&self) -> Vec<MarkerEntry> {
         self.storage.borrow().markers.clone()
     }
+
+    /// Convert a character position to a logical Emacs byte offset using an
+    /// anchor-bracketed cached search. Mirrors GNU `buf_charpos_to_bytepos`
+    /// (`src/marker.c:167`).
+    pub fn buf_charpos_to_bytepos(&self, target: usize) -> usize {
+        let storage = self.storage.borrow();
+        let total_chars = storage.gap.char_count();
+        let total_bytes = storage.gap.emacs_byte_len();
+
+        if target >= total_chars {
+            return storage.gap.len();
+        }
+
+        // Unibyte fast path: char == byte, no scan needed.
+        if total_chars == total_bytes {
+            return target;
+        }
+
+        let mut best_below: (usize, usize) = (0, 0);
+        let mut best_above: (usize, usize) = (total_chars, total_bytes);
+
+        let gpt = storage.gap.gpt();
+        let gpt_byte = storage.gap.gpt_byte();
+        consider_anchor(target, (gpt, gpt_byte), &mut best_below, &mut best_above);
+
+        let cached = storage.pos_cache.get();
+        if cached.epoch_chars == total_chars
+            && cached.epoch_bytes == total_bytes
+            && (cached.epoch_chars != 0 || cached.epoch_bytes != 0)
+        {
+            consider_anchor(
+                target,
+                (cached.charpos, cached.bytepos),
+                &mut best_below,
+                &mut best_above,
+            );
+        }
+
+        let mut distance: usize = POSITION_DISTANCE_BASE;
+        for m in &storage.markers {
+            consider_anchor(target, (m.char_pos, m.byte_pos), &mut best_below, &mut best_above);
+            if best_above.0.saturating_sub(target) < distance
+                || target.saturating_sub(best_below.0) < distance
+            {
+                break;
+            }
+            distance = distance.saturating_add(POSITION_DISTANCE_INCR);
+        }
+
+        let result = if target - best_below.0 <= best_above.0 - target {
+            scan_forward(&storage.gap, best_below, target)
+        } else {
+            scan_backward(&storage.gap, best_above, target)
+        };
+
+        storage.pos_cache.set(PositionCache {
+            epoch_chars: total_chars,
+            epoch_bytes: total_bytes,
+            charpos: target,
+            bytepos: result,
+        });
+        result
+    }
 }
 
 impl fmt::Display for BufferText {
@@ -622,6 +706,72 @@ impl fmt::Debug for BufferText {
             .field("chars", &self.char_count())
             .finish()
     }
+}
+
+// ---------------------------------------------------------------------------
+// Position conversion helpers
+// ---------------------------------------------------------------------------
+
+/// GNU `marker.c:162` — initial bracket-bail distance.
+const POSITION_DISTANCE_BASE: usize = 50;
+/// GNU `marker.c:162` — bracket-bail distance grows by this per marker checked.
+const POSITION_DISTANCE_INCR: usize = 50;
+
+/// Update `(best_below, best_above)` in place using a new `(charpos, bytepos)` anchor.
+fn consider_anchor(
+    target: usize,
+    anchor: (usize, usize),
+    best_below: &mut (usize, usize),
+    best_above: &mut (usize, usize),
+) {
+    if anchor.0 <= target && anchor.0 > best_below.0 {
+        *best_below = anchor;
+    }
+    if anchor.0 >= target && anchor.0 < best_above.0 {
+        *best_above = anchor;
+    }
+}
+
+/// Walk forward from `anchor = (charpos, bytepos)` to reach `target` chars.
+/// Returns the byte position.
+fn scan_forward(gap: &GapBuffer, anchor: (usize, usize), target: usize) -> usize {
+    let (mut cp, mut bp) = anchor;
+    while cp < target {
+        if !gap.is_multibyte() {
+            bp += 1;
+            cp += 1;
+            continue;
+        }
+        let mut tmp = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let available = (gap.len() - bp).min(tmp.len());
+        for (i, slot) in tmp[..available].iter_mut().enumerate() {
+            *slot = gap.byte_at(bp + i);
+        }
+        let (_, len) = crate::emacs_core::emacs_char::string_char(&tmp[..available]);
+        bp += len;
+        cp += 1;
+    }
+    bp
+}
+
+/// Walk backward from `anchor = (charpos, bytepos)` to reach `target` chars.
+/// Returns the byte position.
+fn scan_backward(gap: &GapBuffer, anchor: (usize, usize), target: usize) -> usize {
+    let (mut cp, mut bp) = anchor;
+    while cp > target {
+        if !gap.is_multibyte() {
+            bp -= 1;
+            cp -= 1;
+            continue;
+        }
+        let mut prev = bp - 1;
+        while prev > 0 && (gap.byte_at(prev) & 0xC0) == 0x80 {
+            prev -= 1;
+        }
+        bp = prev;
+        cp -= 1;
+    }
+    bp
 }
 
 #[cfg(test)]
