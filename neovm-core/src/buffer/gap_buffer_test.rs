@@ -793,3 +793,23 @@ fn delete_range_both_matches_scanning_variant() {
     assert_eq!(a.char_count(), b.char_count());
     assert_eq!(a.emacs_byte_len(), b.emacs_byte_len());
 }
+
+#[test]
+fn move_gap_both_matches_scanning_variant() {
+    crate::test_utils::init_test_tracing();
+    let source = "Hello, 日本語 world!";
+    let mut a = GapBuffer::from_str(source);
+    let mut b = GapBuffer::from_str(source);
+
+    // Move the gap to a position inside the CJK run.
+    let bytepos = 7 + "日".len(); // byte position of '本'
+    let charpos = a.byte_to_char(bytepos);
+
+    a.move_gap_to(bytepos);
+    b.move_gap_both(bytepos, charpos);
+
+    assert_eq!(a.to_string(), b.to_string());
+    assert_eq!(a.gpt(), b.gpt());
+    assert_eq!(a.gpt_byte(), b.gpt_byte());
+    assert_eq!(a.char_count(), b.char_count());
+}

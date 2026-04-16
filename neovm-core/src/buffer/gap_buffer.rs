@@ -538,52 +538,63 @@ impl GapBuffer {
 
     /// Move the gap so that `gap_start == pos`.
     ///
-    /// This copies text bytes across the gap to reposition it.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `pos > self.len()`.
+    /// Wrapper that computes the char delta by scanning moved bytes. Prefer
+    /// `move_gap_both` when the caller knows the target char position.
     pub fn move_gap_to(&mut self, pos: usize) {
         assert!(
             pos <= self.len(),
             "move_gap_to: position {pos} out of range (len {})",
             self.len()
         );
-
         if pos == self.gap_start {
             return;
         }
+        // Derive the target char position by scanning moved bytes. The scan is
+        // exactly what move_gap_both lets the caller skip.
+        let charpos = if pos < self.gap_start {
+            let moved = emacs_char_count_bytes(&self.buf[pos..self.gap_start], self.multibyte);
+            self.gap_start_chars - moved
+        } else {
+            let moved = emacs_char_count_bytes(
+                &self.buf[self.gap_end..self.gap_end + (pos - self.gap_start)],
+                self.multibyte,
+            );
+            self.gap_start_chars + moved
+        };
+        self.move_gap_both(pos, charpos);
+    }
 
+    /// Move the gap so that `gap_start == bytepos` and `gap_start_chars == charpos`.
+    ///
+    /// `charpos` **must** be the logical character position corresponding to
+    /// `bytepos`. Passing a wrong value corrupts the char counters.
+    ///
+    /// Mirrors GNU `move_gap_both` (`src/insdel.c:88`).
+    pub fn move_gap_both(&mut self, bytepos: usize, charpos: usize) {
+        assert!(
+            bytepos <= self.len(),
+            "move_gap_both: bytepos {bytepos} out of range (len {})",
+            self.len()
+        );
+        if bytepos == self.gap_start {
+            return;
+        }
         let gap = self.gap_size();
 
-        if pos < self.gap_start {
-            // Moving gap left: shift buf[pos..gap_start] to the right by `gap`.
-            let count = self.gap_start - pos;
-            let moved_chars =
-                emacs_char_count_bytes(&self.buf[pos..self.gap_start], self.multibyte);
-            let moved_bytes = count;
-            // Use copy_within which handles overlapping regions.
-            self.buf.copy_within(pos..pos + count, pos + gap);
-            self.gap_start = pos;
-            self.gap_end = pos + gap;
-            self.gap_start_chars -= moved_chars;
-            self.gap_start_bytes -= moved_bytes;
+        if bytepos < self.gap_start {
+            let count = self.gap_start - bytepos;
+            self.buf.copy_within(bytepos..bytepos + count, bytepos + gap);
         } else {
-            // Moving gap right: shift buf[gap_end..gap_end + (pos - gap_start)]
-            // to the left by `gap`.
-            let count = pos - self.gap_start;
+            let count = bytepos - self.gap_start;
             let src_start = self.gap_end;
             let dst_start = self.gap_start;
-            let moved_chars =
-                emacs_char_count_bytes(&self.buf[src_start..src_start + count], self.multibyte);
-            let moved_bytes = count;
             self.buf
                 .copy_within(src_start..src_start + count, dst_start);
-            self.gap_start = pos;
-            self.gap_end = pos + gap;
-            self.gap_start_chars += moved_chars;
-            self.gap_start_bytes += moved_bytes;
         }
+        self.gap_start = bytepos;
+        self.gap_end = bytepos + gap;
+        self.gap_start_chars = charpos;
+        self.gap_start_bytes = bytepos;
     }
 
     /// Ensure the gap is at least `min_size` bytes. If it is already large
