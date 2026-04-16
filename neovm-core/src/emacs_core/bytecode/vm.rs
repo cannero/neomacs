@@ -739,6 +739,22 @@ impl<'a> Vm<'a> {
                     }
                 }
 
+                Op::SaveWindowExcursion => {
+                    // GNU bytecode.c Bsave_window_excursion (opcode 139):
+                    // Pop body form list, evaluate with Fprogn inside
+                    // save-window-excursion, push result.
+                    // Neomacs doesn't have full window configuration save/restore,
+                    // so we evaluate (progn . body) via eval_sub. This matches
+                    // the semantics for TUI where window configs are trivial.
+                    let body = stk!().pop().unwrap_or(Value::NIL);
+                    let progn_form = Value::cons(
+                        Value::symbol("progn"),
+                        body,
+                    );
+                    let result = vm_try!(self.ctx.eval_sub(progn_form));
+                    stk_push!(result);
+                }
+
                 // -- Arithmetic --
                 // Inline fixnum fast paths match GNU Emacs bytecode.c design:
                 // the bytecode opcode IS the contract — no override check needed.

@@ -169,6 +169,10 @@ pub enum Op {
     SaveExcursion,
     /// GNU `byte-save-restriction`.
     SaveRestriction,
+    /// GNU `Bsave_window_excursion` (opcode 139). Obsolete since Emacs 24
+    /// but still present in .elc files. Pop body, Fprogn it inside
+    /// save-window-excursion, push result.
+    SaveWindowExcursion,
 
     // -- Closure support ------------------------------------------------------
     /// Create a closure from a bytecode function object at constant pool index,
@@ -284,6 +288,7 @@ impl Op {
             Op::SaveCurrentBuffer => "save-current-buffer".to_string(),
             Op::SaveExcursion => "save-excursion".to_string(),
             Op::SaveRestriction => "save-restriction".to_string(),
+            Op::SaveWindowExcursion => "save-window-excursion".to_string(),
             Op::MakeClosure(idx) => format!("make-closure {}", idx),
             Op::CallBuiltin(idx, n) => {
                 let name = const_name(constants, *idx);

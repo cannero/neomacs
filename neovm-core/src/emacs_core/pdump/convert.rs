@@ -650,6 +650,7 @@ pub(crate) fn dump_op(op: &Op) -> DumpOp {
         Op::SaveCurrentBuffer => DumpOp::SaveCurrentBuffer,
         Op::SaveExcursion => DumpOp::SaveExcursion,
         Op::SaveRestriction => DumpOp::SaveRestriction,
+        Op::SaveWindowExcursion => DumpOp::SaveWindowExcursion,
         Op::MakeClosure(n) => DumpOp::MakeClosure(n),
         Op::CallBuiltin(a, b) => DumpOp::CallBuiltin(a, b),
     }
@@ -2153,6 +2154,7 @@ pub(crate) fn load_op(op: &DumpOp) -> Result<Op, DumpError> {
         DumpOp::SaveCurrentBuffer => Op::SaveCurrentBuffer,
         DumpOp::SaveExcursion => Op::SaveExcursion,
         DumpOp::SaveRestriction => Op::SaveRestriction,
+        DumpOp::SaveWindowExcursion => Op::SaveWindowExcursion,
         DumpOp::MakeClosure(n) => Op::MakeClosure(n),
         DumpOp::CallBuiltin(a, b) => Op::CallBuiltin(a, b),
     };

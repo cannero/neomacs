@@ -225,6 +225,7 @@ pub enum DumpOp {
     SaveCurrentBuffer,
     SaveExcursion,
     SaveRestriction,
+    SaveWindowExcursion,
     MakeClosure(u16),
     CallBuiltin(u16, u8),
 }

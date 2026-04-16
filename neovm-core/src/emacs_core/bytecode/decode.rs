@@ -357,8 +357,13 @@ fn decode_pass1(
                 ops.push(RawOp::Resolved(Op::SaveExcursion));
             }
 
-            // 139: obsolete (was save-window-excursion before Emacs 24)
-            139 => return Err(DecodeError::ObsoleteOpcode(byte, byte_offset)),
+            // 139: Bsave_window_excursion — GNU marks it obsolete since 24.1
+            // but still supports it in bytecode.c. Some .elc files from
+            // GNU Emacs 31 contain it. Pops TOP, evaluates it with Fprogn
+            // inside a save-window-excursion context.
+            139 => {
+                ops.push(RawOp::Resolved(Op::SaveWindowExcursion));
+            }
 
             140 => {
                 ops.push(RawOp::Resolved(Op::SaveRestriction));
