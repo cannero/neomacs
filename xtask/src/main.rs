@@ -187,6 +187,15 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // ---------------------------------------------------------------
     gnu_emacs_precompile(options, &paths)?;
 
+    // ---------------------------------------------------------------
+    // Generate org-loaddefs.el if missing.
+    //
+    // GNU Emacs's Makefile runs `loaddefs-generate` on lisp/org/ to
+    // create org-loaddefs.el. Without it, org.el prints a warning
+    // during loadup. Generate it using GNU Emacs.
+    // ---------------------------------------------------------------
+    gnu_emacs_generate_org_loaddefs(options, &paths)?;
+
     run_command(
         options,
         &options.repo_root,
@@ -388,6 +397,51 @@ fn gnu_emacs_precompile(options: &FreshBuildOptions, paths: &PipelinePaths) -> R
 /// Find a GNU Emacs binary for pre-compilation.
 /// Checks: $GNU_EMACS env var, then `emacs` on PATH.
 /// Validates that the found binary is actually GNU Emacs (not neomacs).
+/// Generate org-loaddefs.el using GNU Emacs if it's missing or stale.
+/// Matches GNU Emacs's `make autoloads` for the org/ directory.
+fn gnu_emacs_generate_org_loaddefs(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let org_loaddefs = paths.lisp_root.join("org/org-loaddefs.el");
+    if org_loaddefs.exists() {
+        return Ok(());
+    }
+
+    let gnu_emacs = match find_gnu_emacs() {
+        Some(e) => e,
+        None => return Ok(()), // Skip if no GNU Emacs
+    };
+
+    print_synthetic_step("generate org-loaddefs.el with GNU Emacs");
+
+    if options.dry_run {
+        println!("  would generate: {}", org_loaddefs.display());
+        return Ok(());
+    }
+
+    let org_dir = paths.lisp_root.join("org");
+    let args = vec![
+        OsString::from("--batch"),
+        OsString::from("-L"),
+        paths.lisp_root.as_os_str().to_os_string(),
+        OsString::from("-L"),
+        paths.lisp_root.join("emacs-lisp").as_os_str().to_os_string(),
+        OsString::from("--eval"),
+        OsString::from("(require 'loaddefs-gen)"),
+        OsString::from("--eval"),
+        OsString::from(format!(
+            "(loaddefs-generate \"{}\" \"{}\")",
+            org_dir.display(),
+            org_loaddefs.display()
+        )),
+    ];
+
+    run_command(options, &options.repo_root, &gnu_emacs, &args, &[])?;
+    println!("  INFO  generated {}", org_loaddefs.display());
+    Ok(())
+}
+
 fn find_gnu_emacs() -> Option<PathBuf> {
     // Check GNU_EMACS env var first
     if let Some(path) = env::var_os("GNU_EMACS") {
