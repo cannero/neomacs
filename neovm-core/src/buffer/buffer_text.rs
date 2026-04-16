@@ -691,6 +691,69 @@ impl BufferText {
         });
         result
     }
+
+    /// Convert a logical Emacs byte position to a character position. Symmetric
+    /// to `buf_charpos_to_bytepos` — shares the same anchor + cache machinery.
+    pub fn buf_bytepos_to_charpos(&self, target: usize) -> usize {
+        let storage = self.storage.borrow();
+        let total_chars = storage.gap.char_count();
+        let total_bytes = storage.gap.emacs_byte_len();
+
+        if target >= total_bytes {
+            return total_chars;
+        }
+
+        // Unibyte fast path: char == byte, no scan needed.
+        if total_chars == total_bytes {
+            return target;
+        }
+
+        // Bracket is expressed as (bytepos, charpos) for this direction.
+        let mut best_below: (usize, usize) = (0, 0);
+        let mut best_above: (usize, usize) = (total_bytes, total_chars);
+
+        let gpt = storage.gap.gpt();
+        let gpt_byte = storage.gap.gpt_byte();
+        consider_anchor_byte(target, (gpt_byte, gpt), &mut best_below, &mut best_above);
+
+        let cached = storage.pos_cache.get();
+        if cached.epoch_chars == total_chars
+            && cached.epoch_bytes == total_bytes
+            && (cached.epoch_chars != 0 || cached.epoch_bytes != 0)
+        {
+            consider_anchor_byte(
+                target,
+                (cached.bytepos, cached.charpos),
+                &mut best_below,
+                &mut best_above,
+            );
+        }
+
+        let mut distance: usize = POSITION_DISTANCE_BASE;
+        for m in &storage.markers {
+            consider_anchor_byte(target, (m.byte_pos, m.char_pos), &mut best_below, &mut best_above);
+            if best_above.0.saturating_sub(target) < distance
+                || target.saturating_sub(best_below.0) < distance
+            {
+                break;
+            }
+            distance = distance.saturating_add(POSITION_DISTANCE_INCR);
+        }
+
+        let result = if target - best_below.0 <= best_above.0 - target {
+            scan_forward_bytes(&storage.gap, best_below, target)
+        } else {
+            scan_backward_bytes(&storage.gap, best_above, target)
+        };
+
+        storage.pos_cache.set(PositionCache {
+            epoch_chars: total_chars,
+            epoch_bytes: total_bytes,
+            charpos: result,
+            bytepos: target,
+        });
+        result
+    }
 }
 
 impl fmt::Display for BufferText {
@@ -772,6 +835,63 @@ fn scan_backward(gap: &GapBuffer, anchor: (usize, usize), target: usize) -> usiz
         cp -= 1;
     }
     bp
+}
+
+/// Update `(best_below, best_above)` in place using a new `(bytepos, charpos)` anchor.
+fn consider_anchor_byte(
+    target: usize,
+    anchor: (usize, usize), // (bytepos, charpos)
+    best_below: &mut (usize, usize),
+    best_above: &mut (usize, usize),
+) {
+    if anchor.0 <= target && anchor.0 > best_below.0 {
+        *best_below = anchor;
+    }
+    if anchor.0 >= target && anchor.0 < best_above.0 {
+        *best_above = anchor;
+    }
+}
+
+/// Walk forward from `anchor = (bytepos, charpos)` to reach `target` bytepos.
+/// Returns the char position.
+fn scan_forward_bytes(gap: &GapBuffer, anchor: (usize, usize), target: usize) -> usize {
+    let (mut bp, mut cp) = anchor;
+    while bp < target {
+        if !gap.is_multibyte() {
+            bp += 1;
+            cp += 1;
+            continue;
+        }
+        let mut tmp = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+        let available = (gap.len() - bp).min(tmp.len());
+        for (i, slot) in tmp[..available].iter_mut().enumerate() {
+            *slot = gap.byte_at(bp + i);
+        }
+        let (_, len) = crate::emacs_core::emacs_char::string_char(&tmp[..available]);
+        bp += len;
+        cp += 1;
+    }
+    cp
+}
+
+/// Walk backward from `anchor = (bytepos, charpos)` to reach `target` bytepos.
+/// Returns the char position.
+fn scan_backward_bytes(gap: &GapBuffer, anchor: (usize, usize), target: usize) -> usize {
+    let (mut bp, mut cp) = anchor;
+    while bp > target {
+        if !gap.is_multibyte() {
+            bp -= 1;
+            cp -= 1;
+            continue;
+        }
+        let mut prev = bp - 1;
+        while prev > 0 && (gap.byte_at(prev) & 0xC0) == 0x80 {
+            prev -= 1;
+        }
+        bp = prev;
+        cp -= 1;
+    }
+    cp
 }
 
 #[cfg(test)]

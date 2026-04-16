@@ -91,3 +91,26 @@ fn buf_charpos_to_bytepos_invalidates_on_mutation() {
     assert_eq!(second, 3);
     assert_ne!(first, second, "cache returned stale bytepos after mutation");
 }
+
+#[test]
+fn buf_bytepos_to_charpos_matches_oracle() {
+    let mut s = String::new();
+    for i in 0..5000 {
+        if i % 2 == 0 { s.push_str("hello "); } else { s.push_str("日本語 "); }
+    }
+    let text = BufferText::from_str(&s);
+
+    let mut bytes = Vec::new();
+    text.copy_bytes_to(0, text.len(), &mut bytes);
+
+    for &bp in &[0usize, 1, 50, 500, 5000, 12345, text.len() - 1, text.len()] {
+        // Oracle valid only on char boundaries — snap bp down to one.
+        let mut bp_snapped = bp;
+        while bp_snapped > 0 && bp_snapped < bytes.len() && (bytes[bp_snapped] & 0xC0) == 0x80 {
+            bp_snapped -= 1;
+        }
+        let got = text.buf_bytepos_to_charpos(bp_snapped);
+        let expected = crate::emacs_core::emacs_char::byte_to_char_pos(&bytes, bp_snapped);
+        assert_eq!(got, expected, "bytepos {bp_snapped}");
+    }
+}
