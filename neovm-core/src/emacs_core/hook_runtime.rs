@@ -29,11 +29,14 @@ impl HookRuntime for Context {
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
     ) -> Result<T, Flow> {
-        self.with_gc_scope_result(|ctx| f(ctx))
+        let roots = self.save_specpdl_roots();
+        let result = f(self);
+        self.restore_specpdl_roots(roots);
+        result
     }
 
     fn push_hook_root(&mut self, value: Value) {
-        self.root(value);
+        self.push_specpdl_root(value);
     }
 }
 
