@@ -25,18 +25,19 @@ fn eval_all(src: &str) -> Vec<String> {
     // any intervening GC reclaims the cons cells in the unrooted
     // `forms` Vec<Value> (malloc heap, invisible to conservative
     // stack scanning).
-    ev.with_gc_scope(|ev| {
-        for form in &forms {
-            ev.push_eval_root(*form);
-        }
-        forms
-            .iter()
-            .map(|form| {
-                let result = ev.eval_form(*form);
-                format_eval_result(&result)
-            })
-            .collect()
-    })
+    let roots = ev.save_specpdl_roots();
+    for form in &forms {
+        ev.push_specpdl_root(*form);
+    }
+    let result = forms
+        .iter()
+        .map(|form| {
+            let result = ev.eval_form(*form);
+            format_eval_result(&result)
+        })
+        .collect();
+    ev.restore_specpdl_roots(roots);
+    result
 }
 
 fn eval_one_with_frame(src: &str) -> String {
@@ -8370,10 +8371,10 @@ fn gc_collect_exact_inside_extra_root_scope_retains_explicit_slice() {
     let _unreachable = Value::cons(Value::fixnum(1), Value::fixnum(2));
     let before = ev.tagged_heap.allocated_count();
 
-    ev.with_gc_scope(|eval| {
-        eval.push_eval_root(rooted);
-        eval.gc_collect_exact();
-    });
+    let scope = ev.save_specpdl_roots();
+    ev.push_specpdl_root(rooted);
+    ev.gc_collect_exact();
+    ev.restore_specpdl_roots(scope);
 
     let after = ev.tagged_heap.allocated_count();
     assert_eq!(rooted.cons_car(), Value::fixnum(11));
@@ -8522,20 +8523,20 @@ fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
         Some(Value::symbol("identity")),
         &[],
     );
-    ev.with_gc_scope(|eval| {
-        eval.push_eval_root(payload);
-        eval.gc_collect_exact();
+    let scope = ev.save_specpdl_roots();
+    ev.push_specpdl_root(payload);
+    ev.gc_collect_exact();
 
-        let rooted = eval
-            .active_call_roots
-            .last()
-            .expect("active call frame should remain present")
-            .extra_roots[0];
-        assert_eq!(
-            rooted.as_vector_data().unwrap().as_slice(),
-            &[Value::fixnum(17)]
-        );
-    });
+    let rooted = ev
+        .active_call_roots
+        .last()
+        .expect("active call frame should remain present")
+        .extra_roots[0];
+    assert_eq!(
+        rooted.as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(17)]
+    );
+    ev.restore_specpdl_roots(scope);
     ev.pop_active_call_frame();
 }
 
@@ -8570,18 +8571,18 @@ fn extra_gc_roots_use_specpdl_when_no_runtime_frame_owns_them() {
 
     let payload = Value::vector(vec![Value::fixnum(43)]);
 
-    let rooted = ev.with_gc_scope(|eval| {
-        eval.push_eval_root(payload);
-        assert!(matches!(
-            eval.specpdl.last(),
-            Some(SpecBinding::GcRoot { .. })
-        ));
-        eval.gc_collect_exact();
-        match eval.specpdl.last() {
-            Some(SpecBinding::GcRoot { value }) => *value,
-            other => panic!("expected specpdl gc root entry, got {other:?}"),
-        }
-    });
+    let scope = ev.save_specpdl_roots();
+    ev.push_specpdl_root(payload);
+    assert!(matches!(
+        ev.specpdl.last(),
+        Some(SpecBinding::GcRoot { .. })
+    ));
+    ev.gc_collect_exact();
+    let rooted = match ev.specpdl.last() {
+        Some(SpecBinding::GcRoot { value }) => *value,
+        other => panic!("expected specpdl gc root entry, got {other:?}"),
+    };
+    ev.restore_specpdl_roots(scope);
 
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
@@ -8591,19 +8592,24 @@ fn extra_gc_roots_use_specpdl_when_no_runtime_frame_owns_them() {
 }
 
 #[test]
-fn gc_scope_uses_specpdl_when_no_runtime_frame_owns_roots() {
+fn push_specpdl_root_creates_gc_root_entry_and_restore_removes_it() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
-    let rooted = ev.with_gc_scope(|eval| {
-        let payload = eval.root(Value::vector(vec![Value::fixnum(44)]));
-        assert!(matches!(
-            eval.specpdl.last(),
-            Some(SpecBinding::GcRoot { .. })
-        ));
-        eval.gc_collect_exact();
-        payload
-    });
+    let payload = Value::vector(vec![Value::fixnum(44)]);
+
+    let scope = ev.save_specpdl_roots();
+    ev.push_specpdl_root(payload);
+    assert!(matches!(
+        ev.specpdl.last(),
+        Some(SpecBinding::GcRoot { .. })
+    ));
+    ev.gc_collect_exact();
+    let rooted = match ev.specpdl.last() {
+        Some(SpecBinding::GcRoot { value }) => *value,
+        other => panic!("expected specpdl gc root entry, got {other:?}"),
+    };
+    ev.restore_specpdl_roots(scope);
 
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
@@ -8885,10 +8891,10 @@ fn gc_safe_point_exact_inside_extra_root_scope_retains_explicit_slice() {
     let before = ev.tagged_heap.allocated_count();
 
     while ev.gc_count == 0 {
-        ev.with_gc_scope(|eval| {
-            eval.push_eval_root(rooted);
-            eval.gc_safe_point_exact();
-        });
+        let scope = ev.save_specpdl_roots();
+        ev.push_specpdl_root(rooted);
+        ev.gc_safe_point_exact();
+        ev.restore_specpdl_roots(scope);
     }
 
     let after = ev.tagged_heap.allocated_count();
@@ -9020,18 +9026,18 @@ fn eval_stress(src: &str) -> Vec<String> {
     // lives on the malloc heap and is invisible to conservative
     // stack scanning; without rooting, the forced low-threshold
     // GC reclaims the cons cells while we are still iterating.
-    ev.with_gc_scope(|ev| {
-        for form in &forms {
-            ev.push_eval_root(*form);
-        }
-        let mut results = Vec::new();
-        for form in &forms {
-            let r = ev.eval_form(*form);
-            results.push(format_eval_result(&r));
-            ev.gc_safe_point();
-        }
-        results
-    })
+    let roots = ev.save_specpdl_roots();
+    for form in &forms {
+        ev.push_specpdl_root(*form);
+    }
+    let mut results = Vec::new();
+    for form in &forms {
+        let r = ev.eval_form(*form);
+        results.push(format_eval_result(&r));
+        ev.gc_safe_point();
+    }
+    ev.restore_specpdl_roots(roots);
+    results
 }
 
 #[test]

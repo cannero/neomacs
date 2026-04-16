@@ -7709,10 +7709,10 @@ fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc(
                 &form,
                 &ctx.buffers,
             ));
-            ctx.with_gc_scope(|ctx| {
-                ctx.push_eval_root(form);
-                ctx.gc_collect_exact();
-            });
+            let scope = ctx.save_specpdl_roots();
+            ctx.push_specpdl_root(form);
+            ctx.gc_collect_exact();
+            ctx.restore_specpdl_roots(scope);
             ctx.eval_value(&form).map_err(map_flow)
         },
     )

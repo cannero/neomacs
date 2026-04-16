@@ -14,18 +14,19 @@ fn eval_all(src: &str) -> Vec<String> {
     // lives on the malloc heap and is invisible to conservative
     // stack scanning; without rooting, any intervening GC reclaims
     // the cons cells in the unrooted forms vec.
-    ev.with_gc_scope(|ev| {
-        for form in &forms {
-            ev.push_eval_root(*form);
-        }
-        forms
-            .iter()
-            .map(|form| {
-                let result = ev.eval_form(*form);
-                format_eval_result(&result)
-            })
-            .collect()
-    })
+    let roots = ev.save_specpdl_roots();
+    for form in &forms {
+        ev.push_specpdl_root(*form);
+    }
+    let result = forms
+        .iter()
+        .map(|form| {
+            let result = ev.eval_form(*form);
+            format_eval_result(&result)
+        })
+        .collect();
+    ev.restore_specpdl_roots(roots);
+    result
 }
 
 fn bootstrap_eval_one(src: &str) -> String {
