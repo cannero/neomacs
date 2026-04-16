@@ -442,17 +442,9 @@ pub(crate) fn plan_defalias_in_obarray(
     args: &[Value],
 ) -> Result<DefaliasPlan, Flow> {
     expect_range_args("defalias", args, 2, 3)?;
-    let symbol = match args[0].kind() {
-        ValueKind::Nil => intern("nil"),
-        ValueKind::T => intern("t"),
-        ValueKind::Symbol(id) => id,
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), args[0]],
-            ));
-        }
-    };
+    // Unwrap symbol-with-pos transparently via symbol_id, which handles
+    // bare symbols, nil, t, and symbol-with-pos objects.
+    let symbol = super::symbols::expect_symbol_id(&args[0])?;
     if symbol == intern("nil") {
         return Err(signal("setting-constant", vec![Value::symbol("nil")]));
     }

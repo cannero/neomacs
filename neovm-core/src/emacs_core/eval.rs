@@ -814,7 +814,12 @@ fn is_lambda_like_symbol_id(id: SymId) -> bool {
 
 fn cons_head_symbol_id(value: &Value) -> Option<SymId> {
     if value.is_cons() {
-        value.cons_car().as_symbol_id()
+        let car = value.cons_car();
+        // Try bare symbol first, then transparently unwrap symbol-with-pos.
+        car.as_symbol_id().or_else(|| {
+            car.as_symbol_with_pos_sym()
+                .and_then(|sym| sym.as_symbol_id())
+        })
     } else {
         None
     }
@@ -946,15 +951,14 @@ pub(crate) fn provide_value_in_state(
     feature: Value,
     subfeatures: Option<Value>,
 ) -> EvalResult {
-    let name = match feature.kind() {
-        ValueKind::Symbol(symbol) => resolve_sym(symbol).to_owned(),
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), feature],
-            ));
-        }
-    };
+    // Use symbol_id to transparently handle symbol-with-pos wrappers.
+    let sym_id = super::builtins::symbols::symbol_id(&feature).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), feature],
+        )
+    })?;
+    let name = resolve_sym(sym_id).to_owned();
     if let Some(value) = subfeatures {
         obarray.put_property(&name, "subfeatures", value);
     }
@@ -1509,15 +1513,13 @@ pub(crate) fn plan_require_in_state(
     noerror: Option<Value>,
 ) -> Result<RequirePlan, Flow> {
     refresh_features_from_variable_in_state(obarray, features);
-    let sym_id = match feature.kind() {
-        ValueKind::Symbol(s) => s,
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("symbolp"), feature],
-            ));
-        }
-    };
+    // Use symbol_id to transparently handle symbol-with-pos wrappers.
+    let sym_id = super::builtins::symbols::symbol_id(&feature).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), feature],
+        )
+    })?;
     let name = resolve_sym(sym_id).to_owned();
     if features.contains(&sym_id) {
         return Ok(RequirePlan::Return(Value::symbol(&name)));
@@ -6316,13 +6318,15 @@ impl Context {
     /// 3. Cons → special form / macro / function call
     pub fn eval_sub(&mut self, form: Value) -> EvalResult {
         // 1. Symbol → variable lookup (GNU eval.c:2554-2562)
-        if let Some(sym_id) = form.as_symbol_id() {
+        // Also unwrap symbol-with-pos when symbols-with-pos-enabled is true.
+        let form_unwrapped = self.unwrap_symbol(form);
+        if let Some(sym_id) = form_unwrapped.as_symbol_id() {
             return self.eval_symbol_by_id(sym_id);
         }
 
         // 2. Non-cons → self-evaluating (GNU eval.c:2564-2565)
-        if !form.is_cons() {
-            return Ok(form);
+        if !form_unwrapped.is_cons() {
+            return Ok(form_unwrapped);
         }
 
         self.depth += 1;
@@ -6359,7 +6363,7 @@ impl Context {
     }
 
     fn eval_sub_cons(&mut self, form: Value) -> EvalResult {
-        let original_fun = form.cons_car();
+        let original_fun = self.unwrap_symbol(form.cons_car());
         let original_args = form.cons_cdr();
 
         // Resolve function (GNU eval.c:2600-2605)
@@ -7270,7 +7274,7 @@ impl Context {
         let mut bindings = varlist;
 
         while bindings.is_cons() {
-            let binding = bindings.cons_car();
+            let binding = self.unwrap_symbol(bindings.cons_car());
             bindings = bindings.cons_cdr();
             if let Some(id) = binding.as_symbol_id() {
                 if let Some(name) = symbol_sets_constant_error(id) {
@@ -7293,7 +7297,7 @@ impl Context {
                 self.restore_specpdl_roots(specpdl_root_scope);
                 return Err(signal("wrong-type-argument", vec![]));
             }
-            let head = binding.cons_car();
+            let head = self.unwrap_symbol(binding.cons_car());
             let Some(id) = head.as_symbol_id() else {
                 self.restore_specpdl_roots(specpdl_root_scope);
                 return Err(signal(
@@ -7410,12 +7414,12 @@ impl Context {
         let init_result: Result<(), Flow> = (|| {
             let mut bindings = varlist;
             while bindings.is_cons() {
-                let binding = bindings.cons_car();
+                let binding = self.unwrap_symbol(bindings.cons_car());
                 bindings = bindings.cons_cdr();
                 let (id, value) = if let Some(id) = binding.as_symbol_id() {
                     (id, Value::NIL)
                 } else if binding.is_cons() {
-                    let head = binding.cons_car();
+                    let head = self.unwrap_symbol(binding.cons_car());
                     let Some(id) = head.as_symbol_id() else {
                         return Err(signal(
                             "wrong-type-argument",
@@ -7500,6 +7504,7 @@ impl Context {
             let value_form = cursor.cons_car();
             cursor = cursor.cons_cdr();
             nargs += 1;
+            let symbol = self.unwrap_symbol(symbol);
             let Some(sym_id) = symbol.as_symbol_id() else {
                 return Err(signal(
                     "wrong-type-argument",
@@ -7721,7 +7726,7 @@ impl Context {
             return Err(self.listp_error(tail));
         }
 
-        let symbol = tail.cons_car();
+        let symbol = self.unwrap_symbol(tail.cons_car());
         let Some(sym_id) = symbol.as_symbol_id() else {
             return Err(signal(
                 "wrong-type-argument",
@@ -7795,7 +7800,7 @@ impl Context {
         if !tail.is_cons() {
             return Err(self.listp_error(tail));
         }
-        let symbol = tail.cons_car();
+        let symbol = self.unwrap_symbol(tail.cons_car());
         let Some(sym_id) = symbol.as_symbol_id() else {
             return Err(signal(
                 "wrong-type-argument",
@@ -7907,7 +7912,7 @@ impl Context {
                 vec![Value::symbol(call_name), Value::fixnum(nargs as i64)],
             ));
         }
-        let var = tail.cons_car();
+        let var = self.unwrap_symbol(tail.cons_car());
         let Some(var_id) = var.as_symbol_id() else {
             return Err(signal(
                 "wrong-type-argument",
@@ -7942,7 +7947,7 @@ impl Context {
                 ));
             }
             let head = handler.cons_car();
-            if !(head.is_symbol() || head.is_cons()) {
+            if !(head.is_symbol() || head.is_symbol_with_pos() || head.is_cons()) {
                 return Err(signal(
                     "error",
                     vec![Value::string(format!(
@@ -7951,7 +7956,8 @@ impl Context {
                     ))],
                 ));
             }
-            if head.is_symbol_named(":success") {
+            let head_unwrapped = self.unwrap_symbol(head);
+            if head_unwrapped.is_symbol_named(":success") {
                 success_handler_idx = Some(handler_index);
             }
         }
@@ -8331,10 +8337,8 @@ impl Context {
         filename: Option<Value>,
         noerror: Option<Value>,
     ) -> EvalResult {
-        let feature_name = match feature.kind() {
-            ValueKind::Symbol(sid) => Some(resolve_sym(sid).to_string()),
-            _ => None,
-        };
+        let feature_name = super::builtins::symbols::symbol_id(&feature)
+            .map(|sid| resolve_sym(sid).to_string());
         let filename_str = filename.as_ref().and_then(|v| v.as_runtime_string_owned());
         match plan_require_in_state(
             &self.obarray,
@@ -8924,6 +8928,11 @@ impl Context {
             ValueKind::Symbol(id) => self.apply_symbol_callable_untraced(id, args, true),
             ValueKind::T => self.apply_symbol_callable_untraced(intern("t"), args, true),
             ValueKind::Nil => Err(signal("void-function", vec![Value::symbol("nil")])),
+            _ if function.is_symbol_with_pos() => {
+                // Transparently unwrap symbol-with-pos → bare symbol for funcall dispatch.
+                let bare = function.as_symbol_with_pos_sym().unwrap();
+                self.funcall_general_untraced(bare, args)
+            }
             ValueKind::Cons => {
                 if super::autoload::is_autoload_value(&function) {
                     Err(signal(
@@ -8952,7 +8961,10 @@ impl Context {
     pub(crate) fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
         let items =
             list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
-        let Some(head_name) = items.first().and_then(|v| v.as_symbol_name()) else {
+        // Unwrap symbol-with-pos on the car so (lambda ...) / (closure ...)
+        // forms with position-wrapped heads are recognized.
+        let head_val = items.first().map(|v| self.unwrap_symbol(*v));
+        let Some(head_name) = head_val.and_then(|v| v.as_symbol_name()) else {
             return Err(signal("invalid-function", vec![function]));
         };
 

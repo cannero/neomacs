@@ -121,7 +121,6 @@ pub fn signal_matches_condition_value(
     pattern: &Value,
 ) -> bool {
     match pattern.kind() {
-        ValueKind::Symbol(id) => signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id)),
         ValueKind::T => true,
         ValueKind::Nil => false,
         ValueKind::Cons => list_to_vec(pattern).is_some_and(|items| {
@@ -129,7 +128,14 @@ pub fn signal_matches_condition_value(
                 .iter()
                 .any(|item| signal_matches_condition_value(obarray, signal_sym, item))
         }),
-        _ => false,
+        _ => {
+            // Use symbol_id to handle both bare symbols and symbol-with-pos wrappers.
+            if let Some(id) = super::builtins::symbols::symbol_id(pattern) {
+                signal_matches_hierarchical(obarray, signal_sym, resolve_sym(id))
+            } else {
+                false
+            }
+        }
     }
 }
 

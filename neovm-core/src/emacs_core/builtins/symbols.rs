@@ -18,7 +18,16 @@ pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
         ValueKind::Nil => Some(NIL_SYM_ID),
         ValueKind::T => Some(T_SYM_ID),
         ValueKind::Symbol(id) => Some(id),
-        _ => None,
+        _ => {
+            // Transparently unwrap symbol-with-pos → bare symbol.
+            // The inner `.sym` is always a bare symbol, so one level
+            // of unwrapping is sufficient and safe.
+            if let Some(sym) = value.as_symbol_with_pos_sym() {
+                symbol_id(&sym)
+            } else {
+                None
+            }
+        }
     }
 }
 
@@ -549,7 +558,9 @@ pub(crate) fn builtin_func_arity(eval: &mut super::eval::Context, args: Vec<Valu
     let obarray = eval.obarray();
     expect_args("func-arity", &args, 1)?;
 
-    if let Some(name) = args[0].as_symbol_name() {
+    // Unwrap symbol-with-pos transparently for symbol name extraction.
+    let arg0 = eval.unwrap_symbol(args[0]);
+    if let Some(name) = arg0.as_symbol_name() {
         if let Some(function) =
             resolve_indirect_symbol_by_id_in_obarray(obarray, intern(name)).map(|(_, value)| value)
         {
@@ -1348,10 +1359,17 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
                 crate::emacs_core::intern::resolve_sym_lisp_string(T_SYM_ID),
             ),
             _other => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("stringp"), args[0]],
-                ));
+                // Transparently unwrap symbol-with-pos → bare symbol name.
+                if let Some(id) = symbol_id(&args[0]) {
+                    std::borrow::Cow::Borrowed(
+                        crate::emacs_core::intern::resolve_sym_lisp_string(id),
+                    )
+                } else {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("stringp"), args[0]],
+                    ));
+                }
             }
         };
         let vec_data = obarray_val.as_vector_data().unwrap();
@@ -1377,10 +1395,17 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
             std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(id))
         }
         _other => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("stringp"), args[0]],
-            ));
+            // Transparently unwrap symbol-with-pos → bare symbol name.
+            if let Some(id) = symbol_id(&args[0]) {
+                std::borrow::Cow::Borrowed(
+                    crate::emacs_core::intern::resolve_sym_lisp_string(id),
+                )
+            } else {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), args[0]],
+                ));
+            }
         }
     };
     if let Some(id) = obarray.intern_soft_lisp_string(name.as_ref()) {

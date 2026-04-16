@@ -4479,7 +4479,13 @@ fn resolve_switch_target(func: &ByteCodeFunction, raw_addr: i64) -> Result<usize
 fn sym_name(constants: &[Value], idx: u16) -> String {
     constants
         .get(idx as usize)
-        .and_then(|v| v.as_symbol_name())
+        .and_then(|v| {
+            // Transparently unwrap symbol-with-pos → bare symbol name.
+            v.as_symbol_name().or_else(|| {
+                v.as_symbol_with_pos_sym()
+                    .and_then(|sym| sym.as_symbol_name())
+            })
+        })
         .unwrap_or("nil")
         .to_string()
 }
@@ -4494,10 +4500,18 @@ fn sym_name(constants: &[Value], idx: u16) -> String {
 /// intern() -> SymId` instead would acquire the global interner
 /// `RwLock` twice per opcode, which dominated debug-build runtime when
 /// the byte-compiler iterated over hot loops.
+///
+/// When `read-positioning-symbols` wraps constants as symbol-with-pos,
+/// we transparently unwrap to the bare symbol SymId.
 fn sym_id_at(constants: &[Value], idx: u16) -> SymId {
     constants
         .get(idx as usize)
-        .and_then(|v| v.as_symbol_id())
+        .and_then(|v| {
+            v.as_symbol_id().or_else(|| {
+                v.as_symbol_with_pos_sym()
+                    .and_then(|sym| sym.as_symbol_id())
+            })
+        })
         .unwrap_or_else(|| intern("nil"))
 }
 #[cfg(test)]
