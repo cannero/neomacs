@@ -7358,22 +7358,47 @@ impl Context {
         }
 
         let specpdl_count = self.specpdl.len();
-        // GNU Flet always saves/restores lexenv when in lexical mode
-        // (even if there are no lexical bindings in this particular let),
-        // because the body may modify Vinternal_interpreter_environment
-        // (e.g., via defvar).  Matches GNU eval.c:1188-1190.
-        if use_lexical {
-            let saved = self.lexenv;
-            self.specpdl
-                .push(SpecBinding::LexicalEnv { old_lexenv: saved });
-            for (sym_id, val) in &lexical_bindings {
-                bind_lexical_value_rooted_in_specpdl(
-                    &mut self.lexenv,
-                    &mut self.specpdl,
-                    *sym_id,
-                    *val,
-                );
+
+        // Mirrors GNU Flet (eval.c:1167-1190):
+        // 1. Capture current lexenv as a LOCAL variable
+        // 2. Build new lexenv by consing lexical bindings onto it (locally)
+        // 3. Dynamic bindings go through specbind
+        // 4. One atomic specbind to swap the lexenv if it changed
+        //
+        // This avoids the cascading leak where bind_lexical_value_rooted_in_specpdl
+        // modifies self.lexenv directly, making intermediate states visible to
+        // recursive eval_sub calls during the binding phase.
+        let mut new_lexenv = self.lexenv; // GNU: lexenv = Vinternal_interpreter_environment
+        for (sym_id, val) in &lexical_bindings {
+            // GNU: lexenv = Fcons(Fcons(var, tem), lexenv)
+            // Build locally — do NOT touch self.lexenv yet.
+            let binding_pair = Value::make_cons(
+                crate::emacs_core::eval::lexenv_binding_symbol_value(*sym_id),
+                *val,
+            );
+            // Root the cons cell on the specpdl temporarily to protect from GC.
+            self.specpdl.push(SpecBinding::GcRoot { value: binding_pair });
+            new_lexenv = Value::make_cons(binding_pair, new_lexenv);
+            // Update the root to point to the new cons (the outer one is what matters).
+            match self.specpdl.last_mut() {
+                Some(SpecBinding::GcRoot { value }) => *value = new_lexenv,
+                _ => unreachable!(),
             }
+        }
+        // GNU: if (!BASE_EQ(lexenv, Vinternal_interpreter_environment))
+        //        specbind(Qinternal_interpreter_environment, lexenv);
+        if new_lexenv.bits() != self.lexenv.bits() {
+            self.specpdl.push(SpecBinding::LexicalEnv {
+                old_lexenv: self.lexenv,
+            });
+            self.lexenv = new_lexenv;
+        } else if use_lexical {
+            // Even when no lexical bindings, save/restore lexenv so that
+            // body modifications (e.g., defvar) are properly unwound.
+            // Matches GNU eval.c:1188-1190.
+            self.specpdl.push(SpecBinding::LexicalEnv {
+                old_lexenv: self.lexenv,
+            });
         }
         for (sym_id, value) in &dynamic_sym_ids {
             self.specbind(*sym_id, *value);
