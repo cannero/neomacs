@@ -1681,13 +1681,14 @@ fn format_mode_line_recursive_in_vm_runtime(
                 }
                 if cdr.is_cons() {
                     let form_val = cdr.cons_car();
-                    let val = shared.with_gc_scope_result(|eval| {
-                        for root in args_roots {
-                            eval.push_eval_root(*root);
-                        }
-                        eval.push_eval_root(form_val);
-                        eval.eval_value(&form_val)
-                    })?;
+                    let gc_roots = shared.save_specpdl_roots();
+                    for root in args_roots {
+                        shared.push_specpdl_root(*root);
+                    }
+                    shared.push_specpdl_root(form_val);
+                    let eval_result = shared.eval_value(&form_val);
+                    shared.restore_specpdl_roots(gc_roots);
+                    let val = eval_result?;
                     format_mode_line_recursive_in_vm_runtime(
                         shared,
                         args_roots,
