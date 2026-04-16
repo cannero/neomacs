@@ -65,6 +65,47 @@ const GC_PERCENT_SCALE: u64 = 1_000_000;
 pub(crate) const INTERNAL_COMPILER_FUNCTION_OVERRIDES: &str =
     "internal--compiler-function-overrides";
 
+/// Static subr entry — lives in global table, not on the tagged heap.
+/// Replaces the heap-allocated SubrObj for builtin function metadata.
+#[derive(Clone)]
+pub(crate) struct SubrEntry {
+    pub(crate) function: Option<crate::tagged::header::SubrFn>,
+    pub(crate) min_args: u16,
+    pub(crate) max_args: Option<u16>,
+    pub(crate) dispatch_kind: crate::tagged::header::SubrDispatchKind,
+    pub(crate) name_id: crate::emacs_core::intern::NameId,
+}
+
+thread_local! {
+    static GLOBAL_SUBR_TABLE: RefCell<HashMap<SymId, SubrEntry>> = RefCell::new(HashMap::new());
+}
+
+/// Register a subr entry in the global static table.
+pub(crate) fn register_global_subr_entry(sym_id: SymId, entry: SubrEntry) {
+    GLOBAL_SUBR_TABLE.with(|table| {
+        table.borrow_mut().insert(sym_id, entry);
+    });
+}
+
+/// Look up a subr entry by SymId.
+pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
+    GLOBAL_SUBR_TABLE.with(|table| {
+        table.borrow().get(&sym_id).cloned()
+    })
+}
+
+/// Access a subr entry by reference (avoids cloning).
+pub(crate) fn with_global_subr_entry<R>(sym_id: SymId, f: impl FnOnce(&SubrEntry) -> R) -> Option<R> {
+    GLOBAL_SUBR_TABLE.with(|table| {
+        table.borrow().get(&sym_id).map(f)
+    })
+}
+
+/// Clear all subr entries (used during heap reset).
+pub(crate) fn clear_global_subr_table() {
+    GLOBAL_SUBR_TABLE.with(|table| table.borrow_mut().clear());
+}
+
 /// Cached SymId for `internal--compiler-function-overrides`.
 ///
 /// `compiler_function_overrides_active_in_obarray` is called from
