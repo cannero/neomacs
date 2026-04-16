@@ -960,7 +960,7 @@ pub struct GuiFrameHostRequest {
     pub frame_id: crate::window::FrameId,
     pub width: u32,
     pub height: u32,
-    pub title: String,
+    pub title: crate::heap_types::LispString,
     pub geometry_hints: crate::window::GuiFrameGeometryHints,
 }
 
@@ -980,31 +980,31 @@ pub struct FontResolveRequest {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FontSpecResolveRequest {
     pub frame_id: crate::window::FrameId,
-    pub family: Option<String>,
-    pub registry: Option<String>,
-    pub lang: Option<String>,
+    pub family: Option<crate::heap_types::LispString>,
+    pub registry: Option<crate::heap_types::LispString>,
+    pub lang: Option<crate::heap_types::LispString>,
     pub weight: Option<FontWeight>,
     pub slant: Option<FontSlant>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFontMatch {
-    pub family: String,
-    pub foundry: Option<String>,
+    pub family: crate::heap_types::LispString,
+    pub foundry: Option<crate::heap_types::LispString>,
     pub weight: FontWeight,
     pub slant: FontSlant,
     pub width: FontWidth,
-    pub postscript_name: Option<String>,
+    pub postscript_name: Option<crate::heap_types::LispString>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedFrameFont {
-    pub family: String,
-    pub foundry: Option<String>,
+    pub family: crate::heap_types::LispString,
+    pub foundry: Option<crate::heap_types::LispString>,
     pub weight: FontWeight,
     pub slant: FontSlant,
     pub width: FontWidth,
-    pub postscript_name: Option<String>,
+    pub postscript_name: Option<crate::heap_types::LispString>,
     pub font_size_px: f32,
     pub char_width: f32,
     pub line_height: f32,
@@ -1012,18 +1012,18 @@ pub struct ResolvedFrameFont {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFontSpecMatch {
-    pub family: String,
-    pub registry: Option<String>,
+    pub family: crate::heap_types::LispString,
+    pub registry: Option<crate::heap_types::LispString>,
     pub weight: Option<FontWeight>,
     pub slant: Option<FontSlant>,
     pub width: Option<FontWidth>,
     pub spacing: Option<i32>,
-    pub postscript_name: Option<String>,
+    pub postscript_name: Option<crate::heap_types::LispString>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum ImageResolveSource {
-    File(String),
+    File(crate::heap_types::LispString),
     Data(Vec<u8>),
 }
 
@@ -1056,7 +1056,7 @@ pub trait DisplayHost {
     fn set_gui_frame_title(
         &mut self,
         _frame_id: crate::window::FrameId,
-        _title: String,
+        _title: crate::heap_types::LispString,
     ) -> Result<(), String> {
         Ok(())
     }

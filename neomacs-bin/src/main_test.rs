@@ -23,6 +23,7 @@ use neovm_core::emacs_core::print_value_with_eval;
 use neovm_core::emacs_core::terminal::pure::TerminalHost;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::face::FaceHeight;
+use neovm_core::heap_types::LispString;
 use neovm_core::window::{FrameId, GuiFrameGeometryHints};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -551,7 +552,7 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
             frame_id: FrameId(0x100000001),
             width: 960,
             height: 640,
-            title: "Neomacs".to_string(),
+            title: LispString::from_utf8("Neomacs"),
             geometry_hints: GuiFrameGeometryHints {
                 base_width: 24,
                 base_height: 16,
@@ -668,7 +669,7 @@ fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
             frame_id: FrameId(0x100000001),
             width: 1068,
             height: 1386,
-            title: "Neomacs".to_string(),
+            title: LispString::from_utf8("Neomacs"),
             geometry_hints: GuiFrameGeometryHints {
                 base_width: 29,
                 base_height: 31,

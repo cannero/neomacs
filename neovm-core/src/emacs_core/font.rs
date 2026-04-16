@@ -178,6 +178,14 @@ fn font_value_text(value: &Value) -> Option<String> {
     }
 }
 
+fn font_value_text_lisp_string(value: &Value) -> Option<LispString> {
+    match value.kind() {
+        ValueKind::String => value.as_lisp_string().cloned(),
+        ValueKind::Symbol(id) => Some(LispString::from_utf8(resolve_sym(id))),
+        _ => None,
+    }
+}
+
 struct LiveFrameFontResolution {
     font_value: Value,
     realized: Option<super::eval::ResolvedFrameFont>,
@@ -288,11 +296,11 @@ fn build_frame_font_object_from_resolution(
     resolved: &super::eval::ResolvedFrameFont,
 ) -> Value {
     let mut selected = requested_face.clone();
-    selected.family = Some(Value::string(resolved.family.clone()));
+    selected.family = Some(Value::heap_string(resolved.family.clone()));
     selected.foundry = resolved
         .foundry
         .clone()
-        .map(Value::string)
+        .map(Value::heap_string)
         .or(requested_face.foundry);
     selected.weight = Some(resolved.weight);
     selected.slant = Some(resolved.slant);
@@ -1046,10 +1054,10 @@ fn font_spec_resolve_request(
 
     let elems = font_spec.as_vector_data().unwrap().clone();
     let family =
-        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text(&value));
+        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text_lisp_string(&value));
     let registry =
-        font_vector_get_flexible(&elems, "registry").and_then(|value| font_value_text(&value));
-    let lang = font_vector_get_flexible(&elems, "lang").and_then(|value| font_value_text(&value));
+        font_vector_get_flexible(&elems, "registry").and_then(|value| font_value_text_lisp_string(&value));
+    let lang = font_vector_get_flexible(&elems, "lang").and_then(|value| font_value_text_lisp_string(&value));
     let weight = font_vector_get_flexible(&elems, "weight").and_then(font_weight_from_value);
     let slant = font_vector_get_flexible(&elems, "slant").and_then(font_slant_from_value);
 
@@ -1550,9 +1558,9 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         elems.push(value);
     };
 
-    push_field("family", Value::from_sym_id(intern(&matched.family)));
+    push_field("family", Value::from_sym_id(intern(matched.family.as_str().unwrap_or_default())));
     if let Some(registry) = &matched.registry {
-        push_field("registry", Value::from_sym_id(intern(registry)));
+        push_field("registry", Value::from_sym_id(intern(registry.as_str().unwrap_or_default())));
     }
     if let Some(weight) = matched.weight {
         push_field("weight", Value::symbol(font_weight_symbol(weight)));
@@ -1567,7 +1575,7 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         push_field("spacing", Value::fixnum(spacing as i64));
     }
     if let Some(postscript_name) = &matched.postscript_name {
-        push_field("postscript-name", Value::string(postscript_name.clone()));
+        push_field("postscript-name", Value::heap_string(postscript_name.clone()));
     }
 
     Value::vector(elems)
@@ -1578,11 +1586,11 @@ fn build_font_object_for_match(
     matched: &super::eval::ResolvedFontMatch,
 ) -> Value {
     let mut selected = face.clone();
-    selected.family = Some(Value::from_sym_id(intern(&matched.family)));
+    selected.family = Some(Value::from_sym_id(intern(matched.family.as_str().unwrap_or_default())));
     selected.foundry = matched
         .foundry
         .as_ref()
-        .map(|foundry| Value::from_sym_id(intern(foundry)))
+        .map(|foundry| Value::from_sym_id(intern(foundry.as_str().unwrap_or_default())))
         .or(face.foundry);
     selected.weight = Some(matched.weight);
     selected.slant = Some(matched.slant);

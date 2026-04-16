@@ -766,7 +766,8 @@ fn parse_display_image_layout(prop_val: &Value) -> Option<DisplayImageLayout> {
         match key {
             Some(":file") => {
                 source = value
-                    .as_runtime_string_owned()
+                    .as_lisp_string()
+                    .cloned()
                     .map(ImageResolveSource::File);
             }
             Some(":data") => {

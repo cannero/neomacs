@@ -33,6 +33,7 @@ use neomacs_layout_engine::gui_chrome::{collect_gui_menu_bar_items, collect_gui_
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::builtins::set_neomacs_monitor_info;
+use neovm_core::heap_types::LispString;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::eval::{
     FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ImageResolveRequest,
@@ -742,7 +743,7 @@ struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
     primary_window_adopted: bool,
     primary_frame_id: Option<neovm_core::window::FrameId>,
-    last_window_titles: Mutex<HashMap<neovm_core::window::FrameId, String>>,
+    last_window_titles: Mutex<HashMap<neovm_core::window::FrameId, LispString>>,
     font_metrics: Option<FontMetricsService>,
     primary_window_size: SharedPrimaryWindowSize,
     image_dimensions: SharedImageDimensions,
@@ -906,18 +907,19 @@ fn record_primary_window_resize(shared: &SharedPrimaryWindowSize, event: &Displa
 
 impl DisplayHost for PrimaryWindowDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
+        let title_string = request.title.as_str().unwrap_or("Neomacs").to_owned();
         tracing::debug!(
             "PrimaryWindowDisplayHost::realize_gui_frame fid=0x{:x} adopted={} size={}x{} title={}",
             request.frame_id.0,
             self.primary_window_adopted,
             request.width,
             request.height,
-            request.title
+            title_string
         );
         if !self.primary_window_adopted {
             self.cmd_tx
                 .send(RenderCommand::SetWindowTitle {
-                    title: request.title.clone(),
+                    title: title_string.clone(),
                 })
                 .map_err(|err| format!("failed to update primary window title: {err}"))?;
             self.cmd_tx
@@ -938,7 +940,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                     emacs_frame_id: request.frame_id.0,
                     width: request.width,
                     height: request.height,
-                    title: request.title.clone(),
+                    title: title_string,
                     geometry_hints: request.geometry_hints,
                 })
                 .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
@@ -1001,7 +1003,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
     fn set_gui_frame_title(
         &mut self,
         frame_id: neovm_core::window::FrameId,
-        title: String,
+        title: LispString,
     ) -> Result<(), String> {
         let mut cached_titles = self
             .last_window_titles
@@ -1016,6 +1018,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         cached_titles.insert(frame_id, title.clone());
         drop(cached_titles);
 
+        let title_string = title.as_str().unwrap_or("Neomacs").to_owned();
         let emacs_frame_id = if self.primary_frame_id == Some(frame_id) {
             0
         } else {
@@ -1024,7 +1027,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         self.cmd_tx
             .send(RenderCommand::SetFrameWindowTitle {
                 emacs_frame_id,
-                title,
+                title: title_string,
             })
             .map_err(|err| format!("failed to update GUI frame title: {err}"))?;
         Ok(())
@@ -1076,12 +1079,12 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             "display host resolved font-at request"
         );
         Ok(selected.map(|font| ResolvedFontMatch {
-            family: font.family,
+            family: LispString::from_utf8(&font.family),
             foundry: None,
             weight: font.weight,
             slant: font.slant,
             width: font.width,
-            postscript_name: font.postscript_name,
+            postscript_name: font.postscript_name.map(|s| LispString::from_utf8(&s)),
         }))
     }
 
@@ -1118,12 +1121,12 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 font_size,
             );
         Ok(Some(ResolvedFrameFont {
-            family: font.family,
+            family: LispString::from_utf8(&font.family),
             foundry: None,
             weight: font.weight,
             slant: font.slant,
             width: font.width,
-            postscript_name: font.postscript_name,
+            postscript_name: font.postscript_name.map(|s| LispString::from_utf8(&s)),
             font_size_px: font_size,
             char_width: metrics.char_width.max(1.0),
             line_height: metrics.line_height.max(1.0),
@@ -1135,20 +1138,20 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         request: FontSpecResolveRequest,
     ) -> Result<Option<ResolvedFontSpecMatch>, String> {
         let matched = neomacs_layout_engine::fontconfig::find_font_for_spec(
-            request.family.as_deref(),
-            request.registry.as_deref(),
-            request.lang.as_deref(),
+            request.family.as_ref().and_then(|ls| ls.as_str()),
+            request.registry.as_ref().and_then(|ls| ls.as_str()),
+            request.lang.as_ref().and_then(|ls| ls.as_str()),
             request.weight.map(|weight| weight.0),
             request.slant,
         );
         Ok(matched.map(|font| ResolvedFontSpecMatch {
-            family: font.family,
-            registry: Some("iso10646-1".to_string()),
+            family: LispString::from_utf8(&font.family),
+            registry: Some(LispString::from_utf8("iso10646-1")),
             weight: font.weight.map(FontWeight),
             slant: Some(font.slant),
             width: font.width,
             spacing: font.spacing,
-            postscript_name: font.postscript_name,
+            postscript_name: font.postscript_name.map(|s| LispString::from_utf8(&s)),
         }))
     }
 
@@ -1168,7 +1171,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 self.cmd_tx
                     .send(RenderCommand::ImageLoadFile {
                         id: image_id,
-                        path: path.clone(),
+                        path: path.as_str().unwrap_or_default().to_owned(),
                         max_width: request.max_width,
                         max_height: request.max_height,
                         fg_color: request.fg_color,
@@ -1214,10 +1217,10 @@ impl DisplayHost for PrimaryWindowDisplayHost {
     }
 }
 
-fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
+fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> LispString {
     let Some((selected_window_id, buffer_id, fallback_title, target_cols)) =
         eval.frame_manager().get(frame_id).map(|frame| {
-            let fallback_title = frame.host_title_runtime_string_owned();
+            let fallback_title = frame.host_title_lisp_string();
             let buffer_id = match frame.selected_window() {
                 Some(Window::Leaf { buffer_id, .. }) => Some(*buffer_id),
                 _ => None,
@@ -1237,7 +1240,7 @@ fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
             )
         })
     else {
-        return "Neomacs".to_string();
+        return LispString::from_utf8("Neomacs");
     };
 
     let format = eval
@@ -1258,7 +1261,10 @@ fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> String {
             .unwrap_or(Value::NIL),
         target_cols,
     );
-    rendered.as_str().unwrap_or(&fallback_title).to_owned()
+    rendered
+        .as_lisp_string()
+        .cloned()
+        .unwrap_or(fallback_title)
 }
 
 fn adopt_existing_primary_gui_frame(eval: &mut Context) -> Result<(), String> {

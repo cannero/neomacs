@@ -1434,6 +1434,19 @@ impl Frame {
             .unwrap_or_else(|| "Neomacs".to_string())
     }
 
+    pub fn host_title_lisp_string(&self) -> crate::heap_types::LispString {
+        self.title
+            .as_lisp_string()
+            .filter(|ls| !ls.as_bytes().is_empty())
+            .or_else(|| {
+                self.name
+                    .as_lisp_string()
+                    .filter(|ls| !ls.as_bytes().is_empty())
+            })
+            .cloned()
+            .unwrap_or_else(|| crate::heap_types::LispString::from_utf8("Neomacs"))
+    }
+
     pub fn generated_name_runtime_string(&self) -> String {
         let ordinal = if self.id.0 >= FRAME_ID_BASE {
             self.id.0 - FRAME_ID_BASE + 1

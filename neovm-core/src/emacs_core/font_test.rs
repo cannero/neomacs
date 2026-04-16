@@ -5,6 +5,7 @@ use crate::emacs_core::eval::{
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::face::{Color, FaceAttrValue};
+use crate::heap_types::LispString;
 use crate::test_utils::runtime_startup_eval_all;
 use crate::window::FRAME_ID_BASE;
 use std::cell::RefCell;
@@ -201,13 +202,13 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
     eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
         last_request: Rc::clone(&last_request),
         matched: Some(ResolvedFontSpecMatch {
-            family: "Noto Sans Mono CJK SC".to_string(),
-            registry: Some("iso10646-1".to_string()),
+            family: LispString::from_utf8("Noto Sans Mono CJK SC"),
+            registry: Some(LispString::from_utf8("iso10646-1")),
             weight: Some(FontWeight::NORMAL),
             slant: Some(FontSlant::Normal),
             width: Some(crate::face::FontWidth::Normal),
             spacing: None,
-            postscript_name: Some("NotoSansMonoCJKsc-Regular".to_string()),
+            postscript_name: Some(LispString::from_utf8("NotoSansMonoCJKsc-Regular")),
         }),
     }));
 
@@ -242,7 +243,7 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
         .borrow()
         .clone()
         .expect("display host should capture find-font request");
-    assert_eq!(request.registry.as_deref(), Some("gb2312.1980-0"));
+    assert_eq!(request.registry, Some(LispString::from_utf8("gb2312.1980-0")));
     assert_eq!(request.family, None);
     assert_eq!(request.weight, Some(FontWeight::NORMAL));
 }
@@ -256,8 +257,8 @@ fn find_font_eval_returns_gnu_canonical_ultra_light_weight_symbol() {
     eval.set_display_host(Box::new(CapturingFindFontDisplayHost {
         last_request: Rc::clone(&last_request),
         matched: Some(ResolvedFontSpecMatch {
-            family: "JetBrains Mono".to_string(),
-            registry: Some("iso10646-1".to_string()),
+            family: LispString::from_utf8("JetBrains Mono"),
+            registry: Some(LispString::from_utf8("iso10646-1")),
             weight: Some(FontWeight::EXTRA_LIGHT),
             slant: Some(FontSlant::Normal),
             width: Some(crate::face::FontWidth::Normal),
@@ -819,12 +820,12 @@ fn font_at_eval_prefers_backend_selected_font_match_when_available() {
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
     eval.set_display_host(Box::new(FontAtDisplayHost {
         matched: Some(ResolvedFontMatch {
-            family: "Noto Sans Mono CJK SC".to_string(),
+            family: LispString::from_utf8("Noto Sans Mono CJK SC"),
             foundry: None,
             weight: FontWeight::NORMAL,
             slant: FontSlant::Normal,
             width: FontWidth::Normal,
-            postscript_name: Some("NotoSansMonoCJKsc-Regular".to_string()),
+            postscript_name: Some(LispString::from_utf8("NotoSansMonoCJKsc-Regular")),
         }),
     }));
 
@@ -1356,12 +1357,12 @@ fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_
     }
     eval.set_display_host(Box::new(LiveFrameFontDisplayHost {
         realized: Some(ResolvedFrameFont {
-            family: "Noto Sans Mono".to_string(),
+            family: LispString::from_utf8("Noto Sans Mono"),
             foundry: None,
             weight: FontWeight::NORMAL,
             slant: FontSlant::Normal,
             width: FontWidth::Normal,
-            postscript_name: Some("NotoSansMono-Regular".to_string()),
+            postscript_name: Some(LispString::from_utf8("NotoSansMono-Regular")),
             font_size_px: 22.0,
             char_width: 13.0,
             line_height: 31.0,

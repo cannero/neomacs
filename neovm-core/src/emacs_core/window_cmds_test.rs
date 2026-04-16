@@ -2,6 +2,7 @@ use crate::emacs_core::eval::{GuiFrameHostSize, ResolvedFrameFont};
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::emacs_core::{Context, DisplayHost, GuiFrameHostRequest, Value, format_eval_result};
 use crate::face::{FontSlant, FontWeight, FontWidth};
+use crate::heap_types::LispString;
 use crate::test_utils::{runtime_startup_context, runtime_startup_eval_all};
 use std::cell::RefCell;
 use std::fs;
@@ -3230,7 +3231,7 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let requests = requests.borrow();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].frame_id, created_id);
-    assert_eq!(requests[0].title, "Neomacs");
+    assert_eq!(requests[0].title, LispString::from_utf8("Neomacs"));
     assert_eq!(requests[0].width, frame.width);
     assert_eq!(requests[0].height, frame.height);
     assert_eq!(
@@ -3832,12 +3833,12 @@ fn modify_frame_parameters_after_live_font_change_defers_gui_resize_until_geomet
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let host = RecordingDisplayHost::with_resolved_frame_font(ResolvedFrameFont {
-        family: "Noto Sans Mono".to_string(),
+        family: LispString::from_utf8("Noto Sans Mono"),
         foundry: None,
         weight: FontWeight::NORMAL,
         slant: FontSlant::Normal,
         width: FontWidth::Normal,
-        postscript_name: Some("NotoSansMono-Regular".to_string()),
+        postscript_name: Some(LispString::from_utf8("NotoSansMono-Regular")),
         font_size_px: 22.0,
         char_width: 13.0,
         line_height: 31.0,
@@ -3926,12 +3927,12 @@ fn live_default_font_change_updates_gui_geometry_hints() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let host = RecordingDisplayHost::with_resolved_frame_font(ResolvedFrameFont {
-        family: "Noto Sans Mono".to_string(),
+        family: LispString::from_utf8("Noto Sans Mono"),
         foundry: None,
         weight: FontWeight::NORMAL,
         slant: FontSlant::Normal,
         width: FontWidth::Normal,
-        postscript_name: Some("NotoSansMono-Regular".to_string()),
+        postscript_name: Some(LispString::from_utf8("NotoSansMono-Regular")),
         font_size_px: 22.0,
         char_width: 13.0,
         line_height: 31.0,

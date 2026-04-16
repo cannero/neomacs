@@ -4479,7 +4479,7 @@ fn resize_live_gui_frame(
         let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
         let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
         let non_text_height = frame_non_text_height_pixels(frame);
-        let title = frame.host_title_runtime_string_owned();
+        let title = frame.host_title_lisp_string();
         (
             text_width_px.saturating_add(non_text_width).max(1),
             text_height_px.saturating_add(non_text_height).max(1),
@@ -4520,7 +4520,7 @@ fn resize_live_gui_frame(
             .map(|frame| frame.gui_geometry_hints())
             .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
         tracing::debug!(
-            "resize_live_gui_frame: notifying host fid={:?} size={}x{} title={}",
+            "resize_live_gui_frame: notifying host fid={:?} size={}x{} title={:?}",
             fid,
             total_width_px,
             total_height_px,
@@ -4557,7 +4557,7 @@ fn request_live_gui_frame_resize(
         let text_lines = ((text_height_px as f32) / char_height).floor().max(1.0) as i64;
         let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
         let non_text_height = frame_non_text_height_pixels(frame);
-        let title = frame.host_title_runtime_string_owned();
+        let title = frame.host_title_lisp_string();
         (
             text_width_px.saturating_add(non_text_width).max(1),
             text_height_px.saturating_add(non_text_height).max(1),
@@ -5901,12 +5901,12 @@ pub(crate) fn x_create_frame_impl(
     );
     let explicit_title = parsed.title;
     let host_title = explicit_title
-        .and_then(|title| title.as_runtime_string_owned())
-        .or_else(|| parsed.name.and_then(|name| name.as_runtime_string_owned()))
-        .unwrap_or_else(|| "Neomacs".to_string());
+        .and_then(|title| title.as_lisp_string().cloned())
+        .or_else(|| parsed.name.and_then(|name| name.as_lisp_string().cloned()))
+        .unwrap_or_else(|| crate::heap_types::LispString::from_utf8("Neomacs"));
     let name = parsed
         .name
-        .unwrap_or_else(|| Value::string(host_title.clone()));
+        .unwrap_or_else(|| Value::heap_string(host_title.clone()));
     let current_buffer_id = buffers
         .current_buffer()
         .map(|buffer| buffer.id)
