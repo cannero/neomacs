@@ -171,6 +171,22 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         options.runtime_root.as_os_str().to_os_string(),
     )];
 
+    // ---------------------------------------------------------------
+    // Pre-compile .el files with GNU Emacs.
+    //
+    // Neomacs loads .elc (byte-compiled) files ~17x faster than .el
+    // source. GNU Emacs's byte compiler is also much faster than
+    // neomacs's interpreted compiler. Use GNU Emacs to pre-compile
+    // all bootstrap .el files before loadup, so neomacs loads fast
+    // bytecoded files instead of interpreting source with expensive
+    // macro expansion.
+    //
+    // This mirrors GNU Emacs's own build: `make` compiles all .el
+    // files, then loads the .elc versions. The difference is GNU
+    // bootstraps its own compiler; we use an external GNU Emacs.
+    // ---------------------------------------------------------------
+    gnu_emacs_precompile(options, &paths)?;
+
     run_command(
         options,
         &options.repo_root,
@@ -275,6 +291,174 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+/// Pre-compile bootstrap .el files using GNU Emacs.
+///
+/// Finds all .el files under lisp/ that would benefit from byte-compilation,
+/// filters out files that already have a fresh .elc, and batch-compiles the
+/// rest with GNU Emacs.
+fn gnu_emacs_precompile(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    let gnu_emacs = find_gnu_emacs();
+    let Some(gnu_emacs) = gnu_emacs else {
+        println!(
+            "  SKIP  GNU Emacs pre-compilation (no GNU Emacs found; \
+             set GNU_EMACS=/path/to/emacs to enable)"
+        );
+        return Ok(());
+    };
+
+    print_synthetic_step(&format!(
+        "pre-compile .el → .elc with GNU Emacs ({})",
+        gnu_emacs.display()
+    ));
+
+    // Collect all .el files under lisp/ that should be compiled.
+    // Skip files with `no-byte-compile: t` in their header, and files
+    // that already have a fresh .elc.
+    let mut to_compile: Vec<PathBuf> = Vec::new();
+    collect_compilable_el_files(&paths.lisp_root, &paths.lisp_root, &mut to_compile)?;
+    to_compile.retain(|source| compile_first_needs_rebuild(source));
+
+    if to_compile.is_empty() {
+        println!("  SKIP  all .elc files are up to date");
+        return Ok(());
+    }
+
+    println!("  INFO  compiling {} .el files", to_compile.len());
+
+    if options.dry_run {
+        for source in &to_compile {
+            println!("  would compile: {}", source.display());
+        }
+        return Ok(());
+    }
+
+    // Build load-path args: -L for each unique directory containing .el files
+    let mut load_dirs: BTreeSet<PathBuf> = BTreeSet::new();
+    for source in &to_compile {
+        if let Some(parent) = source.parent() {
+            load_dirs.insert(parent.to_path_buf());
+        }
+    }
+
+    // Build load-path from the first-level subdirectories under lisp/,
+    // matching GNU Emacs's default load-path structure. This avoids
+    // shadowing issues from deep subdirectories (e.g., cedet/srecode/
+    // compile.el shadowing progmodes/compile.el).
+    let mut load_path_dirs: Vec<PathBuf> = vec![paths.lisp_root.clone()];
+    if let Ok(entries) = fs::read_dir(&paths.lisp_root) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                // Skip obsolete and term (matching GNU), and leim (separate tree)
+                if !matches!(name, "obsolete" | "term") {
+                    load_path_dirs.push(path);
+                }
+            }
+        }
+    }
+    load_path_dirs.sort();
+
+    let mut args: Vec<OsString> = vec![OsString::from("--batch")];
+    for dir in &load_path_dirs {
+        args.push(OsString::from("-L"));
+        args.push(dir.as_os_str().to_os_string());
+    }
+    args.push(OsString::from("--eval"));
+    args.push(OsString::from("(setq byte-compile-warnings nil)"));
+    args.push(OsString::from("-f"));
+    args.push(OsString::from("batch-byte-compile"));
+    for source in &to_compile {
+        args.push(source.as_os_str().to_os_string());
+    }
+
+    run_command(options, &options.repo_root, &gnu_emacs, &args, &[])?;
+
+    let compiled = to_compile
+        .iter()
+        .filter(|s| s.with_extension("elc").exists())
+        .count();
+    println!("  INFO  compiled {compiled}/{} .el files", to_compile.len());
+
+    Ok(())
+}
+
+/// Find a GNU Emacs binary for pre-compilation.
+/// Checks: $GNU_EMACS env var, then `emacs` on PATH.
+/// Validates that the found binary is actually GNU Emacs (not neomacs).
+fn find_gnu_emacs() -> Option<PathBuf> {
+    // Check GNU_EMACS env var first
+    if let Some(path) = env::var_os("GNU_EMACS") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Try `emacs` on PATH — verify it's GNU Emacs
+    let output = Command::new("emacs")
+        .arg("--version")
+        .output()
+        .ok()?;
+    let version = String::from_utf8_lossy(&output.stdout);
+    if version.contains("GNU Emacs") {
+        return Some(PathBuf::from("emacs"));
+    }
+
+    None
+}
+
+/// Collect all .el files under a directory tree that are candidates for
+/// byte-compilation. Skips files with `no-byte-compile: t`.
+fn collect_compilable_el_files(
+    root: &Path,
+    current: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let entries = match fs::read_dir(current) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            // Skip obsolete, term, leim/quail (large generated files)
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if matches!(name, "obsolete" | "term") {
+                continue;
+            }
+            collect_compilable_el_files(root, &path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "el") {
+            // Skip files with no-byte-compile: t
+            if has_no_byte_compile_cookie(&path) {
+                continue;
+            }
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if a .el file has `no-byte-compile: t` in its header or tail.
+fn has_no_byte_compile_cookie(path: &Path) -> bool {
+    let Ok(bytes) = fs::read(path) else {
+        return false;
+    };
+    let needle = b"no-byte-compile: t";
+    // Check first 1024 bytes (header) and last 500 bytes (Local Variables)
+    let header_end = bytes.len().min(1024);
+    let tail_start = bytes.len().saturating_sub(500);
+    bytes[..header_end]
+        .windows(needle.len())
+        .any(|w| w == needle)
+        || bytes[tail_start..]
+            .windows(needle.len())
+            .any(|w| w == needle)
 }
 
 fn pipeline_paths(options: &FreshBuildOptions) -> PipelinePaths {
