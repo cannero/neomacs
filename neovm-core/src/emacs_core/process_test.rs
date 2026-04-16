@@ -705,9 +705,9 @@ fn process_manager_list() {
 fn process_manager_env() {
     crate::test_utils::init_test_tracing();
     let mut pm = ProcessManager::new();
-    pm.setenv("NEOVM_TEST_VAR".into(), Some("hello".into()));
-    assert_eq!(pm.getenv("NEOVM_TEST_VAR"), Some("hello".into()));
-    pm.setenv("NEOVM_TEST_VAR".into(), None);
+    pm.setenv(LispString::from_utf8("NEOVM_TEST_VAR"), Some(LispString::from_utf8("hello")));
+    assert_eq!(pm.getenv("NEOVM_TEST_VAR"), Some(LispString::from_utf8("hello")));
+    pm.setenv(LispString::from_utf8("NEOVM_TEST_VAR"), None);
     assert_eq!(pm.getenv("NEOVM_TEST_VAR"), None);
 }
 

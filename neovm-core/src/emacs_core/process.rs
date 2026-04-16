@@ -163,7 +163,7 @@ pub struct ProcessManager {
     deleted_processes: HashMap<ProcessId, Process>,
     next_id: ProcessId,
     /// Environment variable overrides (for `setenv`/`getenv`).
-    env_overrides: HashMap<String, Option<String>>,
+    env_overrides: HashMap<LispString, Option<LispString>>,
     /// I/O multiplexer for child process stdout/stderr pipes.
     poller: Option<polling::Poller>,
 }
@@ -432,7 +432,7 @@ impl ProcessManager {
 
         // Collect env overrides into a temporary Vec so we don't borrow
         // `self` across the mutable `proc` borrow below.
-        let env_overrides: Vec<(String, Option<String>)> = self
+        let env_overrides: Vec<(LispString, Option<LispString>)> = self
             .env_overrides
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
@@ -452,7 +452,7 @@ impl ProcessManager {
     fn spawn_child_pipe(
         &mut self,
         id: ProcessId,
-        env_overrides: &[(String, Option<String>)],
+        env_overrides: &[(LispString, Option<LispString>)],
     ) -> Result<(), String> {
         let proc = self
             .processes
@@ -471,12 +471,14 @@ impl ProcessManager {
 
         // Apply environment overrides
         for (key, val) in env_overrides {
+            let key_str = super::builtins::runtime_string_from_lisp_string(key);
             match val {
                 Some(v) => {
-                    cmd.env(key, v);
+                    let v_str = super::builtins::runtime_string_from_lisp_string(v);
+                    cmd.env(&key_str, &v_str);
                 }
                 None => {
-                    cmd.env_remove(key);
+                    cmd.env_remove(&key_str);
                 }
             }
         }
@@ -533,7 +535,7 @@ impl ProcessManager {
     fn spawn_child_pty(
         &mut self,
         id: ProcessId,
-        env_overrides: &[(String, Option<String>)],
+        env_overrides: &[(LispString, Option<LispString>)],
     ) -> Result<(), String> {
         let proc = self
             .processes
@@ -561,12 +563,14 @@ impl ProcessManager {
         let mut cmd = portable_pty::CommandBuilder::new(&program);
         cmd.args(&argv);
         for (key, val) in env_overrides {
+            let key_str = super::builtins::runtime_string_from_lisp_string(key);
             match val {
                 Some(v) => {
-                    cmd.env(key, v);
+                    let v_str = super::builtins::runtime_string_from_lisp_string(v);
+                    cmd.env(&key_str, &v_str);
                 }
                 None => {
-                    cmd.env_remove(key);
+                    cmd.env_remove(&key_str);
                 }
             }
         }
@@ -1011,15 +1015,16 @@ impl ProcessManager {
     }
 
     /// Get an environment variable (checking overrides first, then OS).
-    pub fn getenv(&self, name: &str) -> Option<String> {
-        if let Some(override_val) = self.env_overrides.get(name) {
+    pub fn getenv(&self, name: &str) -> Option<LispString> {
+        let key = LispString::from_utf8(name);
+        if let Some(override_val) = self.env_overrides.get(&key) {
             return override_val.clone();
         }
-        std::env::var(name).ok()
+        std::env::var(name).ok().map(|s| LispString::from_utf8(&s))
     }
 
     /// Set an environment variable override.  If value is None, unset it.
-    pub fn setenv(&mut self, name: String, value: Option<String>) {
+    pub fn setenv(&mut self, name: LispString, value: Option<LispString>) {
         self.env_overrides.insert(name, value);
     }
 }
