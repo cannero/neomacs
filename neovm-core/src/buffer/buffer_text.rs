@@ -54,6 +54,12 @@ struct BufferTextStorage {
     markers: Vec<MarkerEntry>,
     /// Interior-mutable last-query cache for char↔byte conversion.
     pos_cache: Cell<PositionCache>,
+    /// Internal (non-Lisp-visible) anchor positions populated on long scans.
+    /// Invalidated wholesale when `(total_chars, total_bytes)` advances.
+    anchor_cache: RefCell<Vec<(usize, usize)>>,
+    /// `(epoch_chars, epoch_bytes)` at which the anchor_cache is valid.
+    /// Mismatch triggers a wholesale clear on next read.
+    anchor_cache_key: Cell<(usize, usize)>,
 }
 
 pub struct BufferText {
@@ -98,6 +104,8 @@ impl BufferText {
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
                 pos_cache: Cell::new(PositionCache::default()),
+                anchor_cache: RefCell::new(Vec::new()),
+                anchor_cache_key: Cell::new((0, 0)),
             })),
         }
     }
@@ -114,6 +122,8 @@ impl BufferText {
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
                 pos_cache: Cell::new(PositionCache::default()),
+                anchor_cache: RefCell::new(Vec::new()),
+                anchor_cache_key: Cell::new((0, 0)),
             })),
         }
     }
@@ -320,6 +330,8 @@ impl BufferText {
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
                 pos_cache: Cell::new(PositionCache::default()),
+                anchor_cache: RefCell::new(Vec::new()),
+                anchor_cache_key: Cell::new((0, 0)),
             })),
         }
     }
@@ -646,6 +658,13 @@ impl BufferText {
             return target;
         }
 
+        // Wholesale-invalidate the anchor cache when the buffer changed.
+        let current_key = (total_chars, total_bytes);
+        if storage.anchor_cache_key.get() != current_key {
+            storage.anchor_cache.borrow_mut().clear();
+            storage.anchor_cache_key.set(current_key);
+        }
+
         let mut best_below: (usize, usize) = (0, 0);
         let mut best_above: (usize, usize) = (total_chars, total_bytes);
 
@@ -666,6 +685,10 @@ impl BufferText {
             );
         }
 
+        for &(cp, bp) in storage.anchor_cache.borrow().iter() {
+            consider_anchor(target, (cp, bp), &mut best_below, &mut best_above);
+        }
+
         let mut distance: usize = POSITION_DISTANCE_BASE;
         for m in &storage.markers {
             consider_anchor(target, (m.char_pos, m.byte_pos), &mut best_below, &mut best_above);
@@ -677,11 +700,20 @@ impl BufferText {
             distance = distance.saturating_add(POSITION_DISTANCE_INCR);
         }
 
-        let result = if target - best_below.0 <= best_above.0 - target {
+        let walked_below = target.saturating_sub(best_below.0);
+        let walked_above = best_above.0.saturating_sub(target);
+        let result = if walked_below <= walked_above {
             scan_forward(&storage.gap, best_below, target)
         } else {
             scan_backward(&storage.gap, best_above, target)
         };
+
+        // Mirror GNU marker.c:238-241: when the bracket span exceeds the stride,
+        // insert an anchor at the query point so future nearby queries are cheaper.
+        let span = best_above.0.saturating_sub(best_below.0);
+        if span > POSITION_ANCHOR_STRIDE {
+            storage.anchor_cache.borrow_mut().push((target, result));
+        }
 
         storage.pos_cache.set(PositionCache {
             epoch_chars: total_chars,
@@ -708,6 +740,13 @@ impl BufferText {
             return target;
         }
 
+        // Wholesale-invalidate the anchor cache when the buffer changed.
+        let current_key = (total_chars, total_bytes);
+        if storage.anchor_cache_key.get() != current_key {
+            storage.anchor_cache.borrow_mut().clear();
+            storage.anchor_cache_key.set(current_key);
+        }
+
         // Bracket is expressed as (bytepos, charpos) for this direction.
         let mut best_below: (usize, usize) = (0, 0);
         let mut best_above: (usize, usize) = (total_bytes, total_chars);
@@ -729,6 +768,10 @@ impl BufferText {
             );
         }
 
+        for &(cp, bp) in storage.anchor_cache.borrow().iter() {
+            consider_anchor_byte(target, (bp, cp), &mut best_below, &mut best_above);
+        }
+
         let mut distance: usize = POSITION_DISTANCE_BASE;
         for m in &storage.markers {
             consider_anchor_byte(target, (m.byte_pos, m.char_pos), &mut best_below, &mut best_above);
@@ -740,11 +783,22 @@ impl BufferText {
             distance = distance.saturating_add(POSITION_DISTANCE_INCR);
         }
 
-        let result = if target - best_below.0 <= best_above.0 - target {
+        let walked_below = target.saturating_sub(best_below.0);
+        let walked_above = best_above.0.saturating_sub(target);
+        let result = if walked_below <= walked_above {
             scan_forward_bytes(&storage.gap, best_below, target)
         } else {
             scan_backward_bytes(&storage.gap, best_above, target)
         };
+
+        // Mirror GNU marker.c:238-241: when the bracket span exceeds the stride,
+        // insert an anchor at the query point so future nearby queries are cheaper.
+        // Store as (charpos, bytepos) like the char→byte direction to keep
+        // anchor_cache entries in one canonical order.
+        let span = best_above.0.saturating_sub(best_below.0);
+        if span > POSITION_ANCHOR_STRIDE {
+            storage.anchor_cache.borrow_mut().push((result, target));
+        }
 
         storage.pos_cache.set(PositionCache {
             epoch_chars: total_chars,
@@ -753,6 +807,11 @@ impl BufferText {
             bytepos: target,
         });
         result
+    }
+
+    #[cfg(test)]
+    pub fn anchor_cache_len(&self) -> usize {
+        self.storage.borrow().anchor_cache.borrow().len()
     }
 }
 
@@ -779,6 +838,9 @@ impl fmt::Debug for BufferText {
 const POSITION_DISTANCE_BASE: usize = 50;
 /// GNU `marker.c:162` — bracket-bail distance grows by this per marker checked.
 const POSITION_DISTANCE_INCR: usize = 50;
+/// Auto-insert an anchor when a scan walks more than this many positions.
+/// Mirrors GNU `marker.c:238-241` (5000-char threshold).
+const POSITION_ANCHOR_STRIDE: usize = 5000;
 
 /// Update `(best_below, best_above)` in place using a new `(charpos, bytepos)` anchor.
 fn consider_anchor(

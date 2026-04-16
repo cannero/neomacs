@@ -114,3 +114,23 @@ fn buf_bytepos_to_charpos_matches_oracle() {
         assert_eq!(got, expected, "bytepos {bp_snapped}");
     }
 }
+
+#[test]
+fn long_scan_populates_anchor_cache() {
+    // 10 000+ multibyte chars, no existing markers.
+    let mut s = String::new();
+    for _ in 0..10_000 {
+        s.push_str("日");
+    }
+    let text = BufferText::from_str(&s);
+
+    assert_eq!(text.anchor_cache_len(), 0);
+
+    // Query a position > 5000 chars into the buffer, forcing a long scan.
+    let _ = text.buf_charpos_to_bytepos(8000);
+
+    assert!(
+        text.anchor_cache_len() > 0,
+        "expected auto-anchor to have been inserted after long scan"
+    );
+}
