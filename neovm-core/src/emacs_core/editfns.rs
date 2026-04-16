@@ -248,11 +248,12 @@ pub(crate) fn signal_before_change(
 
         if !overlay_hooks.is_empty() {
             let overlay_arg = Value::T; // `t` signals "before change" to overlay hooks
-            ctx.with_gc_scope_result(|ctx| {
-                for (func, ov_val) in &overlay_hooks {
-                    ctx.root(*func);
-                    ctx.root(*ov_val);
-                }
+            let roots = ctx.save_specpdl_roots();
+            for (func, ov_val) in &overlay_hooks {
+                ctx.push_specpdl_root(*func);
+                ctx.push_specpdl_root(*ov_val);
+            }
+            let apply_result = (|| -> Result<(), Flow> {
                 for (func, ov_val) in &overlay_hooks {
                     ctx.apply(
                         *func,
@@ -265,7 +266,9 @@ pub(crate) fn signal_before_change(
                     )?;
                 }
                 Ok(())
-            })?;
+            })();
+            ctx.restore_specpdl_roots(roots);
+            apply_result?;
         }
 
         Ok(())
@@ -439,11 +442,12 @@ fn run_overlay_after_change_hooks(
     }
 
     let after_flag = Value::NIL; // nil signals "after change" to overlay hooks
-    ctx.with_gc_scope_result(|ctx| {
-        for (func, ov_val, _) in &hooks {
-            ctx.root(*func);
-            ctx.root(*ov_val);
-        }
+    let roots = ctx.save_specpdl_roots();
+    for (func, ov_val, _) in &hooks {
+        ctx.push_specpdl_root(*func);
+        ctx.push_specpdl_root(*ov_val);
+    }
+    let apply_result = (|| -> Result<(), Flow> {
         for (func, ov_val, _) in &hooks {
             ctx.apply(
                 *func,
@@ -457,7 +461,9 @@ fn run_overlay_after_change_hooks(
             )?;
         }
         Ok(())
-    })
+    })();
+    ctx.restore_specpdl_roots(roots);
+    apply_result
 }
 
 /// Iterate over a Lisp list, yielding each car.
