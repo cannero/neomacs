@@ -477,9 +477,10 @@ pub(crate) fn builtin_replace_regexp_in_string(
         _ => super::regex::SearchedString::Owned(crate::heap_types::LispString::from_utf8(&s)),
     };
 
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
+    let gc_roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
 
+    let result = (|| -> EvalResult {
         for groups in &iterated.matches {
             let Some((full_start, full_end)) = groups.first().and_then(|group| *group) else {
                 continue;
@@ -517,7 +518,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
                     (cs, ce)
                 }));
             }
-            ctx.match_data = Some(super::regex::MatchData {
+            eval.match_data = Some(super::regex::MatchData {
                 groups: match_groups,
                 searched_string: Some(searched_string.clone()),
                 searched_buffer: None,
@@ -527,7 +528,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
 
             // Call the function with the matched string
             let matched_str = &s[full_start..full_end];
-            let func_result = ctx.apply(func, vec![Value::string(matched_str)])?;
+            let func_result = eval.apply(func, vec![Value::string(matched_str)])?;
             let base = match func_result.as_str() {
                 Some(s) => s.to_string(),
                 None => {
@@ -549,7 +550,10 @@ pub(crate) fn builtin_replace_regexp_in_string(
 
         out.push_str(&s[cursor..]);
         Ok(Value::string(out))
-    })
+    })();
+
+    eval.restore_specpdl_roots(gc_roots);
+    result
 }
 
 // ---------------------------------------------------------------------------
