@@ -9276,12 +9276,9 @@ impl Context {
             }
             NamedCallTarget::Subr(func) => {
                 let result = self.apply_subr_object(func, args, rewrite_builtin_wrong_arity);
-                if matches!(
-                    &result,
-                    Err(Flow::Signal(sig)) if sig.symbol_name() == "void-function"
-                ) {
-                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
-                }
+                // Do NOT poison the cache with Void when the subr was found.
+                // A void-function from a known subr is transient (e.g., dispatch
+                // failure during initialization), not a permanent state change.
                 if func.as_subr_id()
                     .and_then(lookup_global_subr_entry)
                     .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
@@ -9326,12 +9323,7 @@ impl Context {
             NamedCallTarget::Subr(func) => {
                 let sym_id = intern(name);
                 let result = self.apply_subr_object(func, args, rewrite_builtin_wrong_arity);
-                if matches!(
-                    &result,
-                    Err(Flow::Signal(sig)) if sig.symbol_name() == "void-function"
-                ) {
-                    self.store_named_call_cache(sym_id, NamedCallTarget::Void);
-                }
+                // Do NOT poison the cache with Void when the subr was found.
                 if func.as_subr_id()
                     .and_then(lookup_global_subr_entry)
                     .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
