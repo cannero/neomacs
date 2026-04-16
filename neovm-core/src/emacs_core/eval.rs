@@ -827,6 +827,8 @@ struct CoreEvalSymbols {
     throw_on_input_symbol: SymId,
     kill_emacs_symbol: SymId,
     noninteractive_symbol: SymId,
+    symbols_with_pos_enabled_symbol: SymId,
+    print_symbols_bare_symbol: SymId,
 }
 
 fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) -> CoreEvalSymbols {
@@ -855,6 +857,8 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
 
     let kill_emacs_symbol = intern("kill-emacs");
     let noninteractive_symbol = intern("noninteractive");
+    let symbols_with_pos_enabled_symbol = intern("symbols-with-pos-enabled");
+    let print_symbols_bare_symbol = intern("print-symbols-bare");
 
     CoreEvalSymbols {
         internal_interpreter_environment_symbol,
@@ -863,6 +867,8 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
         throw_on_input_symbol,
         kill_emacs_symbol,
         noninteractive_symbol,
+        symbols_with_pos_enabled_symbol,
+        print_symbols_bare_symbol,
     }
 }
 
@@ -1262,6 +1268,13 @@ pub struct Context {
     kill_emacs_symbol: SymId,
     noninteractive_symbol: SymId,
     noninteractive: bool,
+    symbols_with_pos_enabled_symbol: SymId,
+    /// When true, `symbolp`/`eq`/hash operations transparently unwrap
+    /// symbol-with-pos objects. Bound to `t` by the byte-compiler.
+    pub(crate) symbols_with_pos_enabled: bool,
+    print_symbols_bare_symbol: SymId,
+    /// When true, the printer outputs bare symbol names for symbol-with-pos.
+    pub(crate) print_symbols_bare: bool,
     /// Features list (for require/provide).
     pub(crate) features: Vec<SymId>,
     /// Features currently being resolved through `require`.
@@ -2683,6 +2696,10 @@ impl Context {
         obarray.make_special("load-file-name");
         obarray.set_symbol_value("noninteractive", Value::T);
         obarray.set_symbol_value("inhibit-quit", Value::NIL);
+        obarray.set_symbol_value("symbols-with-pos-enabled", Value::NIL);
+        obarray.make_special("symbols-with-pos-enabled");
+        obarray.set_symbol_value("print-symbols-bare", Value::NIL);
+        obarray.make_special("print-symbols-bare");
         // GNU Emacs print.c: all print-* variables are DEFVAR_BOOL or
         // DEFVAR_LISP, making them dynamically scoped (special).
         // This is essential so `(let ((print-escape-newlines t)) ...)`
@@ -3910,6 +3927,16 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL)
             .is_truthy();
+        let symbols_with_pos_enabled = obarray
+            .symbol_value_id(core_eval_symbols.symbols_with_pos_enabled_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
+        let print_symbols_bare = obarray
+            .symbol_value_id(core_eval_symbols.print_symbols_bare_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
 
         let mut ev = Self {
             tagged_heap,
@@ -3924,6 +3951,10 @@ impl Context {
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
             noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
             noninteractive,
+            symbols_with_pos_enabled_symbol: core_eval_symbols.symbols_with_pos_enabled_symbol,
+            symbols_with_pos_enabled,
+            print_symbols_bare_symbol: core_eval_symbols.print_symbols_bare_symbol,
+            print_symbols_bare,
             features: Vec::new(),
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
@@ -4042,6 +4073,16 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL)
             .is_truthy();
+        let symbols_with_pos_enabled = obarray
+            .symbol_value_id(core_eval_symbols.symbols_with_pos_enabled_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
+        let print_symbols_bare = obarray
+            .symbol_value_id(core_eval_symbols.print_symbols_bare_symbol)
+            .copied()
+            .unwrap_or(Value::NIL)
+            .is_truthy();
 
         let mut ev = Self {
             tagged_heap,
@@ -4056,6 +4097,10 @@ impl Context {
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
             noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
             noninteractive,
+            symbols_with_pos_enabled_symbol: core_eval_symbols.symbols_with_pos_enabled_symbol,
+            symbols_with_pos_enabled,
+            print_symbols_bare_symbol: core_eval_symbols.print_symbols_bare_symbol,
+            print_symbols_bare,
             features,
             require_stack,
             loads_in_progress,
@@ -5816,6 +5861,10 @@ impl Context {
     fn sync_cached_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
         if sym_id == self.noninteractive_symbol {
             self.noninteractive = value.is_truthy();
+        } else if sym_id == self.symbols_with_pos_enabled_symbol {
+            self.symbols_with_pos_enabled = value.is_truthy();
+        } else if sym_id == self.print_symbols_bare_symbol {
+            self.print_symbols_bare = value.is_truthy();
         }
     }
 
@@ -6585,6 +6634,17 @@ impl Context {
     #[inline]
     pub(crate) fn noninteractive(&self) -> bool {
         self.noninteractive
+    }
+
+    /// If `symbols-with-pos-enabled` and `val` is a symbol-with-pos,
+    /// return the bare symbol. Otherwise return `val` unchanged.
+    #[inline]
+    pub fn unwrap_symbol(&self, val: Value) -> Value {
+        if self.symbols_with_pos_enabled && val.is_symbol_with_pos() {
+            val.as_symbol_with_pos_sym().unwrap()
+        } else {
+            val
+        }
     }
 
     pub(crate) fn sync_thread_runtime_bindings(&mut self) {
