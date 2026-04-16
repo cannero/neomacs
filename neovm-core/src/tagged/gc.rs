@@ -956,6 +956,21 @@ impl TaggedHeap {
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
 
+    /// Allocate a symbol-with-pos object.
+    /// `sym` must be a bare symbol, `pos` must be a fixnum.
+    pub fn alloc_symbol_with_pos(&mut self, sym: TaggedValue, pos: TaggedValue) -> TaggedValue {
+        let obj = Box::new(SymbolWithPosObj {
+            header: VecLikeHeader::new(VecLikeType::SymbolWithPos),
+            sym,
+            pos,
+        });
+        let ptr = Box::into_raw(obj);
+        self.link_veclike(ptr as *mut VecLikeHeader);
+        self.allocated_count += 1;
+        self.note_allocation_bytes(size_of::<SymbolWithPosObj>());
+        unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+    }
+
     // -----------------------------------------------------------------------
     // Marker operations
     // -----------------------------------------------------------------------
