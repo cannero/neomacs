@@ -275,19 +275,21 @@ impl BufferText {
     }
 
     pub fn byte_to_char(&self, byte_pos: usize) -> usize {
-        self.storage.borrow().gap.byte_to_char(byte_pos)
+        self.buf_bytepos_to_charpos(byte_pos)
     }
 
     pub fn char_to_byte(&self, char_pos: usize) -> usize {
-        self.storage.borrow().gap.char_to_byte(char_pos)
+        self.buf_charpos_to_bytepos(char_pos)
     }
 
     pub fn emacs_byte_to_char(&self, byte_pos: usize) -> usize {
-        self.storage.borrow().gap.emacs_byte_to_char(byte_pos)
+        // Storage bytes == Emacs bytes in current NeoMacs, so this is an
+        // alias. If that ever diverges, do the extra translation first here.
+        self.buf_bytepos_to_charpos(byte_pos)
     }
 
     pub fn char_to_emacs_byte(&self, char_pos: usize) -> usize {
-        self.storage.borrow().gap.char_to_emacs_byte(char_pos)
+        self.buf_charpos_to_bytepos(char_pos)
     }
 
     pub fn storage_byte_to_emacs_byte(&self, byte_pos: usize) -> usize {
