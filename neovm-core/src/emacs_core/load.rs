@@ -1313,7 +1313,9 @@ fn streaming_readevalloop(
         form_idx += 1;
     }
 
-    record_load_history(eval, hist_file_name);
+    // NOTE: record_load_history (which calls do-after-load-evaluation)
+    // is now called OUTSIDE with_load_context, matching GNU lread.c:1537-1541
+    // where unbind_to runs before do-after-load-evaluation.
     Ok(Value::T)
 }
 
@@ -1564,11 +1566,12 @@ fn load_file_body(
     };
 
     // --- Shared context setup via with_load_context ---
-    with_load_context(eval, &hist_file_name, found, lexical_binding, |eval| {
-        // Both .el and .elc use the streaming Value reader.
-        // .el files get eager macro expansion; .elc files are already compiled
-        // so no expansion is needed (macroexpand_fn = None).  The reader
-        // converts #[...] syntax to ByteCode values directly (like GNU Emacs).
+    // Matches GNU lread.c:
+    // 1. specbind lexenv to (t) [with_load_context]
+    // 2. readevalloop [streaming_readevalloop]
+    // 3. unbind_to [with_load_context returns]
+    // 4. do-after-load-evaluation [record_load_history]
+    let result = with_load_context(eval, &hist_file_name, found, lexical_binding, |eval| {
         let macroexpand_fn = if is_elc {
             None
         } else {
@@ -1583,7 +1586,14 @@ fn load_file_body(
             source_multibyte,
             macroexpand_fn,
         )
-    })
+    });
+
+    // GNU lread.c:1540-1541: after unbind_to restores lexenv,
+    // run eval-after-load hooks. This ensures the after-load callbacks
+    // run with the CALLER'S lexenv, not the file's (t) lexenv.
+    record_load_history(eval, &hist_file_name);
+
+    result
 }
 
 pub(crate) fn eval_decoded_source_file_in_context(
