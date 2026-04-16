@@ -145,11 +145,9 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     // elisp code like `byte-compile-make-closure` reads `(aref fn 1)` and
     // passes it to `make-byte-code`, so we need to round-trip the bytes.
     let code = if let Some(bytes) = &bc.gnu_bytecode_bytes {
-        // Encode raw bytes as Latin-1 → Unicode (each byte becomes its code
-        // point), so the resulting Rust String is valid UTF-8 but
-        // `string_value_to_bytes` recovers the bytes exactly.
-        let s: String = bytes.iter().map(|&b| b as char).collect();
-        Value::unibyte_string(s)
+        // Store raw bytes directly as a unibyte string.
+        // GNU Emacs bytecode strings are unibyte — each byte is one character.
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.clone()))
     } else {
         Value::NIL
     };
