@@ -172,45 +172,48 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
     }
     let func = args[0];
     let seq = args[1];
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        ctx.root(seq);
-        let mut results = Vec::new();
-        // Root cursor at each step for precise GC safety (see builtin_mapc).
-        let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
-            let mut cursor = seq;
-            loop {
-                match cursor.kind() {
-                    ValueKind::Nil => break Ok(()),
-                    ValueKind::Cons => {
-                        let pair_car = cursor.cons_car();
-                        let pair_cdr = cursor.cons_cdr();
-                        let item = pair_car;
-                        cursor = pair_cdr;
-                        ctx.root(cursor);
-                        let val = ctx.apply(func, vec![item])?;
-                        ctx.root(val);
-                        results.push(val);
-                    }
-                    tail => {
-                        break Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("listp"), cursor],
-                        ));
-                    }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    eval.push_specpdl_root(seq);
+    let mut results = Vec::new();
+    // Root cursor at each step for precise GC safety (see builtin_mapc).
+    let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
+        let mut cursor = seq;
+        loop {
+            match cursor.kind() {
+                ValueKind::Nil => break Ok(()),
+                ValueKind::Cons => {
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    let item = pair_car;
+                    cursor = pair_cdr;
+                    eval.push_specpdl_root(cursor);
+                    let val = eval.apply(func, vec![item])?;
+                    eval.push_specpdl_root(val);
+                    results.push(val);
+                }
+                tail => {
+                    break Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), cursor],
+                    ));
                 }
             }
-        } else {
-            for_each_sequence_element(&seq, |item| {
-                let val = ctx.apply(func, vec![item])?;
-                ctx.root(val);
-                results.push(val);
-                Ok(())
-            })
-        };
+        }
+    } else {
+        for_each_sequence_element(&seq, |item| {
+            let val = eval.apply(func, vec![item])?;
+            eval.push_specpdl_root(val);
+            results.push(val);
+            Ok(())
+        })
+    };
+    let result = (|| -> EvalResult {
         map_result?;
         Ok(Value::list(results))
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -222,43 +225,46 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
     }
     let func = args[0];
     let seq = args[1];
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        ctx.root(seq);
-        // For cons lists, root cursor at each step so our precise GC
-        // (which doesn't scan the Rust stack) can find the remaining
-        // chain even if a hook callback modifies the list.
-        let result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
-            let mut cursor = seq;
-            loop {
-                match cursor.kind() {
-                    ValueKind::Nil => break Ok(()),
-                    ValueKind::Cons => {
-                        let pair_car = cursor.cons_car();
-                        let pair_cdr = cursor.cons_cdr();
-                        let item = pair_car;
-                        cursor = pair_cdr;
-                        // Root the remaining tail before calling the function.
-                        ctx.root(cursor);
-                        ctx.apply(func, vec![item])?;
-                    }
-                    tail => {
-                        break Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("listp"), cursor],
-                        ));
-                    }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    eval.push_specpdl_root(seq);
+    // For cons lists, root cursor at each step so our precise GC
+    // (which doesn't scan the Rust stack) can find the remaining
+    // chain even if a hook callback modifies the list.
+    let result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
+        let mut cursor = seq;
+        loop {
+            match cursor.kind() {
+                ValueKind::Nil => break Ok(()),
+                ValueKind::Cons => {
+                    let pair_car = cursor.cons_car();
+                    let pair_cdr = cursor.cons_cdr();
+                    let item = pair_car;
+                    cursor = pair_cdr;
+                    // Root the remaining tail before calling the function.
+                    eval.push_specpdl_root(cursor);
+                    eval.apply(func, vec![item])?;
+                }
+                tail => {
+                    break Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), cursor],
+                    ));
                 }
             }
-        } else {
-            for_each_sequence_element(&seq, |item| {
-                ctx.apply(func, vec![item])?;
-                Ok(())
-            })
-        };
+        }
+    } else {
+        for_each_sequence_element(&seq, |item| {
+            eval.apply(func, vec![item])?;
+            Ok(())
+        })
+    };
+    let mapc_result = (|| -> EvalResult {
         result?;
         Ok(seq)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    mapc_result
 }
 
 pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -269,17 +275,18 @@ pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value
     let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
 
     let mut parts = Vec::new();
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        ctx.root(sequence);
-        ctx.root(separator);
-        for_each_sequence_element(&sequence, |item| {
-            let val = ctx.apply(func, vec![item])?;
-            ctx.root(val);
-            parts.push(val);
-            Ok(())
-        })
-    })?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    eval.push_specpdl_root(sequence);
+    eval.push_specpdl_root(separator);
+    let mapconcat_result = for_each_sequence_element(&sequence, |item| {
+        let val = eval.apply(func, vec![item])?;
+        eval.push_specpdl_root(val);
+        parts.push(val);
+        Ok(())
+    });
+    eval.restore_specpdl_roots(roots);
+    mapconcat_result?;
 
     if parts.is_empty() {
         return Ok(Value::string(""));
@@ -305,16 +312,17 @@ pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) 
     let func = args[0];
     let sequence = args[1];
     let mut mapped = Vec::new();
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(func);
-        ctx.root(sequence);
-        for_each_sequence_element(&sequence, |item| {
-            let val = ctx.apply(func, vec![item])?;
-            ctx.root(val);
-            mapped.push(val);
-            Ok(())
-        })
-    })?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(func);
+    eval.push_specpdl_root(sequence);
+    let mapcan_result = for_each_sequence_element(&sequence, |item| {
+        let val = eval.apply(func, vec![item])?;
+        eval.push_specpdl_root(val);
+        mapped.push(val);
+        Ok(())
+    });
+    eval.restore_specpdl_roots(roots);
+    mapcan_result?;
     builtin_nconc(mapped)
 }
 
@@ -341,7 +349,7 @@ impl SortRuntime for super::eval::Context {
     }
 
     fn root_sort_value(&mut self, value: Value) {
-        self.push_eval_root(value);
+        self.push_specpdl_root(value);
     }
 
     fn compare_sort_keys(
@@ -458,16 +466,16 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 }
             }
 
-            let sorted_values = eval.with_gc_scope(|ctx| {
-                ctx.root(args[0]);
-                ctx.root(lessp_fn);
-                ctx.root(key_fn);
-                for value in &values {
-                    ctx.root(*value);
-                }
-                stable_sort_values_with(ctx, &values, key_fn, lessp_fn, reverse)
-            });
-            let mut sorted_values = sorted_values?;
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(args[0]);
+            eval.push_specpdl_root(lessp_fn);
+            eval.push_specpdl_root(key_fn);
+            for value in &values {
+                eval.push_specpdl_root(*value);
+            }
+            let sorted_result = stable_sort_values_with(eval, &values, key_fn, lessp_fn, reverse);
+            eval.restore_specpdl_roots(roots);
+            let mut sorted_values = sorted_result?;
             if in_place {
                 for (cell, value) in cons_cells.iter().zip(sorted_values.into_iter()) {
                     cell.set_car(value);
@@ -487,16 +495,16 @@ pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) ->
                 }
                 _ => unreachable!(),
             };
-            let sorted_values = eval.with_gc_scope(|ctx| {
-                ctx.root(args[0]);
-                ctx.root(lessp_fn);
-                ctx.root(key_fn);
-                for value in &values {
-                    ctx.root(*value);
-                }
-                stable_sort_values_with(ctx, &values, key_fn, lessp_fn, reverse)
-            });
-            let sorted_values = sorted_values?;
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(args[0]);
+            eval.push_specpdl_root(lessp_fn);
+            eval.push_specpdl_root(key_fn);
+            for value in &values {
+                eval.push_specpdl_root(*value);
+            }
+            let sorted_result = stable_sort_values_with(eval, &values, key_fn, lessp_fn, reverse);
+            eval.restore_specpdl_roots(roots);
+            let sorted_values = sorted_result?;
 
             if in_place {
                 assert!(args[0].replace_vectorlike_sequence_data(sorted_values));
