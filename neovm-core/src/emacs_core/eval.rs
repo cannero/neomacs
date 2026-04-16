@@ -8152,24 +8152,21 @@ impl Context {
     }
 
     fn sf_save_excursion_value(&mut self, tail: Value) -> EvalResult {
-        let saved_buf = self.buffers.current_buffer().map(|b| b.id);
-        let saved_marker = saved_buf.and_then(|buf_id| {
-            let point = self.buffers.get(buf_id).map(|buf| buf.pt_byte)?;
-            Some(
-                self.buffers
-                    .create_marker(buf_id, point, InsertionType::Before),
-            )
-        });
-        let result = self.sf_progn_value(tail);
-        if let Some(buf_id) = saved_buf {
-            self.restore_current_buffer_if_live(buf_id);
-            if let Some(marker_id) = saved_marker {
-                if let Some(saved_pt) = self.buffers.marker_position(buf_id, marker_id) {
-                    let _ = self.buffers.goto_buffer_byte(buf_id, saved_pt);
-                }
-                self.buffers.remove_marker(marker_id);
-            }
+        let count = self.specpdl.len();
+        if let Some(buf_id) = self.buffers.current_buffer().map(|b| b.id) {
+            let pt = self.buffers.get(buf_id).map(|b| b.pt_byte).unwrap_or(0);
+            let marker_id = self.buffers.create_marker(
+                buf_id,
+                pt,
+                InsertionType::Before,
+            );
+            self.specpdl.push(SpecBinding::SaveExcursion {
+                buffer_id: buf_id,
+                marker_id,
+            });
         }
+        let result = self.sf_progn_value(tail);
+        self.unbind_to(count);
         result
     }
 
@@ -8183,20 +8180,12 @@ impl Context {
     }
 
     fn sf_save_restriction_value(&mut self, tail: Value) -> EvalResult {
-        let saved = self.buffers.save_current_restriction_state();
-        let specpdl_root_scope = self.save_specpdl_roots();
-        if let Some(saved) = &saved {
-            let mut traced_roots = Vec::new();
-            saved.trace_roots(&mut traced_roots);
-            for root in traced_roots {
-                self.push_specpdl_root(root);
-            }
+        let count = self.specpdl.len();
+        if let Some(state) = self.buffers.save_current_restriction_state() {
+            self.specpdl.push(SpecBinding::SaveRestriction { state });
         }
         let result = self.sf_progn_value(tail);
-        if let Some(saved) = saved {
-            self.buffers.restore_saved_restriction_state(saved);
-        }
-        self.restore_specpdl_roots(specpdl_root_scope);
+        self.unbind_to(count);
         result
     }
 
