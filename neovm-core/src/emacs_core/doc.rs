@@ -157,13 +157,14 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
     let plan = documentation_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
-            shared.with_gc_scope_result(|eval| {
-                for root in &args_roots {
-                    eval.push_eval_root(*root);
-                }
-                eval.push_eval_root(value);
-                eval.eval_value(&value)
-            })
+            let roots = shared.save_specpdl_roots();
+            for root in &args_roots {
+                shared.push_specpdl_root(*root);
+            }
+            shared.push_specpdl_root(value);
+            let result = shared.eval_value(&value);
+            shared.restore_specpdl_roots(roots);
+            result
         })?,
         raw,
         |value| {
@@ -176,14 +177,15 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
             }
 
             let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
-            shared.with_gc_scope_result(|eval| {
-                for root in &args_roots {
-                    eval.push_eval_root(*root);
-                }
-                eval.push_eval_root(value);
-                eval.push_eval_root(call);
-                eval.eval_value(&call)
-            })
+            let roots = shared.save_specpdl_roots();
+            for root in &args_roots {
+                shared.push_specpdl_root(*root);
+            }
+            shared.push_specpdl_root(value);
+            shared.push_specpdl_root(call);
+            let result = shared.eval_value(&call);
+            shared.restore_specpdl_roots(roots);
+            result
         },
     )
 }
@@ -8012,13 +8014,14 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     let plan = documentation_property_plan(&shared.obarray, args)?;
     finish_documentation_result(
         execute_documentation_plan(plan, |value| {
-            shared.with_gc_scope_result(|eval| {
-                for root in &args_roots {
-                    eval.push_eval_root(*root);
-                }
-                eval.push_eval_root(value);
-                eval.eval_value(&value)
-            })
+            let roots = shared.save_specpdl_roots();
+            for root in &args_roots {
+                shared.push_specpdl_root(*root);
+            }
+            shared.push_specpdl_root(value);
+            let result = shared.eval_value(&value);
+            shared.restore_specpdl_roots(roots);
+            result
         })?,
         raw,
         |value| {
@@ -8031,14 +8034,15 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
             }
 
             let call = Value::list(vec![Value::symbol("substitute-command-keys"), value]);
-            shared.with_gc_scope_result(|eval| {
-                for root in &args_roots {
-                    eval.push_eval_root(*root);
-                }
-                eval.push_eval_root(value);
-                eval.push_eval_root(call);
-                eval.eval_value(&call)
-            })
+            let roots = shared.save_specpdl_roots();
+            for root in &args_roots {
+                shared.push_specpdl_root(*root);
+            }
+            shared.push_specpdl_root(value);
+            shared.push_specpdl_root(call);
+            let result = shared.eval_value(&call);
+            shared.restore_specpdl_roots(roots);
+            result
         },
     )
 }
