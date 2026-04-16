@@ -2528,11 +2528,14 @@ fn eval_interactive_form_value_in_vm_runtime(
     shared: &mut super::eval::Context,
     form: Value,
 ) -> Result<Vec<Value>, Flow> {
-    shared.with_gc_scope_result(|eval| {
-        eval.push_eval_root(form);
-        let value = eval.eval_value(&form)?;
+    let roots = shared.save_specpdl_roots();
+    shared.push_specpdl_root(form);
+    let result = (|| -> Result<Vec<Value>, Flow> {
+        let value = shared.eval_value(&form)?;
         interactive_form_value_to_args(value)
-    })
+    })();
+    shared.restore_specpdl_roots(roots);
+    result
 }
 
 pub(crate) fn callable_form_needs_instantiation(value: &Value) -> bool {
@@ -2922,8 +2925,10 @@ pub(crate) fn resolve_call_interactively_target_and_args_with_vm_fallback(
         return Ok((function, call_args));
     }
 
-    shared
-        .with_gc_scope_result(|eval| resolve_call_interactively_target_and_args_in_eval(eval, plan))
+    let roots = shared.save_specpdl_roots();
+    let result = resolve_call_interactively_target_and_args_in_eval(shared, plan);
+    shared.restore_specpdl_roots(roots);
+    result
 }
 
 /// `(self-insert-command N &optional C)` -- insert character C (or the last
