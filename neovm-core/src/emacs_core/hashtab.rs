@@ -711,39 +711,45 @@ pub(crate) fn builtin_internal_hash_table_histogram(args: Vec<Value>) -> EvalRes
 
 /// (maphash FUNCTION TABLE) — call FUNCTION with each (KEY VALUE) pair.
 pub(crate) fn builtin_maphash(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    eval.with_gc_scope_result(|eval| {
-        for arg in &args {
-            eval.root(*arg);
-        }
-        let (func, entries) = collect_maphash_entries(args)?;
-        let func = eval.root(func);
-        for (key, val) in &entries {
-            eval.root(*key);
-            eval.root(*val);
-        }
+    let roots = eval.save_specpdl_roots();
+    for arg in &args {
+        eval.push_specpdl_root(*arg);
+    }
+    let (func, entries) = collect_maphash_entries(args)?;
+    eval.push_specpdl_root(func);
+    for (key, val) in &entries {
+        eval.push_specpdl_root(*key);
+        eval.push_specpdl_root(*val);
+    }
+    let result = (|| -> EvalResult {
         for (key, val) in entries {
             eval.apply(func, vec![key, val])?;
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 /// (mapatoms FUNCTION &optional OBARRAY) — call FUNCTION with each interned symbol.
 pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    eval.with_gc_scope_result(|eval| {
-        for arg in &args {
-            eval.root(*arg);
-        }
-        let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
-        let func = eval.root(func);
-        for sym in &symbols {
-            eval.root(*sym);
-        }
+    let roots = eval.save_specpdl_roots();
+    for arg in &args {
+        eval.push_specpdl_root(*arg);
+    }
+    let (func, symbols) = collect_mapatoms_symbols(eval.obarray(), args)?;
+    eval.push_specpdl_root(func);
+    for sym in &symbols {
+        eval.push_specpdl_root(*sym);
+    }
+    let result = (|| -> EvalResult {
         for sym in symbols {
             eval.apply(func, vec![sym])?;
         }
         Ok(Value::NIL)
-    })
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 pub(crate) fn collect_maphash_entries(
