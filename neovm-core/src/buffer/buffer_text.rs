@@ -197,12 +197,30 @@ impl BufferText {
         storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
+    pub fn insert_emacs_bytes_both(&mut self, pos: usize, bytes: &[u8], nchars: usize) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.insert_emacs_bytes_both(pos, bytes, nchars);
+        storage.layout = Self::layout_from_gap(&storage.gap);
+    }
+
     pub fn delete_range(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
         }
         let mut storage = self.storage.borrow_mut();
         storage.gap.delete_range(start, end);
+        storage.layout = Self::layout_from_gap(&storage.gap);
+    }
+
+    pub fn delete_range_both(&mut self, start: usize, end: usize, nchars: usize) {
+        if start >= end {
+            return;
+        }
+        let mut storage = self.storage.borrow_mut();
+        storage.gap.delete_range_both(start, end, nchars);
         storage.layout = Self::layout_from_gap(&storage.gap);
     }
 

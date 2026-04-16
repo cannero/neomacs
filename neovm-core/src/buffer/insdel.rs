@@ -86,7 +86,7 @@ impl Buffer {
             }
         }
 
-        self.text.insert_emacs_bytes(insert_pos, bytes);
+        self.text.insert_emacs_bytes_both(insert_pos, bytes, char_len);
         self.apply_byte_insert_side_effects(
             insert_pos,
             insert_char_pos,
@@ -334,7 +334,7 @@ impl Buffer {
             }
         }
 
-        self.text.delete_range(start, end);
+        self.text.delete_range_both(start, end, end_char - start_char);
         self.apply_byte_delete_side_effects(
             start, end, start_char, end_char, true, false, true, true,
         );
