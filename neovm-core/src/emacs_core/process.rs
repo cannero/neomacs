@@ -1080,27 +1080,25 @@ impl super::eval::Context {
         let saved_deactivate_mark = self.eval_symbol("deactivate-mark").unwrap_or(Value::NIL);
         let specpdl_count = self.specpdl.len();
 
-        let result = self.with_gc_scope(|ctx| {
-            ctx.root(callback);
-            for arg in &args {
-                ctx.root(*arg);
-            }
+        let gc_roots = self.save_specpdl_roots();
+        self.push_specpdl_root(callback);
+        for arg in &args {
+            self.push_specpdl_root(*arg);
+        }
 
-            ctx.specbind(intern("inhibit-quit"), Value::T);
-            ctx.specbind(intern("last-nonmenu-event"), Value::T);
+        self.specbind(intern("inhibit-quit"), Value::T);
+        self.specbind(intern("last-nonmenu-event"), Value::T);
 
-            let result = ctx.apply(callback, args);
+        let result = self.apply(callback, args);
 
-            ctx.match_data = saved_match_data;
-            if let Some(buffer_id) = saved_current_buffer {
-                ctx.restore_current_buffer_if_live(buffer_id);
-            }
-            ctx.set_waiting_for_user_input(saved_waiting_for_input);
-            ctx.unbind_to(specpdl_count);
-            ctx.assign("deactivate-mark", saved_deactivate_mark);
-
-            result
-        });
+        self.match_data = saved_match_data;
+        if let Some(buffer_id) = saved_current_buffer {
+            self.restore_current_buffer_if_live(buffer_id);
+        }
+        self.set_waiting_for_user_input(saved_waiting_for_input);
+        self.unbind_to(specpdl_count);
+        self.assign("deactivate-mark", saved_deactivate_mark);
+        self.restore_specpdl_roots(gc_roots);
 
         if let Err(err) = result {
             tracing::warn!("{label} callback error: {:?}", err);
@@ -1117,24 +1115,22 @@ impl super::eval::Context {
         let saved_deactivate_mark = self.eval_symbol("deactivate-mark").unwrap_or(Value::NIL);
         let specpdl_count = self.specpdl.len();
 
-        let result = self.with_gc_scope(|ctx| {
-            ctx.root(callback);
-            for arg in &args {
-                ctx.root(*arg);
-            }
+        let gc_roots = self.save_specpdl_roots();
+        self.push_specpdl_root(callback);
+        for arg in &args {
+            self.push_specpdl_root(*arg);
+        }
 
-            ctx.specbind(intern("inhibit-quit"), Value::T);
+        self.specbind(intern("inhibit-quit"), Value::T);
 
-            let result = ctx.apply(callback, args);
+        let result = self.apply(callback, args);
 
-            if let Some(buffer_id) = saved_current_buffer {
-                ctx.restore_current_buffer_if_live(buffer_id);
-            }
-            ctx.unbind_to(specpdl_count);
-            ctx.assign("deactivate-mark", saved_deactivate_mark);
-
-            result
-        });
+        if let Some(buffer_id) = saved_current_buffer {
+            self.restore_current_buffer_if_live(buffer_id);
+        }
+        self.unbind_to(specpdl_count);
+        self.assign("deactivate-mark", saved_deactivate_mark);
+        self.restore_specpdl_roots(gc_roots);
 
         if let Err(err) = result {
             tracing::warn!("{label} callback error: {:?}", err);
