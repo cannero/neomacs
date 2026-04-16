@@ -5002,8 +5002,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
             };
             use crate::emacs_core::value::LambdaParams;
 
-            let raw_bytes = if let Some(s) = bytestr.as_str() {
-                string_value_to_bytes(s)
+            // Bytecode strings are unibyte and may contain non-UTF-8 bytes.
+            let raw_bytes = if let Some(ls) = bytestr.as_lisp_string() {
+                ls.as_bytes().to_vec()
             } else {
                 return Err(super::error::signal(
                     "wrong-type-argument",

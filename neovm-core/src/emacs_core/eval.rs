@@ -8082,8 +8082,10 @@ impl Context {
         };
         use crate::emacs_core::value::LambdaParams;
 
-        let raw_bytes = if let Some(s) = bytecode_str.as_str() {
-            string_value_to_bytes(s)
+        // Bytecode strings are unibyte and may contain non-UTF-8 bytes.
+        // Access raw bytes directly, same fix as make_byte_code_from_parts.
+        let raw_bytes = if let Some(ls) = bytecode_str.as_lisp_string() {
+            ls.as_bytes().to_vec()
         } else {
             Vec::new()
         };
