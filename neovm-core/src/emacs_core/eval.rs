@@ -1648,11 +1648,6 @@ pub(crate) struct ActiveMacroExpansionScopeState {
     old_dynvars: Value,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct EvalRootScopeState {
-    saved_active_call_extra_roots_len: Option<usize>,
-    saved_specpdl_len: Option<usize>,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct VmRootScopeState {
@@ -5902,35 +5897,6 @@ impl Context {
         Ok(())
     }
 
-    /// Execute `f` within a GC scope. Values rooted via `root()` during `f`
-    /// are automatically unrooted when `f` returns (even on error/early-return).
-    #[inline]
-    pub(crate) fn with_gc_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        let scope = self.save_eval_roots();
-        let result = f(self);
-        self.restore_eval_roots(scope);
-        result
-    }
-
-    /// Like `with_gc_scope` but for fallible operations.
-    #[inline]
-    pub(crate) fn with_gc_scope_result<T>(
-        &mut self,
-        f: impl FnOnce(&mut Self) -> Result<T, Flow>,
-    ) -> Result<T, Flow> {
-        let scope = self.save_eval_roots();
-        let result = f(self);
-        self.restore_eval_roots(scope);
-        result
-    }
-
-    /// Root a Value so it survives GC until the enclosing scope ends.
-    /// Returns the Value unchanged (for chaining).
-    #[inline]
-    pub(crate) fn root(&mut self, val: Value) -> Value {
-        self.push_eval_root(val);
-        val
-    }
 }
 
 impl Context {
@@ -8908,38 +8874,6 @@ impl Context {
         }
     }
 
-    pub(crate) fn save_eval_roots(&mut self) -> EvalRootScopeState {
-        EvalRootScopeState {
-            saved_active_call_extra_roots_len: self
-                .active_call_roots
-                .last()
-                .map(|frame| frame.extra_roots.len()),
-            saved_specpdl_len: if self.active_call_roots.is_empty() {
-                Some(self.specpdl.len())
-            } else {
-                None
-            },
-        }
-    }
-
-    pub(crate) fn push_eval_root(&mut self, value: Value) {
-        if let Some(frame) = self.active_call_roots.last_mut() {
-            frame.extra_roots.push(value);
-        } else {
-            self.push_specpdl_root(value);
-        }
-    }
-
-    pub(crate) fn restore_eval_roots(&mut self, scope: EvalRootScopeState) {
-        if let Some(saved_len) = scope.saved_active_call_extra_roots_len {
-            if let Some(frame) = self.active_call_roots.last_mut() {
-                frame.extra_roots.truncate(saved_len);
-            }
-        }
-        if let Some(saved_len) = scope.saved_specpdl_len {
-            self.restore_specpdl_roots(SpecpdlRootScopeState { saved_len });
-        }
-    }
 
     pub(crate) fn save_specpdl_roots(&self) -> SpecpdlRootScopeState {
         SpecpdlRootScopeState {
