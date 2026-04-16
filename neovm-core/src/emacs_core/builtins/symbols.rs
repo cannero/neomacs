@@ -4299,9 +4299,12 @@ pub(crate) fn make_byte_code_from_parts(
     // 1. Parse arglist
     let params = parse_arglist_value(arglist);
 
-    // 2. Extract raw bytes from bytecode string
-    let raw_bytes = if let Some(s) = bytecode_str.as_str() {
-        string_value_to_bytes(s)
+    // 2. Extract raw bytes from bytecode string.
+    // Bytecode strings are unibyte and may contain arbitrary byte values
+    // (including non-UTF-8), so we must access the raw bytes directly
+    // rather than going through as_str() which requires valid UTF-8.
+    let raw_bytes = if let Some(ls) = bytecode_str.as_lisp_string() {
+        ls.as_bytes().to_vec()
     } else {
         // Could be nil for empty functions
         Vec::new()
