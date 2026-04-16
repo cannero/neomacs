@@ -63,11 +63,15 @@ pub(crate) fn builtin_keywordp_1(_eval: &mut super::eval::Context, arg: Value) -
 }
 
 pub(crate) fn builtin_eq_2(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     left: Value,
     right: Value,
 ) -> EvalResult {
-    Ok(Value::bool_val(eq_value(&left, &right)))
+    Ok(Value::bool_val(eq_value_swp(
+        &left,
+        &right,
+        eval.symbols_with_pos_enabled,
+    )))
 }
 
 // ===========================================================================
