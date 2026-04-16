@@ -345,23 +345,13 @@ and why Elisp is slow, see [docs/elisp-core-analysis.md](docs/elisp-core-analysi
 
 ### Prerequisites
 
-- **Emacs source** (this is a fork)
-- **Rust** (stable, 1.92+)
-- **GStreamer** (optional, for video playback — the `video` feature)
-- **WPE WebKit** (optional, for inline browser — the `wpe-webkit` feature, Linux only)
+- **Rust** (stable, 1.93+)
+- **GStreamer** (optional, for video playback)
+- **WPE WebKit** (optional, for inline browser, Linux only)
 - **VA-API** (optional, for hardware video decode on Linux)
+- **GNU Emacs** (optional, for pre-compiling .el files — speeds up bootstrap ~17x)
 
-The Rust display engine has optional features that can be selectively enabled:
-
-| Feature | Default | Description |
-|---------|---------|-------------|
-| `video` | yes | GStreamer video playback |
-| `wpe-webkit` | yes | WPE WebKit browser embedding (Linux only) |
-| `neo-term` | yes | GPU terminal emulator |
-
-To build without a feature, use `--no-default-features` and list only the features you want.
-
-Build commands in this README are run from the repository root. There is no `./rust/` subdirectory.
+Build commands in this README are run from the repository root.
 
 ### Quick Start
 
@@ -369,8 +359,8 @@ Build commands in this README are run from the repository root. There is no `./r
 # Optional (recommended): use the repo dev shell (handles all dependencies)
 nix develop --accept-flake-config
 
-# Build Neomacs
-cargo build --release --manifest-path neomacs-bin/Cargo.toml
+# Build Neomacs (compiles Rust, bootstraps Elisp, generates pdump)
+cargo xtask fresh-build --release
 
 # Run
 ./target/release/neomacs
@@ -395,8 +385,8 @@ sudo pacman -S --needed \
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
-# Build Neomacs
-cargo build --release --manifest-path neomacs-bin/Cargo.toml
+# Build Neomacs (compiles Rust, bootstraps Elisp, generates pdump)
+cargo xtask fresh-build --release
 
 # Run
 ./target/release/neomacs
@@ -406,11 +396,9 @@ cargo build --release --manifest-path neomacs-bin/Cargo.toml
 
 macOS support is experimental — see [issue #22](https://github.com/eval-exec/neomacs/issues/22) for status.
 
-WPE WebKit is Linux-only, so you must disable it. GStreamer is optional.
-
 ```bash
 # Install dependencies (Homebrew)
-brew install autoconf automake texinfo pkgconf \
+brew install pkgconf \
   glib cairo \
   gstreamer gst-plugins-base gst-plugins-good \
   jpeg-turbo libtiff giflib libpng librsvg webp \
@@ -420,39 +408,10 @@ brew install autoconf automake texinfo pkgconf \
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Build Neomacs
-cargo build --release --manifest-path neomacs-bin/Cargo.toml \
-  --no-default-features --features neo-term
+cargo xtask fresh-build --release
 
 # Run
 ./target/release/neomacs
-```
-
-This defaults to `full` mode and already applies:
-
-- `AUTO_INSTALL_DEPS=1`
-- `RUST_FEATURES='video,neo-term'`
-- `NEOMACS_CONFIGURE_FLAGS='--without-ns --with-file-notification=no --with-native-compilation=no --with-neomacs'`
-
-### Docker (Build Test)
-
-```bash
-docker build -f Dockerfile.arch -t neomacs-build-arch .
-docker build -f Dockerfile.ubuntu --build-arg UBUNTU_VERSION=22.04 -t neomacs-build-ubuntu22 .
-docker build -f Dockerfile.ubuntu --build-arg UBUNTU_VERSION=24.04 -t neomacs-build-ubuntu24 .
-docker build -f Dockerfile.debian --build-arg DEBIAN_VERSION=bookworm -t neomacs-build-debian .
-```
-
-`Dockerfile.arch` is the original Arch Linux environment.
-`Dockerfile.ubuntu` and `Dockerfile.debian` default to Rust features `"video,neo-term"`
-(WPE WebKit disabled for broader package compatibility).
-
-If your distro/repo has WPE WebKit dev packages, enable browser embedding:
-
-```bash
-docker build -f Dockerfile.ubuntu \
-  --build-arg UBUNTU_VERSION=24.04 \
-  --build-arg RUST_FEATURES="video,neo-term,wpe-webkit" \
-  -t neomacs-build-ubuntu24-wpe .
 ```
 
 ### NixOS / Nix
@@ -503,7 +462,7 @@ nix build \
 #### Manual build (inside dev shell)
 
 ```bash
-cargo build --release --manifest-path neomacs-bin/Cargo.toml
+cargo xtask fresh-build --release
 ```
 
 ---

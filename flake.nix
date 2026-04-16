@@ -103,9 +103,6 @@
         pkgs.rust-neomacs
         pkgs.rust-cbindgen
         pkgs.pkg-config
-        pkgs.autoconf
-        pkgs.automake
-        pkgs.texinfo
         pkgs.llvmPackages.clang
         pkgs.makeWrapper
       ];
@@ -151,6 +148,13 @@
             src = packageSrc;
             inherit cargoArtifacts;
 
+            # After crane builds the Rust binaries, run the xtask bootstrap
+            # pipeline (--skip-build reuses the binaries crane just built):
+            # pbootstrap → COMPILE_FIRST → loaddefs → pdump
+            postBuild = ''
+              cargo xtask fresh-build --release --skip-build
+            '';
+
             postInstall = ''
               mkdir -p "$out/share/neomacs"
               cp -r lisp "$out/share/neomacs/"
@@ -194,9 +198,6 @@
 
               # Build tools
               pkgs.pkg-config
-              pkgs.autoconf
-              pkgs.automake
-              pkgs.texinfo
 
               # For bindgen (generates Rust bindings from C headers)
               pkgs.llvmPackages.clang
@@ -369,7 +370,7 @@
 
               echo ""
               echo "Build commands:"
-              echo "  1. cargo build --release -p neomacs-bin"
+              echo "  1. cargo xtask fresh-build --release"
               echo "  2. ./target/release/neomacs"
               echo ""
               echo "Logging (set before entering nix develop to override):"
