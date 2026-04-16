@@ -695,14 +695,69 @@ impl<'a> Reader<'a> {
                         buf.extend_from_slice(&tmp[..len]);
                         unibyte_buf = None;
                     } else if cp >= 0x80 && cp <= 0xFF {
-                        // Latin-1 high byte from .elc loading (b as char).
-                        // In unibyte source this is a literal raw byte; in
-                        // multibyte source it is a real Latin-1 character.
-                        buf.push(cp as u8);
-                        if let Some(bytes) = unibyte_buf.as_mut() {
-                            bytes.push(cp as u8);
+                        // Non-ASCII byte from .elc loading (Latin-1 mapped).
+                        //
+                        // When source_multibyte=false, .elc content uses Latin-1
+                        // encoding (each byte as char with same code point). A
+                        // UTF-8 multi-byte sequence like U+2018 (bytes E2 80 98)
+                        // arrives as three separate chars: U+00E2, U+0080, U+0098.
+                        //
+                        // GNU Emacs lread.c reads raw bytes and decodes UTF-8:
+                        // any non-ASCII char sets force_multibyte=true (line 3131).
+                        //
+                        // Match GNU: if this byte is a UTF-8 lead byte (>= 0xC0),
+                        // reassemble the full sequence from following continuation
+                        // bytes (0x80..0xBF). On success, emit the decoded Unicode
+                        // char and force multibyte. On failure, emit the raw byte.
+                        let byte0 = cp as u8;
+                        let decoded = if !self.source_multibyte && byte0 >= 0xC0 {
+                            let expected_len = if byte0 < 0xE0 { 2 }
+                                else if byte0 < 0xF0 { 3 }
+                                else if byte0 < 0xF8 { 4 }
+                                else { 0 };
+                            if expected_len >= 2 {
+                                let save_pos = self.pos;
+                                let mut utf8_bytes = vec![byte0];
+                                let mut ok = true;
+                                for _ in 1..expected_len {
+                                    match self.current() {
+                                        Some(c) if (c as u32) >= 0x80 && (c as u32) <= 0xBF => {
+                                            utf8_bytes.push(c as u8);
+                                            self.bump();
+                                        }
+                                        _ => { ok = false; break; }
+                                    }
+                                }
+                                if ok {
+                                    if let Ok(s) = std::str::from_utf8(&utf8_bytes) {
+                                        s.chars().next().map(|ch| ch as u32)
+                                    } else {
+                                        self.pos = save_pos;
+                                        None
+                                    }
+                                } else {
+                                    self.pos = save_pos;
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         } else {
-                            unibyte_buf = None;
+                            None
+                        };
+
+                        if let Some(code) = decoded {
+                            // Successfully decoded a UTF-8 multi-byte char
+                            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                            let len = emacs_char::char_string(code, &mut tmp);
+                            buf.extend_from_slice(&tmp[..len]);
+                            unibyte_buf = None; // force multibyte
+                        } else {
+                            // Raw byte — keep as unibyte
+                            buf.push(byte0);
+                            if let Some(bytes) = unibyte_buf.as_mut() {
+                                bytes.push(byte0);
+                            }
                         }
                     } else {
                         // Normal Unicode — encode as UTF-8 (== Emacs encoding)
