@@ -669,6 +669,7 @@ impl TaggedHeap {
                         VecLikeType::Timer => size_of::<TimerObj>(),
                         VecLikeType::Subr => size_of::<SubrObj>(),
                         VecLikeType::Bignum => size_of::<BignumObj>(),
+                        VecLikeType::SymbolWithPos => size_of::<SymbolWithPosObj>(),
                     }
                 }
             }
@@ -1251,6 +1252,18 @@ impl TaggedHeap {
                     self.gray_queue.push(data.plist);
                 }
             }
+            VecLikeType::SymbolWithPos => {
+                // Trace both the symbol and the position fields.
+                let obj = ptr as *const SymbolWithPosObj;
+                let sym = unsafe { (*obj).sym };
+                let pos = unsafe { (*obj).pos };
+                if sym.is_heap_object() {
+                    self.gray_queue.push(sym);
+                }
+                if pos.is_heap_object() {
+                    self.gray_queue.push(pos);
+                }
+            }
             VecLikeType::Buffer
             | VecLikeType::Window
             | VecLikeType::Frame
@@ -1355,6 +1368,9 @@ impl TaggedHeap {
                         // Box::drop runs rug::Integer::drop, which frees
                         // the underlying libgmp limb buffer.
                         drop(Box::from_raw(ptr as *mut BignumObj))
+                    },
+                    VecLikeType::SymbolWithPos => unsafe {
+                        drop(Box::from_raw(ptr as *mut SymbolWithPosObj))
                     },
                 }
             }

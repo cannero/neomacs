@@ -195,6 +195,11 @@ impl DumpEncoder {
             ValueKind::Veclike(VecLikeType::Bignum) => {
                 DumpValue::Bignum(v.as_bignum().unwrap().to_string())
             }
+            ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
+                // SymbolWithPos cannot be portably serialized in a pdump yet.
+                // Signal an error so callers know this case is unimplemented.
+                panic!("pdump: symbol-with-pos is not yet supported in portable dumps")
+            }
             ValueKind::Unbound => DumpValue::Unbound,
             ValueKind::Unknown => DumpValue::Nil,
         }

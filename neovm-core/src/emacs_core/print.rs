@@ -487,6 +487,15 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             // Display delegates to the same routine.
             write!(out, "{}", value.as_bignum().unwrap()).unwrap();
         }
+        ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
+            // GNU prints symbol-with-pos as the bare symbol name.
+            // Full implementation in Task 7.
+            if let Some(sym) = value.as_symbol_with_pos_sym() {
+                write_value_stateful(&sym, out, state);
+            } else {
+                out.push_str("#<symbol-with-pos>");
+            }
+        }
         ValueKind::Unbound => out.push_str("#<unbound>"),
         ValueKind::Unknown => write!(out, "#<unknown {:#x}>", value.0).unwrap(),
     }
@@ -1084,6 +1093,14 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             format!("#<timer {}>", value.as_timer_id().unwrap())
         }
         ValueKind::Veclike(VecLikeType::Bignum) => value.as_bignum().unwrap().to_string(),
+        ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
+            // GNU prints symbol-with-pos as the bare symbol name.
+            // Full implementation in Task 7.
+            value
+                .as_symbol_with_pos_sym()
+                .map(|sym| print_value_with_options(&sym, options))
+                .unwrap_or_else(|| "#<symbol-with-pos>".to_string())
+        }
         ValueKind::Unbound => "#<unbound>".to_string(),
         ValueKind::Unknown => format!("#<unknown {:#x}>", value.0),
     }
@@ -1263,6 +1280,15 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
         }
         ValueKind::Veclike(VecLikeType::Bignum) => {
             out.extend_from_slice(value.as_bignum().unwrap().to_string().as_bytes());
+        }
+        ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
+            // GNU prints symbol-with-pos as the bare symbol name.
+            // Full implementation in Task 7.
+            if let Some(sym) = value.as_symbol_with_pos_sym() {
+                append_print_value_bytes(&sym, out, options);
+            } else {
+                out.extend_from_slice(b"#<symbol-with-pos>");
+            }
         }
         ValueKind::Unbound => {
             out.extend_from_slice(b"#<unbound>");

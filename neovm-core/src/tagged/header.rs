@@ -149,6 +149,9 @@ pub enum VecLikeType {
     /// `mpz_t`. NeoMacs wraps `rug::Integer` (which itself wraps the
     /// same `mpz_t` from libgmp).
     Bignum = 13,
+    /// Symbol with source position (like GNU's PVEC_SYMBOL_WITH_POS).
+    /// Wraps a bare symbol + byte offset for byte-compiler diagnostics.
+    SymbolWithPos = 14,
 }
 
 use std::sync::OnceLock;
@@ -347,4 +350,16 @@ pub struct SubrObj {
 pub struct BignumObj {
     pub header: VecLikeHeader,
     pub value: rug::Integer,
+}
+
+/// A symbol annotated with its source byte offset.
+/// Mirrors GNU `struct Lisp_Symbol_With_Pos` (`lisp.h:958`).
+/// Both fields are `TaggedValue` (GC-traced), matching GNU's LISPSIZE=2.
+#[repr(C)]
+pub struct SymbolWithPosObj {
+    pub header: VecLikeHeader,
+    /// The bare symbol. Must always be a plain symbol (TAG_SYMBOL).
+    pub sym: TaggedValue,
+    /// Source byte offset. Must always be a fixnum.
+    pub pos: TaggedValue,
 }

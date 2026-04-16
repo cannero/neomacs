@@ -33,7 +33,8 @@ use crate::emacs_core::intern::{
 use crate::heap_types::LispString;
 
 use super::header::{
-    BignumObj, ConsCell, FloatObj, GcHeader, StringObj, VecLikeHeader, VecLikeType,
+    BignumObj, ConsCell, FloatObj, GcHeader, StringObj, SymbolWithPosObj, VecLikeHeader,
+    VecLikeType,
 };
 
 /// Clear the old subr registry on the tagged heap — no-op now that subrs use
@@ -388,6 +389,25 @@ impl TaggedValue {
         }
     }
 
+    /// If this is a symbol-with-pos, return a reference to the object.
+    pub fn as_symbol_with_pos(&self) -> Option<&SymbolWithPosObj> {
+        if self.is_symbol_with_pos() {
+            Some(unsafe { &*(self.as_veclike_ptr()? as *const SymbolWithPosObj) })
+        } else {
+            None
+        }
+    }
+
+    /// If this is a symbol-with-pos, return the bare symbol Value.
+    pub fn as_symbol_with_pos_sym(&self) -> Option<TaggedValue> {
+        self.as_symbol_with_pos().map(|swp| swp.sym)
+    }
+
+    /// If this is a symbol-with-pos, return the position as i64.
+    pub fn as_symbol_with_pos_pos(&self) -> Option<i64> {
+        self.as_symbol_with_pos().and_then(|swp| swp.pos.as_fixnum())
+    }
+
     /// True if this value holds a heap pointer (needs GC tracing).
     #[inline]
     pub fn is_heap_object(self) -> bool {
@@ -698,6 +718,12 @@ impl TaggedValue {
         self.veclike_type() == Some(VecLikeType::HashTable)
     }
 
+    /// True if this value is a symbol-with-pos pseudo-vector.
+    #[inline]
+    pub fn is_symbol_with_pos(self) -> bool {
+        self.veclike_type() == Some(VecLikeType::SymbolWithPos)
+    }
+
     /// True if this value is callable (lambda, macro, bytecode, subr).
     #[inline]
     pub fn is_function(self) -> bool {
@@ -736,6 +762,7 @@ impl TaggedValue {
                 // GNU Emacs reports both fixnums and bignums as
                 // "integer" via `Ftype_of` / `Fcl_type_of`.
                 VecLikeType::Bignum => "integer",
+                VecLikeType::SymbolWithPos => "symbol-with-pos",
             },
             ValueKind::Unbound => "unbound",
             ValueKind::Unknown => "unknown",

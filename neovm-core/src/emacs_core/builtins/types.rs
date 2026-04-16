@@ -375,6 +375,8 @@ pub(crate) fn builtin_cl_type_of(args: Vec<Value>) -> EvalResult {
         ValueKind::Veclike(VecLikeType::Timer) => "timer",
         // GNU `Fcl_type_of` reports bignums as `bignum`.
         ValueKind::Veclike(VecLikeType::Bignum) => "bignum",
+        // GNU `Fcl_type_of` reports symbol-with-pos as `symbol-with-pos`.
+        ValueKind::Veclike(VecLikeType::SymbolWithPos) => "symbol-with-pos",
         // `Qunbound` is internal and should never reach `type-of`
         // from Lisp; treat it as `unknown` if it somehow leaks.
         ValueKind::Unbound | ValueKind::Unknown => "unknown",
