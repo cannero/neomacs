@@ -750,3 +750,22 @@ fn is_char_boundary_matches_oracle_on_large_multibyte_buffer() {
         }
     }
 }
+
+#[test]
+fn insert_emacs_bytes_both_matches_scanning_variant() {
+    crate::test_utils::init_test_tracing();
+    let bytes = "Hello, 日本語!".as_bytes().to_vec();
+    let nchars = crate::emacs_core::emacs_char::chars_in_multibyte(&bytes);
+
+    let mut a = GapBuffer::new();
+    a.insert_emacs_bytes(0, &bytes);
+
+    let mut b = GapBuffer::new();
+    b.insert_emacs_bytes_both(0, &bytes, nchars);
+
+    assert_eq!(a.to_string(), b.to_string());
+    assert_eq!(a.char_count(), b.char_count());
+    assert_eq!(a.emacs_byte_len(), b.emacs_byte_len());
+    assert_eq!(a.gpt(), b.gpt());
+    assert_eq!(a.gpt_byte(), b.gpt_byte());
+}

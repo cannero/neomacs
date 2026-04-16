@@ -349,10 +349,28 @@ impl GapBuffer {
     // -----------------------------------------------------------------------
 
     /// Insert raw Emacs bytes at logical byte position `pos`.
+    ///
+    /// Convenience wrapper that counts characters in `bytes`. If the caller
+    /// already knows `nchars`, prefer `insert_emacs_bytes_both`.
     pub fn insert_emacs_bytes(&mut self, pos: usize, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let nchars = emacs_char_count_bytes(bytes, self.multibyte);
+        self.insert_emacs_bytes_both(pos, bytes, nchars);
+    }
+
+    /// Insert raw Emacs bytes at logical byte position `pos`, given the
+    /// pre-computed character count.
+    ///
+    /// `nchars` **must** equal `chars_in_multibyte(bytes)` (or `bytes.len()` in
+    /// unibyte mode). Passing a wrong value corrupts the char/byte counters.
+    ///
+    /// Mirrors GNU `insert_1_both` (`src/insdel.c:891`).
+    pub fn insert_emacs_bytes_both(&mut self, pos: usize, bytes: &[u8], nchars: usize) {
         assert!(
             pos <= self.len(),
-            "insert_emacs_bytes: position {pos} out of range (len {})",
+            "insert_emacs_bytes_both: position {pos} out of range (len {})",
             self.len()
         );
         if bytes.is_empty() {
@@ -360,18 +378,22 @@ impl GapBuffer {
         }
         debug_assert!(
             pos == self.len() || self.is_char_boundary(pos),
-            "insert_emacs_bytes: position {pos} is not on an Emacs character boundary"
+            "insert_emacs_bytes_both: position {pos} is not on an Emacs character boundary"
+        );
+        debug_assert_eq!(
+            nchars,
+            emacs_char_count_bytes(bytes, self.multibyte),
+            "insert_emacs_bytes_both: caller-supplied nchars mismatches actual"
         );
 
-        let inserted_chars = emacs_char_count_bytes(bytes, self.multibyte);
         let inserted_bytes = bytes.len();
         self.move_gap_to(pos);
         self.ensure_gap(inserted_bytes);
 
         self.buf[self.gap_start..self.gap_start + inserted_bytes].copy_from_slice(bytes);
         self.gap_start += inserted_bytes;
-        self.gap_start_chars += inserted_chars;
-        self.total_chars += inserted_chars;
+        self.gap_start_chars += nchars;
+        self.total_chars += nchars;
         self.gap_start_bytes += inserted_bytes;
         self.total_bytes += inserted_bytes;
     }
