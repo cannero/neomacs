@@ -592,19 +592,28 @@ pub fn window_params_from_neovm(
             *point,
             *hscroll,
             *margins,
-            if display.left_fringe_width >= 0 {
-                display.left_fringe_width
+            // Mirrors GNU window_body_width (window.c:1109-1111):
+            //   - (FRAME_WINDOW_P (f) ? WINDOW_FRINGES_WIDTH (w) : 0)
+            // Fringes only subtract from the text area on GUI frames.
+            // TTY frames always have 0 fringes regardless of the
+            // `left-fringe` / `right-fringe` frame parameter values.
+            if frame.window_system.is_some() {
+                if display.left_fringe_width >= 0 {
+                    display.left_fringe_width
+                } else {
+                    frame_parameter_int(frame, "left-fringe", 8) as i32
+                }
             } else {
-                // GNU Emacs: TTY frames have 0 fringes (window-fringes → (0 0 nil nil)).
-                // GUI frames default to 8 pixels.
-                let gui_default = if frame.window_system.is_some() { 8 } else { 0 };
-                frame_parameter_int(frame, "left-fringe", gui_default) as i32
+                0
             },
-            if display.right_fringe_width >= 0 {
-                display.right_fringe_width
+            if frame.window_system.is_some() {
+                if display.right_fringe_width >= 0 {
+                    display.right_fringe_width
+                } else {
+                    frame_parameter_int(frame, "right-fringe", 8) as i32
+                }
             } else {
-                let gui_default = if frame.window_system.is_some() { 8 } else { 0 };
-                frame_parameter_int(frame, "right-fringe", gui_default) as i32
+                0
             },
         ),
         Window::Internal { .. } => return None,
