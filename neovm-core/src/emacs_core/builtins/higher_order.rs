@@ -188,7 +188,10 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
                     let item = pair_car;
                     cursor = pair_cdr;
                     eval.push_specpdl_root(cursor);
-                    let val = eval.apply(func, vec![item])?;
+                    let val = match eval.apply(func, vec![item]) {
+                        Ok(v) => v,
+                        Err(e) => break Err(e),
+                    };
                     eval.push_specpdl_root(val);
                     results.push(val);
                 }
@@ -208,12 +211,9 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
             Ok(())
         })
     };
-    let result = (|| -> EvalResult {
-        map_result?;
-        Ok(Value::list(results))
-    })();
     eval.restore_specpdl_roots(roots);
-    result
+    map_result?;
+    Ok(Value::list(results))
 }
 
 pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -243,7 +243,9 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
                     cursor = pair_cdr;
                     // Root the remaining tail before calling the function.
                     eval.push_specpdl_root(cursor);
-                    eval.apply(func, vec![item])?;
+                    if let Err(e) = eval.apply(func, vec![item]) {
+                        break Err(e);
+                    }
                 }
                 tail => {
                     break Err(signal(
@@ -259,12 +261,9 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
             Ok(())
         })
     };
-    let mapc_result = (|| -> EvalResult {
-        result?;
-        Ok(seq)
-    })();
     eval.restore_specpdl_roots(roots);
-    mapc_result
+    result?;
+    Ok(seq)
 }
 
 pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
