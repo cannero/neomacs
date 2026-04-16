@@ -2777,21 +2777,23 @@ fn run_after_insert_file_pipeline(
             eval, hook_sym, hook_value, true,
         );
         if !hook_functions.is_empty() {
-            let mut roots = hook_functions.clone();
-            roots.push(Value::fixnum(inserted));
-            inserted = eval.with_gc_scope_result(|ctx| {
-                for root in &roots {
-                    ctx.root(*root);
-                }
+            let gc_roots = eval.save_specpdl_roots();
+            for func in &hook_functions {
+                eval.push_specpdl_root(*func);
+            }
+            eval.push_specpdl_root(Value::fixnum(inserted));
+            let hook_result = (|| -> Result<i64, Flow> {
                 let mut inserted_now = inserted;
                 for function in &hook_functions {
-                    let result = ctx.apply(*function, vec![Value::fixnum(inserted_now)])?;
+                    let result = eval.apply(*function, vec![Value::fixnum(inserted_now)])?;
                     if !result.is_nil() {
                         inserted_now = expect_inserted_char_count(&result)?;
                     }
                 }
                 Ok(inserted_now)
-            })?;
+            })();
+            eval.restore_specpdl_roots(gc_roots);
+            inserted = hook_result?;
         }
 
         Ok(inserted)
