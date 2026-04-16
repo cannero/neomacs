@@ -1071,14 +1071,32 @@ where
     F: FnOnce(&mut super::eval::Context) -> Result<Value, EvalError>,
 {
     let old_lexical = eval.lexical_binding();
-    let old_lexenv = eval.lexenv;
     let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
     let old_load_true_file = eval.obarray().symbol_value("load-true-file-name").cloned();
     let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
 
+    // Mirrors GNU readevalloop (lread.c:2220-2222):
+    //   specbind(Qinternal_interpreter_environment,
+    //            NILP(lex_bound) ? Qnil : list1(Qt));
+    // Use the specpdl for lexenv save/restore, matching GNU exactly.
+    // This ensures all modifications to self.lexenv during file loading
+    // are properly unwound by unbind_to, even if individual let forms leak.
+    let specpdl_count = eval.specpdl.len();
+    {
+        use super::eval::SpecBinding;
+        eval.specpdl.push(SpecBinding::LexicalEnv {
+            old_lexenv: eval.lexenv,
+        });
+    }
+    if lexical_binding {
+        eval.set_lexical_binding(true);
+        eval.lexenv = Value::list(vec![Value::T]);
+    } else {
+        eval.lexenv = Value::NIL;
+    }
+
     let roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(old_lexenv);
     if let Some(ref v) = old_load_file {
         eval.push_specpdl_root(*v);
     }
@@ -1090,11 +1108,6 @@ where
     }
     if let Some(v) = old_reader_load_file {
         eval.push_specpdl_root(v);
-    }
-
-    if lexical_binding {
-        eval.set_lexical_binding(true);
-        eval.lexenv = Value::list(vec![Value::T]);
     }
 
     let load_file_value = Value::heap_string(hist_file_name.clone());
@@ -1116,7 +1129,10 @@ where
     super::value_reader::set_reader_load_file_name(old_reader_load_file);
 
     eval.set_lexical_binding(old_lexical);
-    eval.lexenv = old_lexenv;
+    // Restore lexenv via specpdl unbind_to, matching GNU's
+    // readevalloop cleanup. This pops the LexicalEnv entry we
+    // pushed above, restoring self.lexenv to its pre-load value.
+    eval.unbind_to(specpdl_count);
     if let Some(old) = old_load_file {
         eval.set_variable("load-file-name", old);
     } else {
