@@ -1423,6 +1423,9 @@ impl TaggedValue {
                 HashKey::Ptr(self.bits())
             }
             ValueKind::Symbol(id) => HashKey::Symbol(id),
+            // Static subrs: use bit pattern identity (each SymId
+            // encodes to a unique immediate value).
+            ValueKind::Subr(_) => HashKey::Ptr(self.bits()),
             // All heap types: use pointer identity
             ValueKind::Cons | ValueKind::String | ValueKind::Veclike(_) => {
                 HashKey::Ptr(self.bits())

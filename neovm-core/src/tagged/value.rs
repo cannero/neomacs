@@ -75,6 +75,11 @@ const TAG_IMMEDIATE: usize = 0b111;
 // slots neatly into the Special Values range.
 const IMMED_UNBOUND: usize = (0 << TAG_BITS) | TAG_IMMEDIATE;
 
+/// Immediate sub-tag for static subr values: sub-tag 1 + immediate tag 111.
+/// Full low byte = `0b00001_111 == 0x0F`. The upper bits encode `SymId.0`
+/// (u32) shifted left by 8.
+const SUBR_IMMEDIATE_TAG: usize = 0x0F;
+
 // Fixnum uses two tags: 001 and 101. Both have (v & 3) == 1.
 const FIXNUM_CHECK_MASK: usize = 0b11;
 const FIXNUM_CHECK_VALUE: usize = 0b01;
@@ -227,6 +232,12 @@ impl TaggedValue {
         Self::from_sym_id(id)
     }
 
+    /// Create a subr value from a SymId (static, not heap-allocated).
+    #[inline]
+    pub fn subr_from_sym_id(sym_id: crate::emacs_core::intern::SymId) -> Self {
+        Self((sym_id.0 as usize) << 8 | SUBR_IMMEDIATE_TAG)
+    }
+
     /// Create a subr (builtin function) value.
     /// In GNU Emacs, subrs are PVEC_SUBR heap objects. We allocate a SubrObj
     /// on the tagged heap.
@@ -331,6 +342,22 @@ impl TaggedValue {
         self.0 == IMMED_UNBOUND
     }
 
+    /// Check if this value is a static subr (immediate encoding).
+    #[inline]
+    pub fn is_subr_static(self) -> bool {
+        self.0 & 0xFF == SUBR_IMMEDIATE_TAG
+    }
+
+    /// Extract the SymId from a static subr value.
+    #[inline]
+    pub fn as_subr_sym_id_static(self) -> Option<crate::emacs_core::intern::SymId> {
+        if self.is_subr_static() {
+            Some(crate::emacs_core::intern::SymId((self.0 >> 8) as u32))
+        } else {
+            None
+        }
+    }
+
     /// In GNU Emacs, characters are integers. `characterp` checks if the
     /// integer is in the valid Unicode codepoint range (0..=0x3FFFFF in GNU,
     /// 0..=0x10FFFF for valid Unicode).
@@ -350,10 +377,11 @@ impl TaggedValue {
             .is_some_and(crate::emacs_core::intern::is_keyword_id)
     }
 
-    /// Subrs are PVEC_SUBR veclike heap objects.
+    /// Subrs are either immediate static subr values (new encoding) or
+    /// PVEC_SUBR veclike heap objects (old encoding, to be removed).
     #[inline]
     pub fn is_subr(self) -> bool {
-        self.veclike_type() == Some(super::header::VecLikeType::Subr)
+        self.is_subr_static() || self.veclike_type() == Some(super::header::VecLikeType::Subr)
     }
 
     /// Bignums are PVEC_BIGNUM veclike heap objects (mirrors GNU `BIGNUMP`).
@@ -468,6 +496,11 @@ impl TaggedValue {
     /// subr or if its name does not currently map to a canonical symbol.
     #[inline]
     pub fn as_subr_id(self) -> Option<SymId> {
+        // New static subr path
+        if let Some(sym_id) = self.as_subr_sym_id_static() {
+            return Some(sym_id);
+        }
+        // Old heap subr path (to be removed later)
         if self.is_subr() {
             let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
             canonical_symbol_for_name(unsafe { (*ptr).name })
@@ -632,6 +665,9 @@ impl TaggedValue {
             }
             TAG_STRING => ValueKind::String,
             TAG_FLOAT => ValueKind::Float,
+            TAG_IMMEDIATE if self.is_subr_static() => {
+                ValueKind::Subr(self.as_subr_sym_id_static().unwrap())
+            }
             TAG_IMMEDIATE if self.is_unbound() => ValueKind::Unbound,
             TAG_IMMEDIATE => ValueKind::Unknown,
             _ => ValueKind::Unknown,
@@ -726,6 +762,7 @@ impl TaggedValue {
             ValueKind::Cons => "cons",
             ValueKind::String => "string",
             ValueKind::Float => "float",
+            ValueKind::Subr(_) => "subr",
             ValueKind::Veclike(ty) => match ty {
                 VecLikeType::Subr => "subr",
                 VecLikeType::Vector => "vector",
@@ -839,7 +876,9 @@ pub enum ValueKind {
     Float,
     // NOTE: No Char variant. Characters are Fixnum in GNU Emacs.
     // NOTE: No Keyword variant. Keywords are Symbol in GNU Emacs.
-    // NOTE: No Subr variant. Subrs are Veclike(VecLikeType::Subr) in GNU Emacs.
+    /// Static subr (immediate encoding). The old `Veclike(VecLikeType::Subr)`
+    /// path is kept during migration but new subrs use this variant.
+    Subr(SymId),
     Veclike(VecLikeType),
     /// The `Qunbound` sentinel. Never reached by ordinary Lisp
     /// reads — a caller that dispatches on this should signal
@@ -864,6 +903,7 @@ impl fmt::Debug for TaggedValue {
             ValueKind::Float => {
                 write!(f, "Float({})", self.xfloat())
             }
+            ValueKind::Subr(sym_id) => write!(f, "Subr({:?})", sym_id),
             ValueKind::Veclike(ty) => write!(f, "{:?}@{:#x}", ty, self.0 & !TAG_MASK),
             ValueKind::Unbound => write!(f, "#<unbound>"),
             ValueKind::Unknown => write!(f, "Unknown({:#x})", self.0),

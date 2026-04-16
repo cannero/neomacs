@@ -447,6 +447,9 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 .unwrap_or_else(|| "nil".to_string());
             write!(out, "(macro {} {})", params, body).unwrap();
         }
+        ValueKind::Subr(id) => {
+            write!(out, "#<subr {}>", resolve_sym(id)).unwrap()
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
             write!(out, "#<subr {}>", resolve_sym(id)).unwrap()
@@ -1052,6 +1055,9 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
                 .unwrap_or_else(|| "nil".to_string());
             format!("(macro {} {})", params, body)
         }
+        ValueKind::Subr(id) => {
+            format!("#<subr {}>", resolve_sym(id))
+        }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
             format!("#<subr {}>", resolve_sym(id))
@@ -1214,6 +1220,9 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 .map(|body| format_closure_body_forms(body, options))
                 .unwrap_or_else(|| "nil".to_string());
             out.extend_from_slice(format!("(macro {} {})", params, body).as_bytes());
+        }
+        ValueKind::Subr(id) => {
+            out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
         }
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();

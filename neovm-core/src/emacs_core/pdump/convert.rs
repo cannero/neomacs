@@ -170,6 +170,9 @@ impl DumpEncoder {
             ValueKind::Veclike(VecLikeType::Macro) => {
                 DumpValue::Macro(dump_heap_ref(self.value_to_heap_ref(v)))
             }
+            ValueKind::Subr(s) => {
+                DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
+            }
             ValueKind::Veclike(VecLikeType::Subr) => {
                 let s = v.as_subr_id().unwrap();
                 DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
