@@ -1182,11 +1182,11 @@ fn write_terpri_output(eval: &mut super::eval::Context, target: Value) -> Result
         }
         other => {
             // Root the callable target across eval.apply().
-            eval.with_gc_scope_result(|ctx| {
-                ctx.root(target);
-                ctx.apply(target, vec![Value::fixnum('\n' as i64)])?;
-                Ok(())
-            })?;
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(target);
+            let call_result = eval.apply(target, vec![Value::fixnum('\n' as i64)]);
+            eval.restore_specpdl_roots(roots);
+            call_result?;
             Ok(())
         }
     }
@@ -1423,10 +1423,11 @@ pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -
     }
 
     let text = print_value_princ_in_state(eval, &args[0]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(target);
-        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
-    })?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(target);
+    let princ_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_specpdl_roots(roots);
+    princ_result?;
     Ok(args[0])
 }
 
@@ -1448,10 +1449,11 @@ pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -
     }
 
     let text = super::error::print_value_in_state(eval, &args[0]);
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(target);
-        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
-    })?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(target);
+    let prin1_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_specpdl_roots(roots);
+    prin1_result?;
     Ok(args[0])
 }
 
@@ -1494,10 +1496,11 @@ pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -
     text.push('\n');
     text.push_str(&super::error::print_value_in_state(eval, &args[0]));
     text.push('\n');
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(target);
-        dispatch_print_callback_chars(&text, |ch| ctx.apply(target, vec![ch]).map(|_| ()))
-    })?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(target);
+    let print_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    eval.restore_specpdl_roots(roots);
+    print_result?;
     Ok(args[0])
 }
 
@@ -1605,11 +1608,11 @@ pub(crate) fn finish_write_char_in_eval(
             }
         }
         other => {
-            eval.with_gc_scope_result(|ctx| {
-                ctx.root(target);
-                ctx.apply(target, vec![Value::fixnum(char_code)])?;
-                Ok(())
-            })?;
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(target);
+            let call_result = eval.apply(target, vec![Value::fixnum(char_code)]);
+            eval.restore_specpdl_roots(roots);
+            call_result?;
         }
     }
 
