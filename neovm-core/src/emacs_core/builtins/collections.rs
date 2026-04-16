@@ -776,57 +776,61 @@ pub(crate) fn builtin_plist_member(
     let predicate = predicate;
 
     // Root Values that survive across eval.apply() in the loop.
-    eval.with_gc_scope_result(|ctx| {
-        ctx.root(plist);
-        ctx.root(prop);
-        if let Some(p) = predicate {
-            ctx.root(p);
-        }
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(plist);
+    eval.push_specpdl_root(prop);
+    if let Some(p) = predicate {
+        eval.push_specpdl_root(p);
+    }
 
-        let mut cursor = plist;
-        loop {
-            match cursor.kind() {
-                ValueKind::Cons => {
-                    let entry_key = cursor.cons_car();
-                    let entry_rest = cursor.cons_cdr();
+    let mut cursor = plist;
+    let plist_result = loop {
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let entry_key = cursor.cons_car();
+                let entry_rest = cursor.cons_cdr();
 
-                    let matches = if let Some(predicate) = &predicate {
-                        ctx.apply(*predicate, vec![entry_key, prop])?.is_truthy()
-                    } else {
-                        eq_value(&entry_key, &prop)
-                    };
-                    if matches {
-                        return Ok(cursor);
+                let matches = if let Some(predicate) = &predicate {
+                    match eval.apply(*predicate, vec![entry_key, prop]) {
+                        Ok(v) => v.is_truthy(),
+                        Err(e) => { break Err(e); }
                     }
-
-                    // See `plist_member_eq` for the nil-terminator
-                    // rule: an unpaired last key is a valid end per
-                    // GNU, only dotted tails signal plistp.
-                    match entry_rest.kind() {
-                        ValueKind::Cons => {
-                            cursor = entry_rest.cons_cdr();
-                        }
-                        ValueKind::Nil => {
-                            return Ok(Value::NIL);
-                        }
-                        _ => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("plistp"), plist],
-                            ));
-                        }
-                    }
+                } else {
+                    eq_value(&entry_key, &prop)
+                };
+                if matches {
+                    break Ok(cursor);
                 }
-                ValueKind::Nil => return Ok(Value::NIL),
-                _ => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("plistp"), plist],
-                    ));
+
+                // See `plist_member_eq` for the nil-terminator
+                // rule: an unpaired last key is a valid end per
+                // GNU, only dotted tails signal plistp.
+                match entry_rest.kind() {
+                    ValueKind::Cons => {
+                        cursor = entry_rest.cons_cdr();
+                    }
+                    ValueKind::Nil => {
+                        break Ok(Value::NIL);
+                    }
+                    _ => {
+                        break Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("plistp"), plist],
+                        ));
+                    }
                 }
             }
+            ValueKind::Nil => break Ok(Value::NIL),
+            _ => {
+                break Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("plistp"), plist],
+                ));
+            }
         }
-    })
+    };
+    eval.restore_specpdl_roots(roots);
+    plist_result
 }
 
 pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
