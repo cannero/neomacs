@@ -1140,12 +1140,14 @@ pub(crate) enum ResumeTarget {
         target: u32,
         stack_len: usize,
         spec_depth: usize,
+        bind_stack_len: usize,
     },
     VmConditionCase {
         resume_id: u64,
         target: u32,
         stack_len: usize,
         spec_depth: usize,
+        bind_stack_len: usize,
     },
 }
 
@@ -10583,7 +10585,7 @@ pub(crate) fn unbind_to_in_state(
                 // Standalone path doesn't have self.lexenv access.
                 // This variant should not appear on the standalone
                 // specpdl (used by bytecode VM which has its own
-                // VmUnwindEntry::LexicalBinding mechanism).
+                // LexicalEnv / specbind mechanism).
                 tracing::warn!("unbind_to_in_state: LexicalEnv without Context");
             }
             SpecBinding::GcRoot { .. } => {}
