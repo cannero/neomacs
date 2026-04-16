@@ -1134,6 +1134,13 @@ fn write_print_output(
     text: &str,
 ) -> Result<(), Flow> {
     let target = resolve_print_target(eval, printcharfun);
+    // GNU print.c: in batch mode, printcharfun=t writes to stdout
+    if eval.noninteractive() && (target.is_t() || target.is_nil()) {
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(text.as_bytes());
+        let _ = std::io::stdout().flush();
+        return Ok(());
+    }
     write_print_output_to_target(&mut eval.buffers, &mut eval.current_message, target, text)
 }
 
@@ -1143,6 +1150,13 @@ fn write_print_output_from_ctx(
     text: &str,
 ) -> Result<(), Flow> {
     let target = resolve_print_target_in_state(ctx, printcharfun);
+    // GNU print.c: in batch mode, printcharfun=t writes to stdout
+    if ctx.noninteractive() && (target.is_t() || target.is_nil()) {
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(text.as_bytes());
+        let _ = std::io::stdout().flush();
+        return Ok(());
+    }
     write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, text)
 }
 

@@ -92,13 +92,14 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // GNU Emacs message_dolog: log to *Messages* buffer
     message_dolog(ctx, &msg);
     tracing::info!(msg = %super::runtime_string_from_lisp_string(&msg));
-    // GNU Emacs editfns.c Fmessage → message3 → message3_nolog:
-    // Sets the echo area text but does NOT call redisplay().  The message
-    // becomes visible during the next natural redisplay cycle in read_char().
-    // Calling redisplay() here would cause mid-command screen updates during
-    // autoloading, showing stale buffer state (the real modification hasn't
-    // happened yet).  The M-x prompt is shown via minibuffer buffer text
-    // (minibuf.c:846 Finsert), not through message().
+    // GNU Emacs editfns.c: in batch mode, message prints to stderr with newline.
+    if ctx.noninteractive() {
+        use std::io::Write;
+        let text = super::runtime_string_from_lisp_string(&msg);
+        let _ = std::io::stderr().write_all(text.as_bytes());
+        let _ = std::io::stderr().write_all(b"\n");
+        let _ = std::io::stderr().flush();
+    }
     Ok(formatted)
 }
 
