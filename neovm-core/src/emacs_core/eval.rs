@@ -196,32 +196,6 @@ pub(crate) enum SpecBinding {
     Nop,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct RuntimeBacktraceFrame {
-    pub(crate) function: Value,
-    pub(crate) active_call_frame: usize,
-    pub(crate) evaluated: bool,
-    pub(crate) debug_on_exit: bool,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ActiveCallFrame {
-    pub(crate) frame_function: Value,
-    pub(crate) callable: Option<Value>,
-    pub(crate) args: LispArgVec,
-    pub(crate) extra_roots: LispArgVec,
-}
-
-impl ActiveCallFrame {
-    fn new(frame_function: Value, callable: Option<Value>, args: &[Value]) -> Self {
-        Self {
-            frame_function,
-            callable,
-            args: args.iter().copied().collect(),
-            extra_roots: LispArgVec::new(),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct VmRootFrame {
@@ -1382,12 +1356,6 @@ pub struct Context {
     /// Each entry records where the frame's stack region starts in bc_buf
     /// and the function object (so GC can trace its constants).
     pub(crate) bc_frames: Vec<BcFrame>,
-    /// Active evaluator call frames used as exact GC roots at apply boundaries.
-    /// Unlike `runtime_backtrace`, these exist even for untraced internal calls.
-    active_call_roots: Vec<ActiveCallFrame>,
-    /// GNU-shaped Lisp call stack used by `backtrace-frame--internal`,
-    /// `mapbacktrace`, and advice-sensitive `called-interactively-p`.
-    pub(crate) runtime_backtrace: Vec<RuntimeBacktraceFrame>,
     /// Shared condition runtime mirror for active catch/condition handlers.
     pub(crate) condition_stack: Vec<ConditionFrame>,
     /// Stable identity source for VM resume targets stored in the shared
@@ -1657,14 +1625,11 @@ pub(crate) fn finish_eval_with_lexical_arg_in_state(
 }
 
 pub(crate) struct ActiveLambdaCallState {
-    saved_active_call_extra_roots_len: Option<usize>,
-    has_lexenv: bool,
     specpdl_count: usize,
 }
 
 pub(crate) struct ActiveMacroExpansionScopeState {
-    saved_active_call_extra_roots_len: Option<usize>,
-    saved_specpdl_len: Option<usize>,
+    saved_specpdl_len: usize,
     old_lexical: bool,
     old_dynvars: Value,
 }
@@ -1679,37 +1644,6 @@ pub(crate) struct VmRootScopeState {
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SpecpdlRootScopeState {
     saved_len: usize,
-}
-
-fn bind_lexical_value_rooted_in_call_frame(
-    lexenv: &mut Value,
-    frame: &mut ActiveCallFrame,
-    sym: SymId,
-    value: Value,
-) {
-    let saved_roots = frame.extra_roots.len();
-    frame.extra_roots.push(value);
-    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
-    frame.extra_roots.push(binding);
-    *lexenv = Value::make_cons(binding, *lexenv);
-    frame.extra_roots.truncate(saved_roots);
-}
-
-fn prepend_lexical_binding_in_call_frame_rooted_env(
-    lexenv: &mut Value,
-    frame: &mut ActiveCallFrame,
-    env_root_index: usize,
-    sym: SymId,
-    value: Value,
-) {
-    let saved_roots = frame.extra_roots.len();
-    let current_env = frame.extra_roots[env_root_index];
-    let binding = Value::make_cons(lexenv_binding_symbol_value(sym), value);
-    frame.extra_roots.push(binding);
-    let new_env = Value::make_cons(binding, current_env);
-    frame.extra_roots[env_root_index] = new_env;
-    *lexenv = new_env;
-    frame.extra_roots.truncate(saved_roots);
 }
 
 fn bind_lexical_value_rooted_in_specpdl(
@@ -1776,7 +1710,6 @@ fn begin_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    active_call_roots: &mut Vec<ActiveCallFrame>,
     params: &LambdaParams,
     env: Option<Value>,
     args: &[Value],
@@ -1804,12 +1737,8 @@ fn begin_lambda_call_in_state(
         ));
     }
 
-    let saved_active_call_extra_roots_len = active_call_roots
-        .last()
-        .map(|frame| frame.extra_roots.len());
     let specpdl_count = specpdl.len();
 
-    let has_lexenv = env.is_some();
     if let Some(env) = env {
         // Debug: detect malformed env (bare t instead of list (t))
         if env.is_t() {
@@ -1822,59 +1751,23 @@ fn begin_lambda_call_in_state(
         // Mirrors GNU funcall_lambda:
         //   specbind(Qinternal_interpreter_environment, lexenv);
         specpdl.push(SpecBinding::LexicalEnv { old_lexenv: old });
-        if let Some(frame) = active_call_roots.last_mut() {
-            let env_root_index = frame.extra_roots.len();
-            frame.extra_roots.push(env);
 
-            let mut arg_idx = 0;
-            for param in &params.required {
-                prepend_lexical_binding_in_call_frame_rooted_env(
-                    lexenv,
-                    frame,
-                    env_root_index,
-                    *param,
-                    args[arg_idx],
-                );
-                arg_idx += 1;
-            }
-            for param in &params.optional {
-                if arg_idx < args.len() {
-                    prepend_lexical_binding_in_call_frame_rooted_env(
-                        lexenv,
-                        frame,
-                        env_root_index,
-                        *param,
-                        args[arg_idx],
-                    );
-                    arg_idx += 1;
-                } else {
-                    prepend_lexical_binding_in_call_frame_rooted_env(
-                        lexenv,
-                        frame,
-                        env_root_index,
-                        *param,
-                        Value::NIL,
-                    );
-                }
-            }
-            if let Some(rest_name) = params.rest {
-                let rest_value = Value::list_from_slice(&args[arg_idx..]);
-                frame.extra_roots.push(rest_value);
-                prepend_lexical_binding_in_call_frame_rooted_env(
-                    lexenv,
-                    frame,
-                    env_root_index,
-                    rest_name,
-                    rest_value,
-                );
-                frame.extra_roots.pop();
-            }
-        } else {
-            let env_root_index = specpdl.len();
-            specpdl.push(SpecBinding::GcRoot { value: env });
+        let env_root_index = specpdl.len();
+        specpdl.push(SpecBinding::GcRoot { value: env });
 
-            let mut arg_idx = 0;
-            for param in &params.required {
+        let mut arg_idx = 0;
+        for param in &params.required {
+            prepend_lexical_binding_in_specpdl_rooted_env(
+                lexenv,
+                specpdl,
+                env_root_index,
+                *param,
+                args[arg_idx],
+            );
+            arg_idx += 1;
+        }
+        for param in &params.optional {
+            if arg_idx < args.len() {
                 prepend_lexical_binding_in_specpdl_rooted_env(
                     lexenv,
                     specpdl,
@@ -1883,37 +1776,25 @@ fn begin_lambda_call_in_state(
                     args[arg_idx],
                 );
                 arg_idx += 1;
-            }
-            for param in &params.optional {
-                if arg_idx < args.len() {
-                    prepend_lexical_binding_in_specpdl_rooted_env(
-                        lexenv,
-                        specpdl,
-                        env_root_index,
-                        *param,
-                        args[arg_idx],
-                    );
-                    arg_idx += 1;
-                } else {
-                    prepend_lexical_binding_in_specpdl_rooted_env(
-                        lexenv,
-                        specpdl,
-                        env_root_index,
-                        *param,
-                        Value::NIL,
-                    );
-                }
-            }
-            if let Some(rest_name) = params.rest {
-                let rest_value = Value::list_from_slice(&args[arg_idx..]);
+            } else {
                 prepend_lexical_binding_in_specpdl_rooted_env(
                     lexenv,
                     specpdl,
                     env_root_index,
-                    rest_name,
-                    rest_value,
+                    *param,
+                    Value::NIL,
                 );
             }
+        }
+        if let Some(rest_name) = params.rest {
+            let rest_value = Value::list_from_slice(&args[arg_idx..]);
+            prepend_lexical_binding_in_specpdl_rooted_env(
+                lexenv,
+                specpdl,
+                env_root_index,
+                rest_name,
+                rest_value,
+            );
         }
     } else {
         // Dynamic binding: use specbind to write directly to obarray.
@@ -1942,8 +1823,6 @@ fn begin_lambda_call_in_state(
     // via lexical_binding() -> !self.lexenv.is_nil().
 
     Ok(ActiveLambdaCallState {
-        saved_active_call_extra_roots_len,
-        has_lexenv,
         specpdl_count,
     })
 }
@@ -1952,7 +1831,6 @@ fn finish_lambda_call_in_state(
     obarray: &mut Obarray,
     specpdl: &mut Vec<SpecBinding>,
     lexenv: &mut Value,
-    active_call_roots: &mut Vec<ActiveCallFrame>,
     state: ActiveLambdaCallState,
 ) {
     // Unwind all specpdl entries back to the count saved at begin.
@@ -1971,6 +1849,7 @@ fn finish_lambda_call_in_state(
                 None => obarray.makunbound_id(sym_id),
             },
             SpecBinding::GcRoot { .. } => {}
+            SpecBinding::Backtrace { .. } => {}
             other => {
                 // LetLocal/LetDefault shouldn't appear here in the
                 // standalone path, but handle gracefully.
@@ -1978,11 +1857,6 @@ fn finish_lambda_call_in_state(
                 break;
             }
         }
-    }
-    if let Some(saved_len) = state.saved_active_call_extra_roots_len
-        && let Some(frame) = active_call_roots.last_mut()
-    {
-        frame.extra_roots.truncate(saved_len);
     }
 }
 
@@ -1992,14 +1866,10 @@ fn begin_macro_expansion_scope_in_state(
     buffers: &mut BufferManager,
     custom: &CustomManager,
     lexenv: Value,
-    active_call_roots: &mut Vec<ActiveCallFrame>,
 ) -> ActiveMacroExpansionScopeState {
     let nil_symbol = nil_symbol();
     let t_symbol = t_symbol();
-    let saved_active_call_extra_roots_len = active_call_roots
-        .last()
-        .map(|frame| frame.extra_roots.len());
-    let saved_specpdl_len = active_call_roots.is_empty().then_some(specpdl.len());
+    let saved_specpdl_len = specpdl.len();
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
         .is_some_and(|value| value.is_truthy());
@@ -2008,81 +1878,46 @@ fn begin_macro_expansion_scope_in_state(
         .cloned()
         .unwrap_or(Value::NIL);
 
-    let dynvars = if let Some(frame) = active_call_roots.last_mut() {
-        let dynvars_root_index = frame.extra_roots.len();
-        frame.extra_roots.push(old_dynvars);
-        let mut dynvars = frame.extra_roots[dynvars_root_index];
-        for sym in lexenv_bare_symbols(lexenv) {
-            if sym == t_symbol || sym == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-            frame.extra_roots[dynvars_root_index] = dynvars;
+    let dynvars_root_index = specpdl.len();
+    specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
+    let mut dynvars = old_dynvars;
+    for sym in lexenv_bare_symbols(lexenv) {
+        if sym == t_symbol || sym == nil_symbol {
+            continue;
         }
-        for entry in specpdl.iter().rev() {
-            let sym_id = match entry {
-                SpecBinding::Let { sym_id, .. }
-                | SpecBinding::LetLocal { sym_id, .. }
-                | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. }
-                | SpecBinding::GcRoot { .. }
-                | SpecBinding::Backtrace { .. }
-                | SpecBinding::Nop
-                | SpecBinding::UnwindProtect { .. }
-                | SpecBinding::SaveExcursion { .. }
-                | SpecBinding::SaveCurrentBuffer { .. }
-                | SpecBinding::SaveRestriction { .. } => continue,
-            };
-            if *sym_id == t_symbol || *sym_id == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(*sym_id), dynvars);
-            frame.extra_roots[dynvars_root_index] = dynvars;
+        dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+        match specpdl.get_mut(dynvars_root_index) {
+            Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+            other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
         }
-        dynvars
-    } else {
-        let dynvars_root_index = specpdl.len();
-        specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
-        let mut dynvars = old_dynvars;
-        for sym in lexenv_bare_symbols(lexenv) {
-            if sym == t_symbol || sym == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-            match specpdl.get_mut(dynvars_root_index) {
-                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
-                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
-            }
+    }
+    let specpdl_dynvars: Vec<SymId> = specpdl
+        .iter()
+        .rev()
+        .filter_map(|entry| match entry {
+            SpecBinding::Let { sym_id, .. }
+            | SpecBinding::LetLocal { sym_id, .. }
+            | SpecBinding::LetDefault { sym_id, .. } => Some(*sym_id),
+            SpecBinding::LexicalEnv { .. }
+            | SpecBinding::GcRoot { .. }
+            | SpecBinding::Backtrace { .. }
+            | SpecBinding::Nop
+            | SpecBinding::UnwindProtect { .. }
+            | SpecBinding::SaveExcursion { .. }
+            | SpecBinding::SaveCurrentBuffer { .. }
+            | SpecBinding::SaveRestriction { .. } => None,
+        })
+        .collect();
+    for sym_id in specpdl_dynvars {
+        if sym_id == t_symbol || sym_id == nil_symbol {
+            continue;
         }
-        let specpdl_dynvars: Vec<SymId> = specpdl
-            .iter()
-            .rev()
-            .filter_map(|entry| match entry {
-                SpecBinding::Let { sym_id, .. }
-                | SpecBinding::LetLocal { sym_id, .. }
-                | SpecBinding::LetDefault { sym_id, .. } => Some(*sym_id),
-                SpecBinding::LexicalEnv { .. }
-                | SpecBinding::GcRoot { .. }
-                | SpecBinding::Backtrace { .. }
-                | SpecBinding::Nop
-                | SpecBinding::UnwindProtect { .. }
-                | SpecBinding::SaveExcursion { .. }
-                | SpecBinding::SaveCurrentBuffer { .. }
-                | SpecBinding::SaveRestriction { .. } => None,
-            })
-            .collect();
-        for sym_id in specpdl_dynvars {
-            if sym_id == t_symbol || sym_id == nil_symbol {
-                continue;
-            }
-            dynvars = Value::cons(Value::from_sym_id(sym_id), dynvars);
-            match specpdl.get_mut(dynvars_root_index) {
-                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
-                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
-            }
+        dynvars = Value::cons(Value::from_sym_id(sym_id), dynvars);
+        match specpdl.get_mut(dynvars_root_index) {
+            Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+            other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
         }
-        dynvars
-    };
+    }
 
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
@@ -2095,7 +1930,6 @@ fn begin_macro_expansion_scope_in_state(
     );
 
     ActiveMacroExpansionScopeState {
-        saved_active_call_extra_roots_len,
         saved_specpdl_len,
         old_lexical,
         old_dynvars,
@@ -2107,7 +1941,6 @@ fn finish_macro_expansion_scope_in_state(
     specpdl: &mut Vec<SpecBinding>,
     buffers: &mut BufferManager,
     custom: &CustomManager,
-    active_call_roots: &mut Vec<ActiveCallFrame>,
     state: ActiveMacroExpansionScopeState,
 ) {
     set_runtime_binding(
@@ -2119,14 +1952,7 @@ fn finish_macro_expansion_scope_in_state(
         state.old_dynvars,
     );
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(state.old_lexical));
-    if let Some(saved_len) = state.saved_active_call_extra_roots_len
-        && let Some(frame) = active_call_roots.last_mut()
-    {
-        frame.extra_roots.truncate(saved_len);
-    }
-    if let Some(saved_len) = state.saved_specpdl_len {
-        specpdl.truncate(saved_len);
-    }
+    specpdl.truncate(state.saved_specpdl_len);
 }
 
 impl Default for Context {
@@ -4125,8 +3951,6 @@ impl Context {
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
-            active_call_roots: Vec::new(),
-            runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
@@ -4259,8 +4083,6 @@ impl Context {
             vm_root_frames: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
-            active_call_roots: Vec::new(),
-            runtime_backtrace: Vec::new(),
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
@@ -4404,21 +4226,6 @@ impl Context {
             if let NamedCallTarget::Obarray(val) = &entry.target {
                 visit(*val);
             }
-        }
-        for frame in &self.active_call_roots {
-            visit(frame.frame_function);
-            if let Some(callable) = frame.callable {
-                visit(callable);
-            }
-            for arg in frame.args.iter().copied() {
-                visit(arg);
-            }
-            for root in frame.extra_roots.iter().copied() {
-                visit(root);
-            }
-        }
-        for frame in &self.runtime_backtrace {
-            visit(frame.function);
         }
         for funcall in &self.pending_safe_funcalls {
             visit(funcall.function);
@@ -6125,7 +5932,6 @@ impl Context {
             || (self.lexical_binding() && is_top_level_lexenv_sentinel(self.lexenv));
         self.specpdl.is_empty()
             && clean_lexenv
-            && self.active_call_roots.is_empty()
             && self.vm_root_frames.is_empty()
             && self.condition_stack.is_empty()
             && self.depth == 0
@@ -6205,7 +6011,6 @@ impl Context {
             &mut self.obarray,
             &mut self.specpdl,
             &mut self.lexenv,
-            &mut self.active_call_roots,
             params,
             env,
             args,
@@ -6217,7 +6022,6 @@ impl Context {
             &mut self.obarray,
             &mut self.specpdl,
             &mut self.lexenv,
-            &mut self.active_call_roots,
             state,
         );
     }
@@ -6570,10 +6374,11 @@ impl Context {
         // Check for macro (GNU eval.c:2730-2755)
         if func.is_macro() {
             let arg_values = value_list_to_values(&original_args);
-            self.push_active_call_frame(original_fun, Some(func), &arg_values);
+            let bt_count = self.specpdl.len();
+            self.push_backtrace_frame(original_fun, &arg_values);
             let expanded =
                 self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
-            self.pop_active_call_frame();
+            self.unbind_to(bt_count);
             // Evaluate expansion directly.
             return self.eval_sub(expanded?);
         }
@@ -6581,9 +6386,10 @@ impl Context {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
             let macro_fn = func.cons_cdr();
             let arg_values = value_list_to_values(&original_args);
-            self.push_active_call_frame(original_fun, Some(macro_fn), &arg_values);
+            let bt_count = self.specpdl.len();
+            self.push_backtrace_frame(original_fun, &arg_values);
             let expanded = self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values));
-            self.pop_active_call_frame();
+            self.unbind_to(bt_count);
             return self.eval_sub(expanded?);
         }
 
@@ -6648,33 +6454,27 @@ impl Context {
         // Regular function call: evaluate args, then apply
         // (GNU eval.c:2625-2715)
         let frame_function = sym_id.map(Value::from_sym_id).unwrap_or(func);
-        let frame_callable = sym_id.map(|_| func);
-        self.push_active_call_frame(frame_function, frame_callable, &[]);
+        let bt_count = self.specpdl.len();
+        self.push_backtrace_frame(frame_function, &[]);
         let mut args = Vec::new();
         let result = (|| {
             let mut cursor = original_args;
             while cursor.is_cons() {
                 let arg_form = cursor.cons_car();
                 let arg_val = self.eval_sub(arg_form)?;
-                self.push_active_call_arg(arg_val);
+                self.push_backtrace_arg(arg_val);
                 args.push(arg_val);
                 cursor = cursor.cons_cdr();
             }
 
-            // When the form dispatched via a symbol, record the SYMBOL
-            // (not the resolved subr/lambda) as the backtrace-frame
-            // function. Mirrors GNU `eval_sub` which calls
-            // `record_in_backtrace (original_fun, args, nargs)` with the
-            // original symbol (`eval.c:2645-2654`). Without this,
-            // `backtrace-frame` returns `#<subr funcall-interactively>`
-            // where GNU returns the bare symbol `funcall-interactively`.
-            if sym_id.is_some() {
-                self.apply_with_frame_function_already_rooted(frame_function, func, args)
-            } else {
-                self.apply_internal_already_rooted(func, args, true)
-            }
+            // The backtrace frame already records frame_function.
+            // Dispatch directly to the resolved function.
+            self.maybe_gc_and_quit()?;
+            self.maybe_grow_eval_stack(|ctx| {
+                ctx.funcall_general_untraced(func, args)
+            })
         })();
-        self.pop_active_call_frame();
+        self.unbind_to(bt_count);
         result
     }
 
@@ -8851,51 +8651,23 @@ impl Context {
         self.eval_value(&tail.cons_car()).map(Some)
     }
 
-    pub(crate) fn push_runtime_backtrace_frame_from_active_call(&mut self, function: Value) {
-        let active_index = self
-            .active_call_roots
-            .len()
-            .checked_sub(1)
-            .expect("active call frame required for runtime backtrace reference");
-        self.runtime_backtrace.push(RuntimeBacktraceFrame {
+    pub(crate) fn push_backtrace_frame(&mut self, function: Value, args: &[Value]) {
+        self.specpdl.push(SpecBinding::Backtrace {
             function,
-            active_call_frame: active_index,
-            evaluated: true,
+            args: args.iter().copied().collect(),
             debug_on_exit: false,
         });
     }
 
-    pub(crate) fn pop_runtime_backtrace_frame(&mut self) {
-        self.runtime_backtrace.pop();
-    }
-
-    pub(crate) fn runtime_backtrace_frame_args<'a>(
-        &'a self,
-        frame: &'a RuntimeBacktraceFrame,
-    ) -> &'a [Value] {
-        self.active_call_roots
-            .get(frame.active_call_frame)
-            .map(|frame| frame.args.as_slice())
-            .expect("active call frame missing for runtime backtrace args")
-    }
-
-    pub(crate) fn push_active_call_frame(
-        &mut self,
-        frame_function: Value,
-        callable: Option<Value>,
-        args: &[Value],
-    ) {
-        self.active_call_roots
-            .push(ActiveCallFrame::new(frame_function, callable, args));
-    }
-
-    pub(crate) fn pop_active_call_frame(&mut self) {
-        self.active_call_roots.pop();
-    }
-
-    pub(crate) fn push_active_call_arg(&mut self, arg: Value) {
-        if let Some(frame) = self.active_call_roots.last_mut() {
-            frame.args.push(arg);
+    /// Append an additional arg to the most recent `SpecBinding::Backtrace` on
+    /// the specpdl.  Used by `eval_sub_cons` which evaluates arguments one-by-one
+    /// and needs the partially-evaluated arg list visible to the backtrace.
+    pub(crate) fn push_backtrace_arg(&mut self, arg: Value) {
+        for entry in self.specpdl.iter_mut().rev() {
+            if let SpecBinding::Backtrace { args, .. } = entry {
+                args.push(arg);
+                return;
+            }
         }
     }
 
@@ -8972,60 +8744,27 @@ impl Context {
         }
     }
 
-    pub(crate) fn with_runtime_backtrace_frame_from_active_call(
-        &mut self,
-        function: Value,
-        f: impl FnOnce(&mut Self) -> EvalResult,
-    ) -> EvalResult {
-        self.push_runtime_backtrace_frame_from_active_call(function);
-        let result = f(self);
-        self.pop_runtime_backtrace_frame();
-        result
-    }
-
     fn apply_internal(
         &mut self,
         function: Value,
         args: Vec<Value>,
         record_backtrace: bool,
     ) -> EvalResult {
-        self.push_active_call_frame(function, None, &args);
+        let bt_count = self.specpdl.len();
+        if record_backtrace {
+            self.push_backtrace_frame(function, &args);
+        }
         let result = self.maybe_gc_and_quit().and_then(|_| {
             // GNU does not probe stack space for every funcall. Keep growth
             // checks at the function-application boundary, but only on coarse
             // depth intervals so normal startup is not dominated by TLS lookups
             // in stacker::maybe_grow.
             self.maybe_grow_eval_stack(|ctx| {
-                if record_backtrace {
-                    ctx.with_runtime_backtrace_frame_from_active_call(function, |eval| {
-                        eval.funcall_general_untraced(function, args)
-                    })
-                } else {
-                    ctx.funcall_general_untraced(function, args)
-                }
+                ctx.funcall_general_untraced(function, args)
             })
         });
-        self.pop_active_call_frame();
+        self.unbind_to(bt_count);
         result
-    }
-
-    #[inline]
-    fn apply_internal_already_rooted(
-        &mut self,
-        function: Value,
-        args: Vec<Value>,
-        record_backtrace: bool,
-    ) -> EvalResult {
-        self.maybe_gc_and_quit()?;
-        self.maybe_grow_eval_stack(|ctx| {
-            if record_backtrace {
-                ctx.with_runtime_backtrace_frame_from_active_call(function, |eval| {
-                    eval.funcall_general_untraced(function, args)
-                })
-            } else {
-                ctx.funcall_general_untraced(function, args)
-            }
-        })
     }
 
     /// Apply a function value to evaluated arguments.
@@ -9052,42 +8791,25 @@ impl Context {
         func: Value,
         args: Vec<Value>,
     ) -> EvalResult {
-        self.push_active_call_frame(frame_function, Some(func), &args);
+        let bt_count = self.specpdl.len();
+        self.push_backtrace_frame(frame_function, &args);
         let result = self.maybe_gc_and_quit().and_then(|_| {
             self.maybe_grow_eval_stack(|ctx| {
-                ctx.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
-                    eval.funcall_general_untraced(func, args)
-                })
+                ctx.funcall_general_untraced(func, args)
             })
         });
-        self.pop_active_call_frame();
+        self.unbind_to(bt_count);
         result
-    }
-
-    #[inline]
-    fn apply_with_frame_function_already_rooted(
-        &mut self,
-        frame_function: Value,
-        func: Value,
-        args: Vec<Value>,
-    ) -> EvalResult {
-        self.maybe_gc_and_quit()?;
-        self.maybe_grow_eval_stack(|ctx| {
-            ctx.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
-                eval.funcall_general_untraced(func, args)
-            })
-        })
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
     pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.push_active_call_frame(function, Some(function), &args);
-        let result = self.with_runtime_backtrace_frame_from_active_call(function, |eval| {
-            eval.funcall_general_untraced(function, args)
-        });
-        self.pop_active_call_frame();
+        let bt_count = self.specpdl.len();
+        self.push_backtrace_frame(function, &args);
+        let result = self.funcall_general_untraced(function, args);
+        self.unbind_to(bt_count);
         result
     }
 
@@ -9306,8 +9028,15 @@ impl Context {
         let name = resolve_name(subr.name);
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
             tracing::error!("(cdr t) called! Lisp backtrace:");
-            for (i, frame) in self.runtime_backtrace.iter().rev().take(10).enumerate() {
-                let func_name = super::print::print_value(&frame.function);
+            for (i, entry) in self.specpdl.iter().rev()
+                .filter_map(|e| match e {
+                    SpecBinding::Backtrace { function, .. } => Some(function),
+                    _ => None,
+                })
+                .take(10)
+                .enumerate()
+            {
+                let func_name = super::print::print_value(entry);
                 tracing::error!("  bt[{}]: {}", i, func_name);
             }
         }
@@ -9459,16 +9188,15 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::from_sym_id(sym_id);
-        self.push_active_call_frame(frame_function, None, &args);
-        let result = self.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
-            eval.apply_named_callable_by_id_core(
-                sym_id,
-                args,
-                invalid_fn,
-                rewrite_builtin_wrong_arity,
-            )
-        });
-        self.pop_active_call_frame();
+        let bt_count = self.specpdl.len();
+        self.push_backtrace_frame(frame_function, &args);
+        let result = self.apply_named_callable_by_id_core(
+            sym_id,
+            args,
+            invalid_fn,
+            rewrite_builtin_wrong_arity,
+        );
+        self.unbind_to(bt_count);
         result
     }
 
@@ -9481,11 +9209,11 @@ impl Context {
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let frame_function = Value::symbol(name);
-        self.push_active_call_frame(frame_function, None, &args);
-        let result = self.with_runtime_backtrace_frame_from_active_call(frame_function, |eval| {
-            eval.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity)
-        });
-        self.pop_active_call_frame();
+        let bt_count = self.specpdl.len();
+        self.push_backtrace_frame(frame_function, &args);
+        let result =
+            self.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity);
+        self.unbind_to(bt_count);
         result
     }
 
@@ -9686,48 +9414,35 @@ impl Context {
     }
 
     fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {
-        let pushed_active_call_frame = self.active_call_roots.is_empty();
-        if pushed_active_call_frame {
-            self.push_active_call_frame(func_value, Some(func_value), &args);
-        }
         let Some(params) = func_value.closure_params() else {
-            if pushed_active_call_frame {
-                self.pop_active_call_frame();
-            }
             return Err(signal("invalid-function", vec![func_value]));
         };
         let Some(body) = func_value.closure_body_value() else {
-            if pushed_active_call_frame {
-                self.pop_active_call_frame();
-            }
             return Err(signal("invalid-function", vec![func_value]));
         };
         let env = func_value.closure_env().unwrap_or(None);
 
+        // Root the function value on the specpdl so GC can trace it
+        // (keeping body, env, and params alive through the call).
+        let root_count = self.specpdl.len();
+        self.specpdl.push(SpecBinding::GcRoot { value: func_value });
+
         let call_state = match self.begin_lambda_call(params, env, &args) {
             Ok(state) => state,
             Err(err) => {
-                if pushed_active_call_frame {
-                    self.pop_active_call_frame();
-                }
+                self.unbind_to(root_count);
                 return Err(err);
             }
         };
         let result = self.eval_lambda_body_value(body);
         self.finish_lambda_call(call_state);
-        if pushed_active_call_frame {
-            self.pop_active_call_frame();
-        }
+        self.unbind_to(root_count);
         result
     }
 
     #[inline]
     fn bind_lexical_value_rooted(&mut self, sym: SymId, value: Value) {
-        if let Some(frame) = self.active_call_roots.last_mut() {
-            bind_lexical_value_rooted_in_call_frame(&mut self.lexenv, frame, sym, value);
-        } else {
-            bind_lexical_value_rooted_in_specpdl(&mut self.lexenv, &mut self.specpdl, sym, value);
-        }
+        bind_lexical_value_rooted_in_specpdl(&mut self.lexenv, &mut self.specpdl, sym, value);
     }
 
     // -----------------------------------------------------------------------
@@ -9746,7 +9461,6 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             self.lexenv,
-            &mut self.active_call_roots,
         );
         if let Some(start) = scope_enter_start {
             self.macro_perf_stats
@@ -9760,7 +9474,6 @@ impl Context {
             &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
-            &mut self.active_call_roots,
             state,
         );
         if let Some(start) = scope_exit_start {
@@ -10971,7 +10684,6 @@ impl Context {
             &mut self.buffers,
             &self.custom,
             self.lexenv,
-            &mut self.active_call_roots,
         )
     }
 
@@ -10981,7 +10693,6 @@ impl Context {
             &mut self.specpdl,
             &mut self.buffers,
             &self.custom,
-            &mut self.active_call_roots,
             state,
         );
         self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);

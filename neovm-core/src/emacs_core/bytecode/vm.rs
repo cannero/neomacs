@@ -2360,10 +2360,7 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function_with_roots(&mut self, function: Value, args: &[Value]) -> EvalResult {
-        self.ctx.push_active_call_frame(function, None, args);
-        let result = self.call_function(function, args.to_vec());
-        self.ctx.pop_active_call_frame();
-        result
+        self.call_function(function, args.to_vec())
     }
 
     fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -3520,10 +3517,8 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
-        self.ctx
-            .push_active_call_frame(func_val, Some(func_val), &args);
-        self.ctx
-            .push_runtime_backtrace_frame_from_active_call(func_val);
+        let bt_count = self.ctx.specpdl.len();
+        self.ctx.push_backtrace_frame(func_val, &args);
         let result = match func_val.kind() {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
@@ -3535,8 +3530,7 @@ impl<'a> Vm<'a> {
             // Matches GNU Emacs where exec_byte_code delegates to funcall_general.
             _ => self.ctx.funcall_general_untraced(func_val, args),
         };
-        self.ctx.pop_runtime_backtrace_frame();
-        self.ctx.pop_active_call_frame();
+        self.ctx.unbind_to(bt_count);
         result
     }
 

@@ -8449,95 +8449,77 @@ fn let_init_values_survive_gc_stress_until_bindings_own_them() {
 }
 
 #[test]
-fn runtime_backtrace_can_reference_active_call_args_across_exact_gc() {
+fn specpdl_backtrace_frame_args_survive_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let payload = Value::vector(vec![Value::fixnum(17)]);
-    {
-        let args = vec![payload];
-        ev.push_active_call_frame(
-            Value::symbol("runtime-backtrace-active-call"),
-            Some(Value::symbol("identity")),
-            &args,
-        );
-    }
-    ev.push_runtime_backtrace_frame_from_active_call(Value::symbol(
-        "runtime-backtrace-active-call",
-    ));
+    let bt_count = ev.specpdl.len();
+    ev.push_backtrace_frame(
+        Value::symbol("runtime-backtrace-active-call"),
+        &[payload],
+    );
 
     ev.gc_collect_exact();
 
-    let frame = ev
-        .runtime_backtrace
-        .last()
-        .expect("runtime backtrace frame should remain present");
-    let rooted = ev.runtime_backtrace_frame_args(frame)[0];
+    // Find the backtrace frame and verify args survived GC.
+    let rooted = ev.specpdl.iter().rev().find_map(|entry| match entry {
+        SpecBinding::Backtrace { args, .. } => args.first().copied(),
+        _ => None,
+    }).expect("backtrace frame should remain present");
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(17)]
     );
 
-    ev.pop_runtime_backtrace_frame();
-    ev.pop_active_call_frame();
+    ev.unbind_to(bt_count);
 }
 
 #[test]
-fn active_call_frame_owns_args_across_exact_gc() {
+fn specpdl_gc_root_survives_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let payload = Value::vector(vec![Value::fixnum(13)]);
-    {
-        let args = vec![payload];
-        ev.push_active_call_frame(
-            Value::symbol("active-call-root"),
-            Some(Value::symbol("identity")),
-            &args,
-        );
-    }
+    let bt_count = ev.specpdl.len();
+    ev.push_backtrace_frame(
+        Value::symbol("active-call-root"),
+        &[payload],
+    );
 
     ev.gc_collect_exact();
 
-    let rooted = ev
-        .active_call_roots
-        .last()
-        .expect("active call frame should remain present")
-        .args[0];
+    let rooted = ev.specpdl.iter().rev().find_map(|entry| match entry {
+        SpecBinding::Backtrace { args, .. } => args.first().copied(),
+        _ => None,
+    }).expect("backtrace frame should remain present");
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(13)]
     );
 
-    ev.pop_active_call_frame();
+    ev.unbind_to(bt_count);
 }
 
 #[test]
-fn active_call_frame_extra_roots_are_traced_across_exact_gc() {
+fn specpdl_gc_root_entries_are_traced_across_exact_gc() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
 
     let payload = Value::vector(vec![Value::fixnum(17)]);
-    ev.push_active_call_frame(
-        Value::symbol("active-call-root"),
-        Some(Value::symbol("identity")),
-        &[],
-    );
     let scope = ev.save_specpdl_roots();
     ev.push_specpdl_root(payload);
     ev.gc_collect_exact();
 
-    let rooted = ev
-        .active_call_roots
-        .last()
-        .expect("active call frame should remain present")
-        .extra_roots[0];
+    let rooted = match ev.specpdl.last() {
+        Some(SpecBinding::GcRoot { value }) => *value,
+        other => panic!("expected specpdl gc root entry, got {other:?}"),
+    };
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(17)]
     );
     ev.restore_specpdl_roots(scope);
-    ev.pop_active_call_frame();
 }
 
 #[test]
@@ -8619,13 +8601,12 @@ fn push_specpdl_root_creates_gc_root_entry_and_restore_removes_it() {
 }
 
 #[test]
-fn lexical_binding_rooting_prefers_active_call_frames_over_specpdl() {
+fn lexical_binding_rooting_uses_specpdl() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let payload = Value::vector(vec![Value::fixnum(47)]);
-    let sym = intern("active-call-frame-lexical");
+    let sym = intern("specpdl-lexical-binding");
 
-    ev.push_active_call_frame(Value::symbol("test-active-call-frame"), None, &[]);
     ev.bind_lexical_value_rooted(sym, payload);
 
     assert_eq!(
@@ -8636,12 +8617,12 @@ fn lexical_binding_rooting_prefers_active_call_frames_over_specpdl() {
             .as_slice(),
         &[Value::fixnum(47)]
     );
+    // bind_lexical_value_rooted uses a temporary specpdl root that is
+    // popped after the cons cells are allocated, so specpdl should be empty.
     assert!(
         ev.specpdl.is_empty(),
-        "active call frames should own lexical roots without specpdl fallback"
+        "temporary specpdl roots should be released once lexenv owns the binding"
     );
-
-    ev.pop_active_call_frame();
 }
 
 #[test]
@@ -8669,7 +8650,7 @@ fn lexical_binding_fallback_uses_specpdl_when_no_frame_is_available() {
 }
 
 #[test]
-fn direct_closure_call_without_preexisting_frame_uses_active_call_roots() {
+fn direct_closure_call_uses_specpdl_for_rooting() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
@@ -8683,7 +8664,7 @@ fn direct_closure_call_without_preexisting_frame_uses_active_call_roots() {
         )
         .expect("closure should evaluate");
 
-    assert!(ev.active_call_roots.is_empty());
+    let specpdl_before = ev.specpdl.len();
 
     let result = match ev.funcall_general_untraced(
         callable,
@@ -8707,14 +8688,15 @@ fn direct_closure_call_without_preexisting_frame_uses_active_call_roots() {
         crate::emacs_core::print::print_value(&result),
         "(71 1 2 (3 4))"
     );
-    assert!(
-        ev.active_call_roots.is_empty(),
-        "direct closure call should release temporary active call roots"
+    assert_eq!(
+        ev.specpdl.len(),
+        specpdl_before,
+        "closure call should clean up all specpdl entries"
     );
 }
 
 #[test]
-fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
+fn macro_expansion_scope_uses_specpdl_roots() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
@@ -8725,11 +8707,8 @@ fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
     let dyn_sym = intern("macro-scope-dyn");
     ev.specbind(dyn_sym, Value::fixnum(9));
 
-    assert!(ev.active_call_roots.is_empty());
-
     let state = ev.begin_macro_expansion_scope();
 
-    assert!(ev.active_call_roots.is_empty());
     assert!(matches!(
         ev.specpdl.last(),
         Some(SpecBinding::GcRoot { .. })
@@ -8745,7 +8724,6 @@ fn macro_expansion_scope_without_preexisting_frame_uses_specpdl_roots() {
 
     ev.finish_macro_expansion_scope(state);
 
-    assert!(ev.active_call_roots.is_empty());
     assert!(
         ev.specpdl.len() == specpdl_count + 1,
         "macro expansion scope should release only its temporary specpdl roots"

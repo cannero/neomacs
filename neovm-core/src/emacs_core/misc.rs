@@ -636,10 +636,36 @@ fn runtime_backtrace_indirect_function(
     }
 }
 
+/// Snapshot of a single backtrace frame extracted from the specpdl.
+struct BacktraceFrameSnapshot {
+    function: Value,
+    args: Vec<Value>,
+    debug_on_exit: bool,
+}
+
+/// Collect backtrace frames from the specpdl, ordered oldest-first (index 0 = deepest).
+fn collect_backtrace_frames(eval: &super::eval::Context) -> Vec<BacktraceFrameSnapshot> {
+    eval.specpdl
+        .iter()
+        .filter_map(|entry| match entry {
+            super::eval::SpecBinding::Backtrace {
+                function,
+                args,
+                debug_on_exit,
+            } => Some(BacktraceFrameSnapshot {
+                function: *function,
+                args: args.iter().copied().collect(),
+                debug_on_exit: *debug_on_exit,
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
 fn runtime_backtrace_frames_from_base(
     eval: &super::eval::Context,
     base: Value,
-) -> Result<Vec<super::eval::RuntimeBacktraceFrame>, Flow> {
+) -> Result<Vec<BacktraceFrameSnapshot>, Flow> {
     let mut offset = 0usize;
     let mut base_function = base;
     if base.is_cons() {
@@ -657,14 +683,16 @@ fn runtime_backtrace_frames_from_base(
         }
     }
 
+    let frames = collect_backtrace_frames(eval);
+
     let start_index = if base_function.is_nil() {
-        eval.runtime_backtrace.len().checked_sub(1)
+        frames.len().checked_sub(1)
     } else {
         let Some(indirect_base) = runtime_backtrace_indirect_function(eval, base_function) else {
             return Ok(Vec::new());
         };
         let mut found = None;
-        for (index, frame) in eval.runtime_backtrace.iter().enumerate().rev() {
+        for (index, frame) in frames.iter().enumerate().rev() {
             let Some(indirect_frame) = runtime_backtrace_indirect_function(eval, frame.function)
             else {
                 continue;
@@ -689,14 +717,10 @@ fn runtime_backtrace_frames_from_base(
         offset -= 1;
     }
 
-    Ok(eval.runtime_backtrace[..=index]
-        .iter()
-        .rev()
-        .cloned()
-        .collect())
+    Ok(frames.into_iter().take(index + 1).rev().collect())
 }
 
-fn runtime_backtrace_frame_flags(frame: &super::eval::RuntimeBacktraceFrame) -> Value {
+fn runtime_backtrace_frame_flags(frame: &BacktraceFrameSnapshot) -> Value {
     if frame.debug_on_exit {
         Value::list(vec![Value::symbol(":debug-on-exit"), Value::T])
     } else {
@@ -707,15 +731,14 @@ fn runtime_backtrace_frame_flags(frame: &super::eval::RuntimeBacktraceFrame) -> 
 fn apply_backtrace_callback(
     eval: &mut super::eval::Context,
     function: Value,
-    frame: &super::eval::RuntimeBacktraceFrame,
+    frame: &BacktraceFrameSnapshot,
 ) -> EvalResult {
-    let frame_args = eval.runtime_backtrace_frame_args(frame);
     eval.apply(
         function,
         vec![
-            Value::bool_val(frame.evaluated),
+            Value::T, // evaluated
             frame.function,
-            Value::list(frame_args.iter().copied().collect()),
+            Value::list(frame.args.clone()),
             runtime_backtrace_frame_flags(frame),
         ],
     )
@@ -723,9 +746,8 @@ fn apply_backtrace_callback(
 
 /// `(backtrace-frame--internal FUN NFRAMES BASE)` -- compatibility helper.
 ///
-/// In official Emacs this walks the specpdl backtrace. NeoVM now keeps a
-/// GNU-shaped runtime call stack and feeds that through the same callback
-/// shape that `subr.el` expects.
+/// Walks the specpdl backtrace entries and feeds frames through the same
+/// callback shape that `subr.el` expects.
 pub(crate) fn builtin_backtrace_frame_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,

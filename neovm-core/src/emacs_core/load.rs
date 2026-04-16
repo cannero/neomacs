@@ -1245,32 +1245,41 @@ fn streaming_readevalloop(
                 err_detail,
             );
             // Dump Lisp backtrace (like GNU's debug-early-backtrace)
-            if !eval.runtime_backtrace.is_empty() {
-                tracing::error!("  Lisp backtrace:");
-                for (j, frame) in eval.runtime_backtrace.iter().rev().enumerate() {
-                    let func_name = super::print::print_value(&frame.function);
-                    let frame_args = eval.runtime_backtrace_frame_args(frame);
-                    let args_str = frame_args
-                        .iter()
-                        .take(4)
-                        .map(|a| {
-                            let s = super::print::print_value(a);
-                            if s.len() > 40 {
-                                format!("{}...", &s[..37])
-                            } else {
-                                s
-                            }
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
-                    tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
-                    if j >= 20 {
-                        tracing::error!(
-                            "    ... ({} more frames)",
-                            eval.runtime_backtrace.len() - j - 1
-                        );
-                        break;
+            {
+                let bt_frames: Vec<_> = eval.specpdl.iter().rev().filter_map(|entry| {
+                    match entry {
+                        super::eval::SpecBinding::Backtrace { function, args, .. } => {
+                            Some((function, args))
+                        }
+                        _ => None,
+                    }
+                }).collect();
+                if !bt_frames.is_empty() {
+                    tracing::error!("  Lisp backtrace:");
+                    for (j, (function, frame_args)) in bt_frames.iter().enumerate() {
+                        let func_name = super::print::print_value(function);
+                        let args_str = frame_args
+                            .iter()
+                            .take(4)
+                            .map(|a| {
+                                let s = super::print::print_value(a);
+                                if s.len() > 40 {
+                                    format!("{}...", &s[..37])
+                                } else {
+                                    s
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
+                        tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
+                        if j >= 20 {
+                            tracing::error!(
+                                "    ... ({} more frames)",
+                                bt_frames.len() - j - 1
+                            );
+                            break;
+                        }
                     }
                 }
             }
