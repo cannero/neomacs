@@ -93,6 +93,25 @@ pub fn read_one_with_source_multibyte(
     Ok(Some((value, reader.pos)))
 }
 
+/// Read a single form from `input`, optionally wrapping interned symbols
+/// in `symbol-with-pos` objects that record the byte offset where the
+/// symbol was found.  Used by `read-positioning-symbols`.
+pub fn read_one_with_locate_syms(
+    input: &str,
+    source_multibyte: bool,
+    start: usize,
+    locate_syms: bool,
+) -> Result<Option<(Value, usize)>, ReadError> {
+    let mut reader = Reader::new(input, source_multibyte);
+    reader.pos = start;
+    reader.locate_syms = locate_syms;
+    if !reader.skip_ws_and_comments() {
+        return Ok(None);
+    }
+    let value = reader.read_form()?;
+    Ok(Some((value, reader.pos)))
+}
+
 /// Reader source wrapper for Lisp strings.
 ///
 /// This keeps the runtime-storage adapter inside the reader boundary so callers
@@ -165,6 +184,41 @@ impl<'a> LispReadSource<'a> {
             }),
         }
     }
+
+    pub fn read_one_with_locate_syms(
+        &self,
+        start: usize,
+        locate_syms: bool,
+    ) -> Result<Option<(Value, usize)>, ReadError> {
+        self.read_one_range_with_locate_syms(start, self.logical_len(), locate_syms)
+    }
+
+    pub fn read_one_range_with_locate_syms(
+        &self,
+        start: usize,
+        end: usize,
+        locate_syms: bool,
+    ) -> Result<Option<(Value, usize)>, ReadError> {
+        let substring = self.storage_slice_range(start, end);
+        match read_one_with_locate_syms(substring, self.is_multibyte(), 0, locate_syms) {
+            Ok(Some((value, end_pos))) => Ok(Some((
+                value,
+                start
+                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        substring, end_pos,
+                    ),
+            ))),
+            Ok(None) => Ok(None),
+            Err(err) => Err(ReadError {
+                message: err.message,
+                position: start
+                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
+                        substring,
+                        err.position,
+                    ),
+            }),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +249,8 @@ struct Reader<'a> {
     pos: usize,
     /// `#N=EXPR` / `#N#` read labels for shared structure in `.elc` files.
     read_labels: std::collections::HashMap<usize, Value>,
+    /// When true, wrap interned symbols in symbol-with-pos objects.
+    locate_syms: bool,
 }
 
 fn translate_runtime_source_char(ch: char) -> u32 {
@@ -215,6 +271,7 @@ impl<'a> Reader<'a> {
             source_multibyte,
             pos: 0,
             read_labels: std::collections::HashMap::new(),
+            locate_syms: false,
         }
     }
 
@@ -270,11 +327,14 @@ impl<'a> Reader<'a> {
 
     fn read_form(&mut self) -> Result<Value, ReadError> {
         self.skip_ws_and_comments();
+        // Record the byte position before reading — used by locate_syms
+        // to tag symbols with their source offset (mirrors GNU read0).
+        let form_start = self.pos;
         let Some(ch) = self.current() else {
             return Err(self.error("unexpected end of input"));
         };
 
-        match ch {
+        let value = match ch {
             '(' => self.read_list_or_dotted(),
             ')' => {
                 self.bump();
@@ -322,6 +382,17 @@ impl<'a> Reader<'a> {
             '?' => self.read_char_literal(),
             '#' => self.read_hash_syntax(),
             _ => self.read_atom(),
+        }?;
+
+        // Wrap symbols with their source position when locate_syms is active.
+        // Matches GNU read0: SYMBOLP(val) && !NILP(val).
+        if self.locate_syms && value.is_symbol() && !value.is_nil() {
+            let pos_val = Value::fixnum(form_start as i64);
+            Ok(crate::tagged::gc::with_tagged_heap(|heap| {
+                heap.alloc_symbol_with_pos(value, pos_val)
+            }))
+        } else {
+            Ok(value)
         }
     }
 

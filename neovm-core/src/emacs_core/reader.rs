@@ -351,6 +351,14 @@ pub(crate) fn read_from_string_impl(
     obarray: &crate::emacs_core::symbol::Obarray,
     args: Vec<Value>,
 ) -> EvalResult {
+    read_from_string_impl_inner(obarray, args, false)
+}
+
+fn read_from_string_impl_inner(
+    obarray: &crate::emacs_core::symbol::Obarray,
+    args: Vec<Value>,
+    locate_syms: bool,
+) -> EvalResult {
     expect_min_args("read-from-string", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -448,7 +456,8 @@ pub(crate) fn read_from_string_impl(
     };
     super::value_reader::set_reader_load_file_name(load_file_name_for_reader);
 
-    let read_result = read_source.read_one_range(start_byte, end_byte);
+    let read_result =
+        read_source.read_one_range_with_locate_syms(start_byte, end_byte, locate_syms);
 
     super::value_reader::set_reader_load_file_name(saved_reader_load_file_name);
 
@@ -541,6 +550,17 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 /// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
 /// - If STREAM is a buffer, read from buffer at point.
 pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_read_impl(ctx, args, false)
+}
+
+/// Shared implementation for `read` and `read-positioning-symbols`.
+/// When `locate_syms` is true, every interned symbol (except nil) is
+/// wrapped in a `symbol-with-pos` object carrying its source byte offset.
+pub fn builtin_read_impl(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+    locate_syms: bool,
+) -> EvalResult {
     expect_max_args("read", &args, 1)?;
 
     if args.is_empty() || args[0].is_nil() {
@@ -554,7 +574,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
     match args[0].kind() {
         ValueKind::String => {
             // Read from string
-            let result = read_from_string_impl(&ctx.obarray, args)?;
+            let result = read_from_string_impl_inner(&ctx.obarray, args, locate_syms)?;
             // Return just the car (the parsed object)
             match result.kind() {
                 ValueKind::Cons => {
@@ -585,7 +605,7 @@ pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>
                 ));
             }
             let (value, end_offset) = read_source
-                .read_one(start)
+                .read_one_with_locate_syms(start, locate_syms)
                 .map_err(|e| {
                     if e.message.contains("unterminated") || e.message.contains("end of input") {
                         signal(
