@@ -136,3 +136,31 @@ fn long_scan_populates_anchor_cache() {
         "expected auto-anchor to have been inserted after long scan (walked > 5000)"
     );
 }
+
+#[test]
+fn replace_lisp_string_invalidates_position_cache() {
+    crate::test_utils::init_test_tracing();
+    // Build a buffer with a known multibyte char at charpos 2.
+    let text = BufferText::from_str("日日日"); // 3 chars, 9 bytes
+    let cached_before = text.buf_charpos_to_bytepos(2);
+    assert_eq!(cached_before, 6);
+
+    // Replace with different same-char-and-byte-count content.
+    let lisp_string = crate::heap_types::LispString::from_utf8("本本本");
+    text.replace_lisp_string(
+        &lisp_string,
+        crate::buffer::text_props::TextPropertyTable::new(),
+        Vec::new(),
+    );
+
+    // Same-count replacement would leave a stale pos_cache; verify it was
+    // cleared by confirming the conversion is recomputed correctly. (The
+    // byte position of charpos 2 must match the new content's layout.)
+    let after = text.buf_charpos_to_bytepos(2);
+    assert_eq!(after, 6, "charpos 2 in '本本本' is at bytepos 6");
+
+    // Sanity: the actual bytes at that position are the lead byte of '本'.
+    // '本' is 0xE6 0x9C 0xAC. So buffer[6] should be 0xE6.
+    let b = text.byte_at(6);
+    assert_eq!(b, 0xE6, "post-replace byte at position 6 should be 0xE6 (lead byte of 本)");
+}

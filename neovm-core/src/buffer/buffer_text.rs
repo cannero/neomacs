@@ -441,6 +441,12 @@ impl BufferText {
         storage.layout = Self::layout_from_gap(&storage.gap);
         storage.text_props = text_props;
         storage.markers = markers;
+        // Wholesale content replacement: invalidate position caches. If the new
+        // content happens to have the same (total_chars, total_bytes) as the old,
+        // a stale pos_cache entry could otherwise return a wrong bytepos.
+        storage.pos_cache.set(PositionCache::default());
+        storage.anchor_cache.borrow_mut().clear();
+        storage.anchor_cache_key.set((0, 0));
     }
 
     pub fn text_props_put_property(
