@@ -769,3 +769,27 @@ fn insert_emacs_bytes_both_matches_scanning_variant() {
     assert_eq!(a.gpt(), b.gpt());
     assert_eq!(a.gpt_byte(), b.gpt_byte());
 }
+
+#[test]
+fn delete_range_both_matches_scanning_variant() {
+    crate::test_utils::init_test_tracing();
+    let source = "Hello, 日本語 world!";
+    let mut a = GapBuffer::from_str(source);
+    let mut b = GapBuffer::from_str(source);
+
+    // Delete the CJK span.
+    let from = 7;
+    let to = 7 + "日本語".len();
+
+    // Compute nchars for the deleted slice via oracle.
+    let mut tmp = Vec::new();
+    b.copy_bytes_to(from, to, &mut tmp);
+    let nchars = crate::emacs_core::emacs_char::chars_in_multibyte(&tmp);
+
+    a.delete_range(from, to);
+    b.delete_range_both(from, to, nchars);
+
+    assert_eq!(a.to_string(), b.to_string());
+    assert_eq!(a.char_count(), b.char_count());
+    assert_eq!(a.emacs_byte_len(), b.emacs_byte_len());
+}

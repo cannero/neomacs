@@ -417,10 +417,8 @@ impl GapBuffer {
 
     /// Delete the logical byte range `[start, end)`.
     ///
-    /// # Panics
-    ///
-    /// Panics if `start > end`, `end > self.len()`, or either boundary is not
-    /// on a UTF-8 character boundary.
+    /// Wrapper that counts deleted chars. Prefer `delete_range_both` if the
+    /// caller already knows the count.
     pub fn delete_range(&mut self, start: usize, end: usize) {
         assert!(start <= end, "delete_range: start ({start}) > end ({end})");
         assert!(
@@ -431,27 +429,46 @@ impl GapBuffer {
         if start == end {
             return;
         }
+        // Count chars in the about-to-be-deleted region. This is the scan that
+        // delete_range_both lets callers skip.
+        let mut tmp = Vec::with_capacity(end - start);
+        self.copy_bytes_to(start, end, &mut tmp);
+        let nchars = emacs_char_count_bytes(&tmp, self.multibyte);
+        self.delete_range_both(start, end, nchars);
+    }
+
+    /// Delete the logical byte range `[start, end)`, given pre-computed char
+    /// count of the region.
+    ///
+    /// Mirrors GNU `del_range_2` (`src/insdel.c:1991`).
+    pub fn delete_range_both(&mut self, start: usize, end: usize, nchars: usize) {
+        assert!(
+            start <= end,
+            "delete_range_both: start ({start}) > end ({end})"
+        );
+        assert!(
+            end <= self.len(),
+            "delete_range_both: end ({end}) > len ({})",
+            self.len()
+        );
+        if start == end {
+            return;
+        }
         debug_assert!(
             self.is_char_boundary(start),
-            "delete_range: start ({start}) is not on an Emacs character boundary"
+            "delete_range_both: start ({start}) is not on an Emacs character boundary"
         );
         debug_assert!(
             end == self.len() || self.is_char_boundary(end),
-            "delete_range: end ({end}) is not on an Emacs character boundary"
+            "delete_range_both: end ({end}) is not on an Emacs character boundary"
         );
 
-        // Move the gap so that it starts at `start`, then extend it to swallow
-        // the bytes up to `end`.
         self.move_gap_to(start);
-        let deleted_chars = emacs_char_count_bytes(
-            &self.buf[self.gap_end..self.gap_end + (end - start)],
-            self.multibyte,
-        );
         let deleted_bytes = end - start;
-        // After move_gap_to(start), gap_start == start and the bytes that were
-        // logically at [start, end) now sit at buf[gap_end .. gap_end + (end - start)].
-        self.gap_end += end - start;
-        self.total_chars -= deleted_chars;
+        // After move_gap_to(start), bytes [start, end) now live at
+        // buf[gap_end .. gap_end + deleted_bytes]; extend the gap to swallow them.
+        self.gap_end += deleted_bytes;
+        self.total_chars -= nchars;
         self.total_bytes -= deleted_bytes;
     }
 
