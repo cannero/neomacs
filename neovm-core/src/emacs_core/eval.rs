@@ -175,6 +175,25 @@ pub(crate) enum SpecBinding {
     /// Temporary GC root carried on the specpdl itself, mirroring GNU's
     /// use of specpdl-owned runtime state for unwind/helper temporaries.
     GcRoot { value: Value },
+    /// Call frame for backtrace. Matches GNU SPECPDL_BACKTRACE.
+    /// unbind_to discards these (no-op).
+    Backtrace {
+        function: Value,
+        args: LispArgVec,
+        debug_on_exit: bool,
+    },
+    /// unwind-protect cleanup. Matches GNU SPECPDL_UNWIND.
+    /// For interpreter: forms is a cons list, unbind_to calls sf_progn_value.
+    /// For VM: forms is a callable (bytecode fn), unbind_to calls apply.
+    UnwindProtect { forms: Value, lexenv: Value },
+    /// save-excursion state. Matches GNU SPECPDL_UNWIND_EXCURSION.
+    SaveExcursion { buffer_id: crate::buffer::BufferId, marker_id: u64 },
+    /// save-current-buffer state. Matches GNU record_unwind_current_buffer.
+    SaveCurrentBuffer { buffer_id: crate::buffer::BufferId },
+    /// save-restriction state. Matches GNU SPECPDL_UNWIND with save_restriction_restore.
+    SaveRestriction { state: crate::buffer::SavedRestrictionState },
+    /// Placeholder. Matches GNU SPECPDL_NOP.
+    Nop,
 }
 
 #[derive(Clone, Debug)]
@@ -2003,7 +2022,14 @@ fn begin_macro_expansion_scope_in_state(
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
                 | SpecBinding::LetDefault { sym_id, .. } => sym_id,
-                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => continue,
+                SpecBinding::LexicalEnv { .. }
+                | SpecBinding::GcRoot { .. }
+                | SpecBinding::Backtrace { .. }
+                | SpecBinding::Nop
+                | SpecBinding::UnwindProtect { .. }
+                | SpecBinding::SaveExcursion { .. }
+                | SpecBinding::SaveCurrentBuffer { .. }
+                | SpecBinding::SaveRestriction { .. } => continue,
             };
             if *sym_id == t_symbol || *sym_id == nil_symbol {
                 continue;
@@ -2033,7 +2059,14 @@ fn begin_macro_expansion_scope_in_state(
                 SpecBinding::Let { sym_id, .. }
                 | SpecBinding::LetLocal { sym_id, .. }
                 | SpecBinding::LetDefault { sym_id, .. } => Some(*sym_id),
-                SpecBinding::LexicalEnv { .. } | SpecBinding::GcRoot { .. } => None,
+                SpecBinding::LexicalEnv { .. }
+                | SpecBinding::GcRoot { .. }
+                | SpecBinding::Backtrace { .. }
+                | SpecBinding::Nop
+                | SpecBinding::UnwindProtect { .. }
+                | SpecBinding::SaveExcursion { .. }
+                | SpecBinding::SaveCurrentBuffer { .. }
+                | SpecBinding::SaveRestriction { .. } => None,
             })
             .collect();
         for sym_id in specpdl_dynvars {
@@ -4319,6 +4352,26 @@ impl Context {
                 } => visit(*val),
                 SpecBinding::LexicalEnv { old_lexenv } => visit(*old_lexenv),
                 SpecBinding::GcRoot { value } => visit(*value),
+                SpecBinding::Backtrace { function, args, .. } => {
+                    visit(*function);
+                    for arg in args.iter().copied() {
+                        visit(arg);
+                    }
+                }
+                SpecBinding::UnwindProtect { forms, lexenv } => {
+                    visit(*forms);
+                    visit(*lexenv);
+                }
+                SpecBinding::SaveRestriction { state } => {
+                    let mut roots = Vec::new();
+                    state.trace_roots(&mut roots);
+                    for root in roots {
+                        visit(root);
+                    }
+                }
+                SpecBinding::SaveExcursion { .. }
+                | SpecBinding::SaveCurrentBuffer { .. }
+                | SpecBinding::Nop => {}
                 _ => {}
             }
         }
@@ -10315,7 +10368,13 @@ impl Context {
             SpecBinding::LetLocal { sym_id: s, .. } => *s == sym_id,
             SpecBinding::Let { .. }
             | SpecBinding::LexicalEnv { .. }
-            | SpecBinding::GcRoot { .. } => false,
+            | SpecBinding::GcRoot { .. }
+            | SpecBinding::Backtrace { .. }
+            | SpecBinding::Nop
+            | SpecBinding::UnwindProtect { .. }
+            | SpecBinding::SaveExcursion { .. }
+            | SpecBinding::SaveCurrentBuffer { .. }
+            | SpecBinding::SaveRestriction { .. } => false,
         })
     }
 
@@ -10462,6 +10521,38 @@ impl Context {
                     self.lexenv = old_lexenv;
                 }
                 SpecBinding::GcRoot { .. } => {}
+                SpecBinding::Backtrace { .. } => {
+                    // No-op, matches GNU SPECPDL_BACKTRACE
+                }
+                SpecBinding::Nop => {
+                    // No-op, matches GNU SPECPDL_NOP
+                }
+                SpecBinding::UnwindProtect { forms: cleanup, lexenv } => {
+                    // Entry already popped — re-entrant errors won't re-unwind.
+                    let saved_lexenv = self.lexenv;
+                    self.lexenv = lexenv;
+                    if cleanup.is_cons() || cleanup.is_nil() {
+                        // Interpreter path: list of forms
+                        let _ = self.sf_progn_value(cleanup);
+                    } else {
+                        // VM path: callable (bytecode function)
+                        let _ = self.apply(cleanup, vec![]);
+                    }
+                    self.lexenv = saved_lexenv;
+                }
+                SpecBinding::SaveExcursion { buffer_id, marker_id } => {
+                    self.restore_current_buffer_if_live(buffer_id);
+                    if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {
+                        let _ = self.buffers.goto_buffer_byte(buffer_id, saved_pt);
+                    }
+                    self.buffers.remove_marker(marker_id);
+                }
+                SpecBinding::SaveCurrentBuffer { buffer_id } => {
+                    self.restore_current_buffer_if_live(buffer_id);
+                }
+                SpecBinding::SaveRestriction { state } => {
+                    self.buffers.restore_saved_restriction_state(state);
+                }
             }
         }
     }
@@ -10526,6 +10617,15 @@ pub(crate) fn unbind_to_in_state(
                 tracing::warn!("unbind_to_in_state: LexicalEnv without Context");
             }
             SpecBinding::GcRoot { .. } => {}
+            SpecBinding::Backtrace { .. }
+            | SpecBinding::Nop
+            | SpecBinding::UnwindProtect { .. }
+            | SpecBinding::SaveExcursion { .. }
+            | SpecBinding::SaveCurrentBuffer { .. }
+            | SpecBinding::SaveRestriction { .. } => {
+                // These should not appear in standalone unbind_to_in_state.
+                // Once the VM is fully migrated, this function may be removed.
+            }
         }
     }
 }
@@ -10542,7 +10642,13 @@ fn default_toplevel_binding(specpdl: &[SpecBinding], sym_id: SymId) -> Option<&S
         } => *binding_sym == sym_id,
         SpecBinding::LetLocal { .. }
         | SpecBinding::LexicalEnv { .. }
-        | SpecBinding::GcRoot { .. } => false,
+        | SpecBinding::GcRoot { .. }
+        | SpecBinding::Backtrace { .. }
+        | SpecBinding::Nop
+        | SpecBinding::UnwindProtect { .. }
+        | SpecBinding::SaveExcursion { .. }
+        | SpecBinding::SaveCurrentBuffer { .. }
+        | SpecBinding::SaveRestriction { .. } => false,
     })
 }
 
@@ -10556,7 +10662,13 @@ pub(crate) fn default_toplevel_value_in_state(
         | Some(SpecBinding::LetDefault { old_value, .. }) => *old_value,
         Some(SpecBinding::LetLocal { .. })
         | Some(SpecBinding::LexicalEnv { .. })
-        | Some(SpecBinding::GcRoot { .. }) => {
+        | Some(SpecBinding::GcRoot { .. })
+        | Some(SpecBinding::Backtrace { .. })
+        | Some(SpecBinding::Nop)
+        | Some(SpecBinding::UnwindProtect { .. })
+        | Some(SpecBinding::SaveExcursion { .. })
+        | Some(SpecBinding::SaveCurrentBuffer { .. })
+        | Some(SpecBinding::SaveRestriction { .. }) => {
             unreachable!("non-variable bindings are excluded above")
         }
         None => obarray.default_value_id(sym_id).copied(),
@@ -10585,7 +10697,13 @@ pub(crate) fn set_default_toplevel_value_in_state(
             | SpecBinding::LetDefault { .. }
             | SpecBinding::LetLocal { .. }
             | SpecBinding::LexicalEnv { .. }
-            | SpecBinding::GcRoot { .. } => {}
+            | SpecBinding::GcRoot { .. }
+            | SpecBinding::Backtrace { .. }
+            | SpecBinding::Nop
+            | SpecBinding::UnwindProtect { .. }
+            | SpecBinding::SaveExcursion { .. }
+            | SpecBinding::SaveCurrentBuffer { .. }
+            | SpecBinding::SaveRestriction { .. } => {}
         }
     }
     false
