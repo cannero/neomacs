@@ -2137,9 +2137,32 @@ pub(crate) fn builtin_pdumper_stats(args: Vec<Value>) -> EvalResult {
     Ok(crate::emacs_core::pdump::runtime::pdumper_stats_value().unwrap_or(Value::NIL))
 }
 
-pub(crate) fn builtin_position_symbol(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_position_symbol(
+    ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("position-symbol", &args, 2)?;
-    Ok(Value::NIL)
+    let sym = if args[0].is_symbol() {
+        args[0]
+    } else if args[0].is_symbol_with_pos() {
+        args[0].as_symbol_with_pos_sym().unwrap()
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[0]],
+        ));
+    };
+    let pos_val = if let Some(n) = args[1].as_fixnum() {
+        Value::fixnum(n)
+    } else if let Some(p) = args[1].as_symbol_with_pos_pos() {
+        Value::fixnum(p)
+    } else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("fixnump"), args[1]],
+        ));
+    };
+    Ok(ctx.tagged_heap.alloc_symbol_with_pos(sym, pos_val))
 }
 
 pub(crate) fn builtin_play_sound_internal(args: Vec<Value>) -> EvalResult {
@@ -2175,11 +2198,6 @@ pub(crate) fn builtin_query_fontset(args: Vec<Value>) -> EvalResult {
     }
     let regexpp = args.get(1).is_some_and(|v| v.is_truthy());
     Ok(fontset::query_fontset_registry(&pattern, regexpp).map_or(Value::NIL, Value::string))
-}
-
-pub(crate) fn builtin_read_positioning_symbols(args: Vec<Value>) -> EvalResult {
-    expect_range_args("read-positioning-symbols", &args, 0, 1)?;
-    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_recent_auto_save_p(args: Vec<Value>) -> EvalResult {
@@ -2230,7 +2248,11 @@ pub(crate) fn builtin_redirect_frame_focus(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_remove_pos_from_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("remove-pos-from-symbol", &args, 1)?;
-    Ok(args[0])
+    if args[0].is_symbol_with_pos() {
+        Ok(args[0].as_symbol_with_pos_sym().unwrap())
+    } else {
+        Ok(args[0])
+    }
 }
 
 pub(crate) fn builtin_resize_mini_window_internal(

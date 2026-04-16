@@ -4824,10 +4824,10 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
     assert!(pdumper.is_nil());
 
     let position_symbol =
-        dispatch_builtin_pure("position-symbol", vec![Value::symbol("x"), Value::NIL])
+        dispatch_builtin_pure("position-symbol", vec![Value::symbol("x"), Value::fixnum(42)])
             .expect("builtin position-symbol should resolve")
             .expect("builtin position-symbol should evaluate");
-    assert!(position_symbol.is_nil());
+    assert!(position_symbol.is_symbol_with_pos());
 
     let posn_at_point = dispatch_builtin_pure("posn-at-point", vec![])
         .expect("builtin posn-at-point should resolve")

@@ -5340,7 +5340,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "position-symbol",
-        |_ctx, args| builtin_position_symbol(args),
+        |ctx, args| builtin_position_symbol(ctx, args),
         2,
         Some(2),
     );
@@ -5422,7 +5422,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "read-positioning-symbols",
-        |_ctx, args| builtin_read_positioning_symbols(args),
+        |ctx, args| super::reader::builtin_read(ctx, args),
         0,
         Some(1),
     );

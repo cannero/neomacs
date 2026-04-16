@@ -344,16 +344,12 @@ pub(crate) fn builtin_bare_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("bare-symbol", &args, 1)?;
     if symbol_like_name(&args[0]).is_some() {
         Ok(args[0])
+    } else if args[0].is_symbol_with_pos() {
+        Ok(args[0].as_symbol_with_pos_sym().unwrap())
     } else {
         Err(signal(
             "wrong-type-argument",
-            vec![
-                Value::list(vec![
-                    Value::symbol("symbolp"),
-                    Value::symbol("symbol-with-pos-p"),
-                ]),
-                args[0],
-            ],
+            vec![Value::symbol("symbolp"), args[0]],
         ))
     }
 }

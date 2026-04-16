@@ -438,15 +438,19 @@ pub(crate) fn builtin_user_ptrp(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_symbol_with_pos_p(args: Vec<Value>) -> EvalResult {
     expect_args("symbol-with-pos-p", &args, 1)?;
-    Ok(Value::NIL)
+    Ok(Value::bool_val(args[0].is_symbol_with_pos()))
 }
 
 pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
     expect_args("symbol-with-pos-pos", &args, 1)?;
-    Err(signal(
-        "wrong-type-argument",
-        vec![Value::symbol("symbol-with-pos-p"), args[0]],
-    ))
+    if let Some(pos) = args[0].as_symbol_with_pos_pos() {
+        Ok(Value::fixnum(pos))
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbol-with-pos-p"), args[0]],
+        ))
+    }
 }
 
 pub(crate) fn builtin_char_equal(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
