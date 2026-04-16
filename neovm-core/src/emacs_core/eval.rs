@@ -7473,7 +7473,15 @@ impl Context {
                     && !self.obarray.is_special_id(id)
                     && !self.lexenv_declares_special_cached_in(self.lexenv, id)
                 {
-                    self.bind_lexical_value_rooted(id, value);
+                    // Matches GNU Flet_star (eval.c:1113-1120):
+                    // Direct cons onto Vinternal_interpreter_environment.
+                    // The LexicalEnv entry at specpdl_count saves the pre-let*
+                    // state; unbind_to restores it.
+                    let binding = Value::make_cons(
+                        lexenv_binding_symbol_value(id),
+                        value,
+                    );
+                    self.lexenv = Value::make_cons(binding, self.lexenv);
                 } else {
                     self.specbind(id, value);
                 }
@@ -8040,10 +8048,16 @@ impl Context {
 
                     let specpdl_count = self.specpdl.len();
                     if use_lexical_binding {
+                        // Match GNU: specbind the lexenv, then cons the
+                        // binding directly.
                         self.specpdl.push(SpecBinding::LexicalEnv {
                             old_lexenv: self.lexenv,
                         });
-                        self.bind_lexical_value_rooted(var_id, binding_value);
+                        let binding = Value::make_cons(
+                            lexenv_binding_symbol_value(var_id),
+                            binding_value,
+                        );
+                        self.lexenv = Value::make_cons(binding, self.lexenv);
                     } else if bind_var {
                         self.specbind(var_id, binding_value);
                     }
