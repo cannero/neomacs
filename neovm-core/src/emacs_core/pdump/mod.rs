@@ -46,7 +46,8 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // and encode redirect + flags + value cell directly.  Old dumps are discarded
 // and regenerated (no backward compatibility required per project memory S105).
 // v22: LispSymbol::plist flipped to Value cons list (DumpSymbolData::plist is now DumpValue).
-const FORMAT_VERSION: u32 = 22;
+// v23: LispSymbol::function flipped to Value with NIL sentinel (DumpSymbolData::function is now DumpValue).
+const FORMAT_VERSION: u32 = 23;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
