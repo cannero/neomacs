@@ -2364,65 +2364,54 @@ pub(crate) fn finish_load_interner() {
 
 // --- Symbol / Obarray ---
 
-fn load_symbol_value_enum(decoder: &mut LoadDecoder, dsv: &DumpSymbolValue) -> SymbolValue {
-    match dsv {
-        DumpSymbolValue::Plain(v) => SymbolValue::Plain(decoder.load_opt_value(v)),
-        DumpSymbolValue::Alias(target) => SymbolValue::Alias(load_sym_id(target)),
-        DumpSymbolValue::BufferLocal {
-            default,
-            local_if_set,
-        } => SymbolValue::BufferLocal {
-            default: decoder.load_opt_value(default),
-            local_if_set: *local_if_set,
-        },
-        DumpSymbolValue::Forwarded => SymbolValue::Forwarded,
-    }
-}
-
 pub(crate) fn load_symbol_data(
     decoder: &mut LoadDecoder,
     sym_id: SymId,
     sd: &DumpSymbolData,
 ) -> SymbolData {
+    use crate::emacs_core::symbol::{SymbolRedirect, SymbolVal};
+    let mut symbol = SymbolData::new(sym_id);
     // Prefer the new `symbol_value` field; fall back to legacy `value` field
     // for backward compatibility with older pdump files.
-    let value = if let Some(ref sv) = sd.symbol_value {
-        load_symbol_value_enum(decoder, sv)
-    } else {
-        SymbolValue::Plain(decoder.load_opt_value(&sd.value))
-    };
-    let mut symbol = SymbolData::new(sym_id);
-    // Mirror the legacy `value` cell into the new redirect-shape fields
-    // (Phase 1 of the symbol-redirect refactor — both representations
-    // are kept in sync until Phase 4-10 removes the legacy enum).
-    use crate::emacs_core::symbol::{SymbolRedirect, SymbolVal};
-    match &value {
-        SymbolValue::Plain(v) => {
+    match sd.symbol_value.as_ref() {
+        Some(DumpSymbolValue::Plain(v)) => {
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
             // Phase F: use UNBOUND sentinel for None (unbound) symbols,
             // not NIL — symbol_value_id now checks val.plain != UNBOUND.
             symbol.val = SymbolVal {
-                plain: v.unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+                plain: decoder
+                    .load_opt_value(v)
+                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
             };
         }
-        SymbolValue::Alias(target) => {
-            symbol.set_alias_target(*target);
+        Some(DumpSymbolValue::Alias(target)) => {
+            symbol.set_alias_target(load_sym_id(target));
         }
-        SymbolValue::BufferLocal { default, .. } => {
+        Some(DumpSymbolValue::BufferLocal { default, .. }) => {
             // Phase 1: BufferLocal still rides on Plainval until the BLV
             // dispatch lands in Phase 4. The default lives in `val.plain`.
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
             symbol.val = SymbolVal {
-                plain: default.unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+                plain: decoder
+                    .load_opt_value(default)
+                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
             };
         }
-        SymbolValue::Forwarded => {
-            // Phase 1: forwarded symbols are not yet round-tripped through
+        Some(DumpSymbolValue::Forwarded) => {
+            // Forwarded symbols are not yet round-tripped through
             // the redirect (Phase 8 wires it up). Leave the new fields at
             // their default Plainval / UNBOUND.
         }
+        None => {
+            // Legacy dump format: `value` field holds the plain value.
+            symbol.flags.set_redirect(SymbolRedirect::Plainval);
+            symbol.val = SymbolVal {
+                plain: decoder
+                    .load_opt_value(&sd.value)
+                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+            };
+        }
     }
-    symbol.value = value;
     symbol.function = decoder.load_opt_value(&sd.function);
     symbol.plist = sd
         .plist
