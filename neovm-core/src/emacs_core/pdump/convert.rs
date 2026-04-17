@@ -41,7 +41,7 @@ use crate::emacs_core::mode::{
 };
 use crate::emacs_core::rect::RectangleState;
 use crate::emacs_core::register::{RegisterContent, RegisterManager};
-use crate::emacs_core::symbol::{Obarray, SymbolData, SymbolValue};
+use crate::emacs_core::symbol::{LispSymbol, Obarray, SymbolTrappedWrite};
 use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry, SyntaxFlags, SyntaxTable};
 use crate::emacs_core::value::{
     HashKey, HashTableTest, HashTableWeakness, LambdaData, LambdaParams, LispHashTable,
@@ -895,60 +895,44 @@ pub(crate) fn dump_symbol_table() -> DumpSymbolTable {
 
 // --- Symbol / Obarray ---
 
-fn dump_symbol_value(encoder: &mut DumpEncoder, sv: &SymbolValue) -> DumpSymbolValue {
-    match sv {
-        SymbolValue::Plain(v) => DumpSymbolValue::Plain(encoder.dump_opt_value(v)),
-        SymbolValue::Alias(target) => DumpSymbolValue::Alias(dump_sym_id(*target)),
-        SymbolValue::BufferLocal {
-            default,
-            local_if_set,
-        } => DumpSymbolValue::BufferLocal {
-            default: encoder.dump_opt_value(default),
-            local_if_set: *local_if_set,
-        },
-        SymbolValue::Forwarded => DumpSymbolValue::Forwarded,
-    }
-}
-
-pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &SymbolData) -> DumpSymbolData {
-    // Phase F: compute the canonical SymbolValue from the redirect union
-    // rather than the legacy `value` field (which is no longer written).
+pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> DumpSymbolData {
+    // Phase H: read everything from the authoritative flags + val union.
     use crate::emacs_core::symbol::SymbolRedirect;
-    let live_sv = match sd.flags.redirect() {
+    let symbol_value = match sd.flags.redirect() {
         SymbolRedirect::Plainval => {
             let v = unsafe { sd.val.plain };
             if v == crate::emacs_core::value::Value::UNBOUND {
-                SymbolValue::Plain(None)
+                DumpSymbolValue::Plain(encoder.dump_opt_value(&None))
             } else {
-                SymbolValue::Plain(Some(v))
+                DumpSymbolValue::Plain(encoder.dump_opt_value(&Some(v)))
             }
         }
         SymbolRedirect::Varalias => {
             let target = unsafe { sd.val.alias };
-            SymbolValue::Alias(target)
+            DumpSymbolValue::Alias(dump_sym_id(target))
         }
         SymbolRedirect::Localized => {
             // BLV symbols are not fully round-tripped in pdump yet
-            // (Phase I covers pdump v12). Emit the legacy default if known.
-            SymbolValue::BufferLocal {
-                default: None,
+            // (Phase I covers pdump v12). Emit a placeholder default.
+            DumpSymbolValue::BufferLocal {
+                default: encoder.dump_opt_value(&None),
                 local_if_set: false,
             }
         }
-        SymbolRedirect::Forwarded => SymbolValue::Forwarded,
+        SymbolRedirect::Forwarded => DumpSymbolValue::Forwarded,
     };
     DumpSymbolData {
         name: None,
         value: None,
-        symbol_value: Some(dump_symbol_value(encoder, &live_sv)),
+        symbol_value: Some(symbol_value),
         function: encoder.dump_opt_value(&sd.function),
         plist: sd
             .plist
             .iter()
             .map(|(k, v)| (dump_sym_id(*k), encoder.dump_value(v)))
             .collect(),
-        special: sd.special,
-        constant: sd.constant,
+        special: sd.flags.declared_special(),
+        constant: sd.flags.trapped_write() == SymbolTrappedWrite::NoWrite,
     }
 }
 
@@ -2368,9 +2352,9 @@ pub(crate) fn load_symbol_data(
     decoder: &mut LoadDecoder,
     sym_id: SymId,
     sd: &DumpSymbolData,
-) -> SymbolData {
+) -> LispSymbol {
     use crate::emacs_core::symbol::{SymbolRedirect, SymbolVal};
-    let mut symbol = SymbolData::new(sym_id);
+    let mut symbol = LispSymbol::new(sym_id);
     // Prefer the new `symbol_value` field; fall back to legacy `value` field
     // for backward compatibility with older pdump files.
     match sd.symbol_value.as_ref() {
@@ -2418,8 +2402,12 @@ pub(crate) fn load_symbol_data(
         .iter()
         .map(|(k, v)| (load_sym_id(k), decoder.load_value(v)))
         .collect();
-    symbol.special = sd.special;
-    symbol.constant = sd.constant;
+    symbol.flags.set_declared_special(sd.special);
+    if sd.constant {
+        symbol
+            .flags
+            .set_trapped_write(SymbolTrappedWrite::NoWrite);
+    }
     symbol
 }
 

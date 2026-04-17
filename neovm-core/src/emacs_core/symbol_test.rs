@@ -193,8 +193,9 @@ fn for_each_value_cell_mut_updates_plain_and_buffer_local_values() {
 
 /// `LispSymbol::new` produces a fresh PLAINVAL symbol with NIL in its
 /// value cell. Mirrors GNU `init_symbol` (`alloc.c:3659-3673`).
+/// Phase H: fresh symbols start UNBOUND (not NIL), matching GNU's Qunbound sentinel.
 #[test]
-fn fresh_lisp_symbol_is_plainval_nil() {
+fn fresh_lisp_symbol_is_plainval_unbound() {
     crate::test_utils::init_test_tracing();
     let id = intern("phase1-fresh");
     let sym = LispSymbol::new(id);
@@ -202,7 +203,7 @@ fn fresh_lisp_symbol_is_plainval_nil() {
     assert_eq!(sym.flags.trapped_write(), SymbolTrappedWrite::Untrapped);
     assert_eq!(sym.flags.interned(), SymbolInterned::Uninterned);
     assert!(!sym.flags.declared_special());
-    assert_eq!(sym.plain(), Value::NIL);
+    assert_eq!(sym.plain(), Value::UNBOUND);
 }
 
 /// Phase F: `Obarray::set_symbol_value` writes ONLY to `flags + val`.
@@ -252,10 +253,10 @@ fn t_and_nil_have_consistent_redirect_state() {
     let nil = ob.get_by_id(intern("nil")).expect("nil pre-interned");
     assert_eq!(t.redirect(), SymbolRedirect::Plainval);
     assert_eq!(t.plain(), Value::T);
-    assert!(t.constant);
+    assert!(t.flags.trapped_write() == SymbolTrappedWrite::NoWrite);
     assert_eq!(nil.redirect(), SymbolRedirect::Plainval);
     assert_eq!(nil.plain(), Value::NIL);
-    assert!(nil.constant);
+    assert!(nil.flags.trapped_write() == SymbolTrappedWrite::NoWrite);
 }
 
 /// SymbolFlags packs into a single byte (matches GNU's bit layout).
@@ -607,7 +608,7 @@ fn install_buffer_objfwd_flips_redirect() {
     let sym = ob.get_by_id(id).expect("symbol installed");
     assert_eq!(sym.redirect(), SymbolRedirect::Forwarded);
     assert!(sym.flags.declared_special());
-    assert!(sym.special);
+    assert!(sym.flags.declared_special());
 }
 
 /// `find_symbol_value_in_buffer` for a FORWARDED `BUFFER_OBJFWD`

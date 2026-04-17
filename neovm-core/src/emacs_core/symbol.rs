@@ -232,46 +232,18 @@ pub struct LispBufferLocalValue {
 // Legacy value-cell enum — to be removed in Phase 4-10
 // ===========================================================================
 
-/// Legacy variant of [`LispSymbol::value`] retained until Phases 4-10
-/// migrate every code path through the redirect dispatch. New code should
-/// read [`LispSymbol::redirect`] / [`LispSymbol::plain`] etc. instead.
-///
-/// Mirrors GNU Emacs's `symbol_redirect` enum (`SYMBOL_PLAINVAL`,
-/// `SYMBOL_VARALIAS`, `SYMBOL_LOCALIZED`, `SYMBOL_FORWARDED`).
-#[derive(Clone, Debug)]
-pub enum SymbolValue {
-    /// Direct value (GNU: SYMBOL_PLAINVAL).
-    Plain(Option<Value>),
-    /// Alias to another symbol (GNU: SYMBOL_VARALIAS).
-    Alias(SymId),
-    /// Buffer-local variable (GNU: SYMBOL_LOCALIZED).
-    BufferLocal {
-        default: Option<Value>,
-        local_if_set: bool,
-    },
-    /// Forwarded to Rust variable (GNU: SYMBOL_FORWARDED) — placeholder.
-    Forwarded,
-}
-
-impl Default for SymbolValue {
-    fn default() -> Self {
-        SymbolValue::Plain(None)
-    }
-}
 
 // ===========================================================================
 // LispSymbol — per-symbol metadata stored in the obarray
 // ===========================================================================
 
 /// Per-symbol metadata stored in the obarray. Mirrors GNU `struct
-/// Lisp_Symbol` at `src/lisp.h:786-829`, modulo Phase 1 transitional
-/// fields that will be removed in later phases.
+/// Lisp_Symbol` at `src/lisp.h:786-829`.
 ///
-/// Renamed from `SymbolData` as part of the symbol-redirect refactor
-/// (Phase 1). The legacy [`SymbolValue`] field stays alongside the new
-/// [`SymbolFlags`] / [`SymbolVal`] fields during the transition; reads
-/// and writes go through both, kept in sync, until Phase 4-10 removes
-/// the legacy field.
+/// Renamed from `LispSymbol` as part of the symbol-redirect refactor
+/// (Phase 1). As of Phase H the legacy `SymbolValue`/`special`/`constant`
+/// mirror fields have been removed; all reads and writes go through
+/// `flags` + `val`.
 #[derive(Clone, Debug)]
 pub struct LispSymbol {
     /// The symbol's name.
@@ -282,28 +254,16 @@ pub struct LispSymbol {
     pub flags: SymbolFlags,
     /// One-word value cell. Reinterpreted by `flags.redirect()`.
     pub val: SymbolVal,
-    /// LEGACY value cell — see [`SymbolValue`]. Kept in sync with
-    /// `flags + val` during Phase 1; will be removed in Phase 10.
-    pub value: SymbolValue,
     /// Function cell (None = void-function).
     pub function: Option<Value>,
     /// Property list (flat alternating key-value pairs stored as HashMap).
     pub plist: FxHashMap<SymId, Value>,
-    /// Whether this symbol is declared `special` (always dynamically bound).
-    /// LEGACY mirror of `flags.declared_special()`. Removed in Phase 10.
-    pub special: bool,
-    /// Whether this symbol is a constant (defconst). LEGACY — will collapse
-    /// into `flags.trapped_write() == NoWrite` in Phase 10.
-    pub constant: bool,
     /// Whether this symbol is interned in the global obarray.
     interned_global: bool,
     /// Whether `fmakunbound` explicitly masked the symbol's fallback function.
     function_unbound: bool,
 }
 
-/// Type alias for backward compatibility with code that still uses the
-/// pre-refactor name. Removed in Phase 10.
-pub type SymbolData = LispSymbol;
 
 /// Mirrors GNU `swap_in_symval_forwarding` (`src/data.c:1539-1571`).
 ///
@@ -406,11 +366,8 @@ impl LispSymbol {
             name: symbol_name_id(id),
             flags,
             val: SymbolVal { plain: Value::UNBOUND },
-            value: SymbolValue::Plain(None),
             function: None,
             plist: FxHashMap::default(),
-            special: false,
-            constant: false,
             interned_global: false,
             function_unbound: false,
         }
@@ -467,7 +424,7 @@ impl LispSymbol {
 /// stays semantically a deep copy. The custom [`Drop`] impl frees the
 /// heap allocations.
 pub struct Obarray {
-    symbols: Vec<Option<SymbolData>>,
+    symbols: Vec<Option<LispSymbol>>,
     global_member_count: usize,
     function_epoch: u64,
     /// Heap-allocated BLVs for `SYMBOL_LOCALIZED` symbols. Each entry
@@ -553,24 +510,24 @@ impl Obarray {
         id.0 as usize
     }
 
-    fn slot(&self, id: SymId) -> Option<&SymbolData> {
+    fn slot(&self, id: SymId) -> Option<&LispSymbol> {
         self.symbols
             .get(Self::slot_index(id))
             .and_then(Option::as_ref)
     }
 
-    fn slot_mut(&mut self, id: SymId) -> Option<&mut SymbolData> {
+    fn slot_mut(&mut self, id: SymId) -> Option<&mut LispSymbol> {
         self.symbols
             .get_mut(Self::slot_index(id))
             .and_then(Option::as_mut)
     }
 
-    fn ensure_slot(&mut self, id: SymId) -> &mut SymbolData {
+    fn ensure_slot(&mut self, id: SymId) -> &mut LispSymbol {
         let idx = Self::slot_index(id);
         if self.symbols.len() <= idx {
             self.symbols.resize_with(idx + 1, || None);
         }
-        self.symbols[idx].get_or_insert_with(|| SymbolData::new(id))
+        self.symbols[idx].get_or_insert_with(|| LispSymbol::new(id))
     }
 
     fn mark_global_member(&mut self, id: SymId) {
@@ -585,8 +542,8 @@ impl Obarray {
                 // Match GNU lread.c intern_sym: keywords interned in the
                 // initial obarray are self-evaluating constants and are marked
                 // declared-special.
-                sym.special = true;
-                sym.constant = true;
+                sym.flags.set_declared_special(true);
+                sym.flags.set_trapped_write(SymbolTrappedWrite::NoWrite);
                 // Only initialize if not already set (idempotent).
                 // Phase F: check val.plain (UNBOUND = not yet set).
                 if unsafe { sym.val.plain } == Value::UNBOUND {
@@ -655,8 +612,8 @@ impl Obarray {
             let t_sym = ob.ensure_slot(t_id);
             t_sym.flags.set_redirect(SymbolRedirect::Plainval);
             t_sym.val = SymbolVal { plain: Value::T };
-            t_sym.constant = true;
-            t_sym.special = true;
+            t_sym.flags.set_trapped_write(SymbolTrappedWrite::NoWrite);
+            t_sym.flags.set_declared_special(true);
         }
         ob.mark_global_member(t_id);
 
@@ -665,8 +622,8 @@ impl Obarray {
             let nil_sym = ob.ensure_slot(nil_id);
             nil_sym.flags.set_redirect(SymbolRedirect::Plainval);
             nil_sym.val = SymbolVal { plain: Value::NIL };
-            nil_sym.constant = true;
-            nil_sym.special = true;
+            nil_sym.flags.set_trapped_write(SymbolTrappedWrite::NoWrite);
+            nil_sym.flags.set_declared_special(true);
         }
         ob.mark_global_member(nil_id);
 
@@ -702,7 +659,7 @@ impl Obarray {
     }
 
     /// Look up a symbol without creating it. Returns None if not interned.
-    pub fn intern_soft(&self, name: &str) -> Option<&SymbolData> {
+    pub fn intern_soft(&self, name: &str) -> Option<&LispSymbol> {
         let id = lookup_interned(name)?;
         self.slot(id).filter(|sym| sym.interned_global)
     }
@@ -715,36 +672,36 @@ impl Obarray {
     }
 
     /// Get symbol data (mutable). Interns the symbol if needed.
-    pub fn get_or_intern(&mut self, name: &str) -> &mut SymbolData {
+    pub fn get_or_intern(&mut self, name: &str) -> &mut LispSymbol {
         let id = intern(name);
         self.mark_global_member(id);
         self.ensure_symbol_id(id)
     }
 
     /// Get symbol data (immutable).
-    pub fn get(&self, name: &str) -> Option<&SymbolData> {
+    pub fn get(&self, name: &str) -> Option<&LispSymbol> {
         let id = lookup_interned(name)?;
         self.slot(id).filter(|sym| sym.interned_global)
     }
 
     /// Get symbol data (mutable).
-    pub fn get_mut(&mut self, name: &str) -> Option<&mut SymbolData> {
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut LispSymbol> {
         let id = lookup_interned(name)?;
         self.slot_mut(id).filter(|sym| sym.interned_global)
     }
 
     /// Ensure symbol storage exists for an arbitrary symbol id.
-    pub fn ensure_symbol_id(&mut self, id: SymId) -> &mut SymbolData {
+    pub fn ensure_symbol_id(&mut self, id: SymId) -> &mut LispSymbol {
         self.ensure_slot(id)
     }
 
     /// Get symbol data by identity.
-    pub fn get_by_id(&self, id: SymId) -> Option<&SymbolData> {
+    pub fn get_by_id(&self, id: SymId) -> Option<&LispSymbol> {
         self.slot(id)
     }
 
     /// Get mutable symbol data by identity.
-    pub fn get_mut_by_id(&mut self, id: SymId) -> Option<&mut SymbolData> {
+    pub fn get_mut_by_id(&mut self, id: SymId) -> Option<&mut LispSymbol> {
         self.slot_mut(id)
     }
 
@@ -977,7 +934,6 @@ impl Obarray {
         let sym = self.ensure_symbol_id(id);
         sym.flags.set_redirect(SymbolRedirect::Forwarded);
         sym.flags.set_declared_special(true);
-        sym.special = true;
         sym.val = SymbolVal {
             fwd: fwd as *const crate::emacs_core::forward::LispBufferObjFwd
                 as *const crate::emacs_core::forward::LispFwd,
@@ -1305,22 +1261,12 @@ impl Obarray {
             return;
         }
 
-        match sym.value {
-            SymbolValue::Plain(_) => {
-                sym.flags.set_redirect(SymbolRedirect::Plainval);
-                sym.val = SymbolVal { plain: value };
-            }
-            SymbolValue::BufferLocal { .. } => {
-                // Legacy fallback: a symbol whose legacy enum is
-                // BufferLocal but whose redirect hasn't been flipped
-                // to Localized yet. Rewrite the new shape as Plainval.
-                sym.flags.set_redirect(SymbolRedirect::Plainval);
-                sym.val = SymbolVal { plain: value };
-            }
-            SymbolValue::Forwarded => { /* no-op placeholder */ }
-            SymbolValue::Alias(_) => {
-                // resolve_alias_for_write should have resolved this, but
-                // as a safety fallback write as Plain.
+        // Write through the redirect union. LOCALIZED is handled above.
+        // VARALIAS should have been resolved by resolve_alias_for_write;
+        // FORWARDED is a no-op placeholder. Everything else becomes Plainval.
+        match sym.flags.redirect() {
+            SymbolRedirect::Forwarded => { /* no-op placeholder */ }
+            _ => {
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: value };
             }
@@ -1468,7 +1414,7 @@ impl Obarray {
         self.ensure_global_member_if_canonical(id);
         let target = self.resolve_alias_for_write(id);
         if let Some(sym) = self.slot_mut(target) {
-            if !sym.constant {
+            if sym.flags.trapped_write() != SymbolTrappedWrite::NoWrite {
                 // Plainval / UNBOUND is the "no value" state, matching
                 // GNU where makunbound sets val.value = Qunbound.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
@@ -1592,26 +1538,26 @@ impl Obarray {
     pub fn make_special(&mut self, name: &str) {
         let id = intern(name);
         self.mark_global_member(id);
-        self.ensure_symbol_id(id).special = true;
+        self.ensure_symbol_id(id).flags.set_declared_special(true);
     }
 
     /// Mark a symbol as special by identity.
     pub fn make_special_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        self.ensure_symbol_id(id).special = true;
+        self.ensure_symbol_id(id).flags.set_declared_special(true);
     }
 
     /// Clear the special flag on a symbol.
     pub fn make_non_special(&mut self, name: &str) {
         let id = intern(name);
         self.mark_global_member(id);
-        self.ensure_symbol_id(id).special = false;
+        self.ensure_symbol_id(id).flags.set_declared_special(false);
     }
 
     /// Clear the special flag on a symbol by identity.
     pub fn make_non_special_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        self.ensure_symbol_id(id).special = false;
+        self.ensure_symbol_id(id).flags.set_declared_special(false);
     }
 
     /// Check if a symbol is special.
@@ -1621,7 +1567,7 @@ impl Obarray {
 
     /// Check if a symbol is special by identity.
     pub fn is_special_id(&self, id: SymId) -> bool {
-        self.slot(id).is_some_and(|s| s.special)
+        self.slot(id).is_some_and(|s| s.flags.declared_special())
     }
 
     /// Check if a symbol is a constant.
@@ -1636,7 +1582,9 @@ impl Obarray {
                 .as_bytes()
                 .first()
                 .is_some_and(|byte| *byte == b':'))
-            || self.slot(id).is_some_and(|s| s.constant)
+            || self
+                .slot(id)
+                .is_some_and(|s| s.flags.trapped_write() == SymbolTrappedWrite::NoWrite)
     }
 
     /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs).
@@ -1648,7 +1596,9 @@ impl Obarray {
     /// Mark a symbol as a hard constant (like SYMBOL_NOWRITE in GNU Emacs) by identity.
     pub fn set_constant_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
-        self.ensure_symbol_id(id).constant = true;
+        self.ensure_symbol_id(id)
+            .flags
+            .set_trapped_write(SymbolTrappedWrite::NoWrite);
     }
 
     // ------------------------------------------------------------------
@@ -1774,7 +1724,7 @@ impl Obarray {
     ) -> Result<(), MakeAliasError> {
         // Check current state of new_alias.
         if let Some(sym) = self.slot(new_alias) {
-            if sym.constant {
+            if sym.flags.trapped_write() == SymbolTrappedWrite::NoWrite {
                 return Err(MakeAliasError::Constant);
             }
             match sym.flags.redirect() {
@@ -1950,8 +1900,8 @@ impl Obarray {
     // pdump accessors
     // -----------------------------------------------------------------------
 
-    /// Iterate over all (SymId, &SymbolData) pairs (for pdump serialization).
-    pub(crate) fn iter_symbols(&self) -> impl Iterator<Item = (SymId, &SymbolData)> {
+    /// Iterate over all (SymId, &LispSymbol) pairs (for pdump serialization).
+    pub(crate) fn iter_symbols(&self) -> impl Iterator<Item = (SymId, &LispSymbol)> {
         self.symbols.iter().enumerate().filter_map(|(idx, slot)| {
             debug_assert!(idx <= u32::MAX as usize, "symbol index overflow");
             slot.as_ref().map(|sym| (SymId(idx as u32), sym))
@@ -1974,7 +1924,7 @@ impl Obarray {
 
     /// Reconstruct an Obarray from pdump data.
     pub(crate) fn from_dump(
-        symbols: Vec<(SymId, SymbolData)>,
+        symbols: Vec<(SymId, LispSymbol)>,
         global_members: Vec<SymId>,
         function_unbound: Vec<SymId>,
         function_epoch: u64,
