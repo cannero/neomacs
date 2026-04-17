@@ -331,3 +331,56 @@ fn fido_vertical_mode_completions() {
         "Neomacs minibuffer should shrink after C-g (got {neo_nonempty_after} non-empty rows)"
     );
 }
+
+#[test]
+fn mx_view_hello_file() {
+    // M-x view-hello-file opens the built-in etc/HELLO file (the multilingual
+    // "hello" demo). Content includes "Hello, world!" (English row) plus many
+    // other-language greetings.
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+    for s in [&mut gnu, &mut neo] {
+        s.send(b"view-hello-file");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+    // HELLO is larger than earlier tests' buffers; give it room to render.
+    read_both(&mut gnu, &mut neo, Duration::from_secs(5));
+
+    let gl = gnu.text_grid();
+    let nl = neo.text_grid();
+
+    // HELLO opens in view-mode and its content varies (many languages). Both
+    // editors should at least have "hello" (case-insensitive) somewhere in
+    // the visible rows — that covers the explanatory "…write a 'hello' …"
+    // opening, the English "Hola" / "Hello" rows, etc.
+    let lower_has_hello = |rows: &[String]| rows.iter().any(|r| r.to_lowercase().contains("hello"));
+    let gnu_has_hello = lower_has_hello(&gl);
+    let neo_has_hello = lower_has_hello(&nl);
+
+    let dump = |label: &str, rows: &[String]| {
+        eprintln!("{label} screen:");
+        for (i, r) in rows.iter().enumerate() {
+            let t = r.trim();
+            if !t.is_empty() {
+                eprintln!("  {i:2}: |{t}|");
+            }
+        }
+    };
+    if !gnu_has_hello {
+        dump("GNU", &gl);
+    }
+    if !neo_has_hello {
+        dump("NEO", &nl);
+    }
+    assert!(gnu_has_hello, "GNU should show some 'hello' text after M-x view-hello-file");
+    assert!(neo_has_hello, "NEO should show some 'hello' text after M-x view-hello-file");
+
+    // Mode line should surface the buffer name HELLO.
+    let gnu_has_name = gl.iter().any(|r| r.contains("HELLO"));
+    let neo_has_name = nl.iter().any(|r| r.contains("HELLO"));
+    assert!(gnu_has_name, "GNU should show HELLO in the mode line");
+    assert!(neo_has_name, "NEO should show HELLO in the mode line");
+}
