@@ -93,6 +93,37 @@ pub fn plist_put(plist: Value, prop: Value, value: Value) -> Result<(Value, bool
     }
 }
 
+/// Validate that `plist` is a proper plist (NIL or an even-length cons
+/// chain with a NIL tail). Signals `(wrong-type-argument plistp plist)`
+/// on any malformed tail.
+///
+/// Used by callers that must fail on a malformed plist BEFORE performing
+/// unrelated side effects (e.g. allocating a registration ID), so the
+/// error path leaves no partial state behind. GNU does equivalent
+/// validation at the top of many plist-mutating operations.
+pub fn plist_check(plist: Value) -> Result<(), Flow> {
+    let mut tail = plist;
+    loop {
+        if tail.is_nil() {
+            return Ok(());
+        }
+        if !tail.is_cons() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("plistp"), plist],
+            ));
+        }
+        let rest = tail.cons_cdr();
+        if !rest.is_cons() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("plistp"), plist],
+            ));
+        }
+        tail = rest.cons_cdr();
+    }
+}
+
 /// Return the sub-list of `plist` starting at the first match for `prop`,
 /// or NIL if not found. Matches GNU `Fplist_member`.
 pub fn plist_member(plist: Value, prop: &Value) -> Value {

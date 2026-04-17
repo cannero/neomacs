@@ -308,16 +308,10 @@ pub(crate) fn set_default_toplevel_value_impl(
 
 pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let state_change = defvaralias_impl(eval, args.clone())?;
-    eval.run_variable_watchers_by_id(
-        state_change.previous_target_id,
-        &state_change.base_variable,
-        &Value::NIL,
-        "defvaralias",
-    )?;
-    eval.watchers.clear_watchers(state_change.alias_id);
-    // GNU Emacs updates `variable-documentation` through plist machinery after
-    // installing alias state, so malformed raw plists still raise
-    // `(wrong-type-argument plistp ...)` with the alias edge retained.
+    // GNU order (`data.c:Fdefvaralias`): install alias, put documentation,
+    // THEN notify variable watchers. A malformed raw plist on the alias
+    // symbol raises `(wrong-type-argument plistp ...)` from the `put`
+    // step; watchers must not fire when the put errors.
     builtin_put(
         eval,
         vec![
@@ -326,6 +320,13 @@ pub(crate) fn builtin_defvaralias(eval: &mut super::eval::Context, args: Vec<Val
             state_change.docstring,
         ],
     )?;
+    eval.run_variable_watchers_by_id(
+        state_change.previous_target_id,
+        &state_change.base_variable,
+        &Value::NIL,
+        "defvaralias",
+    )?;
+    eval.watchers.clear_watchers(state_change.alias_id);
     Ok(state_change.result)
 }
 
@@ -672,6 +673,21 @@ pub(super) fn builtin_register_code_conversion_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    // Pre-validate the target symbol's plist shape BEFORE allocating a
+    // map ID. If the plist is malformed, the subsequent `put` would
+    // signal `(wrong-type-argument plistp …)` AFTER `register_code_
+    // conversion_map_impl` has already consumed an ID — leaving the
+    // counter in a non-GNU state. Shape-check first so the error path
+    // is side-effect-free.
+    if let Some(sym_id) = args.first().and_then(symbol_id) {
+        let plist = eval
+            .obarray()
+            .get_by_id(sym_id)
+            .map(|s| s.plist)
+            .unwrap_or(Value::NIL);
+        crate::emacs_core::plist::plist_check(plist)?;
+    }
+
     let obarray = eval.obarray_mut();
     let map_id = super::ccl::builtin_register_code_conversion_map_impl(args.clone())?;
 
