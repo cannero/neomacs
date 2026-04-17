@@ -36,11 +36,16 @@ use crate::emacs_core::value;
 
 const MAGIC: &[u8; 8] = b"NEOPDUMP";
 const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook-pending";
-// Phase 19 bump (19): phase 16 introduced an explicit dump-local symbol table,
+// Phase 21 bump: phase 16 introduced an explicit dump-local symbol table,
 // phase 17 fixed the on-disk `DumpSymbolData` layout, phase 18 stores subr
-// names as dump-local name atoms instead of dump-local symbol slots, and
-// phase 19 stores `loads_in_progress` as Lisp strings instead of UTF-8 paths.
-const FORMAT_VERSION: u32 = 20;
+// names as dump-local name atoms instead of dump-local symbol slots,
+// phase 19 stores `loads_in_progress` as Lisp strings instead of UTF-8 paths,
+// phase 20 was the Phase H SymbolValue deletion (in-memory only, no wire-format
+// change needed at that time), and phase 21 redesigns `DumpSymbolData` to
+// drop the legacy `name`/`value`/`symbol_value`/`special`/`constant` fields
+// and encode redirect + flags + value cell directly.  Old dumps are discarded
+// and regenerated (no backward compatibility required per project memory S105).
+const FORMAT_VERSION: u32 = 21;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")

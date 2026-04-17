@@ -896,43 +896,51 @@ pub(crate) fn dump_symbol_table() -> DumpSymbolTable {
 // --- Symbol / Obarray ---
 
 pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> DumpSymbolData {
-    // Phase H: read everything from the authoritative flags + val union.
-    use crate::emacs_core::symbol::SymbolRedirect;
-    let symbol_value = match sd.flags.redirect() {
+    // Phase I (pdump v21): encode redirect + flags directly.
+    use crate::emacs_core::symbol::{SymbolInterned, SymbolRedirect};
+    let redirect = sd.flags.redirect();
+    let val = match redirect {
         SymbolRedirect::Plainval => {
             let v = unsafe { sd.val.plain };
-            if v == crate::emacs_core::value::Value::UNBOUND {
-                DumpSymbolValue::Plain(encoder.dump_opt_value(&None))
-            } else {
-                DumpSymbolValue::Plain(encoder.dump_opt_value(&Some(v)))
-            }
+            // Preserve the UNBOUND sentinel — DumpValue::Unbound maps back to
+            // Value::UNBOUND on load, which is the correct "unbound" state.
+            DumpSymbolVal::Plain(encoder.dump_value(&v))
         }
         SymbolRedirect::Varalias => {
             let target = unsafe { sd.val.alias };
-            DumpSymbolValue::Alias(dump_sym_id(target))
+            DumpSymbolVal::Alias(dump_sym_id(target))
         }
         SymbolRedirect::Localized => {
-            // BLV symbols are not fully round-tripped in pdump yet
-            // (Phase I covers pdump v12). Emit a placeholder default.
-            DumpSymbolValue::BufferLocal {
-                default: encoder.dump_opt_value(&None),
-                local_if_set: false,
+            // Read the BLV to get the global default and local_if_set flag.
+            // The BLV is heap-allocated and valid while sd is alive.
+            let (default, local_if_set) = unsafe {
+                let blv = &*sd.val.blv;
+                let default_val = blv.defcell.cons_cdr();
+                (encoder.dump_value(&default_val), blv.local_if_set)
+            };
+            DumpSymbolVal::Localized {
+                default,
+                local_if_set,
             }
         }
-        SymbolRedirect::Forwarded => DumpSymbolValue::Forwarded,
+        SymbolRedirect::Forwarded => {
+            // BUFFER_OBJFWD forwarders are re-installed from BUFFER_SLOT_INFO
+            // at load time (see reconstruct_evaluator).  Nothing to encode.
+            DumpSymbolVal::Forwarded
+        }
     };
     DumpSymbolData {
-        name: None,
-        value: None,
-        symbol_value: Some(symbol_value),
+        redirect: redirect as u8,
+        trapped_write: sd.flags.trapped_write() as u8,
+        interned: sd.flags.interned() as u8,
+        declared_special: sd.flags.declared_special(),
+        val,
         function: encoder.dump_opt_value(&sd.function),
         plist: sd
             .plist
             .iter()
             .map(|(k, v)| (dump_sym_id(*k), encoder.dump_value(v)))
             .collect(),
-        special: sd.flags.declared_special(),
-        constant: sd.flags.trapped_write() == SymbolTrappedWrite::NoWrite,
     }
 }
 
@@ -2353,61 +2361,58 @@ pub(crate) fn load_symbol_data(
     sym_id: SymId,
     sd: &DumpSymbolData,
 ) -> LispSymbol {
-    use crate::emacs_core::symbol::{SymbolRedirect, SymbolVal};
+    use crate::emacs_core::symbol::{SymbolInterned, SymbolRedirect, SymbolVal};
     let mut symbol = LispSymbol::new(sym_id);
-    // Prefer the new `symbol_value` field; fall back to legacy `value` field
-    // for backward compatibility with older pdump files.
-    match sd.symbol_value.as_ref() {
-        Some(DumpSymbolValue::Plain(v)) => {
+
+    // Restore flag fields.  The `redirect` field is also encoded in `val`'s
+    // variant, but we set it here explicitly for clarity.
+    let trapped_write: SymbolTrappedWrite = unsafe { std::mem::transmute(sd.trapped_write & 0b11) };
+    let interned: SymbolInterned = unsafe { std::mem::transmute(sd.interned & 0b11) };
+    symbol.flags.set_trapped_write(trapped_write);
+    symbol.flags.set_interned(interned);
+    symbol.flags.set_declared_special(sd.declared_special);
+
+    match &sd.val {
+        DumpSymbolVal::Plain(v) => {
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
-            // Phase F: use UNBOUND sentinel for None (unbound) symbols,
-            // not NIL — symbol_value_id now checks val.plain != UNBOUND.
             symbol.val = SymbolVal {
-                plain: decoder
-                    .load_opt_value(v)
-                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+                plain: decoder.load_value(v),
             };
         }
-        Some(DumpSymbolValue::Alias(target)) => {
+        DumpSymbolVal::Alias(target) => {
             symbol.set_alias_target(load_sym_id(target));
         }
-        Some(DumpSymbolValue::BufferLocal { default, .. }) => {
-            // Phase 1: BufferLocal still rides on Plainval until the BLV
-            // dispatch lands in Phase 4. The default lives in `val.plain`.
+        DumpSymbolVal::Localized { default, .. } => {
+            // BLV reconstruction requires the Obarray to be live so that
+            // make_symbol_localized can allocate and track the BLV pointer.
+            // We cannot do it here (we don't have &mut Obarray).  Instead
+            // we store the default in val.plain temporarily; load_obarray
+            // performs a second pass after Obarray::from_dump to call
+            // make_symbol_localized on every Localized symbol and fix the
+            // redirect + BLV pointer.
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
             symbol.val = SymbolVal {
-                plain: decoder
-                    .load_opt_value(default)
-                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+                plain: decoder.load_value(default),
             };
         }
-        Some(DumpSymbolValue::Forwarded) => {
-            // Forwarded symbols are not yet round-tripped through
-            // the redirect (Phase 8 wires it up). Leave the new fields at
-            // their default Plainval / UNBOUND.
-        }
-        None => {
-            // Legacy dump format: `value` field holds the plain value.
+        DumpSymbolVal::Forwarded => {
+            // BUFFER_OBJFWD forwarders are re-installed from BUFFER_SLOT_INFO
+            // in reconstruct_evaluator after the obarray is built.  Leave the
+            // redirect at Plainval / UNBOUND for now; reconstruct_evaluator
+            // will call install_buffer_objfwd which flips it to Forwarded.
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
             symbol.val = SymbolVal {
-                plain: decoder
-                    .load_opt_value(&sd.value)
-                    .unwrap_or(crate::emacs_core::value::Value::UNBOUND),
+                plain: crate::emacs_core::value::Value::UNBOUND,
             };
         }
     }
+
     symbol.function = decoder.load_opt_value(&sd.function);
     symbol.plist = sd
         .plist
         .iter()
         .map(|(k, v)| (load_sym_id(k), decoder.load_value(v)))
         .collect();
-    symbol.flags.set_declared_special(sd.special);
-    if sd.constant {
-        symbol
-            .flags
-            .set_trapped_write(SymbolTrappedWrite::NoWrite);
-    }
     symbol
 }
 
@@ -2416,6 +2421,8 @@ pub(crate) fn load_obarray(
     dob: &DumpObarray,
 ) -> Result<Obarray, DumpError> {
     let mut seen_symbol_ids = FxHashSet::default();
+    // Collect (sym_id, dump_data) for a second pass over Localized symbols.
+    let mut localized_entries: Vec<(SymId, &DumpSymbolData)> = Vec::new();
     let mut symbols = Vec::with_capacity(dob.symbols.len());
     for (id, sd) in &dob.symbols {
         let sym_id = load_sym_id(id);
@@ -2424,6 +2431,9 @@ pub(crate) fn load_obarray(
                 "pdump obarray is inconsistent: duplicate symbol slot {}",
                 sym_id.0
             )));
+        }
+        if matches!(sd.val, DumpSymbolVal::Localized { .. }) {
+            localized_entries.push((sym_id, sd));
         }
         symbols.push((sym_id, load_symbol_data(decoder, sym_id, sd)));
     }
@@ -2453,12 +2463,48 @@ pub(crate) fn load_obarray(
     let global_members = load_member_set("global_members", &dob.global_members)?;
     let function_unbound = load_member_set("function_unbound", &dob.function_unbound)?;
 
-    Ok(Obarray::from_dump(
+    let mut obarray = Obarray::from_dump(
         symbols,
         global_members,
         function_unbound,
         dob.function_epoch,
-    ))
+    );
+
+    // Second pass: reconstruct BLVs for LOCALIZED symbols.
+    //
+    // load_symbol_data temporarily stored the global default in val.plain
+    // (with redirect=Plainval) because BLV allocation requires a live
+    // &mut Obarray.  Now that the obarray is built we can call
+    // make_symbol_localized to allocate and install the real BLV, then
+    // optionally set local_if_set.
+    for (sym_id, sd) in &localized_entries {
+        if let DumpSymbolVal::Localized {
+            default,
+            local_if_set,
+        } = &sd.val
+        {
+            let default_val = decoder.load_value(default);
+            obarray.make_symbol_localized(*sym_id, default_val);
+            if *local_if_set {
+                obarray.set_blv_local_if_set(*sym_id, true);
+            }
+            // Restore non-redirect flags from the dump — make_symbol_localized
+            // only sets the redirect bit, leaving trapped_write / interned /
+            // declared_special as defaults.  Re-apply them from the dump.
+            use crate::emacs_core::symbol::SymbolInterned;
+            if let Some(sym) = obarray.get_mut_by_id(*sym_id) {
+                let trapped_write: SymbolTrappedWrite =
+                    unsafe { std::mem::transmute(sd.trapped_write & 0b11) };
+                let interned: SymbolInterned =
+                    unsafe { std::mem::transmute(sd.interned & 0b11) };
+                sym.flags.set_trapped_write(trapped_write);
+                sym.flags.set_interned(interned);
+                sym.flags.set_declared_special(sd.declared_special);
+            }
+        }
+    }
+
+    Ok(obarray)
 }
 
 // --- Buffer types ---

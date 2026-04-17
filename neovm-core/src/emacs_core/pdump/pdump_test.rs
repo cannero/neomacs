@@ -3,7 +3,7 @@ use crate::emacs_core::intern::intern;
 use crate::emacs_core::mode::{FontLockDefaults, FontLockKeyword, MajorMode};
 use crate::emacs_core::pdump::types::{
     DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpSymbolData,
-    DumpSymbolValue, DumpValue,
+    DumpSymbolVal, DumpValue,
 };
 use crate::emacs_core::value::Value;
 use crate::heap_types::LispString;
@@ -34,37 +34,36 @@ fn test_pdump_round_trip_basic() {
 }
 
 #[test]
-fn test_dump_symbol_data_bincode_round_trip_with_legacy_name_omitted() {
+fn test_dump_symbol_data_bincode_round_trip() {
     crate::test_utils::init_test_tracing();
 
+    // Format v21: no legacy name/value/symbol_value/special/constant fields.
     let original = DumpSymbolData {
-        name: None,
-        value: None,
-        symbol_value: Some(DumpSymbolValue::Alias(DumpSymId(7))),
+        redirect: 1, // Varalias
+        trapped_write: 0,
+        interned: 1,
+        declared_special: true,
+        val: DumpSymbolVal::Alias(DumpSymId(7)),
         function: Some(DumpValue::Int(9)),
         plist: vec![(DumpSymId(3), DumpValue::Int(11))],
-        special: true,
-        constant: false,
     };
 
     let encoded = bincode::serialize(&original).expect("symbol data should serialize");
     let decoded: DumpSymbolData =
         bincode::deserialize(&encoded).expect("symbol data should deserialize");
 
+    assert_eq!(decoded.redirect, 1, "redirect should round-trip");
+    assert_eq!(decoded.trapped_write, 0, "trapped_write should round-trip");
+    assert_eq!(decoded.interned, 1, "interned should round-trip");
+    assert!(decoded.declared_special, "declared_special should round-trip");
     assert!(
-        decoded.name.is_none(),
-        "legacy name field should stay omitted"
+        matches!(decoded.val, DumpSymbolVal::Alias(DumpSymId(7))),
+        "val should round-trip as Alias(7)"
     );
-    assert!(matches!(
-        decoded.symbol_value,
-        Some(DumpSymbolValue::Alias(DumpSymId(7)))
-    ));
     assert!(matches!(decoded.function, Some(DumpValue::Int(9))));
     assert_eq!(decoded.plist.len(), 1);
     assert_eq!(decoded.plist[0].0, DumpSymId(3));
     assert!(matches!(decoded.plist[0].1, DumpValue::Int(11)));
-    assert!(decoded.special);
-    assert!(!decoded.constant);
 }
 
 #[test]

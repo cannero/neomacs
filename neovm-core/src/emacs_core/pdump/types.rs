@@ -292,40 +292,57 @@ pub struct DumpLispHashTable {
 // Symbols / Obarray
 // ---------------------------------------------------------------------------
 
-/// Serializable representation of [`crate::emacs_core::symbol::SymbolValue`].
+/// Serialized value cell for a symbol.  Replaces the old
+/// `DumpSymbolValue` (which wrapped `Option<DumpValue>` for the plain case
+/// and had separate legacy `value`/`special`/`constant` fields).
+///
+/// Added in pdump format v21 alongside the removal of the `SymbolValue`
+/// enum from `LispSymbol`.  The variant tag directly mirrors the
+/// `SymbolRedirect` discriminant stored in `SymbolFlags`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum DumpSymbolValue {
-    /// Plain value (GNU: SYMBOL_PLAINVAL).
-    Plain(Option<DumpValue>),
-    /// Alias to another symbol (GNU: SYMBOL_VARALIAS).
+pub enum DumpSymbolVal {
+    /// `SymbolRedirect::Plainval` — value is in `val.plain`.
+    /// `DumpValue::Unbound` encodes the unbound sentinel.
+    Plain(DumpValue),
+    /// `SymbolRedirect::Varalias` — value cell aliases another symbol.
     Alias(DumpSymId),
-    /// Buffer-local variable (GNU: SYMBOL_LOCALIZED).
-    BufferLocal {
-        default: Option<DumpValue>,
+    /// `SymbolRedirect::Localized` — buffer-local variable with a BLV.
+    /// `default` is the global default value (the `defcell` cdr).
+    /// `local_if_set` mirrors `LispBufferLocalValue::local_if_set`.
+    Localized {
+        default: DumpValue,
         local_if_set: bool,
     },
-    /// Forwarded to Rust variable (GNU: SYMBOL_FORWARDED) — placeholder.
+    /// `SymbolRedirect::Forwarded` — forwarded to a Rust-side variable.
+    /// These are re-installed from `BUFFER_SLOT_INFO` at load time, so
+    /// the dump only needs to signal "this symbol is a forwarder"; the
+    /// actual descriptor pointer is never serialized.
     Forwarded,
 }
 
+/// Serialized per-symbol metadata.  Format v21: all legacy fields
+/// (`name`, `value`, `symbol_value`, `special`, `constant`) are removed;
+/// the value cell is encoded directly as a `DumpSymbolVal` variant, and
+/// the flag byte fields (`redirect`, `trapped_write`, `interned`,
+/// `declared_special`) mirror `SymbolFlags` exactly.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpSymbolData {
-    /// Legacy redundant symbol-name field from older dumps. New dumps derive
-    /// the symbol name from the symbol id in `DumpObarray.symbols`.
-    #[serde(default)]
-    pub name: Option<DumpSymId>,
-    /// The symbol value cell.  Older dumps may still have the `value` field
-    /// (kept for backward compatibility via `#[serde(default)]`).
-    #[serde(default)]
-    pub value: Option<DumpValue>,
-    /// New enum-based value cell.  Present in dumps produced after the
-    /// `SymbolValue` refactor.
-    #[serde(default)]
-    pub symbol_value: Option<DumpSymbolValue>,
+    /// Redirect tag: 0=Plainval, 1=Varalias, 2=Localized, 3=Forwarded.
+    /// Redundant with `val`'s variant tag but kept for clarity and to
+    /// allow future validation on load.
+    pub redirect: u8,
+    /// Trapped-write tag: 0=Untrapped, 1=NoWrite, 2=Trapped.
+    pub trapped_write: u8,
+    /// Interned tag: 0=Uninterned, 1=Interned, 2=InternedInInitial.
+    pub interned: u8,
+    /// `declared_special` flag (mirrors `SymbolFlags::declared_special`).
+    pub declared_special: bool,
+    /// The value cell, encoded as a `DumpSymbolVal` variant.
+    pub val: DumpSymbolVal,
+    /// Function cell (None = void-function / fmakunbound).
     pub function: Option<DumpValue>,
+    /// Property list as a flat vec of (key-sym-id, value) pairs.
     pub plist: Vec<(DumpSymId, DumpValue)>,
-    pub special: bool,
-    pub constant: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
