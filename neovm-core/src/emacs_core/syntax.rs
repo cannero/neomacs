@@ -406,6 +406,10 @@ pub struct SyntaxTable {
     entries: HashMap<char, SyntaxEntry>,
     /// Optional parent table for inheritance.
     parent: Option<Box<SyntaxTable>>,
+    /// Identity (raw bits) of the source chartable Value this compiled
+    /// form was built from. Used to skip recompilation when the source
+    /// hasn't changed. Transient — not serialized to pdump.
+    source_bits: Option<u64>,
 }
 
 impl SyntaxTable {
@@ -469,6 +473,7 @@ impl SyntaxTable {
         Self {
             entries,
             parent: None,
+            source_bits: None,
         }
     }
 
@@ -477,6 +482,7 @@ impl SyntaxTable {
         Self {
             entries: HashMap::new(),
             parent: Some(Box::new(Self::new_standard())),
+            source_bits: None,
         }
     }
 
@@ -523,7 +529,11 @@ impl SyntaxTable {
         entries: HashMap<char, SyntaxEntry>,
         parent: Option<Box<SyntaxTable>>,
     ) -> Self {
-        Self { entries, parent }
+        Self {
+            entries,
+            parent,
+            source_bits: None,
+        }
     }
 }
 
@@ -1328,11 +1338,22 @@ pub(crate) fn sync_current_buffer_syntax_table_state(
     ctx: &mut super::eval::Context,
 ) -> Result<(), Flow> {
     let table = current_buffer_syntax_table_object_in_buffers(&mut ctx.buffers)?;
-    let compiled = syntax_table_from_chartable(table)?;
     let current_id = ctx
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    // Fast path: if this buffer's compiled syntax table was built from the
+    // same chartable Value we see now, reuse it. Buffer switches happen in
+    // tight loops (with-syntax-table, save-current-buffer in font-lock /
+    // syntax-ppss) and the compile cost is linear in the chartable size —
+    // ~4K HashMap inserts each time. Skipping the unchanged-case drops a
+    // quadratic-feeling hang during redisplay's fontification pass.
+    if let Some(buf) = ctx.buffers.get(current_id) {
+        if buf.syntax_table.source_bits == Some(table.bits() as u64) {
+            return Ok(());
+        }
+    }
+    let compiled = syntax_table_from_chartable(table)?;
     let buf = ctx
         .buffers
         .get_mut(current_id)
@@ -1461,6 +1482,7 @@ fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
         } else {
             Some(Box::new(syntax_table_from_chartable(parent)?))
         },
+        source_bits: Some(table.bits() as u64),
     };
 
     for (key, value) in super::chartable::char_table_local_entries(&table)? {
@@ -1735,10 +1757,19 @@ pub(crate) fn builtin_set_syntax_table_in_buffers(
     }
     let table = args[0];
     set_current_buffer_syntax_table_object_in_buffers(buffers, table)?;
-    let compiled = syntax_table_from_chartable(table)?;
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    // Fast path: if the buffer's compiled table was already built from
+    // this same chartable, don't recompile. `with-syntax-table` swaps the
+    // table in and out on every iteration of font-lock / syntax-ppss;
+    // recompiling the 4K-entry HashMap each time dominates redisplay.
+    if let Some(buf) = buffers.get(current_id) {
+        if buf.syntax_table.source_bits == Some(table.bits() as u64) {
+            return Ok(table);
+        }
+    }
+    let compiled = syntax_table_from_chartable(table)?;
     let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
