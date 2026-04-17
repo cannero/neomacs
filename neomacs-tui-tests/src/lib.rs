@@ -106,17 +106,38 @@ impl TuiSession {
         Self::spawn(&cmd, "NEO")
     }
 
-    /// Read available output from the PTY and feed it to the vt100
-    /// parser. Blocks for up to `timeout`.
-    pub fn read(&mut self, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
+    /// Read PTY output until the editor has been quiet for
+    /// [`IDLE_CUTOFF`] *after at least one byte has arrived*, or
+    /// `max_timeout` elapses — whichever comes first. Feeds whatever
+    /// it reads into the vt100 parser.
+    ///
+    /// The `max_timeout` argument is a safety cap, not the expected
+    /// runtime: a TUI editor that starts emitting within 100 ms and
+    /// finishes within another 200 ms will return after ~300 ms, not
+    /// after the full timeout. The "saw at least one byte" gate
+    /// guards against returning immediately after a `send_keys()`
+    /// that the editor hasn't yet begun to process.
+    pub fn read(&mut self, max_timeout: Duration) {
+        /// How long a PTY must be quiet *after* the first byte to
+        /// count as settled. Tune up if editors start pausing
+        /// mid-render longer than this.
+        const IDLE_CUTOFF: Duration = Duration::from_millis(300);
+        /// Each `poll()` call waits at most this long before we
+        /// re-check idle / max-deadline conditions.
+        const POLL_SLICE_MS: i32 = 50;
+        let max_deadline = Instant::now() + max_timeout;
+        let mut last_activity: Option<Instant> = None;
         let mut buf = [0u8; 65536];
-        while Instant::now() < deadline {
-            // Use a short non-blocking read via set_nonblocking or poll.
-            // For simplicity we set a small read timeout.
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            let poll_ms = remaining.as_millis().min(100) as u64;
-            // set_nonblocking is not portable; use poll via libc.
+        loop {
+            let now = Instant::now();
+            if now >= max_deadline {
+                break;
+            }
+            if let Some(last) = last_activity
+                && now.duration_since(last) >= IDLE_CUTOFF
+            {
+                break;
+            }
             let fd = std::os::fd::AsRawFd::as_raw_fd(&self.pty);
             let ready = unsafe {
                 let mut pfd = libc::pollfd {
@@ -124,12 +145,15 @@ impl TuiSession {
                     events: libc::POLLIN,
                     revents: 0,
                 };
-                libc::poll(&mut pfd, 1, poll_ms as i32) > 0 && (pfd.revents & libc::POLLIN) != 0
+                libc::poll(&mut pfd, 1, POLL_SLICE_MS) > 0 && (pfd.revents & libc::POLLIN) != 0
             };
             if ready {
                 match self.pty.read(&mut buf) {
                     Ok(0) => break,
-                    Ok(n) => self.parser.process(&buf[..n]),
+                    Ok(n) => {
+                        self.parser.process(&buf[..n]);
+                        last_activity = Some(Instant::now());
+                    }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
                     Err(_) => break,
                 }
