@@ -101,6 +101,8 @@ pub mod subr_docs;
 pub mod subr_info;
 pub mod symbol;
 pub mod syntax;
+#[cfg(test)]
+mod syntax_gnu_parity_regression_test;
 pub mod terminal;
 pub mod textprop;
 pub mod threads;
