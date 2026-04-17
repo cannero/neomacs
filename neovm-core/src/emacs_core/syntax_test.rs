@@ -1439,33 +1439,37 @@ fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
 // -----------------------------------------------------------------------
 
 #[test]
-fn syntax_class_at_char_matches_compiled_form_standard_table() {
+fn syntax_class_at_char_matches_gnu_defaults() {
     crate::test_utils::init_test_tracing();
-    // Build the standard syntax chartable through the evaluator (same
-    // Value the buffer slot holds at startup), and a compiled form from
-    // `new_standard`. The two should agree on every character.
-    // The default/current buffer carries the standard chartable in its
-    // slot at Context::new() time.
+    // Pin the GNU-standard syntax-class for representative characters,
+    // read from the live chartable the default buffer holds.
     let mut eval = crate::emacs_core::eval::Context::new();
     let table = super::current_buffer_syntax_table_object_in_buffers(&mut eval.buffers)
         .expect("buffer syntax-table");
-    let compiled = SyntaxTable::new_standard();
 
-    // Spot-check representative characters: ASCII word/whitespace/punct,
-    // boundary points, a CJK codepoint.
-    let samples = [
-        'a', 'Z', '0', ' ', '\t', '\n', '_', '(', ')', '"', '\\', '/', '.',
-        ';', ',', '<', '>', '\u{4e2d}', '\u{1F600}',
+    let cases = [
+        ('a', SyntaxClass::Word),
+        ('Z', SyntaxClass::Word),
+        ('0', SyntaxClass::Word),
+        (' ', SyntaxClass::Whitespace),
+        ('\t', SyntaxClass::Whitespace),
+        ('\n', SyntaxClass::Whitespace),
+        ('_', SyntaxClass::Symbol),
+        ('(', SyntaxClass::Open),
+        (')', SyntaxClass::Close),
+        ('"', SyntaxClass::StringDelim),
+        ('\\', SyntaxClass::Escape),
+        ('.', SyntaxClass::Punctuation),
+        (';', SyntaxClass::Punctuation),
+        ('\u{4e2d}', SyntaxClass::Word), // CJK: range 0x80..=0x3FFFFF is Word
+        ('\u{1F600}', SyntaxClass::Word),
     ];
-    for &c in &samples {
-        let from_reader = super::syntax_class_at_char(&table, c);
-        let from_compiled = compiled.char_syntax(c);
-        // We don't expect bit-for-bit equality of flags/matching_char here —
-        // this test pins class only, which is what motion code cares about.
+    for (c, expected) in cases {
+        let got = super::syntax_class_at_char(&table, c);
         assert_eq!(
-            from_reader, from_compiled,
-            "class mismatch for char {:?} (U+{:04X})",
-            c, c as u32
+            got, expected,
+            "class for {:?} (U+{:04X}) expected {:?}, got {:?}",
+            c, c as u32, expected, got
         );
     }
 }

@@ -709,7 +709,9 @@ fn posix_word_class_extends_via_buffer_syntax_table_override() {
     use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry};
 
     let mut buf = make_test_buffer("foo_bar baz");
-    // Override `_` to Word in this buffer's syntax table.
+    // GNU `copy-syntax-table` first so we don't mutate the shared
+    // standard chartable (and leak into other tests / buffers).
+    buf.syntax_table = buf.syntax_table.copy_syntax_table();
     buf.syntax_table
         .modify_syntax_entry('_', SyntaxEntry::simple(SyntaxClass::Word));
     buf.goto_byte(0);

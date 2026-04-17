@@ -400,140 +400,135 @@ pub fn syntax_entry_to_value(entry: &SyntaxEntry) -> Value {
 ///
 /// Characters not explicitly set fall back to a parent table (if present)
 /// or to the built-in standard defaults.
+/// A Lisp-level syntax table: a thin wrapper around the chartable `Value`
+/// stored in `buffer->syntax_table` / `buf.slots[BUFFER_SLOT_SYNTAX_TABLE]`.
+///
+/// Mirrors GNU Emacs design: the chartable IS the runtime form. All
+/// queries go through `CHAR_TABLE_REF(table, c)` (→ our
+/// `syntax_{class,entry}_at_char`) on demand; no eagerly-compiled HashMap
+/// shadow form is maintained.
+///
+/// The inner `Value` is `Value::NIL` in two situations:
+/// (1) a freshly-constructed `SyntaxTable::new_standard()` before the
+///     standard chartable is materialized by the evaluator, and
+/// (2) pdump's placeholder before `sync_current_buffer_syntax_table_state`
+///     re-attaches the live chartable from the buffer slot.
+/// In both cases `char_syntax()` falls back to GNU's default (Word for
+/// >= U+0080, Whitespace for < U+0080), matching `SYNTAX_ENTRY`'s nil
+/// handling.
 #[derive(Clone, Debug)]
 pub struct SyntaxTable {
-    /// Per-character overrides.
-    entries: HashMap<char, SyntaxEntry>,
-    /// Optional parent table for inheritance.
-    parent: Option<Box<SyntaxTable>>,
-    /// Identity (raw bits) of the source chartable Value this compiled
-    /// form was built from. Used to skip recompilation when the source
-    /// hasn't changed. Transient — not serialized to pdump.
-    source_bits: Option<u64>,
+    chartable: Value,
 }
 
 impl SyntaxTable {
     // -- Construction --------------------------------------------------------
 
-    /// Create the standard Emacs syntax table with ASCII defaults.
+    /// Return a `SyntaxTable` backed by the standard chartable Value.
+    /// Materializes the chartable on first call via
+    /// `ensure_standard_syntax_table_object()` — the same one installed
+    /// on new buffers by `current_buffer_syntax_table_object_in_buffers`.
     pub fn new_standard() -> Self {
-        let mut entries = HashMap::new();
-
-        // Control characters are punctuation by default, except a few
-        // whitespace characters explicitly reset below.
-        for cp in 0u32..=(' ' as u32 - 1) {
-            if let Some(ch) = char::from_u32(cp) {
-                entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Punctuation));
-            }
-        }
-        entries.insert('\u{007f}', SyntaxEntry::simple(SyntaxClass::Punctuation));
-
-        // Whitespace.
-        for ch in [' ', '\t', '\n', '\r', '\u{000c}'] {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Whitespace));
-        }
-
-        // Word constituents: a-z, A-Z, 0-9, '$', '%'.
-        for ch in 'a'..='z' {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Word));
-        }
-        for ch in 'A'..='Z' {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Word));
-        }
-        for ch in '0'..='9' {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Word));
-        }
-        entries.insert('$', SyntaxEntry::simple(SyntaxClass::Word));
-        entries.insert('%', SyntaxEntry::simple(SyntaxClass::Word));
-
-        // Parentheses (with matching chars).
-        entries.insert('(', SyntaxEntry::with_match(SyntaxClass::Open, ')'));
-        entries.insert(')', SyntaxEntry::with_match(SyntaxClass::Close, '('));
-        entries.insert('[', SyntaxEntry::with_match(SyntaxClass::Open, ']'));
-        entries.insert(']', SyntaxEntry::with_match(SyntaxClass::Close, '['));
-        entries.insert('{', SyntaxEntry::with_match(SyntaxClass::Open, '}'));
-        entries.insert('}', SyntaxEntry::with_match(SyntaxClass::Close, '{'));
-
-        // String delimiter
-        entries.insert('"', SyntaxEntry::simple(SyntaxClass::StringDelim));
-
-        // Escape
-        entries.insert('\\', SyntaxEntry::simple(SyntaxClass::Escape));
-
-        // Symbol constituents.
-        for ch in ['_', '-', '+', '*', '/', '&', '|', '<', '>', '='] {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Symbol));
-        }
-
-        // Punctuation.
-        for ch in ['.', ',', ';', ':', '?', '!', '#', '@', '~', '^', '\'', '`'] {
-            entries.insert(ch, SyntaxEntry::simple(SyntaxClass::Punctuation));
-        }
-
-        Self {
-            entries,
-            parent: None,
-            source_bits: None,
+        match ensure_standard_syntax_table_object() {
+            Ok(table) => Self { chartable: table },
+            // If we can't build the chartable (no thread-local state),
+            // return a nil-backed placeholder — callers fall back to
+            // GNU defaults via `char_syntax` / `get_entry`.
+            Err(_) => Self {
+                chartable: Value::NIL,
+            },
         }
     }
 
-    /// Create a new syntax table that inherits from the standard table.
+    /// Same as `new_standard` — GNU's `make-syntax-table` with nil parent
+    /// creates a fresh, empty chartable whose parent is the standard
+    /// table. The distinction is handled at the chartable level by
+    /// `builtin_make_syntax_table`.
     pub fn make_syntax_table() -> Self {
-        Self {
-            entries: HashMap::new(),
-            parent: Some(Box::new(Self::new_standard())),
-            source_bits: None,
+        Self::new_standard()
+    }
+
+    /// Build a `SyntaxTable` that reads from the given chartable `Value`.
+    pub(crate) fn from_chartable(chartable: Value) -> Self {
+        Self { chartable }
+    }
+
+    /// Deep-copy the backing chartable, matching GNU `copy-syntax-table`
+    /// (`syntax.c:265-282`). The copy is independent: mutations to
+    /// either table do not affect the other.
+    pub fn copy_syntax_table(&self) -> Self {
+        if self.chartable.is_nil() {
+            return self.clone();
+        }
+        match builtin_copy_syntax_table(vec![self.chartable]) {
+            Ok(copy) => Self { chartable: copy },
+            Err(_) => self.clone(),
         }
     }
 
-    /// Create a copy of this syntax table (deep clone).
-    pub fn copy_syntax_table(&self) -> Self {
-        self.clone()
+    /// Return the chartable Value backing this table (may be `NIL` for
+    /// a placeholder table — see type-level docs).
+    pub(crate) fn chartable(&self) -> Value {
+        self.chartable
     }
 
     // -- Queries -------------------------------------------------------------
 
-    /// Look up the syntax entry for `ch`.
-    pub fn get_entry(&self, ch: char) -> Option<&SyntaxEntry> {
-        self.entries
-            .get(&ch)
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get_entry(ch)))
+    /// Return the syntax entry for `ch`, matching GNU
+    /// `SYNTAX_ENTRY(c)`. Returns `None` when the chartable has no
+    /// entry — callers fall back to the built-in default.
+    pub fn get_entry(&self, ch: char) -> Option<SyntaxEntry> {
+        if self.chartable.is_nil() {
+            return None;
+        }
+        syntax_entry_at_char(&self.chartable, ch)
     }
 
-    /// Return the syntax class for `ch`.
+    /// Return the syntax class for `ch` — GNU `SYNTAX(c)`.
     pub fn char_syntax(&self, ch: char) -> SyntaxClass {
-        self.get_entry(ch).map(|e| e.class).unwrap_or_else(|| {
+        if self.chartable.is_nil() {
             if u32::from(ch) >= 0x80 {
-                SyntaxClass::Word
-            } else {
-                SyntaxClass::Whitespace
+                return SyntaxClass::Word;
             }
-        })
+            return SyntaxClass::Whitespace;
+        }
+        syntax_class_at_char(&self.chartable, ch)
     }
 
     // -- Mutation -------------------------------------------------------------
 
-    /// Set the syntax entry for `ch`.
+    /// Install `entry` for `ch` in the backing chartable. No-op when
+    /// the table is a `NIL` placeholder — the evaluator's
+    /// `modify-syntax-entry` builtin routes through the chartable
+    /// directly for that case.
     pub fn modify_syntax_entry(&mut self, ch: char, entry: SyntaxEntry) {
-        self.entries.insert(ch, entry);
+        if self.chartable.is_nil() {
+            return;
+        }
+        let _ = super::chartable::builtin_set_char_table_range(vec![
+            self.chartable,
+            Value::fixnum(ch as i64),
+            syntax_entry_to_value(&entry),
+        ]);
     }
 
-    // pdump accessors
-    pub(crate) fn dump_entries(&self) -> &HashMap<char, SyntaxEntry> {
-        &self.entries
+    // pdump accessors — kept to preserve the format until T4 bumps
+    // v23→v24. They return an always-empty HashMap and `None` parent;
+    // the real chartable is serialized via the buffer slot.
+    pub(crate) fn dump_entries(&self) -> HashMap<char, SyntaxEntry> {
+        HashMap::new()
     }
-    pub(crate) fn dump_parent(&self) -> &Option<Box<SyntaxTable>> {
-        &self.parent
+    pub(crate) fn dump_parent(&self) -> Option<Box<SyntaxTable>> {
+        None
     }
     pub(crate) fn from_dump(
-        entries: HashMap<char, SyntaxEntry>,
-        parent: Option<Box<SyntaxTable>>,
+        _entries: HashMap<char, SyntaxEntry>,
+        _parent: Option<Box<SyntaxTable>>,
     ) -> Self {
-        Self {
-            entries,
-            parent,
-            source_bits: None,
-        }
+        // The chartable is re-attached by
+        // `sync_current_buffer_syntax_table_state` on first buffer
+        // access after load.
+        Self::new_standard()
     }
 }
 
@@ -1285,13 +1280,46 @@ fn ensure_standard_syntax_table_object() -> EvalResult {
             punctuation,
         ])?;
 
-        let standard = SyntaxTable::new_standard();
-        for (ch, entry) in &standard.entries {
+        // Standard ASCII defaults — matches GNU `Fset_standard_syntax_table`
+        // in `syntax.c:3476-3557`. Word: letters, digits, $ %;
+        // Open/Close: paren/bracket/brace pairs with matching chars;
+        // StringDelim: "; Escape: \; Symbol: _ - + * / & | < > =;
+        // Punctuation: . , ; : ? ! # @ ~ ^ ' `.
+        let set = |ch: char, e: SyntaxEntry| -> Result<(), Flow> {
             super::chartable::builtin_set_char_table_range(vec![
                 table,
-                Value::fixnum(*ch as i64),
-                syntax_entry_to_value(entry),
-            ])?;
+                Value::fixnum(ch as i64),
+                syntax_entry_to_value(&e),
+            ])
+            .map(|_| ())
+        };
+        for ch in [' ', '\t', '\n', '\r', '\u{000c}'] {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Whitespace))?;
+        }
+        for ch in 'a'..='z' {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Word))?;
+        }
+        for ch in 'A'..='Z' {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Word))?;
+        }
+        for ch in '0'..='9' {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Word))?;
+        }
+        set('$', SyntaxEntry::simple(SyntaxClass::Word))?;
+        set('%', SyntaxEntry::simple(SyntaxClass::Word))?;
+        set('(', SyntaxEntry::with_match(SyntaxClass::Open, ')'))?;
+        set(')', SyntaxEntry::with_match(SyntaxClass::Close, '('))?;
+        set('[', SyntaxEntry::with_match(SyntaxClass::Open, ']'))?;
+        set(']', SyntaxEntry::with_match(SyntaxClass::Close, '['))?;
+        set('{', SyntaxEntry::with_match(SyntaxClass::Open, '}'))?;
+        set('}', SyntaxEntry::with_match(SyntaxClass::Close, '{'))?;
+        set('"', SyntaxEntry::simple(SyntaxClass::StringDelim))?;
+        set('\\', SyntaxEntry::simple(SyntaxClass::Escape))?;
+        for ch in ['_', '-', '+', '*', '/', '&', '|', '<', '>', '='] {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Symbol))?;
+        }
+        for ch in ['.', ',', ';', ':', '?', '!', '#', '@', '~', '^', '\'', '`'] {
+            set(ch, SyntaxEntry::simple(SyntaxClass::Punctuation))?;
         }
         super::chartable::builtin_set_char_table_range(vec![
             table,
@@ -1342,23 +1370,15 @@ pub(crate) fn sync_current_buffer_syntax_table_state(
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // Fast path: if this buffer's compiled syntax table was built from the
-    // same chartable Value we see now, reuse it. Buffer switches happen in
-    // tight loops (with-syntax-table, save-current-buffer in font-lock /
-    // syntax-ppss) and the compile cost is linear in the chartable size —
-    // ~4K HashMap inserts each time. Skipping the unchanged-case drops a
-    // quadratic-feeling hang during redisplay's fontification pass.
-    if let Some(buf) = ctx.buffers.get(current_id) {
-        if buf.syntax_table.source_bits == Some(table.bits() as u64) {
-            return Ok(());
-        }
-    }
-    let compiled = syntax_table_from_chartable(table)?;
+    // No compilation work: `SyntaxTable` is a thin wrapper around the
+    // chartable Value. Just re-point the buffer's cached wrapper at
+    // whatever chartable the slot now holds. Cheap; matches GNU where
+    // `set_buffer_internal` is a pointer assignment.
     let buf = ctx
         .buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.syntax_table = compiled;
+    buf.syntax_table = SyntaxTable::from_chartable(table);
     Ok(())
 }
 
@@ -1455,52 +1475,6 @@ fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
     }
 }
 
-fn apply_compiled_syntax_entry(
-    syntax_table: &mut SyntaxTable,
-    key: Value,
-    entry: Option<&SyntaxEntry>,
-) -> Result<(), Flow> {
-    match key.kind() {
-        ValueKind::Fixnum(n) => {
-            if let Some(ch) = char::from_u32(n as u32) {
-                if let Some(entry) = entry {
-                    syntax_table.modify_syntax_entry(ch, entry.clone());
-                } else {
-                    syntax_table.entries.remove(&ch);
-                }
-            }
-        }
-        ValueKind::Cons => {
-            let pair_car = key.cons_car();
-            let pair_cdr = key.cons_cdr();
-            let (start, end) = match (pair_car.kind(), pair_cdr.kind()) {
-                (ValueKind::Fixnum(start), ValueKind::Fixnum(end)) => (start, end),
-                _ => return Ok(()),
-            };
-            if start > end {
-                return Ok(());
-            }
-            if start >= 0x80
-                && end == 0x3F_FFFF
-                && matches!(entry, Some(e) if e.class == SyntaxClass::Word && e.matching_char.is_none())
-            {
-                return Ok(());
-            }
-            for cp in start..=end {
-                if let Some(ch) = char::from_u32(cp as u32) {
-                    if let Some(entry) = entry {
-                        syntax_table.modify_syntax_entry(ch, entry.clone());
-                    } else {
-                        syntax_table.entries.remove(&ch);
-                    }
-                }
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
-
 fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
     if builtin_syntax_table_p(vec![table])?.is_nil() {
         return Err(signal(
@@ -1508,24 +1482,8 @@ fn syntax_table_from_chartable(table: Value) -> Result<SyntaxTable, Flow> {
             vec![Value::symbol("syntax-table-p"), table],
         ));
     }
-
-    let parent = super::chartable::builtin_char_table_parent(vec![table])?;
-    let mut compiled = SyntaxTable {
-        entries: HashMap::new(),
-        parent: if parent.is_nil() {
-            None
-        } else {
-            Some(Box::new(syntax_table_from_chartable(parent)?))
-        },
-        source_bits: Some(table.bits() as u64),
-    };
-
-    for (key, value) in super::chartable::char_table_local_entries(&table)? {
-        let entry = syntax_entry_from_chartable_entry(&value);
-        apply_compiled_syntax_entry(&mut compiled, key, entry.as_ref())?;
-    }
-
-    Ok(compiled)
+    // GNU parity: the chartable IS the runtime form. Just wrap it.
+    Ok(SyntaxTable::from_chartable(table))
 }
 
 fn syntax_entry_from_syntax_property(prop: Value, ch: char) -> Option<SyntaxEntry> {
@@ -1556,7 +1514,6 @@ fn effective_syntax_entry_for_char_at_byte(
 
     table
         .get_entry(ch)
-        .cloned()
         .unwrap_or_else(|| SyntaxEntry::simple(table.char_syntax(ch)))
 }
 
@@ -1795,20 +1752,13 @@ pub(crate) fn builtin_set_syntax_table_in_buffers(
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // Fast path: if the buffer's compiled table was already built from
-    // this same chartable, don't recompile. `with-syntax-table` swaps the
-    // table in and out on every iteration of font-lock / syntax-ppss;
-    // recompiling the 4K-entry HashMap each time dominates redisplay.
-    if let Some(buf) = buffers.get(current_id) {
-        if buf.syntax_table.source_bits == Some(table.bits() as u64) {
-            return Ok(table);
-        }
-    }
-    let compiled = syntax_table_from_chartable(table)?;
+    // `SyntaxTable` is a thin wrapper around the chartable Value —
+    // re-pointing is a single copy. Matches GNU `Fset_syntax_table`
+    // which just assigns `bset_syntax_table`.
     let buf = buffers
         .get_mut(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.syntax_table = compiled;
+    buf.syntax_table = SyntaxTable::from_chartable(table);
     Ok(table)
 }
 
