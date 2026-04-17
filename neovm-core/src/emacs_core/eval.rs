@@ -6742,13 +6742,14 @@ impl Context {
             }
         }
 
-        // Buffer-local bindings are name-based and must not intercept
-        // uninterned symbols that merely share the same print name.
-        // Phase 10D: `get_buffer_local_binding` returns None for
-        // conditional FORWARDED slots whose `local_flags` bit is
-        // clear; the obarray fall-through below resolves those to
-        // the global default via `find_symbol_value` (which routes
-        // FORWARDED reads through the forwarder descriptor).
+        // Buffer-local bindings for FORWARDED BUFFER_OBJFWD slots: when
+        // `make-local-variable` enables the per-buffer flag, reads must
+        // return the slot value, not the default. Mirrors GNU
+        // `find_symbol_value` (`data.c:1585`) routing FORWARDED reads
+        // through `do_symval_forwarding` which reads the per-buffer slot
+        // when its local_flags bit is set. Canonical symbols only — name-
+        // based lookup must not intercept uninterned symbols sharing the
+        // print name.
         if resolved_is_canonical && let Some(buf) = self.buffers.current_buffer() {
             if let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved) {
                 return binding
@@ -10123,51 +10124,6 @@ impl Context {
             }
         }
 
-        // Legacy buffer-local fallback for symbols still on the
-        // CustomManager auto_buffer_local path (a transitional
-        // marker for variables tagged via Lisp `(make-variable-buffer-local)`
-        // before their redirect was flipped). Mirrors the previous
-        // lisp_bindings detour and is dead code once Phase 10E
-        // routes everything through the LOCALIZED arm above.
-        if self.obarray.is_buffer_local(name) || self.custom.is_auto_buffer_local_symbol(resolved) {
-            if let Some(buf_id) = self.buffers.current_buffer_id() {
-                if let Some(buf) = self.buffers.get(buf_id) {
-                    if let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved) {
-                        let old_val = binding.as_value().unwrap_or(Value::NIL);
-                        self.specpdl.push(SpecBinding::LetLocal {
-                            sym_id: resolved,
-                            old_value: old_val,
-                            buffer_id: buf_id,
-                        });
-                        if self.watchers.has_watchers(resolved) {
-                            let _ = self.run_variable_watchers_by_id(
-                                resolved,
-                                &value,
-                                &Value::NIL,
-                                "let",
-                            );
-                        }
-                        let _ = self
-                            .buffers
-                            .set_buffer_local_property_by_sym_id(buf_id, resolved, value);
-                        self.sync_cached_runtime_binding_by_id(resolved, value);
-                        return;
-                    }
-                }
-            }
-            let old_default = self.obarray.default_value_id(resolved).copied();
-            self.specpdl.push(SpecBinding::LetDefault {
-                sym_id: resolved,
-                old_value: old_default,
-            });
-            if self.watchers.has_watchers(resolved) {
-                let _ = self.run_variable_watchers_by_id(resolved, &value, &Value::NIL, "let");
-            }
-            self.obarray.set_symbol_value_id(resolved, value);
-            self.sync_cached_runtime_binding_by_id(resolved, value);
-            return;
-        }
-
         // Plain value path (GNU: SYMBOL_PLAINVAL)
         let old_value = self.obarray.symbol_value_id(resolved).copied();
         self.specpdl.push(SpecBinding::Let {
@@ -10560,14 +10516,13 @@ pub(crate) fn set_runtime_binding_in_state(
 pub(crate) fn set_runtime_binding(
     obarray: &mut Obarray,
     buffers: &mut BufferManager,
-    custom: &CustomManager,
+    _custom: &CustomManager,
     specpdl: &[SpecBinding],
     sym_id: SymId,
     value: Value,
 ) -> Option<crate::buffer::BufferId> {
     use crate::emacs_core::symbol::{SetInternalBind, SymbolRedirect};
 
-    let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
     // Phase 10E: route writes for LOCALIZED symbols through the BLV
@@ -10616,19 +10571,6 @@ pub(crate) fn set_runtime_binding(
         }
     }
 
-    // CustomManager auto_buffer_local catches symbols tagged via
-    // `(make-variable-buffer-local)` whose redirect hasn't been
-    // flipped yet (transitional fallback for the legacy enum path).
-    if symbol_is_canonical && custom.is_auto_buffer_local_symbol(sym_id) {
-        let let_shadows = specpdl.iter().rev().any(
-            |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
-        );
-        if !let_shadows && let Some(current_id) = buffers.current_buffer_id() {
-            let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
-            return Some(current_id);
-        }
-    }
-
     obarray.set_symbol_value_id(sym_id, value);
     None
 }
@@ -10636,11 +10578,10 @@ pub(crate) fn set_runtime_binding(
 pub(crate) fn makunbound_runtime_binding_in_state(
     obarray: &mut Obarray,
     buffers: &mut BufferManager,
-    custom: &CustomManager,
+    _custom: &CustomManager,
     _specpdl: &[SpecBinding],
     sym_id: SymId,
 ) {
-    let name = resolve_sym(sym_id);
     let symbol_is_canonical = super::builtins::is_canonical_symbol_id(sym_id);
 
     // specbind writes directly to obarray, so no dynamic frame lookup needed.
@@ -10654,14 +10595,15 @@ pub(crate) fn makunbound_runtime_binding_in_state(
         return;
     }
 
-    // Same `local_if_set` gate as `set_runtime_binding` — see the
-    // long comment there. Mirrors GNU `set_internal` SYMBOL_LOCALIZED
-    // arm with `unbinding_p = true` (`src/data.c:1687-1762`).
+    // Mirrors GNU `set_internal` SYMBOL_LOCALIZED arm with
+    // `unbinding_p = true` (`src/data.c:1687-1762`). The BLV's
+    // `local_if_set` flag determines whether to create a per-buffer
+    // void binding; LOCALIZED symbols carry a BLV so this fires only
+    // for them.
     let local_if_set = obarray
         .blv(sym_id)
         .map(|blv| blv.local_if_set)
-        .unwrap_or(false)
-        || custom.is_auto_buffer_local_symbol(sym_id);
+        .unwrap_or(false);
     if symbol_is_canonical && local_if_set {
         if let Some(current_id) = buffers.current_buffer_id() {
             let _ = buffers.set_buffer_local_void_property_by_sym_id(current_id, sym_id);
@@ -11070,6 +11012,10 @@ impl Context {
             }
         }
 
+        // Buffer-local bindings for FORWARDED BUFFER_OBJFWD slots: when
+        // `make-local-variable` enables the per-buffer flag, reads must
+        // return the slot value, not the default. Mirrors GNU
+        // `find_symbol_value` (`data.c:1585`). Canonical symbols only.
         if resolved_is_canonical
             && let Some(buf) = self.buffers.current_buffer()
             && let Some(binding) = buf.get_buffer_local_binding_by_sym_id(resolved)
