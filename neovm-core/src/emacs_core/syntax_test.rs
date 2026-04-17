@@ -1432,3 +1432,59 @@ fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
         6
     );
 }
+
+// -----------------------------------------------------------------------
+// Direct-read helpers (syntax_class_at_char / syntax_entry_at_char)
+// GNU-parity: mirrors SYNTAX_ENTRY(c) = CHAR_TABLE_REF(syntax_table, c).
+// -----------------------------------------------------------------------
+
+#[test]
+fn syntax_class_at_char_matches_compiled_form_standard_table() {
+    crate::test_utils::init_test_tracing();
+    // Build the standard syntax chartable through the evaluator (same
+    // Value the buffer slot holds at startup), and a compiled form from
+    // `new_standard`. The two should agree on every character.
+    // The default/current buffer carries the standard chartable in its
+    // slot at Context::new() time.
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let table = super::current_buffer_syntax_table_object_in_buffers(&mut eval.buffers)
+        .expect("buffer syntax-table");
+    let compiled = SyntaxTable::new_standard();
+
+    // Spot-check representative characters: ASCII word/whitespace/punct,
+    // boundary points, a CJK codepoint.
+    let samples = [
+        'a', 'Z', '0', ' ', '\t', '\n', '_', '(', ')', '"', '\\', '/', '.',
+        ';', ',', '<', '>', '\u{4e2d}', '\u{1F600}',
+    ];
+    for &c in &samples {
+        let from_reader = super::syntax_class_at_char(&table, c);
+        let from_compiled = compiled.char_syntax(c);
+        // We don't expect bit-for-bit equality of flags/matching_char here —
+        // this test pins class only, which is what motion code cares about.
+        assert_eq!(
+            from_reader, from_compiled,
+            "class mismatch for char {:?} (U+{:04X})",
+            c, c as u32
+        );
+    }
+}
+
+#[test]
+fn syntax_class_at_char_defaults_for_missing_entries() {
+    crate::test_utils::init_test_tracing();
+    // An empty char-table with no explicit entries and no default:
+    // ASCII → Whitespace, high codepoints → Word.
+    let table = crate::emacs_core::chartable::make_char_table_value(
+        Value::symbol("syntax-table"),
+        Value::NIL,
+    );
+    assert_eq!(
+        super::syntax_class_at_char(&table, 'a'),
+        SyntaxClass::Whitespace
+    );
+    assert_eq!(
+        super::syntax_class_at_char(&table, '\u{4e2d}'),
+        SyntaxClass::Word
+    );
+}

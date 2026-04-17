@@ -1389,6 +1389,41 @@ fn set_current_buffer_syntax_table_object(
     set_current_buffer_syntax_table_object_in_buffers(&mut eval.buffers, table)
 }
 
+/// Read the `SyntaxEntry` for character `c` from the chartable `table`.
+///
+/// Mirrors GNU Emacs `SYNTAX_ENTRY(c)` in `src/syntax.h`:
+///
+/// ```c
+/// #define SYNTAX_ENTRY(c) \
+///   char_table_ref (BVAR (current_buffer, syntax_table), c)
+/// ```
+///
+/// Returns `None` when the chartable has no entry for `c` *and* no usable
+/// default — callers fall back to GNU's implicit default (Word for
+/// codepoints >= 0x80, Whitespace for ASCII control/other), matching
+/// `char_syntax()` on the old compiled `SyntaxTable`.
+pub(crate) fn syntax_entry_at_char(table: &Value, c: char) -> Option<SyntaxEntry> {
+    let entry = super::chartable::ct_lookup(table, c as i64).ok()?;
+    syntax_entry_from_chartable_entry(&entry)
+}
+
+/// Return the `SyntaxClass` for `c` under `table`, mirroring GNU
+/// `SYNTAX(c)` in `src/syntax.h`. Uses the same fallback as
+/// `SyntaxTable::char_syntax` on the old compiled form: codepoints
+/// >= 0x80 default to Word; below 0x80 default to Whitespace.
+pub(crate) fn syntax_class_at_char(table: &Value, c: char) -> SyntaxClass {
+    match syntax_entry_at_char(table, c) {
+        Some(entry) => entry.class,
+        None => {
+            if u32::from(c) >= 0x80 {
+                SyntaxClass::Word
+            } else {
+                SyntaxClass::Whitespace
+            }
+        }
+    }
+}
+
 fn syntax_entry_from_chartable_entry(entry: &Value) -> Option<SyntaxEntry> {
     match entry.kind() {
         ValueKind::Nil => None,
