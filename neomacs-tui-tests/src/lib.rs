@@ -166,6 +166,33 @@ impl TuiSession {
         let _ = self.pty.write_all(data);
     }
 
+    /// Like [`TuiSession::read`] but keep reading past idle gaps until
+    /// `predicate` returns true on some row of the rendered grid, or
+    /// `max_timeout` elapses. Useful when a command's legitimate
+    /// render pipeline has mid-burst pauses longer than
+    /// `IDLE_CUTOFF` (e.g. `view-hello-file` running format-decode →
+    /// enriched-decode → view-mode setup) so plain idle-detection
+    /// returns too eagerly.
+    pub fn read_until<F>(&mut self, max_timeout: Duration, predicate: F)
+    where
+        F: Fn(&[String]) -> bool,
+    {
+        let deadline = Instant::now() + max_timeout;
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            self.read(remaining);
+            if predicate(&self.text_grid()) {
+                break;
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+        }
+    }
+
     /// Send an Emacs key description (e.g. `"C-x"`, `"M-x"`, `"RET"`).
     pub fn send_key(&mut self, key: &str) {
         self.send(&emacs_key(key));

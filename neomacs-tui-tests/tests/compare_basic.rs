@@ -346,8 +346,13 @@ fn mx_view_hello_file() {
     }
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     send_both(&mut gnu, &mut neo, "RET");
-    // HELLO is larger than earlier tests' buffers; give it room to render.
-    read_both(&mut gnu, &mut neo, Duration::from_secs(5));
+    // `view-hello-file` runs format-decode → enriched-decode → view-mode
+    // setup with pauses between stages, which can exceed the idle-detect
+    // threshold. Wait explicitly for the buffer switch (mode-line shows
+    // "HELLO") instead of relying on a plain timeout.
+    let wants_hello = |rows: &[String]| rows.iter().any(|r| r.contains("HELLO"));
+    gnu.read_until(Duration::from_secs(5), wants_hello);
+    neo.read_until(Duration::from_secs(5), wants_hello);
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();

@@ -1079,12 +1079,27 @@ pub(crate) fn regex_compile_lisp(
 // ---------------------------------------------------------------------------
 
 /// Emit a literal character as part of an `exactn` sequence.
+///
+/// GNU `regex-emacs.c` applies `RE_TRANSLATE (translate, c)` before
+/// buffering the char, so a pattern like `"C"` compiled with
+/// case-fold on is stored in the bytecode as `'c'`. At match time the
+/// buffer char is also `tr()`-translated, so both sides are
+/// case-folded to the canonical (lowercase) form. Without the
+/// translate-on-compile step here, the pattern byte stays as `'C'`
+/// while the matched text byte becomes `'c'` and they fail to compare
+/// equal.
 fn goto_normal_char(
     c: u8,
     buf: &mut CompiledPattern,
     pending_exact: &mut Option<usize>,
     laststart: &mut Option<usize>,
 ) {
+    let c = if let Some(table) = buf.translate.as_ref() {
+        table[c as usize] as u32 as u8
+    } else {
+        c
+    };
+
     // If we have a pending exactn and it hasn't reached max length (255),
     // just append to it
     if let Some(exact_pos) = *pending_exact {
