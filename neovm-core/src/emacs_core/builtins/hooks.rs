@@ -308,6 +308,21 @@ fn run_window_default_hook_value(
 }
 
 pub(crate) fn run_redisplay_window_change_hooks(eval: &mut super::eval::Context) -> EvalResult {
+    // Mirrors GNU `run_window_change_functions` (window.c:4116):
+    //   specbind (Qinhibit_redisplay, Qt);
+    // Any hook function that calls `redisplay` (directly or indirectly)
+    // would otherwise re-enter here and infinitely recurse. The specpdl
+    // entry is popped when we return, restoring the previous value.
+    let specpdl_count = eval.specpdl.len();
+    eval.specbind(crate::emacs_core::intern::intern("inhibit-redisplay"), Value::T);
+
+    let result = run_redisplay_window_change_hooks_inner(eval);
+
+    eval.unbind_to(specpdl_count);
+    result
+}
+
+fn run_redisplay_window_change_hooks_inner(eval: &mut super::eval::Context) -> EvalResult {
     let frame_ids = eval.frames.frame_list();
     let selected_frame_id = eval.frames.selected_frame().map(|frame| frame.id);
     let mut plans = Vec::new();

@@ -5460,6 +5460,18 @@ impl Context {
     /// Mirrors GNU Emacs `redisplay()` (dispnew.c:5259).
     /// In batch mode (no callback), this is a no-op.
     pub(crate) fn redisplay(&mut self) {
+        // Mirrors GNU `redisplay_internal` (xdisp.c:17242-17245): bail out
+        // when `inhibit-redisplay` is non-nil. `run_window_change_functions`
+        // (window.c:4116) specbinds this to t so any nested redisplay
+        // triggered by a window-change hook is a no-op. Without this check
+        // a hook that indirectly calls `redisplay` infinitely recurses.
+        if self
+            .obarray
+            .symbol_value("inhibit-redisplay")
+            .is_some_and(|v| v.is_truthy())
+        {
+            return;
+        }
         self.sync_pending_resize_events();
         // GNU Emacs xdisp.c:20616 — sync selected window's pointm from
         // the buffer's current PT before redisplay.  NeoMacs Window::point
