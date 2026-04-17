@@ -765,8 +765,8 @@ impl<'a> Reader<'a> {
                         );
                         buf.extend_from_slice(&tmp[..len]);
                         unibyte_buf = None;
-                    } else if cp >= 0x80 && cp <= 0xFF {
-                        // Non-ASCII byte from .elc loading (Latin-1 mapped).
+                    } else if !self.source_multibyte && cp >= 0x80 && cp <= 0xFF {
+                        // Non-ASCII byte from .elc (unibyte) loading.
                         //
                         // When source_multibyte=false, .elc content uses Latin-1
                         // encoding (each byte as char with same code point). A
@@ -780,6 +780,11 @@ impl<'a> Reader<'a> {
                         // reassemble the full sequence from following continuation
                         // bytes (0x80..0xBF). On success, emit the decoded Unicode
                         // char and force multibyte. On failure, emit the raw byte.
+                        //
+                        // For source_multibyte=true sources, the char in 0x80..0xFF
+                        // range is already a decoded Latin-1 codepoint (e.g. U+00A1
+                        // '¡') that must be encoded as Emacs multibyte — falling
+                        // through to the "Normal Unicode" branch handles that.
                         let byte0 = cp as u8;
                         let decoded = if !self.source_multibyte && byte0 >= 0xC0 {
                             let expected_len = if byte0 < 0xE0 { 2 }

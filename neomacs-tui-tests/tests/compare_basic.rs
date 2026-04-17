@@ -420,7 +420,12 @@ fn mx_view_hello_file_strict_match() {
     }
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     send_both(&mut gnu, &mut neo, "RET");
-    read_both(&mut gnu, &mut neo, Duration::from_secs(5));
+    // Wait for the HELLO buffer to finish rendering (mode-line shows
+    // "HELLO") instead of trusting a fixed timeout, same as the
+    // non-strict mx_view_hello_file test.
+    let wants_hello = |rows: &[String]| rows.iter().any(|r| r.contains("HELLO"));
+    gnu.read_until(Duration::from_secs(5), wants_hello);
+    neo.read_until(Duration::from_secs(5), wants_hello);
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();

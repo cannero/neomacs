@@ -1740,29 +1740,37 @@ pub(crate) fn looking_at_lisp_with_posix(
     posix: bool,
     match_data: &mut Option<MatchData>,
 ) -> Result<bool, String> {
-    let start = buf.pt;
-    if start > buf.zv {
+    // GNU `Flooking_at` (`src/search.c:fast_looking_at`) operates on
+    // byte offsets throughout: `BEGV_BYTE`, `PT_BYTE`, `ZV_BYTE`, and
+    // the matcher's start/limit are all byte positions into the raw
+    // gap-buffer text. Neomacs `buf.pt` / `buf.begv` / `buf.zv` are
+    // *character* positions, so feeding them straight into the
+    // byte-based regex engine breaks on any multibyte buffer — the
+    // start position lands mid-UTF-8-sequence and the pattern fails
+    // to match even when the char at `buf.pt` would have matched.
+    let start = buf.pt_byte;
+    if start > buf.zv_byte {
         return Ok(false);
     }
 
-    let region_start = buf.begv;
-    let text = buf.text.text_range(region_start, buf.zv);
+    let region_start = buf.begv_byte;
+    let mut text = Vec::new();
+    buf.text.copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
     let start_rel = start - region_start;
     let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
     let syn = BufferSyntaxLookup {
         syntax_table: &buf.syntax_table,
     };
-    let text_bytes = text.as_bytes();
 
     if let Some((_end, regs)) = regex_emacs::re_match(
         &compiled,
-        text_bytes,
+        &text,
         start_rel,
-        text_bytes.len(),
+        text.len(),
         &syn,
         start_rel,
     ) {
-        let mut md = match_data_from_registers(&regs, region_start);
+        let mut md = buffer_match_data_from_registers(&regs, region_start);
         md.searched_buffer = Some(buf.id);
         *match_data = Some(md);
         Ok(true)
