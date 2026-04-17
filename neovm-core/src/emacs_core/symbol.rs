@@ -1962,34 +1962,31 @@ impl Obarray {
 impl GcTrace for Obarray {
     fn trace_roots(&self, roots: &mut Vec<Value>) {
         for sym in self.symbols.iter().flatten() {
-            match &sym.value {
-                SymbolValue::Plain(Some(v)) => roots.push(*v),
-                SymbolValue::BufferLocal {
-                    default: Some(v), ..
-                } => roots.push(*v),
-                SymbolValue::Plain(None)
-                | SymbolValue::BufferLocal { default: None, .. }
-                | SymbolValue::Alias(_)
-                | SymbolValue::Forwarded => {}
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect==Plainval guarantees val.plain is
+                    // the live union variant. TaggedValue is Copy.
+                    let v = unsafe { sym.val.plain };
+                    if v != Value::UNBOUND {
+                        roots.push(v);
+                    }
+                }
+                // Varalias:  val.alias is a SymId, not a heap ref.
+                // Forwarded: val.fwd is 'static forwarder metadata.
+                // Localized: BLV contents traced via self.blvs below.
+                SymbolRedirect::Varalias
+                | SymbolRedirect::Forwarded
+                | SymbolRedirect::Localized => {}
             }
-            if let Some(ref f) = sym.function {
-                roots.push(*f);
+            if let Some(f) = sym.function {
+                roots.push(f);
             }
             for pval in sym.plist.values() {
                 roots.push(*pval);
             }
         }
-        // Phase 10 follow-up: trace BLV contents for SYMBOL_LOCALIZED
-        // variables. Each BLV's `defcell`/`valcell` is a cons cell
-        // `(sym . value)` allocated in the tagged heap; the `value`
-        // part must be kept live across GC. `where_buf` is the buffer
-        // pointer from the last swap-in and is also a heap object.
-        // Mirrors GNU's `mark_localized_symbol` which walks
-        // `SYMBOL_BLV(sym)->defcell/valcell/where` as GC roots.
+        // BLV contents for LOCALIZED symbols. Unchanged.
         for &blv_ptr in &self.blvs {
-            // Safety: BLVs are owned by `self.blvs` and live for the
-            // lifetime of the Obarray. `&self` guarantees no
-            // concurrent mutation during trace.
             let blv = unsafe { &*blv_ptr };
             roots.push(blv.defcell);
             roots.push(blv.valcell);
