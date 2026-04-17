@@ -3708,7 +3708,6 @@ impl Context {
         {
             let id = crate::emacs_core::intern::intern("case-fold-search");
             obarray.set_symbol_value("case-fold-search", Value::T);
-            custom.make_variable_buffer_local("case-fold-search");
             obarray.make_symbol_localized(id, Value::T);
             obarray.set_blv_local_if_set(id, true);
         }
@@ -3720,7 +3719,6 @@ impl Context {
         // (matches `init_indent_vars`).
         {
             let id = crate::emacs_core::intern::intern("indent-tabs-mode");
-            custom.make_variable_buffer_local("indent-tabs-mode");
             obarray.make_symbol_localized(id, Value::T);
             obarray.set_blv_local_if_set(id, true);
         }
@@ -3732,7 +3730,6 @@ impl Context {
         // any .el file loads.  Default values match init_buffer_once().
         macro_rules! defvar_per_buffer {
             ($name:expr, $val:expr) => {
-                custom.make_variable_buffer_local($name);
                 obarray.make_special($name);
                 obarray.set_symbol_value($name, $val);
                 obarray.make_buffer_local($name, true);
@@ -3913,7 +3910,6 @@ impl Context {
         // make-variable-buffer-local (NOT defvar_per_buffer).
         obarray.set_symbol_value("case-symbols-as-words", Value::NIL);
         obarray.make_special("case-symbols-as-words");
-        custom.make_variable_buffer_local("case-symbols-as-words");
 
         // --- src/emacs.c: syms_of_emacs ---
         // DEFVAR_LISP, default nil. Run by kill-emacs.

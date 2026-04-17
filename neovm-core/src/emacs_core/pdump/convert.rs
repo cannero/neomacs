@@ -1282,14 +1282,12 @@ pub(crate) fn dump_autoload_manager(
     }
 }
 
-pub(crate) fn dump_custom_manager(cm: &CustomManager) -> DumpCustomManager {
+pub(crate) fn dump_custom_manager(_cm: &CustomManager) -> DumpCustomManager {
+    // Phase D: auto_buffer_local mirror removed. Emit empty vecs so that
+    // existing pdump readers that check the field for backward compat
+    // still see a valid (empty) payload.
     DumpCustomManager {
-        auto_buffer_local_syms: cm
-            .auto_buffer_local
-            .iter()
-            .copied()
-            .map(dump_sym_id)
-            .collect(),
+        auto_buffer_local_syms: Vec::new(),
         auto_buffer_local: Vec::new(),
     }
 }
@@ -2968,17 +2966,11 @@ pub(crate) fn load_autoload_manager(
     )
 }
 
-pub(crate) fn load_custom_manager(dcm: &DumpCustomManager) -> CustomManager {
-    CustomManager {
-        auto_buffer_local: if !dcm.auto_buffer_local_syms.is_empty() {
-            dcm.auto_buffer_local_syms.iter().map(load_sym_id).collect()
-        } else {
-            dcm.auto_buffer_local
-                .iter()
-                .map(|name| crate::emacs_core::intern::intern(name))
-                .collect()
-        },
-    }
+pub(crate) fn load_custom_manager(_dcm: &DumpCustomManager) -> CustomManager {
+    // Phase D: auto_buffer_local was a pure mirror of LOCALIZED BLV
+    // local_if_set flags. Those are restored when symbols are loaded
+    // from the dump via their BLV state. No runtime set needed.
+    CustomManager {}
 }
 
 fn load_mode_custom_type(decoder: &mut LoadDecoder, ct: &DumpModeCustomType) -> ModeCustomType {

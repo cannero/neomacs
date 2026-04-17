@@ -56,7 +56,7 @@ pub fn collect_syntax_gc_roots(roots: &mut Vec<Value>) {
 /// Pre-populate GNU Emacs syntax variables that are defined from C.
 pub fn init_syntax_vars(
     obarray: &mut super::symbol::Obarray,
-    custom: &mut super::custom::CustomManager,
+    _custom: &mut super::custom::CustomManager,
 ) {
     obarray.set_symbol_value("parse-sexp-ignore-comments", Value::NIL);
     obarray.set_symbol_value("parse-sexp-lookup-properties", Value::NIL);
@@ -93,7 +93,6 @@ pub fn init_syntax_vars(
     // orphans the BLV.
     for name in ["syntax-propertize--done", "comment-end-can-be-escaped"] {
         let id = crate::emacs_core::intern::intern(name);
-        custom.make_variable_buffer_local_symbol(id);
         let default = obarray
             .find_symbol_value(id)
             .unwrap_or(crate::emacs_core::value::Value::NIL);

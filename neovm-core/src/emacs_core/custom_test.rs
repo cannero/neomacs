@@ -38,36 +38,26 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 #[test]
 fn custom_manager_new_is_empty() {
     crate::test_utils::init_test_tracing();
+    // Phase D: auto_buffer_local mirror deleted. CustomManager is now empty.
+    let _cm = CustomManager::new();
+}
+
+#[test]
+fn custom_manager_pdump_round_trip() {
+    crate::test_utils::init_test_tracing();
+    // Phase D: dump_custom_manager emits empty vecs; load_custom_manager
+    // ignores the payload. Round-trip is a no-op.
     let cm = CustomManager::new();
-    assert!(cm.auto_buffer_local.is_empty());
-}
-
-#[test]
-fn custom_manager_buffer_local() {
-    crate::test_utils::init_test_tracing();
-    let mut cm = CustomManager::new();
-    assert!(!cm.is_auto_buffer_local("tab-width"));
-    cm.make_variable_buffer_local("tab-width");
-    assert!(cm.is_auto_buffer_local("tab-width"));
-}
-
-#[test]
-fn custom_manager_pdump_uses_symbol_identity() {
-    crate::test_utils::init_test_tracing();
-    let mut cm = CustomManager::new();
-    cm.make_variable_buffer_local("tab-width");
-    cm.make_variable_buffer_local("fill-column");
-
     let dump = crate::emacs_core::pdump::convert::dump_custom_manager(&cm);
     assert!(dump.auto_buffer_local.is_empty());
-    assert_eq!(dump.auto_buffer_local_syms.len(), 2);
+    assert!(dump.auto_buffer_local_syms.is_empty());
+    // Loading a legacy dump with entries should succeed and return an
+    // empty CustomManager (entries are now irrelevant).
     let legacy_dump = crate::emacs_core::pdump::types::DumpCustomManager {
         auto_buffer_local_syms: Vec::new(),
         auto_buffer_local: vec!["tab-width".to_string(), "fill-column".to_string()],
     };
-    let restored = crate::emacs_core::pdump::convert::load_custom_manager(&legacy_dump);
-    assert!(restored.is_auto_buffer_local_symbol(intern("tab-width")));
-    assert!(restored.is_auto_buffer_local_symbol(intern("fill-column")));
+    let _restored = crate::emacs_core::pdump::convert::load_custom_manager(&legacy_dump);
 }
 
 // -- GNU custom.el runtime tests ----------------------------------------
@@ -354,7 +344,9 @@ fn defvar_local_marks_buffer_local() {
     let mut ev = bootstrap_context();
     let _result = ev.eval_str(r#"(defvar-local my-local 42)"#);
     assert!(ev.obarray().is_buffer_local("my-local"));
-    assert!(ev.custom.is_auto_buffer_local("my-local"));
+    // Phase D: is_auto_buffer_local mirror removed; verify via BLV local_if_set.
+    let id = crate::emacs_core::intern::intern("my-local");
+    assert!(ev.obarray().blv(id).map_or(false, |b| b.local_if_set));
 }
 
 #[test]
@@ -1101,8 +1093,11 @@ fn defvar_local_then_buffer_local_check() {
            (make-variable-buffer-local 'other-var)"#,
     );
     assert!(ev.obarray().is_buffer_local("my-local-var"));
-    assert!(ev.custom.is_auto_buffer_local("my-local-var"));
-    assert!(ev.custom.is_auto_buffer_local("other-var"));
+    // Phase D: is_auto_buffer_local mirror removed; verify via BLV local_if_set.
+    let id_local = crate::emacs_core::intern::intern("my-local-var");
+    let id_other = crate::emacs_core::intern::intern("other-var");
+    assert!(ev.obarray().blv(id_local).map_or(false, |b| b.local_if_set));
+    assert!(ev.obarray().blv(id_other).map_or(false, |b| b.local_if_set));
 }
 
 #[test]

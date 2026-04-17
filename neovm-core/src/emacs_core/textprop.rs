@@ -15,7 +15,7 @@ use crate::buffer::{BufferId, BufferManager};
 
 pub(crate) fn init_textprop_vars(
     obarray: &mut crate::emacs_core::symbol::Obarray,
-    custom: &mut crate::emacs_core::custom::CustomManager,
+    _custom: &mut crate::emacs_core::custom::CustomManager,
 ) {
     obarray.set_symbol_value("default-text-properties", Value::NIL);
     obarray.make_special("default-text-properties");
@@ -46,7 +46,6 @@ pub(crate) fn init_textprop_vars(
             .unwrap_or(crate::emacs_core::value::Value::NIL);
         obarray.make_symbol_localized(id, default);
         obarray.set_blv_local_if_set(id, true);
-        custom.make_variable_buffer_local_symbol(id);
     }
 }
 

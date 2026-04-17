@@ -3565,7 +3565,14 @@ pub(crate) fn builtin_local_variable_if_set_p(
         SymbolRedirect::Plainval => Ok(Value::NIL),
         SymbolRedirect::Localized => {
             // GNU `if (blv->local_if_set) return Qt;` short circuit.
-            if ctx.custom.is_auto_buffer_local_symbol(resolved_id) {
+            // Read the BLV's own local_if_set flag — mirrors GNU
+            // `local-variable-if-set-p` SYMBOL_LOCALIZED arm at
+            // `data.c:2450-2454`.
+            if ctx
+                .obarray
+                .blv(resolved_id)
+                .map_or(false, |b| b.local_if_set)
+            {
                 return Ok(Value::T);
             }
             // Otherwise defer to local-variable-p with BUFFER

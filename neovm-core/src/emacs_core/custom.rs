@@ -5,40 +5,22 @@
 //! machinery that the evaluator still needs directly.
 
 use super::error::{EvalResult, Flow, signal};
-use super::intern::{SymId, intern, lookup_interned, resolve_sym};
+use super::intern::{SymId, intern, resolve_sym};
 use super::value::*;
 use crate::gc_trace::GcTrace;
 
-/// Rust-side registry for automatic buffer-local declarations.
+/// Rust-side registry for customization state.
+///
+/// The `auto_buffer_local` `HashSet<SymId>` that used to live here
+/// was a pure mirror of the LOCALIZED redirect + BLV `local_if_set`
+/// flag. It was removed in Phase D of the symbol-redirect refactor.
+/// Readers now consult `Obarray::blv(id).local_if_set` directly.
 #[derive(Clone, Debug, Default)]
-pub struct CustomManager {
-    /// Set of symbol ids marked as automatically buffer-local.
-    pub auto_buffer_local: std::collections::HashSet<SymId>,
-}
+pub struct CustomManager {}
 
 impl CustomManager {
     pub fn new() -> Self {
-        Self {
-            auto_buffer_local: std::collections::HashSet::new(),
-        }
-    }
-
-    /// Mark a variable as automatically buffer-local.
-    pub fn make_variable_buffer_local(&mut self, name: &str) {
-        self.make_variable_buffer_local_symbol(intern(name));
-    }
-
-    pub fn make_variable_buffer_local_symbol(&mut self, symbol: SymId) {
-        self.auto_buffer_local.insert(symbol);
-    }
-
-    /// Check if a variable is automatically buffer-local.
-    pub fn is_auto_buffer_local(&self, name: &str) -> bool {
-        lookup_interned(name).is_some_and(|symbol| self.is_auto_buffer_local_symbol(symbol))
-    }
-
-    pub fn is_auto_buffer_local_symbol(&self, symbol: SymId) -> bool {
-        self.auto_buffer_local.contains(&symbol)
+        Self {}
     }
 }
 
@@ -94,7 +76,7 @@ pub(crate) fn builtin_make_variable_buffer_local(
 
 pub(crate) fn builtin_make_variable_buffer_local_with_state(
     obarray: &mut crate::emacs_core::symbol::Obarray,
-    custom: &mut CustomManager,
+    _custom: &mut CustomManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("make-variable-buffer-local", &args, 1)?;
@@ -118,17 +100,12 @@ pub(crate) fn builtin_make_variable_buffer_local_with_state(
     if !obarray.boundp(&resolved) {
         obarray.set_symbol_value(&resolved, Value::NIL);
     }
-    // Phase 6 of the symbol-redirect refactor: flip the new redirect
-    // tag to LOCALIZED and set local_if_set on the BLV. The legacy
-    // BufferLocal SymbolValue marker and the CustomManager
-    // auto_buffer_local set stay in sync until Phase 10 deletes
-    // them. Mirrors GNU Fmake_variable_buffer_local
-    // (data.c:2142-2207).
+    // Flip the symbol's redirect tag to LOCALIZED and mark it as
+    // auto-buffer-local at first set. Mirrors GNU
+    // `Fmake_variable_buffer_local` (`data.c:2142-2207`).
     let default_value = obarray.find_symbol_value(resolved_id).unwrap_or(Value::NIL);
     obarray.make_symbol_localized(resolved_id, default_value);
     obarray.set_blv_local_if_set(resolved_id, true);
-    obarray.make_buffer_local(&resolved, true);
-    custom.make_variable_buffer_local_symbol(resolved_id);
     Ok(args[0])
 }
 
