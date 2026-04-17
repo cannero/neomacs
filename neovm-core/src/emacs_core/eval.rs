@@ -3908,8 +3908,12 @@ impl Context {
         // DEFVAR_BOOL + Fmake_variable_buffer_local, default 0 (nil).
         // Checked by case-conversion functions. Buffer-local via
         // make-variable-buffer-local (NOT defvar_per_buffer).
-        obarray.set_symbol_value("case-symbols-as-words", Value::NIL);
-        obarray.make_special("case-symbols-as-words");
+        {
+            let id = crate::emacs_core::intern::intern("case-symbols-as-words");
+            obarray.set_symbol_value("case-symbols-as-words", Value::NIL);
+            obarray.make_symbol_localized(id, Value::NIL);
+            obarray.set_blv_local_if_set(id, true);
+        }
 
         // --- src/emacs.c: syms_of_emacs ---
         // DEFVAR_LISP, default nil. Run by kill-emacs.
