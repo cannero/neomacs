@@ -90,6 +90,8 @@ pub mod register;
 mod runtime_string_guard_test;
 #[cfg(test)]
 mod symbol_redirect_regression_test;
+#[cfg(test)]
+mod symbol_plist_regression_test;
 pub mod search;
 pub(crate) mod string_escape;
 pub mod subr_docs;
