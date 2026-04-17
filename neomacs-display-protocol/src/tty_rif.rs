@@ -49,12 +49,21 @@ impl Default for CellAttrs {
 // ---------------------------------------------------------------------------
 
 /// A single cell in the terminal grid.
+///
+/// Normally holds one base character in `ch`. When the cell hosts a
+/// grapheme cluster (base + combining marks / ZWJ sequence), the
+/// extender codepoints are stored in `extenders` and emitted to the
+/// terminal immediately after `ch`. Mirrors GNU's `COMPOSITE_GLYPH`:
+/// the base character's cell carries the whole cluster, the combining
+/// marks never occupy their own terminal cells.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TtyCell {
     pub ch: char,
     pub attrs: CellAttrs,
     /// True if this is a padding cell for a wide (double-width) character.
     pub padding: bool,
+    /// Grapheme-cluster extenders stacked on `ch` (None for ordinary cells).
+    pub extenders: Option<Box<str>>,
 }
 
 impl Default for TtyCell {
@@ -63,6 +72,7 @@ impl Default for TtyCell {
             ch: ' ',
             attrs: CellAttrs::default(),
             padding: false,
+            extenders: None,
         }
     }
 }
@@ -98,6 +108,7 @@ impl TtyGrid {
                 ..CellAttrs::default()
             },
             padding: false,
+            extenders: None,
         };
         for cell in &mut self.cells {
             *cell = blank.clone();
@@ -108,7 +119,30 @@ impl TtyGrid {
     pub fn set(&mut self, row: usize, col: usize, ch: char, attrs: CellAttrs, padding: bool) {
         if row < self.height && col < self.width {
             let idx = row * self.width + col;
-            self.cells[idx] = TtyCell { ch, attrs, padding };
+            self.cells[idx] = TtyCell { ch, attrs, padding, extenders: None };
+        }
+    }
+
+    /// Set a cluster cell at (row, col): a base character `ch` plus
+    /// `extenders` (combining marks / ZWJ sequence) to be emitted in
+    /// the same terminal cell. No-op if out of bounds.
+    pub fn set_cluster(
+        &mut self,
+        row: usize,
+        col: usize,
+        ch: char,
+        extenders: &str,
+        attrs: CellAttrs,
+        padding: bool,
+    ) {
+        if row < self.height && col < self.width {
+            let idx = row * self.width + col;
+            let ext = if extenders.is_empty() {
+                None
+            } else {
+                Some(Box::<str>::from(extenders))
+            };
+            self.cells[idx] = TtyCell { ch, attrs, padding, extenders: ext };
         }
     }
 
@@ -422,6 +456,14 @@ impl TtyRif {
                 let mut buf = [0u8; 4];
                 let s = desired.ch.encode_utf8(&mut buf);
                 self.output.extend_from_slice(s.as_bytes());
+                // If this cell is a composed cluster, emit the
+                // combining-mark / ZWJ extenders immediately after the
+                // base char so the terminal stacks them on the same
+                // cell (matches GNU's COMPOSITE_GLYPH output path in
+                // `term.c::write_glyphs`).
+                if let Some(ext) = desired.extenders.as_deref() {
+                    self.output.extend_from_slice(ext.as_bytes());
+                }
             }
         }
 
@@ -505,8 +547,22 @@ impl TtyRif {
                 }
 
                 let attrs = self.resolve_attrs(glyph.face_id);
-                let ch = glyph_to_char(glyph);
-                self.desired.set(screen_row, col, ch, attrs, false);
+                // Composite glyphs (base char + grapheme-cluster
+                // extenders) occupy one cell whose content is the full
+                // cluster string, mirroring GNU's COMPOSITE_GLYPH.
+                match &glyph.glyph_type {
+                    GlyphType::Composite { text } => {
+                        let mut iter = text.chars();
+                        let base = iter.next().unwrap_or(' ');
+                        let rest: String = iter.collect();
+                        self.desired
+                            .set_cluster(screen_row, col, base, &rest, attrs, false);
+                    }
+                    _ => {
+                        let ch = glyph_to_char(glyph);
+                        self.desired.set(screen_row, col, ch, attrs, false);
+                    }
+                }
                 col += 1;
 
                 if glyph.wide && col < self.desired.width {

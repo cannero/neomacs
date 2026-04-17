@@ -98,7 +98,6 @@ pub(crate) fn is_emoji_presentation(cp: u32) -> bool {
 
 /// Check if a character is a grapheme cluster extender: it should be
 /// bundled with the preceding base character for proper rendering.
-#[cfg(test)]
 pub(crate) fn is_cluster_extender(ch: char) -> bool {
     let cp = ch as u32;
     // Combining Diacritical Marks

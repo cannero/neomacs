@@ -16,6 +16,45 @@ use neomacs_display_protocol::glyph_matrix::*;
 use neomacs_display_protocol::types::{Color, Rect};
 use std::collections::HashMap;
 
+/// Attach a cluster-extender char (combining mark / ZWJ / variation
+/// selector) to the last non-padding glyph in `area`, upgrading a
+/// `Char` glyph into `Composite` or appending to an existing
+/// `Composite`. Returns true when the extender was merged; false when
+/// there is no preceding base glyph (caller should fall back to
+/// emitting a standalone glyph).
+fn merge_extender_into_last_glyph(area: &mut Vec<Glyph>, ch: char) -> bool {
+    // Walk back past padding cells (the right half of a preceding wide
+    // char); the combining mark attaches to the wide base, not the
+    // padding slot.
+    for glyph in area.iter_mut().rev() {
+        if glyph.padding {
+            continue;
+        }
+        match &mut glyph.glyph_type {
+            GlyphType::Char { ch: base } => {
+                let mut s = String::with_capacity(base.len_utf8() + ch.len_utf8());
+                s.push(*base);
+                s.push(ch);
+                glyph.glyph_type = GlyphType::Composite { text: s.into_boxed_str() };
+                return true;
+            }
+            GlyphType::Composite { text } => {
+                let mut s = String::with_capacity(text.len() + ch.len_utf8());
+                s.push_str(text);
+                s.push(ch);
+                glyph.glyph_type = GlyphType::Composite { text: s.into_boxed_str() };
+                return true;
+            }
+            GlyphType::Glyphless { .. }
+            | GlyphType::Stretch { .. }
+            | GlyphType::Image { .. } => {
+                return false;
+            }
+        }
+    }
+    false
+}
+
 pub struct GlyphMatrixBuilder {
     windows: Vec<WindowMatrixEntry>,
     current_matrix: Option<GlyphMatrix>,
@@ -337,8 +376,19 @@ impl GlyphMatrixBuilder {
     pub fn push_char(&mut self, ch: char, face_id: u32, charpos: usize) {
         if let Some(ref mut matrix) = self.current_matrix {
             if self.current_row < matrix.rows.len() {
-                matrix.rows[self.current_row].glyphs[GlyphArea::Text as usize]
-                    .push(Glyph::char(ch, face_id, charpos));
+                let area = &mut matrix.rows[self.current_row].glyphs[GlyphArea::Text as usize];
+                if crate::unicode::is_cluster_extender(ch)
+                    && merge_extender_into_last_glyph(area, ch)
+                {
+                    // Merged into the previous base character's
+                    // glyph — no new cell, matches GNU's behavior
+                    // where combining marks don't produce their own
+                    // CHAR_GLYPHs (see `append_glyph` at `src/term.c`
+                    // and `produce_composite_glyph` for the
+                    // composition path).
+                    return;
+                }
+                area.push(Glyph::char(ch, face_id, charpos));
                 matrix.rows[self.current_row].displays_text = true;
             }
         }
@@ -349,6 +399,11 @@ impl GlyphMatrixBuilder {
             if self.current_row < matrix.rows.len() {
                 let row = &mut matrix.rows[self.current_row];
                 let area = &mut row.glyphs[GlyphArea::Text as usize];
+                if crate::unicode::is_cluster_extender(ch)
+                    && merge_extender_into_last_glyph(area, ch)
+                {
+                    return;
+                }
                 let mut glyph = Glyph::char(ch, face_id, charpos);
                 glyph.wide = true;
                 area.push(glyph);

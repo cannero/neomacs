@@ -106,7 +106,9 @@ fn update_cursor_info_for_main_char(
 }
 
 fn slot_char_width(ch: char, face_char_w: f32) -> f32 {
-    if is_wide_char(ch) {
+    if is_cluster_extender(ch) {
+        0.0
+    } else if is_wide_char(ch) {
         2.0 * face_char_w
     } else {
         face_char_w
@@ -852,6 +854,7 @@ fn cursor_point_columns(text: &[u8], byte_idx: usize, col: i32, params: &WindowP
             next_tab - col_usize
         }
         '\n' | '\r' => 1,
+        _ if is_cluster_extender(ch) => 0,
         _ if is_wide_char(ch) => 2,
         _ => 1,
     }
@@ -925,6 +928,12 @@ unsafe fn cursor_point_advance(
         }
         _ if ch < ' ' || ch == '\x7F' => Some(face_w),
         _ => {
+            // Cluster extenders (combining marks, ZWJ, variation
+            // selectors) share the preceding base character's cell
+            // and contribute no advance of their own.
+            if is_cluster_extender(ch) {
+                return Some(0.0);
+            }
             let char_cols = if is_wide_char(ch) { 2 } else { 1 };
             Some(char_advance(
                 ascii_width_cache,
@@ -1166,7 +1175,10 @@ fn render_overlay_string(
             continue;
         }
 
-        let ch_advance = if is_wide_char(ch) {
+        let is_extender = is_cluster_extender(ch);
+        let ch_advance = if is_extender {
+            0.0
+        } else if is_wide_char(ch) {
             2.0 * face_char_w
         } else {
             face_char_w
@@ -1176,7 +1188,9 @@ fn render_overlay_string(
         }
 
         // Push glyph into the matrix builder (charpos=0 for overlay text).
-        if is_wide_char(ch) {
+        // Extenders merge into the preceding Char/Composite inside
+        // push_char; emit via the regular entry point either way.
+        if is_wide_char(ch) && !is_extender {
             builder.push_wide_char(ch, face_id, 0);
         } else {
             builder.push_char(ch, face_id, 0);
@@ -1185,7 +1199,13 @@ fn render_overlay_string(
         let glyph_start_x = *x;
         let glyph_start_col = *col;
         *x += ch_advance;
-        *col += if is_wide_char(ch) { 2 } else { 1 };
+        *col += if is_extender {
+            0
+        } else if is_wide_char(ch) {
+            2
+        } else {
+            1
+        };
         output_emitter.emit_synthetic_text_span(
             evaluator,
             *row,
@@ -4100,21 +4120,35 @@ impl LayoutEngine {
 
             // Check for line wrap / truncation using per-face char width
 
-            // Compute wide-char advance: CJK chars occupy 2 columns
-            let char_cols = if is_wide_char(ch) { 2 } else { 1 };
-            let advance = unsafe {
-                char_advance(
-                    &mut self.ascii_width_cache,
-                    &mut self.font_metrics,
-                    ch,
-                    char_cols as i32,
-                    char_w,
-                    current_font_size_px,
-                    face_char_w,
-                    &self.current_resolved_family,
-                    current_font_weight,
-                    current_font_italic,
-                )
+            // Grapheme-cluster extenders (combining marks, ZWJ,
+            // variation selectors) share the preceding base char's
+            // cell — zero columns, zero advance. CJK chars occupy 2
+            // columns. Everything else occupies 1.
+            let is_extender = is_cluster_extender(ch);
+            let char_cols = if is_extender {
+                0
+            } else if is_wide_char(ch) {
+                2
+            } else {
+                1
+            };
+            let advance = if is_extender {
+                0.0
+            } else {
+                unsafe {
+                    char_advance(
+                        &mut self.ascii_width_cache,
+                        &mut self.font_metrics,
+                        ch,
+                        char_cols as i32,
+                        char_w,
+                        current_font_size_px,
+                        face_char_w,
+                        &self.current_resolved_family,
+                        current_font_weight,
+                        current_font_italic,
+                    )
+                }
             };
             update_cursor_info_for_main_char(&mut cursor_info, ch_start_byte_idx, advance);
             if x + advance > content_x + avail_width {
