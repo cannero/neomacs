@@ -185,8 +185,9 @@ pub union SymbolVal {
 
 impl Default for SymbolVal {
     fn default() -> Self {
-        // Plainval / NIL is the safe initial state.
-        Self { plain: Value::NIL }
+        // Plainval / UNBOUND is the correct initial state — matches GNU
+        // where freshly-interned symbols have val.value == Qunbound.
+        Self { plain: Value::UNBOUND }
     }
 }
 
@@ -404,7 +405,7 @@ impl LispSymbol {
         Self {
             name: symbol_name_id(id),
             flags,
-            val: SymbolVal { plain: Value::NIL },
+            val: SymbolVal { plain: Value::UNBOUND },
             value: SymbolValue::Plain(None),
             function: None,
             plist: FxHashMap::default(),
@@ -975,19 +976,12 @@ impl Obarray {
             let sym = self.slot(current)?;
             match sym.flags.redirect() {
                 SymbolRedirect::Plainval => {
-                    // Phase 2: read through the legacy `value` field for
-                    // the bound check. The new `val.plain` mirror agrees
-                    // (every internal mutator keeps both in sync). Phase 4
-                    // collapses to `val.plain != Value::UNBOUND`.
-                    match sym.value {
-                        SymbolValue::Plain(v) => return v,
-                        SymbolValue::BufferLocal { default, .. } => return default,
-                        SymbolValue::Alias(target) => {
-                            current = target;
-                            continue;
-                        }
-                        SymbolValue::Forwarded => return None,
+                    // Read val.plain directly. UNBOUND sentinel means void.
+                    let v = unsafe { sym.val.plain };
+                    if v == Value::UNBOUND {
+                        return None;
                     }
+                    return Some(v);
                 }
                 SymbolRedirect::Varalias => {
                     // Phase 1 still keeps the legacy `value` field too,
@@ -1461,12 +1455,11 @@ impl Obarray {
                     SymbolValue::Forwarded => { /* no-op */ }
                     SymbolValue::Alias(_) => sym.value = SymbolValue::Plain(None),
                 }
-                // Mirror into the new shape: Plainval / NIL is the
-                // "no value" state until we have a proper UNBOUND
-                // sentinel (planned for Phase 4 once SymbolValue is
-                // gone).
+                // Mirror into the new shape: Plainval / UNBOUND is the
+                // "no value" state, matching GNU where makunbound sets
+                // val.value = Qunbound.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
-                sym.val = SymbolVal { plain: Value::NIL };
+                sym.val = SymbolVal { plain: Value::UNBOUND };
             }
         }
     }
