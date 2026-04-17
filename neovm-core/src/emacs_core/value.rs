@@ -1647,7 +1647,14 @@ fn equal_value_inner(
         (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
         (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
         (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
-        (ValueKind::String, ValueKind::String) => left.as_str() == right.as_str(),
+        (ValueKind::String, ValueKind::String) => match (left.as_lisp_string(), right.as_lisp_string()) {
+            (Some(a), Some(b)) => {
+                a.schars() == b.schars()
+                    && a.sbytes() == b.sbytes()
+                    && a.as_bytes() == b.as_bytes()
+            }
+            _ => false,
+        },
         (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
             super::marker::marker_logical_fields(left)
                 == super::marker::marker_logical_fields(right)
