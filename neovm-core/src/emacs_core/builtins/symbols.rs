@@ -7,12 +7,6 @@ use crate::emacs_core::symbol::Obarray;
 // Symbol operations (need evaluator for obarray access)
 // ===========================================================================
 
-pub(crate) const RAW_SYMBOL_PLIST_PROPERTY: &str = "neovm--raw-symbol-plist";
-
-pub(crate) fn is_internal_symbol_plist_property(property: &str) -> bool {
-    property == RAW_SYMBOL_PLIST_PROPERTY
-}
-
 pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
     match value.kind() {
         ValueKind::Nil => Some(NIL_SYM_ID),
@@ -184,82 +178,6 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
     }
 }
 
-pub(crate) fn symbol_raw_plist_value_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
-    // BAND-AID (P3 deletes this fn): sym.plist IS the cons list now.
-    obarray.get_by_id(symbol).map(|s| s.plist)
-}
-
-fn symbol_raw_plist_value(eval: &super::eval::Context, symbol: SymId) -> Option<Value> {
-    symbol_raw_plist_value_in_obarray(eval.obarray(), symbol)
-}
-
-pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol: SymId) -> Value {
-    // BAND-AID (P3 deletes this fn): return the live plist.
-    obarray.get_by_id(symbol).map(|s| s.plist).unwrap_or(Value::NIL)
-}
-
-fn visible_symbol_plist_entries(plist: Value) -> Vec<(SymId, Value)> {
-    let mut entries = Vec::new();
-    let mut cursor = plist;
-    loop {
-        match cursor.kind() {
-            ValueKind::Nil => return entries,
-            ValueKind::Cons => {
-                let key = cursor.cons_car();
-                let rest = cursor.cons_cdr();
-
-                let Some(key_id) = symbol_id(&key) else {
-                    return entries;
-                };
-                if !rest.is_cons() {
-                    return entries;
-                };
-
-                let value = rest.cons_car();
-                cursor = rest.cons_cdr();
-
-                if is_internal_symbol_plist_property(resolve_sym(key_id)) {
-                    continue;
-                }
-                entries.push((key_id, value));
-            }
-            _ => return entries,
-        }
-    }
-}
-
-pub(crate) fn set_symbol_raw_plist_in_obarray(obarray: &mut Obarray, symbol: SymId, plist: Value) {
-    // BAND-AID (P3 deletes this fn): sym.plist IS the cons list.
-    obarray.set_symbol_plist_id(symbol, plist);
-}
-
-fn set_symbol_raw_plist(eval: &mut super::eval::Context, symbol: SymId, plist: Value) {
-    set_symbol_raw_plist_in_obarray(eval.obarray_mut(), symbol, plist);
-}
-
-pub(crate) fn plist_lookup_value(plist: &Value, prop: &Value) -> Option<Value> {
-    let mut cursor = *plist;
-    loop {
-        match cursor.kind() {
-            ValueKind::Nil => return None,
-            ValueKind::Cons => {
-                let key = cursor.cons_car();
-                let rest = cursor.cons_cdr();
-                if !rest.is_cons() {
-                    return None;
-                };
-                let value = rest.cons_car();
-                let next = rest.cons_cdr();
-                if eq_value(&key, prop) {
-                    return Some(value);
-                }
-                cursor = next;
-            }
-            _ => return None,
-        }
-    }
-}
-
 pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     let obarray = eval.obarray();
     expect_args("boundp", &args, 1)?;
@@ -345,7 +263,6 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
     if !documentation.is_nil() {
         eval.obarray_mut()
             .put_property_id(symbol, intern("variable-documentation"), documentation);
-        preflight_symbol_plist_put(eval, &args[0], "variable-documentation")?;
     }
 
     Ok(Value::NIL)
@@ -445,7 +362,6 @@ pub(crate) fn defvaralias_impl(
     ctx.obarray.make_alias(new_symbol, old_symbol);
     ctx.obarray.make_special_id(old_symbol);
     ctx.refresh_gc_runtime_settings_after_change_by_id(new_symbol);
-    preflight_symbol_plist_put_in_obarray(&mut ctx.obarray, new_symbol, "variable-documentation")?;
     let docstring = args.get(2).cloned().unwrap_or(Value::NIL);
     Ok(DefvaraliasStateChange {
         alias_id: new_symbol,
@@ -722,17 +638,8 @@ pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Val
 pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("get", &args, 2)?;
     let sym = expect_symbol_id(&args[0])?;
-    if let Some(raw) = symbol_raw_plist_value(eval, sym) {
-        return Ok(plist_lookup_value(&raw, &args[1]).unwrap_or(Value::NIL));
-    }
     let prop = expect_symbol_id(&args[1])?;
-    if is_internal_symbol_plist_property(resolve_sym(prop)) {
-        return Ok(Value::NIL);
-    }
-    Ok(eval
-        .obarray()
-        .get_property_id(sym, prop)
-        .unwrap_or(Value::NIL))
+    Ok(eval.obarray().get_property_id(sym, prop).unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_put(
@@ -748,11 +655,6 @@ pub(crate) fn put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalRes
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
     let value = args[2];
-    let current_plist = symbol_raw_plist_value_in_obarray(obarray, sym)
-        .unwrap_or_else(|| visible_symbol_plist_snapshot_in_obarray(obarray, sym));
-    let plist = builtin_plist_put(vec![current_plist, args[1], value])?;
-    set_symbol_raw_plist_in_obarray(obarray, sym, plist);
-    // Keep direct property lookups in sync with the Lisp-visible plist.
     obarray.put_property_id(sym, prop, value);
     Ok(value)
 }
@@ -762,12 +664,8 @@ pub(crate) fn builtin_symbol_plist_fn(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("symbol-plist", &args, 1)?;
-    let obarray = eval.obarray();
     let symbol = expect_symbol_id(&args[0])?;
-    if let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) {
-        return Ok(raw);
-    }
-    Ok(visible_symbol_plist_snapshot_in_obarray(obarray, symbol))
+    Ok(eval.obarray().symbol_plist_id(symbol))
 }
 
 pub(super) fn builtin_register_code_conversion_map(
@@ -775,13 +673,6 @@ pub(super) fn builtin_register_code_conversion_map(
     args: Vec<Value>,
 ) -> EvalResult {
     let obarray = eval.obarray_mut();
-    if args.len() == 2 {
-        preflight_symbol_plist_put_in_obarray(
-            obarray,
-            expect_symbol_id(&args[0])?,
-            "code-conversion-map",
-        )?;
-    }
     let map_id = super::ccl::builtin_register_code_conversion_map_impl(args.clone())?;
 
     let _ = put_in_obarray(
@@ -886,35 +777,11 @@ pub(super) fn builtin_register_ccl_program(
     Ok(program_id)
 }
 
-fn preflight_symbol_plist_put(
-    eval: &mut super::eval::Context,
-    symbol: &Value,
-    property: &str,
-) -> Result<(), Flow> {
-    let Some(id) = symbol_id(symbol) else {
-        return Ok(());
-    };
-    preflight_symbol_plist_put_in_obarray(eval.obarray(), id, property)
-}
-
-fn preflight_symbol_plist_put_in_obarray(
-    obarray: &Obarray,
-    symbol: SymId,
-    property: &str,
-) -> Result<(), Flow> {
-    let Some(raw) = symbol_raw_plist_value_in_obarray(obarray, symbol) else {
-        return Ok(());
-    };
-    let _ = builtin_plist_put(vec![raw, Value::symbol(property), Value::NIL])?;
-    Ok(())
-}
-
 pub(crate) fn builtin_setplist(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("setplist", &args, 2)?;
-    let obarray = eval.obarray_mut();
     let symbol = expect_symbol_id(&args[0])?;
     let plist = args[1];
-    set_symbol_raw_plist_in_obarray(obarray, symbol, plist);
+    eval.obarray_mut().set_symbol_plist_id(symbol, plist);
     Ok(plist)
 }
 
