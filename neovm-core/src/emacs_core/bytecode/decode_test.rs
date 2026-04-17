@@ -223,15 +223,18 @@ fn decode_buffer_op_point() {
     let bytecodes = vec![96, 135];
     let mut constants = vec![];
     let ops = decode_gnu_bytecode(&bytecodes, &mut constants).unwrap();
-    // Should have injected "point" into constants
-    assert!(
-        constants
-            .iter()
-            .any(|c| c.as_symbol_name() == Some("point"))
-    );
+    // Upstream 762188a5d moved buffer-op dispatch inline: the decoder
+    // emits Op::CallBuiltinSym(intern("point"), 0) and does NOT inject
+    // the symbol into the constants pool. Verify the op shape.
     match &ops[0] {
-        Op::CallBuiltin(_, 0) => {} // 0 args
-        other => panic!("expected CallBuiltin for point, got {:?}", other),
+        Op::CallBuiltinSym(sym, 0) => {
+            assert_eq!(
+                crate::emacs_core::intern::resolve_sym(*sym),
+                "point",
+                "buffer-op byte 96 should dispatch to `point`"
+            );
+        }
+        other => panic!("expected CallBuiltinSym(point, 0), got {:?}", other),
     }
 }
 
