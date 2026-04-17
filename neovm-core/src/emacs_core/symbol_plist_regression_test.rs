@@ -1,9 +1,11 @@
 //! Regression tests for LispSymbol plist GNU-parity.
 //!
-//! Tests 1, 2, 6, 7 pass on both the pre-refactor HashMap storage and
-//! the post-refactor cons-list storage. Tests 3, 4, 5 exercise
-//! semantics only representable with a cons-list plist and are expected
-//! to FAIL on HashMap storage and PASS after the field type flips.
+//! All 7 tests pass today: the existing hybrid RAW_SYMBOL_PLIST_PROPERTY
+//! overlay mechanism already preserves the user-visible GNU semantics
+//! (insertion order, duplicate keys, eq-identity of symbol-plist). The
+//! upcoming refactor (P2+P3) deletes the hybrid and makes LispSymbol::plist
+//! a direct Value cons list — these tests must continue to pass, serving
+//! as regression guards for that restructure.
 
 use crate::emacs_core::eval::Context;
 use crate::emacs_core::value::Value;
@@ -83,7 +85,7 @@ fn symbol_plist_returns_eq_identical_pointer() {
     eval(&mut ctx, "(put 'plist-eq 'a 1)");
     let first_eq = eval(
         &mut ctx,
-        "(let ((p (symbol-plist 'plist-eq))) (eq p (symbol-plist 'plist-eq)))",
+        "(eq (symbol-plist 'plist-eq) (symbol-plist 'plist-eq))",
     );
     assert_eq!(first_eq, Value::T, "(eq p (symbol-plist foo)) must be t");
 }
