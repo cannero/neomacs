@@ -194,7 +194,7 @@ fn test_builtin_copy_and_insert() {
     // insert-register -> returns the text
     let result = builtin_insert_register(&mut eval, vec![Value::char('a')]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("hello world"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("hello world"));
 
     // insert-register on empty register -> error
     let result = builtin_insert_register(&mut eval, vec![Value::char('z')]);
@@ -259,7 +259,7 @@ fn test_builtin_set_and_get_register() {
 
     let result = builtin_get_register(&mut eval, vec![Value::char('s')]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("saved text"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("saved text"));
 
     // Set nil clears
     let result = builtin_set_register(&mut eval, vec![Value::char('s'), Value::NIL]);
@@ -281,7 +281,7 @@ fn test_builtin_view_register() {
     let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
-    assert!(desc.as_str().unwrap().contains("empty"));
+    assert!(desc.as_utf8_str().unwrap().contains("empty"));
 
     // Text register
     eval.registers.set(
@@ -291,15 +291,15 @@ fn test_builtin_view_register() {
     let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
-    assert!(desc.as_str().unwrap().contains("text"));
-    assert!(desc.as_str().unwrap().contains("some text"));
+    assert!(desc.as_utf8_str().unwrap().contains("text"));
+    assert!(desc.as_utf8_str().unwrap().contains("some text"));
 
     // Number register
     eval.registers.set('v', RegisterContent::Number(99));
     let result = builtin_view_register(&mut eval, vec![Value::char('v')]);
     assert!(result.is_ok());
     let desc = result.unwrap();
-    assert!(desc.as_str().unwrap().contains("99"));
+    assert!(desc.as_utf8_str().unwrap().contains("99"));
 }
 
 #[test]
@@ -340,7 +340,7 @@ fn test_builtin_register_to_string() {
     // Text register => string
     builtin_set_register(&mut eval, vec![Value::char('r'), Value::string("abc")]).unwrap();
     let text = builtin_register_to_string(&mut eval, vec![Value::char('r')]).unwrap();
-    assert_eq!(text.as_str(), Some("abc"));
+    assert_eq!(text.as_utf8_str(), Some("abc"));
 }
 
 #[test]

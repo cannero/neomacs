@@ -8,14 +8,14 @@ use super::*;
 fn capitalize_string_basic() {
     crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("hello world")]).unwrap();
-    assert_eq!(result.as_str(), Some("Hello World"));
+    assert_eq!(result.as_utf8_str(), Some("Hello World"));
 }
 
 #[test]
 fn capitalize_string_mixed() {
     crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("hELLO wORLD")]).unwrap();
-    assert_eq!(result.as_str(), Some("Hello World"));
+    assert_eq!(result.as_utf8_str(), Some("Hello World"));
 }
 
 #[test]
@@ -29,7 +29,7 @@ fn capitalize_char() {
 fn capitalize_empty_string() {
     crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("")]).unwrap();
-    assert_eq!(result.as_str(), Some(""));
+    assert_eq!(result.as_utf8_str(), Some(""));
 }
 
 #[test]
@@ -52,7 +52,7 @@ fn capitalize_raw_unibyte_string_preserves_bytes() {
 fn upcase_initials_basic() {
     crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::string("hello world")]).unwrap();
-    assert_eq!(result.as_str(), Some("Hello World"));
+    assert_eq!(result.as_utf8_str(), Some("Hello World"));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn upcase_initials_preserves_rest() {
     crate::test_utils::init_test_tracing();
     let result = builtin_upcase_initials(vec![Value::string("hELLO wORLD")]).unwrap();
     // Only first letter of each word is uppercased; rest is left alone.
-    assert_eq!(result.as_str(), Some("HELLO WORLD"));
+    assert_eq!(result.as_utf8_str(), Some("HELLO WORLD"));
 }
 
 #[test]
@@ -123,7 +123,7 @@ fn char_resolve_modifiers_wrong_type_predicate() {
 fn capitalize_with_punctuation() {
     crate::test_utils::init_test_tracing();
     let result = builtin_capitalize(vec![Value::string("it's a test")]).unwrap();
-    assert_eq!(result.as_str(), Some("It'S A Test"));
+    assert_eq!(result.as_utf8_str(), Some("It'S A Test"));
 }
 
 #[test]
@@ -142,55 +142,55 @@ fn capitalize_unicode_edge_semantics() {
     assert_eq!(int_georgian_an.as_int(), Some(4304));
 
     let string_sharp_s = builtin_capitalize(vec![Value::string("ß")]).unwrap();
-    assert_eq!(string_sharp_s.as_str(), Some("Ss"));
+    assert_eq!(string_sharp_s.as_utf8_str(), Some("Ss"));
 
     let string_n_preceded = builtin_capitalize(vec![Value::string("\u{0149}")]).unwrap();
-    assert_eq!(string_n_preceded.as_str(), Some("\u{02BC}N"));
+    assert_eq!(string_n_preceded.as_utf8_str(), Some("\u{02BC}N"));
 
     let string_j_caron = builtin_capitalize(vec![Value::string("\u{01F0}")]).unwrap();
-    assert_eq!(string_j_caron.as_str(), Some("J\u{030C}"));
+    assert_eq!(string_j_caron.as_utf8_str(), Some("J\u{030C}"));
 
     let string_greek_dialytika_tonos = builtin_capitalize(vec![Value::string("\u{0390}")]).unwrap();
     assert_eq!(
-        string_greek_dialytika_tonos.as_str(),
+        string_greek_dialytika_tonos.as_utf8_str(),
         Some("\u{0399}\u{0308}\u{0301}")
     );
 
     let string_armenian_small_ligature =
         builtin_capitalize(vec![Value::string("\u{0587}")]).unwrap();
     assert_eq!(
-        string_armenian_small_ligature.as_str(),
+        string_armenian_small_ligature.as_utf8_str(),
         Some("\u{0535}\u{0582}")
     );
 
     let string_latin_ligature_ff = builtin_capitalize(vec![Value::string("\u{FB00}")]).unwrap();
-    assert_eq!(string_latin_ligature_ff.as_str(), Some("Ff"));
+    assert_eq!(string_latin_ligature_ff.as_utf8_str(), Some("Ff"));
 
     let string_armenian_presentation_ligature =
         builtin_capitalize(vec![Value::string("\u{FB13}")]).unwrap();
     assert_eq!(
-        string_armenian_presentation_ligature.as_str(),
+        string_armenian_presentation_ligature.as_utf8_str(),
         Some("\u{0544}\u{0576}")
     );
 
     let string_greek_precomposed_prosgegrammeni =
         builtin_capitalize(vec![Value::string("\u{1F88}")]).unwrap();
     assert_eq!(
-        string_greek_precomposed_prosgegrammeni.as_str(),
+        string_greek_precomposed_prosgegrammeni.as_utf8_str(),
         Some("\u{1F88}")
     );
 
     let string_greek_small_alpha_ypogegrammeni =
         builtin_capitalize(vec![Value::string("\u{1F80}")]).unwrap();
     assert_eq!(
-        string_greek_small_alpha_ypogegrammeni.as_str(),
+        string_greek_small_alpha_ypogegrammeni.as_utf8_str(),
         Some("\u{1F88}")
     );
 
     let string_greek_combining_prosgegrammeni =
         builtin_capitalize(vec![Value::string("\u{1FB2}")]).unwrap();
     assert_eq!(
-        string_greek_combining_prosgegrammeni.as_str(),
+        string_greek_combining_prosgegrammeni.as_utf8_str(),
         Some("\u{1FBA}\u{0345}")
     );
 }
@@ -211,57 +211,57 @@ fn upcase_initials_unicode_edge_semantics() {
     assert_eq!(int_georgian_an.as_int(), Some(4304));
 
     let string_sharp_s = builtin_upcase_initials(vec![Value::string("ß")]).unwrap();
-    assert_eq!(string_sharp_s.as_str(), Some("Ss"));
+    assert_eq!(string_sharp_s.as_utf8_str(), Some("Ss"));
 
     let string_n_preceded = builtin_upcase_initials(vec![Value::string("\u{0149}")]).unwrap();
-    assert_eq!(string_n_preceded.as_str(), Some("\u{02BC}N"));
+    assert_eq!(string_n_preceded.as_utf8_str(), Some("\u{02BC}N"));
 
     let string_j_caron = builtin_upcase_initials(vec![Value::string("\u{01F0}")]).unwrap();
-    assert_eq!(string_j_caron.as_str(), Some("J\u{030C}"));
+    assert_eq!(string_j_caron.as_utf8_str(), Some("J\u{030C}"));
 
     let string_greek_dialytika_tonos =
         builtin_upcase_initials(vec![Value::string("\u{0390}")]).unwrap();
     assert_eq!(
-        string_greek_dialytika_tonos.as_str(),
+        string_greek_dialytika_tonos.as_utf8_str(),
         Some("\u{0399}\u{0308}\u{0301}")
     );
 
     let string_armenian_small_ligature =
         builtin_upcase_initials(vec![Value::string("\u{0587}")]).unwrap();
     assert_eq!(
-        string_armenian_small_ligature.as_str(),
+        string_armenian_small_ligature.as_utf8_str(),
         Some("\u{0535}\u{0582}")
     );
 
     let string_latin_ligature_ff =
         builtin_upcase_initials(vec![Value::string("\u{FB00}")]).unwrap();
-    assert_eq!(string_latin_ligature_ff.as_str(), Some("Ff"));
+    assert_eq!(string_latin_ligature_ff.as_utf8_str(), Some("Ff"));
 
     let string_armenian_presentation_ligature =
         builtin_upcase_initials(vec![Value::string("\u{FB13}")]).unwrap();
     assert_eq!(
-        string_armenian_presentation_ligature.as_str(),
+        string_armenian_presentation_ligature.as_utf8_str(),
         Some("\u{0544}\u{0576}")
     );
 
     let string_greek_precomposed_prosgegrammeni =
         builtin_upcase_initials(vec![Value::string("\u{1F88}")]).unwrap();
     assert_eq!(
-        string_greek_precomposed_prosgegrammeni.as_str(),
+        string_greek_precomposed_prosgegrammeni.as_utf8_str(),
         Some("\u{1F88}")
     );
 
     let string_greek_small_alpha_ypogegrammeni =
         builtin_upcase_initials(vec![Value::string("\u{1F80}")]).unwrap();
     assert_eq!(
-        string_greek_small_alpha_ypogegrammeni.as_str(),
+        string_greek_small_alpha_ypogegrammeni.as_utf8_str(),
         Some("\u{1F88}")
     );
 
     let string_greek_combining_prosgegrammeni =
         builtin_upcase_initials(vec![Value::string("\u{1FB2}")]).unwrap();
     assert_eq!(
-        string_greek_combining_prosgegrammeni.as_str(),
+        string_greek_combining_prosgegrammeni.as_utf8_str(),
         Some("\u{1FBA}\u{0345}")
     );
 }

@@ -127,7 +127,7 @@ fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
         ValueKind::Veclike(VecLikeType::HashTable) => true,
         ValueKind::String => {
             // Non-empty strings only
-            value.as_str().map_or(false, |s| !s.is_empty())
+            value.as_utf8_str().map_or(false, |s| !s.is_empty())
         }
         ValueKind::Symbol(id) if print_gensym => {
             // Uninterned symbols only

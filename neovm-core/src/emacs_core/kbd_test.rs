@@ -22,21 +22,21 @@ fn expect_vector_ints(value: Value) -> Vec<i64> {
 fn empty_kbd_string_returns_empty_string() {
     crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("   ").expect("parse should succeed");
-    assert_eq!(result.as_str(), Some(""));
+    assert_eq!(result.as_utf8_str(), Some(""));
 }
 
 #[test]
 fn kbd_ctrl_char_returns_string() {
     crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("C-a").expect("parse should succeed");
-    assert_eq!(result.as_str(), Some("\u{1}"));
+    assert_eq!(result.as_utf8_str(), Some("\u{1}"));
 }
 
 #[test]
 fn kbd_ctrl_sequence_returns_string() {
     crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("C-x C-f").expect("parse should succeed");
-    assert_eq!(result.as_str(), Some("\u{18}\u{6}"));
+    assert_eq!(result.as_utf8_str(), Some("\u{18}\u{6}"));
 }
 
 #[test]
@@ -57,19 +57,19 @@ fn kbd_ctrl_meta_char_returns_vector() {
 fn kbd_named_keys_without_modifiers_return_chars() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        parse_kbd_string("RET").expect("RET parse").as_str(),
+        parse_kbd_string("RET").expect("RET parse").as_utf8_str(),
         Some("\r")
     );
     assert_eq!(
-        parse_kbd_string("TAB").expect("TAB parse").as_str(),
+        parse_kbd_string("TAB").expect("TAB parse").as_utf8_str(),
         Some("\t")
     );
     assert_eq!(
-        parse_kbd_string("ESC").expect("ESC parse").as_str(),
+        parse_kbd_string("ESC").expect("ESC parse").as_utf8_str(),
         Some("\u{1b}")
     );
     assert_eq!(
-        parse_kbd_string("DEL").expect("DEL parse").as_str(),
+        parse_kbd_string("DEL").expect("DEL parse").as_utf8_str(),
         Some("\u{7f}")
     );
 }
@@ -91,7 +91,7 @@ fn kbd_named_keys_with_modifiers_return_modifier_encoded_ints() {
 fn kbd_plain_multi_char_token_expands_into_plain_string() {
     crate::test_utils::init_test_tracing();
     let result = parse_kbd_string("f1").expect("parse should succeed");
-    assert_eq!(result.as_str(), Some("f1"));
+    assert_eq!(result.as_utf8_str(), Some("f1"));
 }
 
 #[test]

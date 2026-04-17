@@ -336,7 +336,7 @@ fn font_get_keyword_with_colon_matches_keyword_storage_without_colon() {
     ]);
     let family = builtin_font_get(vec![font, Value::keyword(":family")]).unwrap();
     let size = builtin_font_get(vec![font, Value::keyword(":size")]).unwrap();
-    assert_eq!(family.as_str(), Some("Hack"));
+    assert_eq!(family.as_utf8_str(), Some("Hack"));
     assert_eq!(size.as_int(), Some(27));
 }
 
@@ -547,7 +547,7 @@ fn font_xlfd_name_returns_xlfd() {
     crate::test_utils::init_test_tracing();
     let result =
         builtin_font_xlfd_name(vec![Value::vector(vec![Value::keyword(FONT_SPEC_TAG)])]).unwrap();
-    assert_eq!(result.as_str(), Some("-*-*-*-*-*-*-*-*-*-*-*-*-*-*"));
+    assert_eq!(result.as_utf8_str(), Some("-*-*-*-*-*-*-*-*-*-*-*-*-*-*"));
 }
 
 #[test]
@@ -907,14 +907,14 @@ fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
         _ => panic!("expected vector"),
     };
     assert_eq!(values[0].as_symbol_name(), Some("face"));
-    assert_eq!(values[1].as_str(), Some("default"));
-    assert_eq!(values[2].as_str(), Some("default"));
+    assert_eq!(values[1].as_utf8_str(), Some("default"));
+    assert_eq!(values[2].as_utf8_str(), Some("default"));
     assert_eq!(values[3].as_symbol_name(), Some("normal"));
     assert_eq!(values[4].as_int(), Some(1));
     assert_eq!(values[5].as_symbol_name(), Some("normal"));
     assert_eq!(values[8].as_symbol_name(), Some("nil"));
-    assert!(values[9].as_str().is_some());
-    assert!(values[10].as_str().is_some());
+    assert!(values[9].as_utf8_str().is_some());
+    assert!(values[10].as_utf8_str().is_some());
 }
 
 #[test]
@@ -1093,7 +1093,7 @@ fn internal_get_lisp_face_attribute_default_foreground() {
         vec![Value::symbol("default"), Value::keyword(":foreground")],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("black"));
+    assert_eq!(result.as_utf8_str(), Some("black"));
 }
 
 #[test]
@@ -1105,7 +1105,7 @@ fn internal_get_lisp_face_attribute_mode_line_returns_unspecified() {
         vec![Value::symbol("mode-line"), Value::keyword(":foreground")],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("black"));
+    assert_eq!(result.as_utf8_str(), Some("black"));
 }
 
 #[test]
@@ -1184,7 +1184,7 @@ fn internal_set_lisp_face_attribute_font_object_derives_font_related_attrs() {
             vec![Value::symbol("default"), Value::keyword(":family"),]
         )
         .unwrap()
-        .as_str(),
+        .as_utf8_str(),
         Some("Hack")
     );
     assert_eq!(
@@ -1266,7 +1266,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
             Value::keyword(":family"),
         ])
         .expect("default face font family")
-        .as_str(),
+        .as_utf8_str(),
         Some("Hack")
     );
     assert_eq!(
@@ -1325,7 +1325,7 @@ fn internal_set_lisp_face_attribute_eval_uses_live_frame_font_parameter_for_defa
             ],
         )
         .expect("default face family")
-        .as_str(),
+        .as_utf8_str(),
         Some("Hack")
     );
     assert_eq!(
@@ -1385,7 +1385,7 @@ fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_
         .get(frame_id)
         .expect("selected frame after font change");
     assert_eq!(
-        frame.parameter("font").and_then(|value| value.as_str()),
+        frame.parameter("font").and_then(|value| value.as_utf8_str()),
         Some("Noto Sans Mono-16")
     );
     let font_parameter = frame
@@ -1412,7 +1412,7 @@ fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_
     assert_eq!(
         builtin_font_get(vec![default_font, Value::keyword(":family")])
             .expect("default font family")
-            .as_str(),
+            .as_utf8_str(),
         Some("Noto Sans Mono")
     );
     assert_eq!(
@@ -1446,7 +1446,7 @@ fn face_font_eval_returns_font_name_on_live_gui_frame() {
 
     let result = builtin_face_font(&mut eval, vec![Value::symbol("default")]).unwrap();
     assert!(result.is_string());
-    assert!(result.as_str().is_some_and(|name| !name.is_empty()));
+    assert!(result.as_utf8_str().is_some_and(|name| !name.is_empty()));
 }
 
 #[test]
@@ -1631,7 +1631,7 @@ fn internal_merge_in_global_face_copies_defaults_into_selected_face() {
         vec![Value::symbol(face_name), Value::keyword(":foreground")],
     )
     .unwrap();
-    assert_eq!(got.as_str(), Some("white"));
+    assert_eq!(got.as_utf8_str(), Some("white"));
 }
 
 #[test]
@@ -1682,7 +1682,7 @@ fn internal_lisp_face_helpers_accept_frame_handles() {
         ],
     )
     .unwrap();
-    assert_eq!(got.as_str(), Some("red"));
+    assert_eq!(got.as_utf8_str(), Some("red"));
 }
 
 #[test]
@@ -1731,7 +1731,7 @@ fn merge_face_attribute_non_unspecified() {
         Value::string("blue"),
     ])
     .unwrap();
-    assert_eq!(result.as_str(), Some("red"));
+    assert_eq!(result.as_utf8_str(), Some("red"));
 }
 
 #[test]
@@ -1743,7 +1743,7 @@ fn merge_face_attribute_unspecified() {
         Value::string("blue"),
     ])
     .unwrap();
-    assert_eq!(result.as_str(), Some("blue"));
+    assert_eq!(result.as_utf8_str(), Some("blue"));
 }
 
 #[test]
@@ -1909,8 +1909,8 @@ fn defined_colors_returns_list() {
     assert!(!result.is_nil());
     let colors = list_to_vec(&result).expect("defined-colors list");
     assert_eq!(colors.len(), 8);
-    assert_eq!(colors[0].as_str(), Some("black"));
-    assert_eq!(colors[7].as_str(), Some("white"));
+    assert_eq!(colors[0].as_utf8_str(), Some("black"));
+    assert_eq!(colors[7].as_utf8_str(), Some("white"));
 }
 
 #[test]

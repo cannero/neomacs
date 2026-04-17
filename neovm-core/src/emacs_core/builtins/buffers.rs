@@ -3661,7 +3661,7 @@ pub(crate) fn builtin_generate_new_buffer_name(
         ));
     }
     let base = expect_string(&args[0])?;
-    let ignore = args.get(1).and_then(|v| v.as_str());
+    let ignore = args.get(1).and_then(|v| v.as_utf8_str());
     Ok(Value::string(
         eval.buffers
             .generate_new_buffer_name_ignoring(&base, ignore),

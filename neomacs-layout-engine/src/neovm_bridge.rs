@@ -1596,7 +1596,7 @@ impl FaceResolver {
     fn face_name_from_value<'a>(value: &'a Value) -> Option<&'a str> {
         match value.kind() {
             ValueKind::Symbol(_) => value.as_symbol_name(),
-            ValueKind::String => value.as_str(),
+            ValueKind::String => value.as_utf8_str(),
             _ => None,
         }
     }

@@ -4511,7 +4511,7 @@ fn lambda_captures_docstring_metadata() {
         value
             .closure_docstring()
             .flatten()
-            .and_then(|doc| doc.as_str()),
+            .and_then(|doc| doc.as_utf8_str()),
         Some("lambda-doc")
     );
 }
@@ -4527,7 +4527,7 @@ fn function_special_form_evaluates_dynamic_documentation_form() {
         value
             .closure_docstring()
             .flatten()
-            .and_then(|doc| doc.as_str()),
+            .and_then(|doc| doc.as_utf8_str()),
         Some("dyn-doc")
     );
     let body = value
@@ -4548,7 +4548,7 @@ fn function_special_form_value_path_evaluates_dynamic_documentation_form() {
         value
             .closure_docstring()
             .flatten()
-            .and_then(|doc| doc.as_str()),
+            .and_then(|doc| doc.as_utf8_str()),
         Some("dyn-doc")
     );
     let body = value
@@ -4612,7 +4612,7 @@ fn defmacro_captures_docstring_metadata() {
         lambda_val
             .closure_docstring()
             .flatten()
-            .and_then(|doc| doc.as_str()),
+            .and_then(|doc| doc.as_utf8_str()),
         Some("macro-doc")
     );
 }

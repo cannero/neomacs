@@ -760,7 +760,7 @@ fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> 
             }
             // For multibyte, try UTF-8 first, fall back to lossy conversion
             Ok(ls
-                .as_str()
+                .as_utf8_str()
                 .map(|s| s.to_owned())
                 .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(ls.as_bytes())))
         }

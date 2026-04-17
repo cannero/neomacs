@@ -817,9 +817,9 @@ fn get_load_suffixes_returns_list() {
     let result = builtin_get_load_suffixes(vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 3);
-    assert_eq!(items[0].as_str(), Some(".elc"));
-    assert_eq!(items[1].as_str(), Some(".el"));
-    assert_eq!(items[2].as_str(), Some(""));
+    assert_eq!(items[0].as_utf8_str(), Some(".elc"));
+    assert_eq!(items[1].as_utf8_str(), Some(".el"));
+    assert_eq!(items[2].as_utf8_str(), Some(""));
 }
 
 #[test]
@@ -857,7 +857,7 @@ fn locate_file_finds_first_matching_suffix() {
         ],
     )
     .expect("locate-file should succeed");
-    let found = result.as_str().expect("locate-file should return path");
+    let found = result.as_utf8_str().expect("locate-file should return path");
     assert!(
         found.ends_with("probe.el"),
         "expected first matching suffix (.el), got {found}",
@@ -892,7 +892,7 @@ fn locate_file_respects_symbol_predicates() {
     )
     .expect("locate-file with file-regular-p should evaluate");
     assert!(
-        regular.as_str().is_some(),
+        regular.as_utf8_str().is_some(),
         "regular-file predicate should accept candidate",
     );
 
@@ -937,7 +937,7 @@ fn locate_file_unknown_predicate_defaults_to_truthy_match() {
     )
     .expect("locate-file should evaluate");
     let found = result
-        .as_str()
+        .as_utf8_str()
         .expect("unknown predicate should not prevent match");
     assert!(found.ends_with("probe.el"), "unexpected result: {found}");
 
@@ -985,7 +985,7 @@ fn locate_file_internal_finds_requested_suffix() {
     )
     .expect("locate-file-internal should succeed");
     let found = result
-        .as_str()
+        .as_utf8_str()
         .expect("locate-file-internal should return path");
     assert!(
         found.ends_with("probe.elc"),
@@ -1029,7 +1029,7 @@ fn locate_file_internal_treats_tilde_prefixed_names_as_absolute_like_gnu() {
     .expect("locate-file-internal tilde path should evaluate");
 
     assert_eq!(
-        result.as_str(),
+        result.as_utf8_str(),
         Some(dir.to_string_lossy().as_ref()),
         "expected locate-file-internal to expand ~/ paths like GNU"
     );

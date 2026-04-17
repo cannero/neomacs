@@ -153,9 +153,9 @@ fn autoload_manager_register_and_lookup() {
 
     assert!(mgr.is_autoloaded("foo"));
     let entry = mgr.get_entry("foo").unwrap();
-    assert_eq!(entry.file.as_str(), Some("foo-lib"));
+    assert_eq!(entry.file.as_utf8_str(), Some("foo-lib"));
     assert_eq!(
-        entry.docstring.as_ref().and_then(LispString::as_str),
+        entry.docstring.as_ref().and_then(LispString::as_utf8_str),
         Some("Do foo things.")
     );
     assert!(!entry.interactive);
@@ -180,7 +180,7 @@ fn autoload_manager_keeps_live_symbol_identity() {
 
     assert!(mgr.entries.contains_key(&name));
     assert_eq!(
-        mgr.get_entry_symbol(name).map(|entry| entry.file.as_str()),
+        mgr.get_entry_symbol(name).map(|entry| entry.file.as_utf8_str()),
         Some(Some("autoload-live-symbol-file"))
     );
 }
@@ -326,7 +326,7 @@ fn autoload_manager_pdump_uses_symbol_and_lisp_identity() {
     assert_eq!(
         mgr.dump_obsolete_functions()
             .get(&obsolete_name)
-            .map(|(new_name, when)| (new_name.as_str(), when.as_str())),
+            .map(|(new_name, when)| (new_name.as_utf8_str(), when.as_utf8_str())),
         Some((Some("replacement-symbol"), Some("31.1")))
     );
 
@@ -669,7 +669,7 @@ fn autoload_overwrites_previous() {
         },
     );
     let entry = mgr.get_entry("f").unwrap();
-    assert_eq!(entry.file.as_str(), Some("new-file"));
+    assert_eq!(entry.file.as_utf8_str(), Some("new-file"));
     assert!(entry.interactive);
     assert_eq!(entry.autoload_type, AutoloadType::Macro);
 }
@@ -703,9 +703,9 @@ fn autoload_registers_in_autoload_manager() {
     assert_eq!(results[0], "OK test-auto-fn");
     assert!(ev.autoloads.is_autoloaded("test-auto-fn"));
     let entry = ev.autoloads.get_entry("test-auto-fn").unwrap();
-    assert_eq!(entry.file.as_str(), Some("test-auto-file"));
+    assert_eq!(entry.file.as_utf8_str(), Some("test-auto-file"));
     assert_eq!(
-        entry.docstring.as_ref().and_then(LispString::as_str),
+        entry.docstring.as_ref().and_then(LispString::as_utf8_str),
         Some("Test doc")
     );
     assert!(entry.interactive);

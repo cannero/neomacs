@@ -23,7 +23,7 @@ fn seq_reverse_string() {
     crate::test_utils::init_test_tracing();
     let s = Value::string("abc");
     let result = builtin_seq_reverse(vec![s]).unwrap();
-    assert_eq!(result.as_str(), Some("cba"));
+    assert_eq!(result.as_utf8_str(), Some("cba"));
 }
 
 #[test]

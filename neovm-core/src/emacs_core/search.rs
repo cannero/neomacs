@@ -438,7 +438,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
         .unwrap_or(false);
 
     // Check if REP is a string or a function
-    let rep_is_string = args[1].as_str().is_some();
+    let rep_is_string = args[1].as_utf8_str().is_some();
 
     if rep_is_string {
         let rep = expect_string(&args[1])?;
@@ -529,7 +529,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
             // Call the function with the matched string
             let matched_str = &s[full_start..full_end];
             let func_result = eval.apply(func, vec![Value::string(matched_str)])?;
-            let base = match func_result.as_str() {
+            let base = match func_result.as_utf8_str() {
                 Some(s) => s.to_string(),
                 None => {
                     return Err(signal(

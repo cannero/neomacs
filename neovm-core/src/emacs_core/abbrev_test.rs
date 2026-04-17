@@ -277,11 +277,11 @@ fn test_define_abbrev_and_lookup() {
         vec![table, Value::string("btw"), Value::string("by the way")],
     )
     .unwrap();
-    assert_eq!(defined.as_str(), Some("btw"));
+    assert_eq!(defined.as_utf8_str(), Some("btw"));
 
     // Look up via abbrev-expansion
     let result = builtin_abbrev_expansion(&mut eval, vec![Value::string("btw"), table]).unwrap();
-    assert_eq!(result.as_str(), Some("by the way"));
+    assert_eq!(result.as_utf8_str(), Some("by the way"));
 
     // Look up via abbrev-symbol
     let sym = builtin_abbrev_symbol(&mut eval, vec![Value::string("btw"), table]).unwrap();
@@ -316,7 +316,7 @@ fn test_clear_abbrev_table() {
 
     // Verify they exist
     let result = builtin_abbrev_expansion(&mut eval, vec![Value::string("a"), table]).unwrap();
-    assert_eq!(result.as_str(), Some("alpha"));
+    assert_eq!(result.as_utf8_str(), Some("alpha"));
 
     // Clear
     builtin_clear_abbrev_table(&mut eval, vec![table]).unwrap();
@@ -424,8 +424,8 @@ fn test_abbrev_tables_do_not_share_symbol_cells() {
 
     let a = builtin_abbrev_expansion(&mut eval, vec![Value::string("dup"), table_a]).unwrap();
     let b = builtin_abbrev_expansion(&mut eval, vec![Value::string("dup"), table_b]).unwrap();
-    assert_eq!(a.as_str(), Some("first table"));
-    assert_eq!(b.as_str(), Some("second table"));
+    assert_eq!(a.as_utf8_str(), Some("first table"));
+    assert_eq!(b.as_utf8_str(), Some("second table"));
 }
 
 #[test]

@@ -100,7 +100,7 @@ impl StringInterner {
     #[inline]
     pub fn resolve(&self, id: NameId) -> &'static str {
         self.resolve_lisp_string(id)
-            .as_str()
+            .as_utf8_str()
             .unwrap_or_else(|| panic!("symbol name {:?} is not valid UTF-8", id))
     }
 

@@ -799,9 +799,13 @@ impl TaggedValue {
 
     // -- String extraction --
 
-    /// Get the string content as `&str`. Returns `None` if not a string
+    /// Get the string content as UTF-8 `&str`. Returns `None` if not a string
     /// **or** if the bytes are not valid UTF-8 (e.g. raw-byte Emacs encoding).
-    pub fn as_str(self) -> Option<&'static str> {
+    ///
+    /// Prefer `as_bytes()` / `equal_value` for byte-level equality — two
+    /// different non-UTF-8 strings both return `None`, so comparing
+    /// `as_utf8_str()` values with `==` will silently treat them as equal.
+    pub fn as_utf8_str(self) -> Option<&'static str> {
         if self.is_string() {
             let ptr = self.as_string_ptr().unwrap();
             // Safety: the string object is alive (caller must ensure no GC).
@@ -815,7 +819,7 @@ impl TaggedValue {
                         header.kind, self.0, ptr,
                     );
                 }
-                (*ptr).data.as_str()
+                (*ptr).data.as_utf8_str()
             }
         } else {
             None
@@ -826,7 +830,7 @@ impl TaggedValue {
     /// For keywords (which are symbols in GNU Emacs), returns the keyword name
     /// (e.g., ":foo").
     pub fn as_symbol_name(self) -> Option<&'static str> {
-        self.as_symbol_lisp_string().and_then(LispString::as_str)
+        self.as_symbol_lisp_string().and_then(LispString::as_utf8_str)
     }
 
     /// Get the exact Lisp-string storage for a symbol name.

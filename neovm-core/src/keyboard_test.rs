@@ -221,9 +221,9 @@ fn interactive_spec_parsing() {
     let codes = parse_interactive_spec("sSearch for: \nnCount: ");
     assert_eq!(codes.len(), 2);
     assert!(
-        matches!(&codes[0], InteractiveCode::StringArg(p) if p.as_str() == Some("Search for: "))
+        matches!(&codes[0], InteractiveCode::StringArg(p) if p.as_utf8_str() == Some("Search for: "))
     );
-    assert!(matches!(&codes[1], InteractiveCode::NumberArg(p) if p.as_str() == Some("Count: ")));
+    assert!(matches!(&codes[1], InteractiveCode::NumberArg(p) if p.as_utf8_str() == Some("Count: ")));
 }
 
 #[test]
@@ -467,11 +467,11 @@ fn parse_interactive_spec_all_codes() {
     assert!(matches!(&codes[0], InteractiveCode::PrefixRaw));
 
     let codes = parse_interactive_spec("fFile: ");
-    assert!(matches!(&codes[0], InteractiveCode::FileName(p) if p.as_str() == Some("File: ")));
+    assert!(matches!(&codes[0], InteractiveCode::FileName(p) if p.as_utf8_str() == Some("File: ")));
 
     let codes = parse_interactive_spec("DDirectory: ");
     assert!(
-        matches!(&codes[0], InteractiveCode::DirectoryName(p) if p.as_str() == Some("Directory: "))
+        matches!(&codes[0], InteractiveCode::DirectoryName(p) if p.as_utf8_str() == Some("Directory: "))
     );
 }
 

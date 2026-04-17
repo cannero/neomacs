@@ -3202,7 +3202,7 @@ impl LayoutEngine {
                     let point_in_display_replacement =
                         cursor_info.is_none() && params.point >= charpos && params.point < skip_to;
                     // Case 1: String replacement — render the string instead of buffer text
-                    if let Some(replacement) = prop_val.as_str() {
+                    if let Some(replacement) = prop_val.as_utf8_str() {
                         let replacement_start_x = x;
                         let replacement_start_col = col;
                         if point_in_display_replacement {
@@ -5193,10 +5193,10 @@ impl LayoutEngine {
                 tracing::debug!(
                     "mode-line eval result: {:?} (len={})",
                     result
-                        .as_str()
+                        .as_utf8_str()
                         .map(|s| &s[..s.len().min(120)])
                         .unwrap_or(""),
-                    result.as_str().map(str::len).unwrap_or(0)
+                    result.as_utf8_str().map(str::len).unwrap_or(0)
                 );
                 result
             };

@@ -14,7 +14,7 @@ fn extract_heap_match_string(md: &MatchData, group: usize) -> Option<String> {
     let byte_end = char_pos_to_byte_lisp_string(string, end);
     string
         .slice(byte_start, byte_end)
-        .and_then(|slice| slice.as_str().map(str::to_owned))
+        .and_then(|slice| slice.as_utf8_str().map(str::to_owned))
 }
 
 // -----------------------------------------------------------------------
@@ -920,7 +920,7 @@ fn heap_match_string_on_lisp_slice_mirrors_gnu_bracket_closing() {
     let mut md = None;
     let source = LispString::new("x = 42;".to_string(), false);
     let slice = source.slice(2, source.byte_len()).expect("slice");
-    let slice_val = crate::emacs_core::value::Value::string(slice.as_str().unwrap_or(""));
+    let slice_val = crate::emacs_core::value::Value::string(slice.as_utf8_str().unwrap_or(""));
     let stored_slice = slice_val.as_lisp_string().unwrap().clone();
     let result = string_match_full_with_case_fold_source_lisp(
         "\\`[-+*/=<>!&|(){}\\[\\];,.]",
@@ -955,7 +955,7 @@ fn heap_tokenizer_loop_mirrors_gnu_single_char_operator_behavior() {
     let mut tokens = Vec::new();
     while pos < code.byte_len() {
         let rest = code.slice(pos, code.byte_len()).expect("rest slice");
-        let rest_val = crate::emacs_core::value::Value::string(rest.as_str().unwrap_or(""));
+        let rest_val = crate::emacs_core::value::Value::string(rest.as_utf8_str().unwrap_or(""));
         let stored_rest = rest_val.as_lisp_string().unwrap().clone();
         let mut matched = false;
 

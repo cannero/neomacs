@@ -90,7 +90,7 @@ fn compose_string_internal_returns_string() {
     let s = Value::string("hello");
     let result = builtin_compose_string_internal(vec![s, Value::fixnum(0), Value::fixnum(5)]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("hello"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("hello"));
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn compose_string_internal_with_optional_args() {
         Value::NIL,
     ]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("hello"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("hello"));
 }
 
 #[test]

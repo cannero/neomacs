@@ -53,7 +53,7 @@ fn extract_rectangle_loads_from_gnu_rect_el() {
 fn extract_rectangle_line_returns_string() {
     crate::test_utils::init_test_tracing();
     let result = builtin_extract_rectangle_line(vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
-    assert_eq!(result.as_str(), Some(""));
+    assert_eq!(result.as_utf8_str(), Some(""));
 }
 
 #[test]
@@ -65,7 +65,7 @@ fn extract_rectangle_line_with_line_argument() {
         Value::string("abcdef"),
     ])
     .unwrap();
-    assert_eq!(result.as_str(), Some("bc"));
+    assert_eq!(result.as_utf8_str(), Some("bc"));
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn extract_rectangle_line_swapped_columns() {
         Value::string("abcdef"),
     ])
     .unwrap();
-    assert_eq!(result.as_str(), Some("bc"));
+    assert_eq!(result.as_utf8_str(), Some("bc"));
 }
 
 #[test]

@@ -270,7 +270,7 @@ fn serialize_to_json(value: &Value, opts: &SerializeOpts, depth: usize) -> Resul
                 .as_lisp_string()
                 .expect("ValueKind::String must carry LispString payload");
             let rendered = if string.is_multibyte() {
-                string.as_str().ok_or_else(|| {
+                string.as_utf8_str().ok_or_else(|| {
                     signal(
                         "wrong-type-argument",
                         vec![Value::symbol("json-value-p"), *value],

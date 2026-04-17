@@ -57,7 +57,7 @@ fn symbol_properties() {
     let mut ob = Obarray::new();
     ob.put_property("foo", "doc", Value::string("A function."));
     assert_eq!(
-        ob.get_property("foo", "doc").unwrap().as_str(),
+        ob.get_property("foo", "doc").unwrap().as_utf8_str(),
         Some("A function.")
     );
 }

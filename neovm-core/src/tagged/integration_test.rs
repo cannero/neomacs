@@ -314,7 +314,7 @@ fn test_value_description() {
                 }
             }
             ValueKind::String => {
-                if let Some(s) = val.as_str() {
+                if let Some(s) = val.as_utf8_str() {
                     format!("\"{}\"", s)
                 } else {
                     "\"...\"".into()

@@ -592,7 +592,7 @@ fn store_in_keymap_preserves_string_prompt_when_prepending_binding() {
          define-key, got {head:?}"
     );
     assert_eq!(
-        head.as_str(),
+        head.as_utf8_str(),
         Some("Auxiliary keymap for Normal state"),
         "prompt string was clobbered or replaced"
     );

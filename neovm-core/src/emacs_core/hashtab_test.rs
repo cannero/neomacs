@@ -563,7 +563,7 @@ fn internal_hash_table_buckets_report_hash_diagnostics() {
             };
             let pair_car = entry.cons_car();
             let pair_cdr = entry.cons_cdr();
-            let key = pair_car.as_str().expect("string key").to_string();
+            let key = pair_car.as_utf8_str().expect("string key").to_string();
             let hash = pair_cdr.as_int().expect("diagnostic hash integer");
             seen.insert(key, hash);
         }
@@ -690,7 +690,7 @@ fn internal_hash_table_buckets_eq_pointer_keys_keep_distinct_hashes() {
         }
     }
     assert_eq!(keys.len(), 2);
-    assert!(keys.iter().all(|key| key.as_str().is_some()));
+    assert!(keys.iter().all(|key| key.as_utf8_str().is_some()));
     hashes.sort_unstable();
     assert_eq!(hashes.len(), 2);
     assert_ne!(hashes[0], hashes[1]);
@@ -729,7 +729,7 @@ fn internal_hash_table_buckets_equal_preserve_first_key_identity_on_overwrite() 
         panic!("expected alist cons entry");
     };
     let pair_car = entries[0].cons_car();
-    assert_eq!(pair_car.as_str(), Some("x"));
+    assert_eq!(pair_car.as_utf8_str(), Some("x"));
     assert!(eq_value(&pair_car, &key_a));
     assert!(!eq_value(&pair_car, &key_b));
 }

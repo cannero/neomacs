@@ -512,7 +512,7 @@ fn test_format_mode_line_propertize_preserves_text_properties() {
     )
     .expect("format-mode-line propertize");
 
-    assert_eq!(rendered.as_str(), Some("abc"));
+    assert_eq!(rendered.as_utf8_str(), Some("abc"));
     assert!(rendered.is_string(), "expected string result");
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
@@ -552,7 +552,7 @@ fn test_format_mode_line_percent_specs_preserve_source_string_text_properties() 
     let rendered =
         builtin_format_mode_line_ctx(&mut eval, vec![format]).expect("format-mode-line props");
 
-    assert_eq!(rendered.as_str(), Some("fmt-prop-buffer!"));
+    assert_eq!(rendered.as_utf8_str(), Some("fmt-prop-buffer!"));
     if !rendered.is_string() {
         panic!("expected string result");
     };
@@ -631,7 +631,7 @@ fn test_format_mode_line_face_argument_adds_default_face_and_merges_explicit_fac
     )
     .expect("format-mode-line face arg");
 
-    assert_eq!(rendered.as_str(), Some("ab"));
+    assert_eq!(rendered.as_utf8_str(), Some("ab"));
     assert!(rendered.is_string(), "expected string result");
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");
@@ -694,7 +694,7 @@ fn test_format_mode_line_fixnum_padding_does_not_inherit_inner_properties() {
     )
     .expect("format-mode-line fixnum padding");
 
-    assert_eq!(rendered.as_str(), Some("x    "));
+    assert_eq!(rendered.as_utf8_str(), Some("x    "));
     assert!(rendered.is_string(), "expected string result");
     let props =
         get_string_text_properties_table_for_value(rendered).expect("mode-line text properties");

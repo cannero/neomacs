@@ -92,7 +92,7 @@ pub(crate) fn key_events_from_designator(
             // each character IS a key event — no kbd-style text parsing.
             // This matches official Emacs behavior where "\C-x8" is two events:
             // char 24 (C-x) and char 56 (8).
-            let s = match designator.as_str() {
+            let s = match designator.as_utf8_str() {
                 Some(s) => s.to_owned(),
                 None => {
                     let ls = designator.as_lisp_string().unwrap();
@@ -174,7 +174,7 @@ pub(crate) fn key_events_from_designator(
 fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
     match encoded.kind() {
         ValueKind::String => {
-            let s = match encoded.as_str() {
+            let s = match encoded.as_utf8_str() {
                 Some(s) => s.to_owned(),
                 None => {
                     let ls = encoded.as_lisp_string().unwrap();

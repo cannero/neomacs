@@ -152,7 +152,7 @@ impl CompletionTable {
 
 /// Best-effort listing of file names in `dir`.  Returns an empty vec on I/O error.
 fn list_files_in_dir(dir: &LispString) -> Vec<LispString> {
-    let Some(dir) = dir.as_str() else {
+    let Some(dir) = dir.as_utf8_str() else {
         return Vec::new();
     };
     match std::fs::read_dir(dir) {
@@ -1344,7 +1344,7 @@ fn resolve_minibuffer_buffer_arg(
         ValueKind::Nil => Ok(buffers.current_buffer_id()),
         ValueKind::Veclike(VecLikeType::Buffer) => Ok(val.as_buffer_id()),
         ValueKind::String => Ok(val
-            .as_str()
+            .as_utf8_str()
             .and_then(|name| buffers.find_buffer_by_name(name))),
         _ => Err(signal(
             "wrong-type-argument",
@@ -1514,7 +1514,7 @@ fn completion_display_string_from_value(value: &Value) -> Option<String> {
     let string = completion.lisp_string();
     Some(
         string
-            .as_str()
+            .as_utf8_str()
             .map(|text| text.to_owned())
             .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(string.as_bytes())),
     )
@@ -1883,7 +1883,7 @@ pub(crate) fn completion_regexp_list_from_obarray(obarray: &Obarray) -> Vec<Stri
         .into_iter()
         .map(|regexp| {
             regexp
-                .as_str()
+                .as_utf8_str()
                 .map(|text| text.to_owned())
                 .unwrap_or_else(|| crate::emacs_core::emacs_char::to_utf8_lossy(regexp.as_bytes()))
         })

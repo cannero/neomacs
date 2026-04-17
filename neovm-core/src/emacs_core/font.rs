@@ -476,7 +476,7 @@ fn set_runtime_face_color_from_frame_parameter(
     value: Value,
 ) {
     let attr_value = value
-        .as_str()
+        .as_utf8_str()
         .and_then(crate::face::Color::parse)
         .map(crate::face::FaceAttrValue::Color)
         .unwrap_or(crate::face::FaceAttrValue::Unspecified);
@@ -1136,7 +1136,7 @@ pub(crate) fn builtin_font_xlfd_name(args: Vec<Value>) -> EvalResult {
             {
                 let font_name = font_vector_get_flexible(&elems, "name")
                     .unwrap()
-                    .as_str()
+                    .as_utf8_str()
                     .unwrap()
                     .to_owned();
                 if font_name.starts_with('-') {
@@ -1558,9 +1558,9 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         elems.push(value);
     };
 
-    push_field("family", Value::from_sym_id(intern(matched.family.as_str().unwrap_or_default())));
+    push_field("family", Value::from_sym_id(intern(matched.family.as_utf8_str().unwrap_or_default())));
     if let Some(registry) = &matched.registry {
-        push_field("registry", Value::from_sym_id(intern(registry.as_str().unwrap_or_default())));
+        push_field("registry", Value::from_sym_id(intern(registry.as_utf8_str().unwrap_or_default())));
     }
     if let Some(weight) = matched.weight {
         push_field("weight", Value::symbol(font_weight_symbol(weight)));
@@ -1586,11 +1586,11 @@ fn build_font_object_for_match(
     matched: &super::eval::ResolvedFontMatch,
 ) -> Value {
     let mut selected = face.clone();
-    selected.family = Some(Value::from_sym_id(intern(matched.family.as_str().unwrap_or_default())));
+    selected.family = Some(Value::from_sym_id(intern(matched.family.as_utf8_str().unwrap_or_default())));
     selected.foundry = matched
         .foundry
         .as_ref()
-        .map(|foundry| Value::from_sym_id(intern(foundry.as_str().unwrap_or_default())))
+        .map(|foundry| Value::from_sym_id(intern(foundry.as_utf8_str().unwrap_or_default())))
         .or(face.foundry);
     selected.weight = Some(matched.weight);
     selected.slant = Some(matched.slant);
@@ -3034,7 +3034,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
 
     match resolve_sym(attr_name) {
         ":foreground" | ":background" | ":distant-foreground" => {
-            let s = value.as_str()?;
+            let s = value.as_utf8_str()?;
             let c = Color::from_name(s).or_else(|| Color::from_hex(s))?;
             Some(FaceAttrValue::Color(c))
         }
@@ -3069,7 +3069,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
             if value.is_t() {
                 return Some(FaceAttrValue::Bool(true));
             }
-            if let Some(s) = value.as_str() {
+            if let Some(s) = value.as_utf8_str() {
                 let color = Color::from_name(s).or_else(|| Color::from_hex(s));
                 return Some(FaceAttrValue::Underline(Underline {
                     style: UnderlineStyle::Line,
@@ -3097,7 +3097,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
                             };
                         }
                         ":color" => {
-                            if let Some(s) = val.as_str().or_else(|| val.as_symbol_name()) {
+                            if let Some(s) = val.as_utf8_str().or_else(|| val.as_symbol_name()) {
                                 color = Color::from_name(s).or_else(|| Color::from_hex(s));
                             }
                         }
@@ -3125,7 +3125,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
             if value.is_t() {
                 return Some(FaceAttrValue::Bool(true));
             }
-            if let Some(s) = value.as_str() {
+            if let Some(s) = value.as_utf8_str() {
                 let c = Color::from_name(s).or_else(|| Color::from_hex(s))?;
                 return Some(FaceAttrValue::Color(c));
             }
@@ -3150,7 +3150,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
                 }));
             }
             // Color string shorthand
-            if let Some(s) = value.as_str() {
+            if let Some(s) = value.as_utf8_str() {
                 let color = Color::from_name(s).or_else(|| Color::from_hex(s));
                 return Some(FaceAttrValue::Box(BoxBorder {
                     color,
@@ -3176,7 +3176,7 @@ fn lisp_value_to_face_attr(attr_name: SymId, value: Value) -> Option<crate::face
                             }
                         }
                         ":color" => {
-                            if let Some(s) = val.as_str().or_else(|| val.as_symbol_name()) {
+                            if let Some(s) = val.as_utf8_str().or_else(|| val.as_symbol_name()) {
                                 border.color = Color::from_name(s).or_else(|| Color::from_hex(s));
                             }
                         }
@@ -3457,9 +3457,9 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     let lisp_value = lisp_face_attribute_value(&face_name, attr_name, false);
     let lisp_value_unspecified = lisp_value.is_symbol_named("unspecified")
         || (attr_name == face_attr_id(":foreground")
-            && lisp_value.as_str() == Some("unspecified-fg"))
+            && lisp_value.as_utf8_str() == Some("unspecified-fg"))
         || (attr_name == face_attr_id(":background")
-            && lisp_value.as_str() == Some("unspecified-bg"));
+            && lisp_value.as_utf8_str() == Some("unspecified-bg"));
     if !lisp_value_unspecified {
         return Ok(lisp_value);
     }

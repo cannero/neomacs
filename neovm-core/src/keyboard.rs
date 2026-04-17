@@ -3077,7 +3077,7 @@ impl crate::emacs_core::eval::Context {
                     if let Ok(desc) =
                         crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
                     {
-                        if let Some(s) = desc.as_str() {
+                        if let Some(s) = desc.as_utf8_str() {
                             let echo_msg = format!("{}-", s);
                             let _ = crate::emacs_core::builtins::dispatch_builtin(
                                 self,
@@ -3648,7 +3648,7 @@ impl crate::emacs_core::eval::Context {
         // GNU `show_help_echo` applies `mouse-fixup-help-message` whenever the
         // resolved help text is a string; it is not conditional on whether the
         // current runtime is actively polling host input.
-        if help.as_str().is_none() {
+        if help.as_utf8_str().is_none() {
             return Ok(help);
         }
 
@@ -3664,7 +3664,7 @@ impl crate::emacs_core::eval::Context {
         &mut self,
         help: Value,
     ) -> Result<Value, crate::emacs_core::error::Flow> {
-        if help.is_nil() || help.as_str().is_none() {
+        if help.is_nil() || help.as_utf8_str().is_none() {
             return Ok(help);
         }
 
@@ -4795,7 +4795,7 @@ fn key_sequence_translation_events(translation: Value) -> Option<Vec<Value>> {
         return Some(translation.as_vector_data()?.to_vec());
     }
 
-    if let Some(s) = translation.as_str() {
+    if let Some(s) = translation.as_utf8_str() {
         return Some(s.chars().map(|ch| Value::fixnum(ch as i64)).collect());
     }
 

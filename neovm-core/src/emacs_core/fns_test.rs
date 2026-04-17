@@ -44,14 +44,14 @@ macro_rules! call_fns_builtin {
 fn base64_encode_empty() {
     crate::test_utils::init_test_tracing();
     let r = builtin_base64_encode_string(vec![Value::string(""), Value::T]).unwrap();
-    assert_eq!(r.as_str(), Some(""));
+    assert_eq!(r.as_utf8_str(), Some(""));
 }
 
 #[test]
 fn base64_encode_hello() {
     crate::test_utils::init_test_tracing();
     let r = builtin_base64_encode_string(vec![Value::string("Hello"), Value::T]).unwrap();
-    assert_eq!(r.as_str(), Some("SGVsbG8="));
+    assert_eq!(r.as_utf8_str(), Some("SGVsbG8="));
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn base64_encode_padding_1() {
     crate::test_utils::init_test_tracing();
     // "a" -> "YQ=="
     let r = builtin_base64_encode_string(vec![Value::string("a"), Value::T]).unwrap();
-    assert_eq!(r.as_str(), Some("YQ=="));
+    assert_eq!(r.as_utf8_str(), Some("YQ=="));
 }
 
 #[test]
@@ -67,7 +67,7 @@ fn base64_encode_padding_2() {
     crate::test_utils::init_test_tracing();
     // "ab" -> "YWI="
     let r = builtin_base64_encode_string(vec![Value::string("ab"), Value::T]).unwrap();
-    assert_eq!(r.as_str(), Some("YWI="));
+    assert_eq!(r.as_utf8_str(), Some("YWI="));
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn base64_encode_no_padding_3() {
     crate::test_utils::init_test_tracing();
     // "abc" -> "YWJj" (no padding needed)
     let r = builtin_base64_encode_string(vec![Value::string("abc"), Value::T]).unwrap();
-    assert_eq!(r.as_str(), Some("YWJj"));
+    assert_eq!(r.as_utf8_str(), Some("YWJj"));
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn base64_roundtrip() {
     let original = "The quick brown fox jumps over the lazy dog";
     let encoded = builtin_base64_encode_string(vec![Value::string(original), Value::T]).unwrap();
     let decoded = builtin_base64_decode_string(vec![encoded]).unwrap();
-    assert_eq!(decoded.as_str(), Some(original));
+    assert_eq!(decoded.as_utf8_str(), Some(original));
 }
 
 #[test]
@@ -102,14 +102,14 @@ fn base64url_encode_no_pad() {
     crate::test_utils::init_test_tracing();
     let r = builtin_base64url_encode_string(vec![Value::string("a"), Value::T]).unwrap();
     // URL-safe, no padding
-    assert_eq!(r.as_str(), Some("YQ"));
+    assert_eq!(r.as_utf8_str(), Some("YQ"));
 }
 
 #[test]
 fn base64url_encode_with_pad() {
     crate::test_utils::init_test_tracing();
     let r = builtin_base64url_encode_string(vec![Value::string("a")]).unwrap();
-    assert_eq!(r.as_str(), Some("YQ=="));
+    assert_eq!(r.as_utf8_str(), Some("YQ=="));
 }
 
 #[test]
@@ -118,14 +118,14 @@ fn base64url_roundtrip() {
     let original = "Hello+World/Foo";
     let encoded = builtin_base64url_encode_string(vec![Value::string(original), Value::T]).unwrap();
     let decoded = builtin_base64_decode_string(vec![encoded, Value::T]).unwrap();
-    assert_eq!(decoded.as_str(), Some(original));
+    assert_eq!(decoded.as_utf8_str(), Some(original));
 }
 
 #[test]
 fn base64url_decode_basic() {
     crate::test_utils::init_test_tracing();
     let decoded = builtin_base64url_decode_string(vec![Value::string("YQ")]).unwrap();
-    assert_eq!(decoded.as_str(), Some("a"));
+    assert_eq!(decoded.as_utf8_str(), Some("a"));
 }
 
 #[test]
@@ -151,11 +151,11 @@ fn base64url_uses_dash_underscore() {
     // Standard and URL should differ if the encoding contains + or /
     // For [0xC3, 0xBF]: std = "w78=" which has no + or /... let's just
     // verify neither + nor / appear in url encoding.
-    let s = url_enc.as_str().unwrap();
+    let s = url_enc.as_utf8_str().unwrap();
     assert!(!s.contains('+'), "URL-safe encoding should not contain '+'");
     assert!(!s.contains('/'), "URL-safe encoding should not contain '/'");
     // Also verify the standard encoding does not contain - or _
-    let s_std = std_enc.as_str().unwrap();
+    let s_std = std_enc.as_utf8_str().unwrap();
     assert!(
         !s_std.contains('-'),
         "Standard encoding should not contain '-'"
@@ -343,7 +343,7 @@ fn base64_region_eval_error_shapes() {
 fn md5_empty() {
     crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("")]).unwrap();
-    assert_eq!(r.as_str(), Some("d41d8cd98f00b204e9800998ecf8427e"));
+    assert_eq!(r.as_utf8_str(), Some("d41d8cd98f00b204e9800998ecf8427e"));
 }
 
 #[test]
@@ -351,14 +351,14 @@ fn md5_hello() {
     crate::test_utils::init_test_tracing();
     // md5("Hello") = 8b1a9953c4611296a827abf8c47804d7
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("Hello")]).unwrap();
-    assert_eq!(r.as_str(), Some("8b1a9953c4611296a827abf8c47804d7"));
+    assert_eq!(r.as_utf8_str(), Some("8b1a9953c4611296a827abf8c47804d7"));
 }
 
 #[test]
 fn md5_abc() {
     crate::test_utils::init_test_tracing();
     let r = call_fns_builtin!(builtin_md5, vec![Value::string("abc")]).unwrap();
-    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(r.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
@@ -369,7 +369,7 @@ fn md5_fox() {
         vec![Value::string("The quick brown fox jumps over the lazy dog")]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("9e107d9d372bb6826bd81d3542a419d6"));
+    assert_eq!(r.as_utf8_str(), Some("9e107d9d372bb6826bd81d3542a419d6"));
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn md5_invalid_object_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Invalid object argument")
             );
             assert_eq!(sig.data.get(1), Some(&Value::string("nil")));
@@ -455,7 +455,7 @@ fn md5_unknown_coding_system_ignored_with_noerror() {
         ]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(r.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
@@ -471,7 +471,7 @@ fn md5_accepts_iso_8859_15_alias() {
         ]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(r.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
@@ -487,7 +487,7 @@ fn md5_accepts_iso_8859_9_alias() {
         ]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(r.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
@@ -522,14 +522,14 @@ fn md5_eval_buffer_core_semantics() {
     let id = eval.buffers.current_buffer().expect("current buffer").id;
 
     let full = builtin_md5(&mut eval, vec![Value::make_buffer(id)]).unwrap();
-    assert_eq!(full.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(full.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 
     let swapped = builtin_md5(
         &mut eval,
         vec![Value::make_buffer(id), Value::fixnum(4), Value::fixnum(3)],
     )
     .unwrap();
-    assert_eq!(swapped.as_str(), Some("4a8a08f09d37b73795649038408b5f33"));
+    assert_eq!(swapped.as_utf8_str(), Some("4a8a08f09d37b73795649038408b5f33"));
 }
 
 #[test]
@@ -584,7 +584,7 @@ fn md5_eval_deleted_buffer_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Selecting deleted buffer")
             );
         }
@@ -607,19 +607,19 @@ fn md5_and_secure_hash_preserve_unibyte_raw_bytes() {
 
     let string_md5 = builtin_md5(&mut eval, vec![raw]).unwrap();
     assert_eq!(
-        string_md5.as_str(),
+        string_md5.as_utf8_str(),
         Some("00594fd4f42ba43fc1ca0427a0576295")
     );
 
     let buffer_md5 = builtin_md5(&mut eval, vec![Value::make_buffer(id)]).unwrap();
     assert_eq!(
-        buffer_md5.as_str(),
+        buffer_md5.as_utf8_str(),
         Some("00594fd4f42ba43fc1ca0427a0576295")
     );
 
     let string_sha1 = builtin_secure_hash(&mut eval, vec![Value::symbol("sha1"), raw]).unwrap();
     assert_eq!(
-        string_sha1.as_str(),
+        string_sha1.as_utf8_str(),
         Some("85e53271e14006f0265921d02d4d736cdc580b0b")
     );
 
@@ -629,13 +629,13 @@ fn md5_and_secure_hash_preserve_unibyte_raw_bytes() {
     )
     .unwrap();
     assert_eq!(
-        buffer_sha1.as_str(),
+        buffer_sha1.as_utf8_str(),
         Some("85e53271e14006f0265921d02d4d736cdc580b0b")
     );
 
     let buffer_hash = builtin_buffer_hash(&mut eval, vec![Value::make_buffer(id)]).unwrap();
     assert_eq!(
-        buffer_hash.as_str(),
+        buffer_hash.as_utf8_str(),
         Some("85e53271e14006f0265921d02d4d736cdc580b0b")
     );
 }
@@ -651,7 +651,7 @@ fn secure_hash_sha256_known() {
     )
     .unwrap();
     assert_eq!(
-        r.as_str(),
+        r.as_utf8_str(),
         Some("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     );
 }
@@ -664,7 +664,7 @@ fn secure_hash_sha1_known() {
         vec![Value::symbol("sha1"), Value::string("abc")]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
@@ -675,7 +675,7 @@ fn secure_hash_md5_known() {
         vec![Value::symbol("md5"), Value::string("abc")]
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
+    assert_eq!(r.as_utf8_str(), Some("900150983cd24fb0d6963f7d28e17f72"));
 }
 
 #[test]
@@ -718,7 +718,7 @@ fn secure_hash_subrange_semantics() {
     )
     .unwrap();
     assert_eq!(
-        r.as_str(),
+        r.as_utf8_str(),
         Some("a6b0f90d2ac2b8d1f250c687301aef132049e9016df936680e81fa7bc7d81d70")
     );
 }
@@ -733,7 +733,7 @@ fn secure_hash_invalid_algorithm_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Invalid algorithm arg: no-such")
             );
         }
@@ -766,7 +766,7 @@ fn secure_hash_invalid_object_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Invalid object argument")
             );
             assert_eq!(sig.data.get(1), Some(&Value::fixnum(123)));
@@ -790,7 +790,7 @@ fn secure_hash_eval_buffer_sha1() {
         vec![Value::symbol("sha1"), Value::make_buffer(id)],
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
@@ -867,7 +867,7 @@ fn secure_hash_eval_buffer_marker_range() {
         ],
     )
     .unwrap();
-    assert_eq!(r.as_str(), Some("5b2505039ac5af9e197f5dad04113906a9cf9a2a"));
+    assert_eq!(r.as_utf8_str(), Some("5b2505039ac5af9e197f5dad04113906a9cf9a2a"));
 }
 
 #[test]
@@ -884,7 +884,7 @@ fn secure_hash_eval_deleted_buffer_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Selecting deleted buffer")
             );
         }
@@ -900,7 +900,7 @@ fn buffer_hash_eval_current_buffer_sha1() {
     buf.delete_region(buf.point_min(), buf.point_max());
     buf.insert("abc");
     let r = builtin_buffer_hash(&mut eval, vec![]).unwrap();
-    assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
@@ -916,7 +916,7 @@ fn buffer_hash_eval_by_name_sha1() {
         .expect("current buffer")
         .name_value();
     let r = builtin_buffer_hash(&mut eval, vec![name]).unwrap();
-    assert_eq!(r.as_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
 }
 
 #[test]
@@ -927,7 +927,7 @@ fn buffer_hash_eval_missing_name_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("No buffer named *missing*")
             );
         }
@@ -950,7 +950,7 @@ fn equal_including_properties_strings() {
 fn string_make_multibyte_passthrough_ascii() {
     crate::test_utils::init_test_tracing();
     let r = builtin_string_make_multibyte(vec![Value::string("abc")]).unwrap();
-    assert_eq!(r.as_str(), Some("abc"));
+    assert_eq!(r.as_utf8_str(), Some("abc"));
 }
 
 #[test]
@@ -1219,10 +1219,10 @@ fn widget_put_new_property() {
     let widget = Value::list(vec![Value::symbol("button")]);
     let r =
         builtin_widget_put(vec![widget, Value::keyword("tag"), Value::string("Hello")]).unwrap();
-    assert_eq!(r.as_str(), Some("Hello"));
+    assert_eq!(r.as_utf8_str(), Some("Hello"));
 
     let got = builtin_widget_get(vec![widget, Value::keyword("tag")]).unwrap();
-    assert_eq!(got.as_str(), Some("Hello"));
+    assert_eq!(got.as_utf8_str(), Some("Hello"));
 }
 
 #[test]
@@ -1307,12 +1307,12 @@ fn base64_encode_line_break() {
     // A string long enough to trigger line breaks at column 76
     let long = "a".repeat(100);
     let encoded = builtin_base64_encode_string(vec![Value::string(long.clone())]).unwrap();
-    let s = encoded.as_str().unwrap();
+    let s = encoded.as_utf8_str().unwrap();
     assert!(s.contains('\n'));
 
     // No line break variant
     let encoded_no_lb = builtin_base64_encode_string(vec![Value::string(long), Value::T]).unwrap();
-    let s2 = encoded_no_lb.as_str().unwrap();
+    let s2 = encoded_no_lb.as_utf8_str().unwrap();
     assert!(!s2.contains('\n'));
 }
 
@@ -1321,5 +1321,5 @@ fn base64_decode_ignores_whitespace() {
     crate::test_utils::init_test_tracing();
     // Encoded "Hello" with embedded whitespace
     let r = builtin_base64_decode_string(vec![Value::string("SGVs\nbG8=")]).unwrap();
-    assert_eq!(r.as_str(), Some("Hello"));
+    assert_eq!(r.as_utf8_str(), Some("Hello"));
 }

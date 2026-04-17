@@ -97,7 +97,11 @@ impl LispString {
     /// Try to view the data as a UTF-8 `&str`.
     /// Returns `None` if the bytes contain non-UTF-8 sequences (e.g. overlong
     /// C0/C1 raw-byte encodings from `.elc` files).
-    pub fn as_str(&self) -> Option<&str> {
+    ///
+    /// Prefer `as_bytes()` for byte-level equality: two different non-UTF-8
+    /// strings both return `None`, so `as_utf8_str() == as_utf8_str()` would
+    /// silently treat them as equal.
+    pub fn as_utf8_str(&self) -> Option<&str> {
         std::str::from_utf8(&self.data).ok()
     }
 
@@ -243,7 +247,7 @@ impl Clone for LispString {
 impl std::fmt::Debug for LispString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let text: String = self
-            .as_str()
+            .as_utf8_str()
             .map(|s| s.to_owned())
             .unwrap_or_else(|| format!("<{} bytes>", self.data.len()));
         f.debug_struct("LispString")

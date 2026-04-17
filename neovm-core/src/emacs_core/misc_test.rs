@@ -188,14 +188,14 @@ fn make_list_validates_wholenump_length() {
 fn string_repeat_basic() {
     crate::test_utils::init_test_tracing();
     let result = builtin_string_repeat(vec![Value::string("ab"), Value::fixnum(3)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "ababab");
+    assert_eq!(result.as_utf8_str().unwrap(), "ababab");
 }
 
 #[test]
 fn string_repeat_zero() {
     crate::test_utils::init_test_tracing();
     let result = builtin_string_repeat(vec![Value::string("ab"), Value::fixnum(0)]).unwrap();
-    assert_eq!(result.as_str().unwrap(), "");
+    assert_eq!(result.as_utf8_str().unwrap(), "");
 }
 
 #[test]
@@ -265,7 +265,7 @@ fn subst_char_basic() {
         Value::string("a.b.c"),
     ])
     .unwrap();
-    assert_eq!(result.as_str().unwrap(), "a/b/c");
+    assert_eq!(result.as_utf8_str().unwrap(), "a/b/c");
 }
 
 #[test]
@@ -277,7 +277,7 @@ fn subst_char_no_match() {
         Value::string("hello"),
     ])
     .unwrap();
-    assert_eq!(result.as_str().unwrap(), "hello");
+    assert_eq!(result.as_utf8_str().unwrap(), "hello");
 }
 
 // ----- string encoding identity stubs -----
@@ -457,7 +457,7 @@ fn multibyte_char_to_unibyte_returns_minus_one_for_non_unibyte_unicode() {
 fn locale_info_codeset_returns_utf8() {
     crate::test_utils::init_test_tracing();
     let result = builtin_locale_info(vec![Value::symbol("codeset")]).unwrap();
-    assert_eq!(result.as_str(), Some("UTF-8"));
+    assert_eq!(result.as_utf8_str(), Some("UTF-8"));
 }
 
 #[test]

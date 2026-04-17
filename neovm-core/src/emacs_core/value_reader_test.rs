@@ -179,7 +179,7 @@ fn keyword_bare_colon() {
 fn string_simple() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""hello""#);
-    assert_eq!(v.as_str().unwrap(), "hello");
+    assert_eq!(v.as_utf8_str().unwrap(), "hello");
 }
 
 #[test]
@@ -204,28 +204,28 @@ fn empty_string_literal_is_read_as_unibyte() {
 fn string_escapes() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""a\nb\t""#);
-    assert_eq!(v.as_str().unwrap(), "a\nb\t");
+    assert_eq!(v.as_utf8_str().unwrap(), "a\nb\t");
 }
 
 #[test]
 fn string_hex_escape() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""\x41""#);
-    assert_eq!(v.as_str().unwrap(), "A");
+    assert_eq!(v.as_utf8_str().unwrap(), "A");
 }
 
 #[test]
 fn string_unicode_escape() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""\u0041""#);
-    assert_eq!(v.as_str().unwrap(), "A");
+    assert_eq!(v.as_utf8_str().unwrap(), "A");
 }
 
 #[test]
 fn string_octal_escape() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""\101""#);
-    assert_eq!(v.as_str().unwrap(), "A");
+    assert_eq!(v.as_utf8_str().unwrap(), "A");
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +464,7 @@ fn read_label_define_and_ref() {
 fn propertized_string() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#"#("hello" 0 5 (face bold))"#);
-    assert_eq!(v.as_str().unwrap(), "hello");
+    assert_eq!(v.as_utf8_str().unwrap(), "hello");
 }
 
 // ---------------------------------------------------------------------------

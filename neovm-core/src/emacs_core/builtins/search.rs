@@ -1030,7 +1030,7 @@ pub(crate) fn builtin_match_string(
             return Ok(Value::NIL);
         }
 
-        if let Some(s) = args[1].as_str() {
+        if let Some(s) = args[1].as_utf8_str() {
             let (byte_start, byte_end) = if md.searched_string.is_some() {
                 (char_pos_to_byte(s, start), char_pos_to_byte(s, end))
             } else {

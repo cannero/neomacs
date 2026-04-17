@@ -381,7 +381,7 @@ fn test_signal_file_io_error_uses_specific_condition() {
         Flow::Signal(sig) => {
             assert_eq!(sig.symbol_name(), "permission-denied");
             assert_eq!(sig.data.len(), 1);
-            let Some(message) = sig.data[0].as_str() else {
+            let Some(message) = sig.data[0].as_utf8_str() else {
                 panic!("expected string error payload");
             };
             assert!(message.contains("Writing to /tmp/neovm-probe"));
@@ -886,14 +886,14 @@ fn test_builtin_expand_file_name() {
         vec![Value::string("/usr/local/bin/emacs")]
     );
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("/usr/local/bin/emacs"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("/usr/local/bin/emacs"));
 
     // Emacs treats non-string DEFAULT-DIRECTORY as root.
     let result = call_fileio_builtin!(
         builtin_expand_file_name,
         vec![Value::string("a"), Value::symbol("x")]
     );
-    assert_eq!(result.unwrap().as_str(), Some("/a"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("/a"));
 
     let result = call_fileio_builtin!(
         builtin_expand_file_name,
@@ -916,13 +916,13 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
 
     let with_implicit = builtin_expand_file_name(&mut eval, vec![Value::string("alpha.txt")]);
     assert_eq!(
-        with_implicit.unwrap().as_str(),
+        with_implicit.unwrap().as_utf8_str(),
         Some("/tmp/neovm-expand/alpha.txt")
     );
 
     let with_nil = builtin_expand_file_name(&mut eval, vec![Value::string("beta.txt"), Value::NIL]);
     assert_eq!(
-        with_nil.unwrap().as_str(),
+        with_nil.unwrap().as_utf8_str(),
         Some("/tmp/neovm-expand/beta.txt")
     );
 }
@@ -947,13 +947,13 @@ fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
     assert_eq!(
         builtin_expand_file_name(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
-            .as_str(),
+            .as_utf8_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
         builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")])
             .unwrap()
-            .as_str(),
+            .as_utf8_str(),
         Some(base.join("alpha.txt").to_string_lossy().as_ref())
     );
     assert_eq!(
@@ -980,7 +980,7 @@ fn test_builtin_file_truename_counter_validation() {
         vec![Value::string("/tmp"), Value::list(vec![])]
     )
     .unwrap();
-    assert_eq!(value.as_str(), Some("/tmp"));
+    assert_eq!(value.as_utf8_str(), Some("/tmp"));
 
     let err = call_fileio_builtin!(
         builtin_file_truename,
@@ -1028,7 +1028,7 @@ fn test_builtin_file_truename_eval_uses_default_directory() {
     );
 
     let value = builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
-    assert_eq!(value.as_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
+    assert_eq!(value.as_utf8_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
 }
 
 #[test]
@@ -1036,7 +1036,7 @@ fn test_builtin_make_temp_file_core_paths() {
     crate::test_utils::init_test_tracing();
     let file =
         call_fileio_builtin!(builtin_make_temp_file, vec![Value::string("neovm-mtf-")]).unwrap();
-    let file_path = file.as_str().unwrap().to_string();
+    let file_path = file.as_utf8_str().unwrap().to_string();
     assert!(file_exists_p(&file_path));
     delete_file(&file_path).unwrap();
 
@@ -1045,7 +1045,7 @@ fn test_builtin_make_temp_file_core_paths() {
         vec![Value::string("neovm-mtf-dir-"), Value::T]
     )
     .unwrap();
-    let dir_path = dir.as_str().unwrap().to_string();
+    let dir_path = dir.as_utf8_str().unwrap().to_string();
     assert!(file_directory_p(&dir_path));
     fs::remove_dir(&dir_path).unwrap();
 
@@ -1059,7 +1059,7 @@ fn test_builtin_make_temp_file_core_paths() {
         ]
     )
     .unwrap();
-    let text_path = with_text.as_str().unwrap().to_string();
+    let text_path = with_text.as_utf8_str().unwrap().to_string();
     assert_eq!(read_file_contents(&text_path).unwrap(), "abc");
     delete_file(&text_path).unwrap();
 }
@@ -1102,7 +1102,7 @@ fn test_builtin_make_temp_file_eval_honors_temp_directory() {
     );
 
     let value = builtin_make_temp_file(&mut eval, vec![Value::string("eval-neo-")]).unwrap();
-    let path = value.as_str().unwrap().to_string();
+    let path = value.as_utf8_str().unwrap().to_string();
     assert!(path.starts_with(&dir.to_string_lossy().to_string()));
     assert!(file_exists_p(&path));
     delete_file(&path).unwrap();
@@ -1117,7 +1117,7 @@ fn test_builtin_make_nearby_temp_file_core_semantics() {
         vec![Value::string("neovm-nearby-")]
     )
     .unwrap();
-    let path_str = path.as_str().unwrap().to_string();
+    let path_str = path.as_utf8_str().unwrap().to_string();
     assert!(file_exists_p(&path_str));
     delete_file(&path_str).unwrap();
 
@@ -1126,7 +1126,7 @@ fn test_builtin_make_nearby_temp_file_core_semantics() {
         vec![Value::string("neovm-nearby-dir-"), Value::T]
     )
     .unwrap();
-    let dir_str = dir.as_str().unwrap().to_string();
+    let dir_str = dir.as_utf8_str().unwrap().to_string();
     assert!(file_directory_p(&dir_str));
     fs::remove_dir(&dir_str).unwrap();
 
@@ -1136,7 +1136,7 @@ fn test_builtin_make_nearby_temp_file_core_semantics() {
     let prefix = base.join("child-").to_string_lossy().to_string();
     let nearby =
         call_fileio_builtin!(builtin_make_nearby_temp_file, vec![Value::string(&prefix)]).unwrap();
-    let nearby_str = nearby.as_str().unwrap().to_string();
+    let nearby_str = nearby.as_utf8_str().unwrap().to_string();
     assert_eq!(
         file_name_directory(&nearby_str),
         file_name_directory(&prefix),
@@ -1263,7 +1263,7 @@ fn test_builtin_file_modes_semantics() {
         vec![Value::string("neovm-file-modes-")]
     )
     .unwrap();
-    let path_str = path.as_str().unwrap().to_string();
+    let path_str = path.as_utf8_str().unwrap().to_string();
     let mode = call_fileio_builtin!(builtin_file_modes, vec![Value::string(&path_str)]).unwrap();
     assert!(mode.is_fixnum());
     let with_flag =
@@ -1300,7 +1300,7 @@ fn test_builtin_set_file_modes_semantics() {
         vec![Value::string("neovm-set-file-modes-")]
     )
     .unwrap();
-    let path_str = path.as_str().unwrap().to_string();
+    let path_str = path.as_utf8_str().unwrap().to_string();
 
     assert_eq!(
         call_fileio_builtin!(
@@ -1385,7 +1385,7 @@ fn test_builtin_directory_files_args() {
     .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].as_str(), Some("beta.el"));
+    assert_eq!(items[0].as_utf8_str(), Some("beta.el"));
 
     let unsorted = call_fileio_builtin!(
         builtin_directory_files,
@@ -1422,8 +1422,8 @@ fn test_builtin_directory_files_args() {
     .unwrap();
     let mut sorted_from_unsorted = unsorted_limited_items.clone();
     sorted_from_unsorted.sort_by(|a, b| {
-        let a = a.as_str().unwrap_or_default();
-        let b = b.as_str().unwrap_or_default();
+        let a = a.as_utf8_str().unwrap_or_default();
+        let b = b.as_utf8_str().unwrap_or_default();
         a.cmp(b)
     });
     assert_eq!(list_to_vec(&sorted_limited).unwrap(), sorted_from_unsorted);
@@ -1494,7 +1494,7 @@ fn test_builtin_directory_files_eval_respects_default_directory() {
     .unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 1);
-    assert_eq!(items[0].as_str(), Some("beta.el"));
+    assert_eq!(items[0].as_utf8_str(), Some("beta.el"));
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -1658,16 +1658,16 @@ fn test_builtin_file_name_ops() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_file_name_directory(&mut ev, vec![Value::string("/home/user/test.el")]);
-    assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("/home/user/"));
 
     let result = builtin_file_name_nondirectory(&mut ev, vec![Value::string("/home/user/test.el")]);
-    assert_eq!(result.unwrap().as_str(), Some("test.el"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("test.el"));
 
     let result = builtin_file_name_as_directory(&mut ev, vec![Value::string("/home/user")]);
-    assert_eq!(result.unwrap().as_str(), Some("/home/user/"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("/home/user/"));
 
     let result = builtin_directory_file_name(&mut ev, vec![Value::string("/home/user/")]);
-    assert_eq!(result.unwrap().as_str(), Some("/home/user"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("/home/user"));
 
     let result = builtin_file_name_concat(vec![
         Value::string("foo"),
@@ -1675,7 +1675,7 @@ fn test_builtin_file_name_ops() {
         Value::NIL,
         Value::string("bar"),
     ]);
-    assert_eq!(result.unwrap().as_str(), Some("foo/bar"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("foo/bar"));
 }
 
 #[test]
@@ -1866,7 +1866,7 @@ fn file_name_misc_bootstrap_error_shapes_match_gnu_files_el() {
 fn test_builtin_file_name_concat_strict_types() {
     crate::test_utils::init_test_tracing();
     let result = builtin_file_name_concat(vec![Value::NIL, Value::string("bar")]);
-    assert_eq!(result.unwrap().as_str(), Some("bar"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("bar"));
 
     let result = builtin_file_name_concat(vec![Value::symbol("foo"), Value::string("bar")]);
     assert!(result.is_err());
@@ -2221,7 +2221,7 @@ fn test_builtin_substitute_in_file_name() {
     let mut ev = Context::new();
     let result =
         builtin_substitute_in_file_name(&mut ev, vec![Value::string("$HOME/foo")]).unwrap();
-    assert_eq!(result.as_str(), Some(format!("{home}/foo").as_str()));
+    assert_eq!(result.as_utf8_str(), Some(format!("{home}/foo").as_str()));
 }
 
 #[test]
@@ -2304,7 +2304,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
     let result = builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::T])
         .expect("insert-file-contents with visit should succeed");
     let parts = list_to_vec(&result).expect("insert-file-contents should return list");
-    assert_eq!(parts[0].as_str(), Some(path_str.as_str()));
+    assert_eq!(parts[0].as_utf8_str(), Some(path_str.as_str()));
 
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "visited text");
@@ -2696,7 +2696,7 @@ fn test_eval_fileio_relative_paths_respect_default_directory() {
     let inserted =
         builtin_insert_file_contents(&mut eval_insert, vec![Value::string("alpha.txt")]).unwrap();
     let inserted_parts = list_to_vec(&inserted).unwrap();
-    assert_eq!(inserted_parts[0].as_str(), Some(alpha_str.as_str()));
+    assert_eq!(inserted_parts[0].as_utf8_str(), Some(alpha_str.as_str()));
     let ibuf = eval_insert.buffers.current_buffer().unwrap();
     assert_eq!(ibuf.buffer_string(), "alpha\n");
 

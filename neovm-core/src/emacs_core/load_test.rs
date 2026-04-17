@@ -4044,7 +4044,7 @@ fn load_file_records_load_history() {
     let first = super::super::value::list_to_vec(&entries[0]).expect("entry is a list");
     let path_str = file.to_string_lossy().to_string();
     assert_eq!(
-        first.first().and_then(|v| v.as_str()),
+        first.first().and_then(|v| v.as_utf8_str()),
         Some(path_str.as_str())
     );
     assert_eq!(
@@ -4088,13 +4088,13 @@ fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-purify-load-file-name-seen")
-            .and_then(|value| value.as_str()),
+            .and_then(|value| value.as_utf8_str()),
         Some("probe.el")
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-purify-load-true-file-name-seen")
-            .and_then(|value| value.as_str()),
+            .and_then(|value| value.as_utf8_str()),
         Some(true_name.as_str())
     );
 
@@ -4105,7 +4105,7 @@ fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
         .expect("captured current-load-list");
     let current_entries = list_to_vec(&current_load_list).expect("current-load-list is a list");
     assert_eq!(
-        current_entries.first().and_then(|value| value.as_str()),
+        current_entries.first().and_then(|value| value.as_utf8_str()),
         Some("probe.el")
     );
 
@@ -4117,7 +4117,7 @@ fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
     let entries = list_to_vec(&history).expect("load-history is a list");
     let first = list_to_vec(&entries[0]).expect("entry is a list");
     assert_eq!(
-        first.first().and_then(|value| value.as_str()),
+        first.first().and_then(|value| value.as_utf8_str()),
         Some("probe.el")
     );
 
@@ -4165,13 +4165,13 @@ fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     let first = super::super::value::list_to_vec(&entries[0]).expect("entry is a list");
     let path_str = file.to_string_lossy().to_string();
     assert_eq!(
-        first.first().and_then(|v| v.as_str()),
+        first.first().and_then(|v| v.as_utf8_str()),
         Some(path_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-after-load-filename")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(path_str.as_str())
     );
 
@@ -4299,19 +4299,19 @@ fn nested_load_restores_parent_load_file_name() {
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-seen")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(parent_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-child-seen")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(child_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-after-child")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(parent_str.as_str())
     );
     assert_eq!(
@@ -4364,19 +4364,19 @@ fn nested_load_exact_gc_preserves_reader_load_file_name() {
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-reader-before")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(parent_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-child-reader")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(child_str.as_str())
     );
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-parent-reader-after")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(parent_str.as_str())
     );
 
@@ -4411,7 +4411,7 @@ fn load_file_binds_load_true_file_name_and_current_load_list() {
     assert_eq!(
         eval.obarray()
             .symbol_value("vm-load-true-file-name-seen")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some(file_str.as_str())
     );
 
@@ -4425,7 +4425,7 @@ fn load_file_binds_load_true_file_name_and_current_load_list() {
         .first()
         .copied()
         .expect("current-load-list should contain the filename");
-    assert_eq!(first.as_str(), Some(file_str.as_str()));
+    assert_eq!(first.as_utf8_str(), Some(file_str.as_str()));
 
     assert_eq!(
         eval.obarray().symbol_value("load-true-file-name").cloned(),
@@ -6446,7 +6446,7 @@ fn auth_source_backend_exposes_type_slot() {
     });
     let items = crate::emacs_core::value::list_to_vec(&result).expect("probe result list");
     assert_eq!(items.first().copied(), Some(Value::symbol("netrc")));
-    assert_eq!(items.get(1).and_then(|v| v.as_str()), Some("test"));
+    assert_eq!(items.get(1).and_then(|v| v.as_utf8_str()), Some("test"));
 
     let slot_names = crate::emacs_core::value::list_to_vec(&items[2]).expect("slot names list");
     assert!(

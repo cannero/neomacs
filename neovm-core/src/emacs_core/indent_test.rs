@@ -607,7 +607,7 @@ fn indent_for_tab_command_inserts_tab() {
              (buffer-string))"#,
         )
         .expect("eval");
-    assert_eq!(value.as_str(), Some("\tx"));
+    assert_eq!(value.as_utf8_str(), Some("\tx"));
 }
 
 #[test]

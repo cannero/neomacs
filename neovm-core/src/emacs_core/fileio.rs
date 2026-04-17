@@ -2427,7 +2427,7 @@ pub(crate) fn find_file_name_handler_lisp(
         }
         let regexp_val = entry.cons_car();
         let handler = entry.cons_cdr();
-        let Some(regexp) = regexp_val.as_str() else {
+        let Some(regexp) = regexp_val.as_utf8_str() else {
             continue;
         };
 
@@ -3315,7 +3315,7 @@ pub(crate) fn builtin_write_region(
     // `Fwrite_region`'s `Ffind_file_name_handler (filename, Qwrite_region)`
     // dispatch.
     if let Some(filename_val) = args.get(2) {
-        if let Some(filename) = filename_val.as_str() {
+        if let Some(filename) = filename_val.as_utf8_str() {
             let op = Value::symbol("write-region");
             let handler = find_file_name_handler(&eval.obarray, filename, op);
             if !handler.is_nil() {

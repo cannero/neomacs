@@ -296,7 +296,7 @@ pub(crate) fn builtin_create_image(args: Vec<Value>) -> EvalResult {
             None
         } else {
             file_or_data
-                .as_str()
+                .as_utf8_str()
                 .and_then(infer_image_type_from_filename)
                 .map(str::to_string)
         };
@@ -607,7 +607,7 @@ pub(crate) fn builtin_image_type(args: Vec<Value>) -> EvalResult {
     let explicit_type = args.get(1).cloned().unwrap_or(Value::NIL);
     let data_p = args.get(2).cloned().unwrap_or(Value::NIL);
 
-    if source.as_str().is_none() {
+    if source.as_utf8_str().is_none() {
         let rendered = super::print::print_value(source);
         return Err(signal(
             "error",
@@ -622,7 +622,7 @@ pub(crate) fn builtin_image_type(args: Vec<Value>) -> EvalResult {
             None
         } else {
             source
-                .as_str()
+                .as_utf8_str()
                 .and_then(infer_image_type_from_filename)
                 .map(str::to_string)
         }

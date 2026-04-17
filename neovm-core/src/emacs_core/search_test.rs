@@ -81,7 +81,7 @@ fn assert_true(val: Value) {
 fn assert_str(val: Value, expected: &str) {
     match val.kind() {
         ValueKind::String => {
-            let s = val.as_str().unwrap().to_owned();
+            let s = val.as_utf8_str().unwrap().to_owned();
             assert_eq!(&*s, expected);
         }
         other => panic!("Expected string {:?}, got {:?}", expected, val),
@@ -235,7 +235,7 @@ fn regexp_quote_preserves_raw_unibyte_bytes() {
         string.as_bytes(),
         &[b'a', 0xFF, b'\\', b'*', b'\\', b'[', b'z']
     );
-    assert!(string.as_str().is_none());
+    assert!(string.as_utf8_str().is_none());
 }
 
 #[test]

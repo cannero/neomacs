@@ -118,7 +118,7 @@ fn read_from_string_string_value() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert_eq!(pair_car.as_str(), Some("hello world"));
+            assert_eq!(pair_car.as_utf8_str(), Some("hello world"));
             assert!(pair_cdr.is_fixnum());
         }
         _ => panic!("Expected cons"),
@@ -674,7 +674,7 @@ fn shared_read_from_minibuffer_runtime_runs_setup_and_exit_hooks_around_edit() {
     if !result.is_string() {
         panic!("expected string result, got {result:?}");
     };
-    assert_eq!(result.as_str().unwrap(), "");
+    assert_eq!(result.as_utf8_str().unwrap(), "");
     assert_eq!(*order.borrow(), vec!["setup", "edit", "exit"]);
 }
 
@@ -1552,7 +1552,7 @@ fn finish_yes_or_no_p_with_minibuffer_retries_until_valid_answer() {
     let mut prompts = Vec::new();
     let mut answers = [Value::string("maybe"), Value::string(" no ")].into_iter();
     let result = finish_yes_or_no_p_with_minibuffer(&[Value::string("Confirm?")], |args| {
-        prompts.push(args[0].as_str().unwrap().to_owned());
+        prompts.push(args[0].as_utf8_str().unwrap().to_owned());
         Ok(answers.next().expect("enough answers"))
     })
     .unwrap();
@@ -1988,7 +1988,7 @@ fn display_update_for_mouse_movement_runs_mouse_fixup_before_show_help_function(
     let value = ev
         .eval_str("show-help-collected")
         .expect("read show-help-collected");
-    assert_eq!(value.as_str(), Some("fixed:tip"));
+    assert_eq!(value.as_utf8_str(), Some("fixed:tip"));
 }
 
 #[test]
@@ -2635,7 +2635,7 @@ fn read_key_sequence_returns_empty_string() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
-    assert!(result.is_string() && result.as_str() == Some(""));
+    assert!(result.is_string() && result.as_utf8_str() == Some(""));
 }
 
 #[test]
@@ -2647,7 +2647,7 @@ fn read_key_sequence_consumes_unread_command_event() {
         Value::list(vec![Value::fixnum(97)]),
     );
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
-    assert!(result.is_string() && result.as_str() == Some("a"));
+    assert!(result.is_string() && result.as_utf8_str() == Some("a"));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
 }
 
@@ -2705,7 +2705,7 @@ fn read_key_sequence_consumes_character_and_preserves_tail() {
         Value::list(vec![Value::fixnum(97), event]),
     );
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
-    assert!(result.is_string() && result.as_str() == Some("a"));
+    assert!(result.is_string() && result.as_utf8_str() == Some("a"));
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(97)]);
     assert_eq!(
         ev.obarray.symbol_value("unread-command-events"),
@@ -2722,7 +2722,7 @@ fn read_key_sequence_accepts_nil_prompt() {
         Value::list(vec![Value::fixnum(97)]),
     );
     let result = builtin_read_key_sequence(&mut ev, vec![Value::NIL]).unwrap();
-    assert!(result.is_string() && result.as_str() == Some("a"));
+    assert!(result.is_string() && result.as_utf8_str() == Some("a"));
 }
 
 #[test]
@@ -2737,7 +2737,7 @@ fn read_key_sequence_treats_host_quit_char_as_ordinary_input() {
     ev.input_rx = Some(rx);
 
     let result = builtin_read_key_sequence(&mut ev, vec![Value::string("key: ")]).unwrap();
-    assert!(result.is_string() && result.as_str() == Some("\u{7}"));
+    assert!(result.is_string() && result.as_utf8_str() == Some("\u{7}"));
     assert!(ev.quit_flag_value().is_nil());
     assert_eq!(ev.read_command_keys(), &[Value::fixnum(7)]);
 }
@@ -3029,7 +3029,7 @@ fn with_output_to_string_captures_print_output() {
     let result = ev
         .eval_str(r#"(with-output-to-string (princ "a") (prin1 '(1 2)) (print "x"))"#)
         .unwrap();
-    assert_eq!(result.as_str(), Some("a(1 2)\n\"x\"\n"));
+    assert_eq!(result.as_utf8_str(), Some("a(1 2)\n\"x\"\n"));
 }
 
 #[test]
@@ -3046,7 +3046,7 @@ fn with_output_to_string_keeps_explicit_destination_working() {
                (buffer-string)))"#,
         )
         .unwrap();
-    assert_eq!(result.as_str(), Some(" to-buf"));
+    assert_eq!(result.as_utf8_str(), Some(" to-buf"));
 }
 
 // ===================================================================
@@ -3260,7 +3260,7 @@ fn read_from_string_hash_dollar_uses_load_file_name() {
         ValueKind::Cons => {
             let pair_car = result.cons_car();
             let pair_cdr = result.cons_cdr();
-            assert_eq!(pair_car.as_str(), Some("/tmp/reader-probe.elc"));
+            assert_eq!(pair_car.as_utf8_str(), Some("/tmp/reader-probe.elc"));
         }
         _ => panic!("Expected cons"),
     }
@@ -3478,7 +3478,7 @@ fn read_from_buffer_preserves_string_literals_during_eval() {
 
     let form = builtin_read(&mut ev, vec![Value::make_buffer(buf_id)]).expect("read form");
     let result = ev.eval_value(&form).expect("eval form");
-    assert_eq!(result.as_str(), Some("abc"));
+    assert_eq!(result.as_utf8_str(), Some("abc"));
 }
 
 #[test]
@@ -3608,7 +3608,7 @@ fn read_from_string_hash_dollar_inside_dotted_pair_uses_load_file_name() {
             };
             let data_car = pair_car.cons_car();
             let data_cdr = pair_car.cons_cdr();
-            assert_eq!(data_car.as_str(), Some("/tmp/reader-dotted.elc"));
+            assert_eq!(data_car.as_utf8_str(), Some("/tmp/reader-dotted.elc"));
             assert_eq!(data_cdr.as_int(), Some(83));
         }
         other => panic!("Expected cons from read-from-string, got {other:?}"),

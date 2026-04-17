@@ -78,7 +78,7 @@ fn test_directory_files_and_attributes_basic() {
         if item.is_cons() {
             let pair_car = item.cons_car();
             let pair_cdr = item.cons_cdr();
-            if pair_car.as_str() == Some("test.txt") {
+            if pair_car.as_utf8_str() == Some("test.txt") {
                 found = true;
                 // cdr should be a list (the attributes).
                 assert!(pair_cdr.is_cons() || pair_cdr.is_nil());
@@ -110,7 +110,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                pair.cons_car().as_str().unwrap().to_string()
+                pair.cons_car().as_utf8_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -133,7 +133,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                pair.cons_car().as_str().unwrap().to_string()
+                pair.cons_car().as_utf8_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -156,7 +156,7 @@ fn test_directory_files_and_attributes_order_and_count() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                pair.cons_car().as_str().unwrap().to_string()
+                pair.cons_car().as_utf8_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -247,7 +247,7 @@ fn test_directory_files_and_attributes_eval_respects_default_directory() {
         .iter()
         .map(|pair| {
             if pair.is_cons() {
-                pair.cons_car().as_str().unwrap().to_string()
+                pair.cons_car().as_utf8_str().unwrap().to_string()
             } else {
                 panic!("expected cons pair");
             }
@@ -276,7 +276,7 @@ fn test_file_name_completion_basic() {
         vec![Value::string("foo"), Value::string(&dir_str)],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("fooba"));
+    assert_eq!(result.as_utf8_str(), Some("fooba"));
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -332,12 +332,12 @@ fn test_file_name_completion_dot_and_slash_behavior() {
     let dot =
         builtin_file_name_completion(&mut ctx, vec![Value::string("."), Value::string(&dir_str)])
             .unwrap();
-    assert_eq!(dot.as_str(), Some(".hidden"));
+    assert_eq!(dot.as_utf8_str(), Some(".hidden"));
 
     let dotdot =
         builtin_file_name_completion(&mut ctx, vec![Value::string(".."), Value::string(&dir_str)])
             .unwrap();
-    assert_eq!(dotdot.as_str(), Some("../"));
+    assert_eq!(dotdot.as_utf8_str(), Some("../"));
 
     let slash =
         builtin_file_name_completion(&mut ctx, vec![Value::string("./"), Value::string(&dir_str)])
@@ -349,7 +349,7 @@ fn test_file_name_completion_dot_and_slash_behavior() {
         vec![Value::string("sub"), Value::string(&dir_str)],
     )
     .unwrap();
-    assert_eq!(subdir_prefix.as_str(), Some("subdir/"));
+    assert_eq!(subdir_prefix.as_utf8_str(), Some("subdir/"));
 
     let subdir_with_slash = builtin_file_name_completion(
         &mut ctx,
@@ -391,7 +391,7 @@ fn test_file_name_completion_predicate_with_eval() {
         ],
     )
     .unwrap();
-    assert_eq!(dirs_only_match.as_str(), Some("subdir/"));
+    assert_eq!(dirs_only_match.as_utf8_str(), Some("subdir/"));
 
     let bad_pred = builtin_file_name_completion(
         &mut eval,
@@ -426,7 +426,7 @@ fn test_file_name_completion_eval_relative_directory() {
         vec![Value::string("sub"), Value::string("fixtures/")],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("subdir/"));
+    assert_eq!(result.as_utf8_str(), Some("subdir/"));
 
     let _ = fs::remove_dir_all(&base);
 }
@@ -447,7 +447,7 @@ fn test_file_name_all_completions() {
         call_file_name_all_completions(vec![Value::string("ab"), Value::string(&dir_str)]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 2);
-    let names: Vec<&str> = items.iter().map(|v| v.as_str().unwrap()).collect();
+    let names: Vec<&str> = items.iter().map(|v| v.as_utf8_str().unwrap()).collect();
     assert!(names.contains(&"abc.txt"));
     assert!(names.contains(&"abd.txt"));
 
@@ -478,7 +478,7 @@ fn test_file_name_all_completions_special_entries() {
     let dot =
         call_file_name_all_completions(vec![Value::string("."), Value::string(&dir_str)]).unwrap();
     let dot_items = list_to_vec(&dot).unwrap();
-    let dot_names: Vec<&str> = dot_items.iter().map(|v| v.as_str().unwrap()).collect();
+    let dot_names: Vec<&str> = dot_items.iter().map(|v| v.as_utf8_str().unwrap()).collect();
     assert!(dot_names.contains(&"./"));
     assert!(dot_names.contains(&"../"));
     assert!(dot_names.contains(&".hidden"));
@@ -487,7 +487,7 @@ fn test_file_name_all_completions_special_entries() {
         call_file_name_all_completions(vec![Value::string(".."), Value::string(&dir_str)]).unwrap();
     let dotdot_items = list_to_vec(&dotdot).unwrap();
     assert_eq!(dotdot_items.len(), 1);
-    assert_eq!(dotdot_items[0].as_str(), Some("../"));
+    assert_eq!(dotdot_items[0].as_utf8_str(), Some("../"));
 
     let slash =
         call_file_name_all_completions(vec![Value::string("./"), Value::string(&dir_str)]).unwrap();
@@ -517,7 +517,7 @@ fn test_file_name_all_completions_eval_relative_directory() {
     )
     .unwrap();
     let items = list_to_vec(&result).unwrap();
-    let names: Vec<&str> = items.iter().map(|v| v.as_str().unwrap()).collect();
+    let names: Vec<&str> = items.iter().map(|v| v.as_utf8_str().unwrap()).collect();
     assert_eq!(names, vec!["subdir/"]);
 
     let _ = fs::remove_dir_all(&base);

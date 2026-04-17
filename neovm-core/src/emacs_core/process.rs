@@ -6363,7 +6363,7 @@ fn getenv_from_list(varname: &str, env_list: Value) -> EvalResult {
     let prefix = format!("{}=", varname);
     if let Some(entries) = list_to_vec(&env_list) {
         for entry in &entries {
-            if let Some(s) = entry.as_str() {
+            if let Some(s) = entry.as_utf8_str() {
                 if let Some(value_part) = s.strip_prefix(&prefix) {
                     return Ok(Value::string(value_part.to_string()));
                 }

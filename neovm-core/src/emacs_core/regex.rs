@@ -198,7 +198,7 @@ impl SearchedString {
             return String::new();
         };
         string
-            .as_str()
+            .as_utf8_str()
             .map(str::to_owned)
             .unwrap_or_else(|| String::from_utf8_lossy(string.as_bytes()).into_owned())
     }
@@ -1135,7 +1135,7 @@ fn literal_find_lisp_string(
                 return Some((start + match_start, start + match_end));
             }
 
-            let text = text.as_str()?;
+            let text = text.as_utf8_str()?;
             literal_find(&text[start..], literal, case_fold)
                 .map(|(match_start, match_end)| (start + match_start, start + match_end))
         },

@@ -834,7 +834,7 @@ impl ModeLineRendered {
                 }
             }
             None => {
-                let Some(text) = value.as_str() else {
+                let Some(text) = value.as_utf8_str() else {
                     return;
                 };
                 self.text.push_str(text);
@@ -878,7 +878,7 @@ impl ModeLineRendered {
                 }
             }
             None => {
-                let Some(text) = value.as_str() else {
+                let Some(text) = value.as_utf8_str() else {
                     return;
                 };
                 let byte_start = char_to_byte_pos(text, start_char);
@@ -1082,7 +1082,7 @@ fn append_mode_line_string_in_state(
 ) {
     let text = if let Some(string) = value.as_lisp_string() {
         crate::emacs_core::builtins::runtime_string_from_lisp_string(string)
-    } else if let Some(text) = value.as_str() {
+    } else if let Some(text) = value.as_utf8_str() {
         text.to_owned()
     } else {
         return;
@@ -1807,7 +1807,7 @@ fn expand_mode_line_percent_in_state(
 ) {
     let fmt_storage = if let Some(string) = value.as_lisp_string() {
         crate::emacs_core::builtins::runtime_string_from_lisp_string(string)
-    } else if let Some(text) = value.as_str() {
+    } else if let Some(text) = value.as_utf8_str() {
         text.to_owned()
     } else {
         return;

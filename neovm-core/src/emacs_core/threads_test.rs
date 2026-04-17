@@ -133,7 +133,7 @@ fn mutex_create_and_lookup() {
     let mut mgr = ThreadManager::new();
     let id = mgr.create_mutex(Some(LispString::from_unibyte(b"my-lock".to_vec())));
     assert!(mgr.is_mutex(id));
-    assert_eq!(mgr.mutex_name(id).and_then(|s| s.as_str()), Some("my-lock"));
+    assert_eq!(mgr.mutex_name(id).and_then(|s| s.as_utf8_str()), Some("my-lock"));
     assert!(!mgr.is_mutex(999));
 }
 
@@ -178,7 +178,7 @@ fn condition_variable_create() {
     let cv_id = cv.unwrap();
     assert!(mgr.is_condition_variable(cv_id));
     assert_eq!(
-        mgr.condition_variable_name(cv_id).and_then(|s| s.as_str()),
+        mgr.condition_variable_name(cv_id).and_then(|s| s.as_utf8_str()),
         Some("cv1")
     );
     assert_eq!(mgr.condition_variable_mutex(cv_id), Some(mx));
@@ -441,7 +441,7 @@ fn test_builtin_thread_join_current_thread_errors() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(sig.data.len(), 1);
-            assert_eq!(sig.data[0].as_str(), Some("Cannot join current thread"));
+            assert_eq!(sig.data[0].as_utf8_str(), Some("Cannot join current thread"));
         }
         other => panic!("expected error signal for self-join, got {other:?}"),
     }
@@ -658,7 +658,7 @@ fn test_builtin_mutex_name() {
     let mx = builtin_make_mutex(&mut eval, vec![Value::string("named-mx")]).unwrap();
     let result = builtin_mutex_name(&mut eval, vec![mx]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("named-mx"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("named-mx"));
 }
 
 #[test]

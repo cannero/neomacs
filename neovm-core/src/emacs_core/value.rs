@@ -1094,7 +1094,7 @@ impl TaggedValue {
 
     /// Get an owned copy of the string contents.
     pub fn as_str_owned(self) -> Option<String> {
-        self.as_str().map(|s| s.to_owned())
+        self.as_utf8_str().map(|s| s.to_owned())
     }
 
     /// Get an owned runtime-string view of a Lisp string, preserving raw
@@ -1110,7 +1110,7 @@ impl TaggedValue {
 
     /// Access the heap string via a closure.
     pub fn with_str<R>(self, f: impl FnOnce(&str) -> R) -> Option<R> {
-        self.as_str().map(f)
+        self.as_utf8_str().map(f)
     }
 
     /// Borrow the LispString for a string value.
@@ -1490,7 +1490,7 @@ impl TaggedValue {
             ValueKind::Symbol(id) => HashKey::Symbol(id),
             ValueKind::String => {
                 // Use content for equal hashing
-                if let Some(s) = self.as_str() {
+                if let Some(s) = self.as_utf8_str() {
                     HashKey::Text(s.to_string())
                 } else {
                     self.to_eq_key()

@@ -406,7 +406,7 @@ fn builtin_current_time_string_known_time() {
     // 2024-01-15 12:30:45 UTC
     let epoch = encode_to_epoch_secs(45, 30, 12, 15, 1, 2024);
     let result = builtin_current_time_string(vec![Value::fixnum(epoch)]).unwrap();
-    let s = result.as_str().unwrap();
+    let s = result.as_utf8_str().unwrap();
     assert!(s.contains("Jan"));
     assert!(s.contains("12:30:45"));
     assert!(s.contains("2024"));
@@ -694,7 +694,7 @@ fn builtin_set_time_zone_rule_invalid_spec() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Invalid time zone specification")
             );
         }
@@ -725,7 +725,7 @@ fn builtin_current_time_zone_with_zone_arg() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             assert_eq!(
-                sig.data.first().and_then(|v| v.as_str()),
+                sig.data.first().and_then(|v| v.as_utf8_str()),
                 Some("Invalid time zone specification")
             );
         }
@@ -844,7 +844,7 @@ fn time_operations_with_mixed_formats() {
 fn current_time_string_epoch() {
     crate::test_utils::init_test_tracing();
     let result = builtin_current_time_string(vec![Value::fixnum(0)]).unwrap();
-    let s = result.as_str().unwrap();
+    let s = result.as_utf8_str().unwrap();
     // 1970-01-01 00:00:00 UTC, Thursday
     assert!(s.contains("Thu"));
     assert!(s.contains("Jan"));

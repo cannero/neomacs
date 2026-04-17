@@ -2922,8 +2922,8 @@ fn compare_buffer_ids_for_value_lt(
 ) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    let left_name = eval.buffers.get(lhs).map(|buffer| buffer.name.as_str());
-    let right_name = eval.buffers.get(rhs).map(|buffer| buffer.name.as_str());
+    let left_name = eval.buffers.get(lhs).map(|buffer| buffer.name.as_utf8_str());
+    let right_name = eval.buffers.get(rhs).map(|buffer| buffer.name.as_utf8_str());
     match (left_name, right_name) {
         (Some(left), Some(right)) => left.cmp(&right),
         (None, Some(_)) => Ordering::Less,

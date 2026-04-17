@@ -7958,7 +7958,7 @@ fn documentation_property_plan(
         }
         Some(value) if startup_variable_doc_string_symbol(sym, prop, &value) => {
             let text = value
-                .as_str()
+                .as_utf8_str()
                 .expect("startup string variable-documentation should be string");
             let doc = if raw {
                 startup_doc_quote_style_raw(text)
@@ -8068,7 +8068,7 @@ fn snarf_doc_path_invalid(filename: &str) -> bool {
 
 pub(crate) fn builtin_snarf_documentation(args: Vec<Value>) -> EvalResult {
     expect_args("Snarf-documentation", &args, 1)?;
-    let filename = match args[0].as_str() {
+    let filename = match args[0].as_utf8_str() {
         Some(name) => name,
         None => {
             return Err(signal(

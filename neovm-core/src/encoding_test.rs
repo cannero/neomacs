@@ -324,12 +324,12 @@ fn builtin_coding_string_helpers_accept_iso_8859_15_alias() {
     let encoded =
         builtin_encode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-15")])
             .expect("iso-8859-15 should be accepted as a known coding system");
-    assert_eq!(encoded.as_str(), Some("abc"));
+    assert_eq!(encoded.as_utf8_str(), Some("abc"));
 
     let decoded =
         builtin_decode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-15")])
             .expect("iso-8859-15 should be accepted as a known coding system");
-    assert_eq!(decoded.as_str(), Some("abc"));
+    assert_eq!(decoded.as_utf8_str(), Some("abc"));
 }
 
 #[test]
@@ -338,12 +338,12 @@ fn builtin_coding_string_helpers_accept_iso_8859_9_alias() {
     let encoded =
         builtin_encode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-9")])
             .expect("iso-8859-9 should be accepted as a known coding system");
-    assert_eq!(encoded.as_str(), Some("abc"));
+    assert_eq!(encoded.as_utf8_str(), Some("abc"));
 
     let decoded =
         builtin_decode_coding_string(vec![Value::string("abc"), Value::symbol("iso-8859-9")])
             .expect("iso-8859-9 should be accepted as a known coding system");
-    assert_eq!(decoded.as_str(), Some("abc"));
+    assert_eq!(decoded.as_utf8_str(), Some("abc"));
 }
 
 #[test]

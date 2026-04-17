@@ -1913,7 +1913,7 @@ pub(crate) fn builtin_internal_delete_indirect_variable(args: Vec<Value>) -> Eva
 pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResult {
     expect_args("internal-decode-string-utf-8", &args, 7)?;
     // GNU returns nil if STRING is not a string.
-    if args[0].as_str().is_none() {
+    if args[0].as_utf8_str().is_none() {
         return Ok(Value::NIL);
     }
     // GNU: CHECK_FIXNUM(count)
@@ -1932,7 +1932,7 @@ pub(crate) fn builtin_internal_decode_string_utf_8(args: Vec<Value>) -> EvalResu
 /// Same rationale as decode: NeoVM strings are already UTF-8.
 pub(crate) fn builtin_internal_encode_string_utf_8(args: Vec<Value>) -> EvalResult {
     expect_args("internal-encode-string-utf-8", &args, 7)?;
-    if args[0].as_str().is_none() {
+    if args[0].as_utf8_str().is_none() {
         return Ok(Value::NIL);
     }
     if !args[6].is_fixnum() {

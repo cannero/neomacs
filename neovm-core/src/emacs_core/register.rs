@@ -116,7 +116,7 @@ impl RegisterManager {
     /// Convenience: get the text stored in a register, if it holds text.
     pub fn get_text(&self, register: char) -> Option<&str> {
         match self.registers.get(&register) {
-            Some(RegisterContent::Text(s)) => s.as_str(),
+            Some(RegisterContent::Text(s)) => s.as_utf8_str(),
             _ => None,
         }
     }

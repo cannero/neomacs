@@ -51,7 +51,7 @@ fn expect_optional_string(_name: &str, value: &Value) -> Result<(), Flow> {
     if value.is_nil() {
         return Ok(());
     }
-    if value.as_str().is_none() {
+    if value.as_utf8_str().is_none() {
         Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],

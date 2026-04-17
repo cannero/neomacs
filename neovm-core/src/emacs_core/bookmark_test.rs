@@ -460,8 +460,8 @@ fn test_builtin_bookmark_all_names() {
     let result = builtin_bookmark_all_names(&mut eval, vec![]).unwrap();
     let names = super::super::value::list_to_vec(&result).unwrap();
     assert_eq!(names.len(), 2);
-    assert_eq!(names[0].as_str(), Some("a-bookmark"));
-    assert_eq!(names[1].as_str(), Some("z-bookmark"));
+    assert_eq!(names[0].as_utf8_str(), Some("a-bookmark"));
+    assert_eq!(names[1].as_utf8_str(), Some("z-bookmark"));
 }
 
 #[test]
@@ -474,7 +474,7 @@ fn test_builtin_bookmark_get_filename() {
     builtin_bookmark_set(&mut eval, vec![Value::string("with-file")]).unwrap();
 
     let found = builtin_bookmark_get_filename(&mut eval, vec![Value::string("with-file")]).unwrap();
-    assert_eq!(found.as_str(), Some("/tmp/file.el"));
+    assert_eq!(found.as_utf8_str(), Some("/tmp/file.el"));
 
     let missing = builtin_bookmark_get_filename(&mut eval, vec![Value::string("missing")]).unwrap();
     assert!(missing.is_nil());
@@ -512,7 +512,7 @@ fn test_builtin_bookmark_get_annotation() {
 
     let found =
         builtin_bookmark_get_annotation(&mut eval, vec![Value::string("with-note")]).unwrap();
-    assert_eq!(found.as_str(), Some("note"));
+    assert_eq!(found.as_utf8_str(), Some("note"));
 
     let missing =
         builtin_bookmark_get_annotation(&mut eval, vec![Value::string("missing")]).unwrap();
@@ -533,10 +533,10 @@ fn test_builtin_bookmark_set_annotation() {
         vec![Value::string("entry"), Value::string("note")],
     )
     .unwrap();
-    assert_eq!(set_result.as_str(), Some("note"));
+    assert_eq!(set_result.as_utf8_str(), Some("note"));
 
     let got = builtin_bookmark_get_annotation(&mut eval, vec![Value::string("entry")]).unwrap();
-    assert_eq!(got.as_str(), Some("note"));
+    assert_eq!(got.as_utf8_str(), Some("note"));
 
     let missing = builtin_bookmark_set_annotation(
         &mut eval,
@@ -573,7 +573,7 @@ fn test_builtin_bookmark_save_load() {
     assert!(result.is_ok());
     let load_message = result.unwrap();
     assert_eq!(
-        load_message.as_str(),
+        load_message.as_utf8_str(),
         Some("Loading bookmarks from /tmp/neovm-bookmark-save-load.data...done")
     );
 

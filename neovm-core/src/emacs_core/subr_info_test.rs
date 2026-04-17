@@ -44,7 +44,7 @@ fn make_bytecode(required: Vec<&str>, rest: Option<&str>) -> Value {
 fn subr_name_returns_string() {
     crate::test_utils::init_test_tracing();
     let result = builtin_subr_name(vec![Value::subr(intern("cons"))]).unwrap();
-    assert_eq!(result.as_str(), Some("cons"));
+    assert_eq!(result.as_utf8_str(), Some("cons"));
 }
 
 #[test]

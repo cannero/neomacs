@@ -1451,7 +1451,7 @@ fn this_command_keys_empty() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    assert_eq!(result.as_str(), Some(""));
+    assert_eq!(result.as_utf8_str(), Some(""));
 }
 
 #[test]
@@ -1460,7 +1460,7 @@ fn this_command_keys_after_set() {
     let mut ev = Context::new();
     ev.set_this_command_keys_from_string("ab").unwrap();
     let result = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    assert_eq!(result.as_str(), Some("ab"));
+    assert_eq!(result.as_utf8_str(), Some("ab"));
 }
 
 #[test]
@@ -1493,7 +1493,7 @@ fn this_command_keys_uses_read_command_key_chars() {
     ev.set_read_command_keys(vec![Value::fixnum(97)]);
 
     let text = builtin_this_command_keys(&mut ev, vec![]).unwrap();
-    assert_eq!(text.as_str(), Some("a"));
+    assert_eq!(text.as_utf8_str(), Some("a"));
 
     let vec_result = builtin_this_command_keys_vector(&mut ev, vec![]).unwrap();
     match vec_result.kind() {
@@ -3936,10 +3936,10 @@ fn eval_expression_apply_executes_form_argument() {
         .expect("current-message should be readable after eval-expression");
 
     assert_eq!(
-        result.as_str(),
+        result.as_utf8_str(),
         Some("NEO-OK"),
         "unexpected eval-expression result={rendered} current-message={:?}",
-        current_message.as_str()
+        current_message.as_utf8_str()
     );
 }
 
@@ -3965,10 +3965,10 @@ fn call_interactively_eval_expression_executes_read_expression_result() {
         .expect("current-message should be readable after call-interactively");
 
     assert_eq!(
-        result.as_str(),
+        result.as_utf8_str(),
         Some("NEO-OK"),
         "unexpected interactive eval-expression result={rendered} current-message={:?}",
-        current_message.as_str()
+        current_message.as_utf8_str()
     );
 }
 

@@ -1647,7 +1647,7 @@ fn interactive_args_from_string_code_in_vm_runtime(
                         )
                     },
                 )?;
-                if let Some(name) = sym_name.as_str() {
+                if let Some(name) = sym_name.as_utf8_str() {
                     args.push(Value::symbol(name));
                 } else {
                     return Ok(None);
@@ -2340,7 +2340,7 @@ fn interactive_args_from_string_code(
             'S' => {
                 let sym_name =
                     super::reader::builtin_read_string(eval, vec![Value::heap_string(prompt)])?;
-                if let Some(name) = sym_name.as_str() {
+                if let Some(name) = sym_name.as_utf8_str() {
                     args.push(Value::symbol(name));
                 } else {
                     return Ok(None);

@@ -27,7 +27,7 @@ fn raw_documentation_property_does_not_require_substitute_command_keys() {
         ],
     )
     .expect("raw documentation-property should succeed");
-    assert_eq!(result.as_str(), Some("Press \\[save-buffer] to save."));
+    assert_eq!(result.as_utf8_str(), Some("Press \\[save-buffer] to save."));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn runtime_documentation_property_uses_gnu_substitute_command_keys() {
         ],
     )
     .expect("runtime documentation-property should succeed");
-    let text = result.as_str().expect("runtime doc should stay string");
+    let text = result.as_utf8_str().expect("runtime doc should stay string");
     assert!(text.contains("save-buffer"));
     assert!(!text.contains("\\["));
 }
@@ -288,7 +288,7 @@ fn documentation_lambda_with_docstring() {
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("my-fn")]);
     assert!(result.is_ok());
-    assert_eq!(result.unwrap().as_str(), Some("Add one to X."));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("Add one to X."));
 }
 
 #[test]
@@ -338,8 +338,8 @@ fn documentation_substitutes_command_keys_unless_raw() {
     let raw =
         builtin_documentation(&mut evaluator, vec![Value::symbol("doc-raw-fn"), Value::T]).unwrap();
 
-    let display = display.as_str().expect("display documentation string");
-    let raw = raw.as_str().expect("raw documentation string");
+    let display = display.as_utf8_str().expect("display documentation string");
+    let raw = raw.as_utf8_str().expect("raw documentation string");
     assert!(display.contains("save-buffer"));
     assert!(!display.contains("\\["));
     assert!(raw.contains("\\[save-buffer]"));
@@ -398,7 +398,7 @@ fn documentation_car_subr_uses_oracle_text_shape() {
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("car")]).unwrap();
     let text = result
-        .as_str()
+        .as_utf8_str()
         .expect("documentation for car should return a string");
     assert!(text.starts_with("Return the car of LIST.  If LIST is nil, return nil."));
     assert_ne!(text, "Built-in function.");
@@ -414,7 +414,7 @@ fn documentation_if_special_form_uses_oracle_text_shape() {
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("if")]).unwrap();
     let text = result
-        .as_str()
+        .as_utf8_str()
         .expect("documentation for if should return a string");
     assert!(text.starts_with("If COND yields non-nil, do THEN, else do ELSE..."));
     assert_ne!(text, "Built-in function.");
@@ -473,7 +473,7 @@ fn documentation_core_subr_stubs_use_oracle_first_line_shapes() {
             .set_symbol_function(name, Value::subr(intern(name)));
         let result = builtin_documentation(&mut evaluator, vec![Value::symbol(name)]).unwrap();
         let text = result
-            .as_str()
+            .as_utf8_str()
             .expect("core subr documentation should return a string");
         assert!(
             text.starts_with(expected_prefix),
@@ -494,7 +494,7 @@ fn documentation_symbol_alias_to_builtin_returns_docstring() {
     let result =
         builtin_documentation(&mut evaluator, vec![Value::symbol("alias-builtin")]).unwrap();
     let text = result
-        .as_str()
+        .as_utf8_str()
         .expect("documentation alias to car should return a string");
     assert!(text.starts_with("Return the car of LIST.  If LIST is nil, return nil."));
     assert_ne!(text, "Built-in function.");
@@ -514,7 +514,7 @@ fn documentation_prefers_function_documentation_property() {
     );
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
-    assert_eq!(result.unwrap().as_str(), Some("propdoc"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("propdoc"));
 }
 
 #[test]
@@ -546,7 +546,7 @@ fn documentation_list_function_documentation_property_is_evaluated() {
     );
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
-    assert_eq!(result.unwrap().as_str(), Some("doc"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("doc"));
 }
 
 #[test]
@@ -633,7 +633,7 @@ fn documentation_quoted_lambda_docstring() {
     ]);
 
     let result = builtin_documentation(&mut evaluator, vec![quoted]).unwrap();
-    assert_eq!(result.as_str(), Some("d"));
+    assert_eq!(result.as_utf8_str(), Some("d"));
 }
 
 #[test]
@@ -656,7 +656,7 @@ fn documentation_vector_designator_returns_keyboard_macro_doc() {
     let mut evaluator = super::super::eval::Context::new();
     let result =
         builtin_documentation(&mut evaluator, vec![Value::vector(vec![Value::fixnum(1)])]).unwrap();
-    assert_eq!(result.as_str(), Some("Keyboard macro."));
+    assert_eq!(result.as_utf8_str(), Some("Keyboard macro."));
 }
 
 #[test]
@@ -664,7 +664,7 @@ fn documentation_string_designator_returns_keyboard_macro_doc() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();
     let result = builtin_documentation(&mut evaluator, vec![Value::string("abc")]).unwrap();
-    assert_eq!(result.as_str(), Some("Keyboard macro."));
+    assert_eq!(result.as_utf8_str(), Some("Keyboard macro."));
 }
 
 #[test]
@@ -763,7 +763,7 @@ fn documentation_property_eval_returns_string_property() {
         ],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("doc"));
+    assert_eq!(result.as_utf8_str(), Some("doc"));
 }
 
 #[test]
@@ -798,9 +798,9 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
     .unwrap();
 
     let display = display
-        .as_str()
+        .as_utf8_str()
         .expect("display documentation-property string");
-    let raw = raw.as_str().expect("raw documentation-property string");
+    let raw = raw.as_utf8_str().expect("raw documentation-property string");
     assert!(display.contains("save-buffer"));
     assert!(!display.contains("\\["));
     assert!(raw.contains("\\[save-buffer]"));
@@ -866,7 +866,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
     )
     .unwrap();
 
-    assert_eq!(result.as_str(), Some("compiled doc"));
+    assert_eq!(result.as_utf8_str(), Some("compiled doc"));
 
     let _ = std::fs::remove_file(path);
 }
@@ -885,7 +885,7 @@ fn documentation_property_eval_load_path_integer_property_returns_string() {
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("List of directories to search for files to load"))
     );
 }
@@ -913,10 +913,10 @@ fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
     )
     .unwrap();
     let display = display
-        .as_str()
+        .as_utf8_str()
         .expect("display documentation-property should return a string");
     let raw = raw
-        .as_str()
+        .as_utf8_str()
         .expect("raw documentation-property should return a string");
 
     assert_ne!(display, raw);
@@ -947,10 +947,10 @@ fn documentation_property_eval_ctl_x_4_map_raw_matches_display_when_no_markup() 
     )
     .unwrap();
     let display = display
-        .as_str()
+        .as_utf8_str()
         .expect("display documentation-property should return a string");
     let raw = raw
-        .as_str()
+        .as_utf8_str()
         .expect("raw documentation-property should return a string");
 
     assert!(display.contains("C-x 4"));
@@ -972,7 +972,7 @@ fn documentation_property_eval_case_fold_search_integer_property_returns_string(
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("searches and matches should ignore case"))
     );
 }
@@ -991,7 +991,7 @@ fn documentation_property_eval_unread_command_events_integer_property_returns_st
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("events to be read as the command input"))
     );
 }
@@ -1010,7 +1010,7 @@ fn documentation_property_eval_auto_hscroll_mode_integer_property_returns_string
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("automatic horizontal scrolling of windows"))
     );
 }
@@ -1029,7 +1029,7 @@ fn documentation_property_eval_auto_composition_mode_integer_property_returns_st
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("Auto-Composition mode is enabled"))
     );
 }
@@ -1048,7 +1048,7 @@ fn documentation_property_eval_coding_system_alist_integer_property_returns_stri
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("Alist of coding system names"))
     );
 }
@@ -1067,7 +1067,7 @@ fn documentation_property_eval_debug_on_message_integer_property_returns_string(
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("debug if a message matching this regexp is displayed"))
     );
 }
@@ -1086,7 +1086,7 @@ fn documentation_property_eval_display_hourglass_integer_property_returns_string
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("show an hourglass pointer"))
     );
 }
@@ -1105,7 +1105,7 @@ fn documentation_property_eval_exec_directory_integer_property_returns_string() 
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("Directory for executables for Emacs to invoke"))
     );
 }
@@ -1124,7 +1124,7 @@ fn documentation_property_eval_frame_title_format_integer_property_returns_strin
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("Template for displaying the title bar of visible frames"))
     );
 }
@@ -1143,7 +1143,7 @@ fn documentation_property_eval_header_line_format_integer_property_returns_strin
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("controls the header line"))
     );
 }
@@ -1162,7 +1162,7 @@ fn documentation_property_eval_input_method_function_integer_property_returns_st
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("implements the current input method"))
     );
 }
@@ -1181,7 +1181,7 @@ fn documentation_property_eval_load_suffixes_integer_property_returns_string() {
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("suffixes for Emacs Lisp files and dynamic modules"))
     );
 }
@@ -1205,7 +1205,7 @@ fn documentation_property_eval_native_comp_eln_load_path_integer_property_return
     // artifact -- the GNU source uses "native-compiled".
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("native-compiled *.eln files"))
     );
 }
@@ -1224,7 +1224,7 @@ fn documentation_property_eval_process_environment_integer_property_returns_stri
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("environment variables for subprocesses"))
     );
 }
@@ -1243,7 +1243,7 @@ fn documentation_property_eval_scroll_margin_integer_property_returns_string() {
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("margin at the top and bottom"))
     );
 }
@@ -1262,7 +1262,7 @@ fn documentation_property_eval_truncate_partial_width_windows_integer_property_r
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("windows narrower than the frame"))
     );
 }
@@ -1279,7 +1279,7 @@ fn documentation_property_eval_yes_or_no_prompt_integer_property_returns_string(
         ],
     )
     .unwrap();
-    assert!(result.as_str().is_some_and(|s| s.contains("append when")));
+    assert!(result.as_utf8_str().is_some_and(|s| s.contains("append when")));
 }
 
 #[test]
@@ -1296,7 +1296,7 @@ fn documentation_property_eval_debug_on_error_integer_property_returns_string() 
     .unwrap();
     assert!(
         result
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.contains("Non-nil means enter debugger if an error is signaled"))
     );
 }
@@ -1319,7 +1319,7 @@ fn documentation_property_eval_list_property_is_evaluated() {
         ],
     )
     .unwrap();
-    assert_eq!(result.as_str(), Some("doc"));
+    assert_eq!(result.as_utf8_str(), Some("doc"));
 }
 
 #[test]

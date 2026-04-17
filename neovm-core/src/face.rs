@@ -510,12 +510,12 @@ impl Face {
 
             match key {
                 "foreground" | "foreground-color" => {
-                    if let Some(s) = val.as_str() {
+                    if let Some(s) = val.as_utf8_str() {
                         face.foreground = Color::parse(s);
                     }
                 }
                 "background" | "background-color" => {
-                    if let Some(s) = val.as_str() {
+                    if let Some(s) = val.as_utf8_str() {
                         face.background = Color::parse(s);
                     }
                 }
@@ -543,7 +543,7 @@ impl Face {
                 }
                 "underline" => face.underline = parse_underline_value(val),
                 "overline" => {
-                    if let Some(s) = val.as_str() {
+                    if let Some(s) = val.as_utf8_str() {
                         face.overline = Some(true);
                         face.overline_color = Color::parse(s);
                     } else {
@@ -551,7 +551,7 @@ impl Face {
                     }
                 }
                 "strike-through" => {
-                    if let Some(s) = val.as_str() {
+                    if let Some(s) = val.as_utf8_str() {
                         face.strike_through = Some(true);
                         face.strike_through_color = Color::parse(s);
                     } else {
@@ -579,7 +579,7 @@ impl Face {
                     face.box_border = parse_box_value(val);
                 }
                 "distant-foreground" => {
-                    if let Some(s) = val.as_str() {
+                    if let Some(s) = val.as_utf8_str() {
                         face.distant_foreground = Color::parse(s);
                     }
                 }

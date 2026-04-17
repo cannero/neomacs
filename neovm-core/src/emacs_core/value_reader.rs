@@ -1322,7 +1322,7 @@ impl<'a> Reader<'a> {
         let size = self.parse_decimal_usize()?;
         let data = self.read_string()?;
         let data_str = data
-            .as_str()
+            .as_utf8_str()
             .ok_or_else(|| self.error("#& expected string after size"))?;
 
         // Expand packed bytes to individual bits and emit as

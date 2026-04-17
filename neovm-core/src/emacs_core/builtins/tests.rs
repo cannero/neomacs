@@ -1621,7 +1621,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     assert_eq!(
         eval.obarray()
             .symbol_value("mib-last-clone-buffer")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some("*mib-clone*")
     );
     assert_eq!(
@@ -1648,7 +1648,7 @@ fn make_indirect_buffer_clone_and_hook_semantics_follow_buffer_c() {
     assert_eq!(
         eval.obarray()
             .symbol_value("mib-last-clone-buffer")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some("*mib-clone-inhibit*"),
         "clone-indirect-buffer-hook should still run"
     );
@@ -1693,7 +1693,7 @@ fn make_indirect_buffer_clone_nil_resets_buffer_state() {
     assert_eq!(
         indirect_buf
             .get_buffer_local("mode-name")
-            .and_then(|v| v.as_str()),
+            .and_then(|v| v.as_utf8_str()),
         Some("Fundamental")
     );
 }
@@ -1798,7 +1798,7 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
     .expect("subst-char-in-region should succeed");
 
     assert_eq!(
-        builtin_buffer_string(&mut eval, vec![]).unwrap().as_str(),
+        builtin_buffer_string(&mut eval, vec![]).unwrap().as_utf8_str(),
         Some("heLLo worLd heLLo")
     );
 }
@@ -1823,7 +1823,7 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
     .expect("subst-char-in-region with NOUNDO should succeed");
 
     assert_eq!(
-        builtin_buffer_string(&mut eval, vec![]).unwrap().as_str(),
+        builtin_buffer_string(&mut eval, vec![]).unwrap().as_utf8_str(),
         Some("a b ")
     );
     assert_eq!(
@@ -2060,7 +2060,7 @@ fn insert_inherit_variants_reuse_insert_semantics() {
     assert_eq!(
         builtin_buffer_string(&mut eval, vec![])
             .unwrap()
-            .as_str()
+            .as_utf8_str()
             .map(str::to_owned),
         Some("abcd".to_string())
     );
@@ -4445,7 +4445,7 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
     .expect("builtin make-temp-file-internal should resolve")
     .expect("builtin make-temp-file-internal should evaluate");
     let path = created
-        .as_str()
+        .as_utf8_str()
         .expect("make-temp-file-internal should return file path");
     assert!(path.contains("neovm-mtfi-"));
     assert!(path.ends_with(".tmp"));
@@ -6545,7 +6545,7 @@ fn delete_region_normalizes_reversed_bounds() {
         .expect("delete-region should accept reversed bounds");
 
     let text = builtin_buffer_string(&mut eval, vec![]).expect("buffer-string should succeed");
-    assert_eq!(text.as_str(), Some("ac"));
+    assert_eq!(text.as_utf8_str(), Some("ac"));
 }
 
 #[test]
@@ -8920,12 +8920,12 @@ fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
     let upper = dispatch_builtin(&mut eval, "format", vec![Value::string("%S"), thread])
         .expect("format should resolve for %S")
         .expect("format should evaluate for %S");
-    assert!(upper.as_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(upper.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
 
     let lower = dispatch_builtin(&mut eval, "format", vec![Value::string("%s"), thread])
         .expect("format should resolve for %s")
         .expect("format should evaluate for %s");
-    assert!(lower.as_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(lower.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
 }
 
 #[test]
@@ -8938,7 +8938,7 @@ fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
     let message = dispatch_builtin(&mut eval, "message", vec![Value::string("%S"), thread])
         .expect("message should resolve")
         .expect("message should evaluate");
-    assert!(message.as_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(message.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
 }
 
 #[test]
@@ -8958,7 +8958,7 @@ fn format_and_message_render_terminal_handles_in_eval_dispatch() {
             .expect("builtin should evaluate");
         assert!(
             rendered
-                .as_str()
+                .as_utf8_str()
                 .is_some_and(|s| s.starts_with("#<terminal")),
             "expected {builtin} {spec} output to start with #<terminal, got: {rendered:?}"
         );
@@ -8986,7 +8986,7 @@ fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
             .expect("builtin should resolve")
             .expect("builtin should evaluate");
         assert!(
-            rendered.as_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
             "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -9033,7 +9033,7 @@ fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
         .expect("format should evaluate");
     assert!(
         formatted
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.starts_with("#<buffer *format-live-buffer")),
         "expected live buffer name in format output: {formatted:?}"
     );
@@ -9043,7 +9043,7 @@ fn format_and_message_render_live_buffer_handles_in_eval_dispatch() {
         .expect("message should evaluate");
     assert!(
         message
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.starts_with("#<buffer *format-live-buffer")),
         "expected live buffer name in message output: {message:?}"
     );
@@ -9104,7 +9104,7 @@ fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
                 .expect("builtin should resolve")
                 .expect("builtin should evaluate");
             assert!(
-                rendered.as_str().is_some_and(|s| s.starts_with(prefix)),
+                rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
                 "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
             );
         };
@@ -9121,7 +9121,7 @@ fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
                 .expect("builtin should resolve")
                 .expect("builtin should evaluate");
             assert!(
-                rendered.as_str().is_some_and(|s| s.contains(snippet)),
+                rendered.as_utf8_str().is_some_and(|s| s.contains(snippet)),
                 "expected {builtin} {spec} output to contain {snippet}, got: {rendered:?}"
             );
         };
@@ -9163,7 +9163,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
         .expect("format-message should resolve")
         .expect("format-message should evaluate");
         assert!(
-            rendered.as_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
             "expected format-message {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -9181,7 +9181,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
         )
         .expect("format-message should resolve")
         .expect("format-message should evaluate")
-        .as_str()
+        .as_utf8_str()
         .is_some_and(|s| s.contains("on *scratch*>")),
         "expected format-message window output to include buffer context"
     );
@@ -9197,7 +9197,7 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
     .expect("format-message should evaluate");
     assert!(
         live_upper
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.starts_with("#<buffer *format-message-live-buffer")),
         "expected live buffer in format-message %S output: {live_upper:?}"
     );
@@ -9261,7 +9261,7 @@ fn error_message_string_preserves_percent_s_handle_semantics() {
             .expect("error-message-string should resolve")
             .expect("error-message-string should evaluate");
         rendered
-            .as_str()
+            .as_utf8_str()
             .expect("error-message-string should return a string")
             .to_string()
     };
@@ -9457,7 +9457,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
             .expect("builtin should resolve")
             .expect("builtin should evaluate");
         assert!(
-            rendered.as_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
             "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -9488,7 +9488,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     .expect("message-box should evaluate");
     assert!(
         live_upper
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.starts_with("#<buffer *message-box-live-buffer")),
         "expected live buffer in message-box %S output: {live_upper:?}"
     );
@@ -9509,7 +9509,7 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
     .expect("message-or-box should evaluate");
     assert!(
         live_or_upper
-            .as_str()
+            .as_utf8_str()
             .is_some_and(|s| s.starts_with("#<buffer *message-box-live-buffer")),
         "expected live buffer in message-or-box %S output: {live_or_upper:?}"
     );
@@ -9627,7 +9627,7 @@ fn format_message_promotes_unibyte_ascii_to_multibyte_when_quoting() {
         .expect("format-message should evaluate");
     let formatted = formatted.as_lisp_string().expect("format-message string");
     assert!(formatted.is_multibyte());
-    assert_eq!(formatted.as_str(), Some("\u{2018}\u{2019}"));
+    assert_eq!(formatted.as_utf8_str(), Some("\u{2018}\u{2019}"));
 }
 
 #[test]
@@ -9853,7 +9853,7 @@ fn insert_byte_matches_gnu_multibyte_and_unibyte_storage() {
         .as_lisp_string()
         .expect("buffer-string should return string");
     assert!(ascii_ls.is_multibyte());
-    assert_eq!(ascii_ls.as_str(), Some("AA"));
+    assert_eq!(ascii_ls.as_utf8_str(), Some("AA"));
 
     builtin_erase_buffer(&mut eval, vec![]).expect("erase-buffer should succeed");
     builtin_insert_byte(&mut eval, vec![Value::fixnum(200), Value::fixnum(1)])
@@ -9936,7 +9936,7 @@ fn set_buffer_multibyte_reinterprets_bytes_like_gnu() {
     let multibyte = builtin_buffer_string(&mut eval, vec![]).unwrap();
     let multibyte_ls = multibyte.as_lisp_string().expect("multibyte buffer-string");
     assert!(multibyte_ls.is_multibyte());
-    assert_eq!(multibyte_ls.as_str(), Some("é"));
+    assert_eq!(multibyte_ls.as_utf8_str(), Some("é"));
     assert_eq!(
         builtin_point_max(&mut eval, vec![]).unwrap(),
         Value::fixnum(2)
@@ -10350,7 +10350,7 @@ fn format_message_and_message_signal_strict_format_errors() {
         )
         .expect("builtin should resolve")
         .expect("builtin should evaluate");
-        let text = rendered.as_str().expect("builtin should return a string");
+        let text = rendered.as_utf8_str().expect("builtin should return a string");
         assert_eq!(decode_storage_char_codes(text), vec![value as u32]);
     }
 }

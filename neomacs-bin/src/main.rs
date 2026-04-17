@@ -269,7 +269,7 @@ fn render_startup_image_error(err: &neovm_core::emacs_core::error::EvalError) ->
         } => payload
             .as_symbol_name()
             .map(str::to_owned)
-            .or_else(|| payload.as_str().map(str::to_owned))
+            .or_else(|| payload.as_utf8_str().map(str::to_owned))
             .unwrap_or_else(|| format!("{err:?}")),
         _ => format!("{err:?}"),
     }
@@ -907,7 +907,7 @@ fn record_primary_window_resize(shared: &SharedPrimaryWindowSize, event: &Displa
 
 impl DisplayHost for PrimaryWindowDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
-        let title_string = request.title.as_str().unwrap_or("Neomacs").to_owned();
+        let title_string = request.title.as_utf8_str().unwrap_or("Neomacs").to_owned();
         tracing::debug!(
             "PrimaryWindowDisplayHost::realize_gui_frame fid=0x{:x} adopted={} size={}x{} title={}",
             request.frame_id.0,
@@ -1018,7 +1018,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         cached_titles.insert(frame_id, title.clone());
         drop(cached_titles);
 
-        let title_string = title.as_str().unwrap_or("Neomacs").to_owned();
+        let title_string = title.as_utf8_str().unwrap_or("Neomacs").to_owned();
         let emacs_frame_id = if self.primary_frame_id == Some(frame_id) {
             0
         } else {
@@ -1138,9 +1138,9 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         request: FontSpecResolveRequest,
     ) -> Result<Option<ResolvedFontSpecMatch>, String> {
         let matched = neomacs_layout_engine::fontconfig::find_font_for_spec(
-            request.family.as_ref().and_then(|ls| ls.as_str()),
-            request.registry.as_ref().and_then(|ls| ls.as_str()),
-            request.lang.as_ref().and_then(|ls| ls.as_str()),
+            request.family.as_ref().and_then(|ls| ls.as_utf8_str()),
+            request.registry.as_ref().and_then(|ls| ls.as_utf8_str()),
+            request.lang.as_ref().and_then(|ls| ls.as_utf8_str()),
             request.weight.map(|weight| weight.0),
             request.slant,
         );
@@ -1171,7 +1171,7 @@ impl DisplayHost for PrimaryWindowDisplayHost {
                 self.cmd_tx
                     .send(RenderCommand::ImageLoadFile {
                         id: image_id,
-                        path: path.as_str().unwrap_or_default().to_owned(),
+                        path: path.as_utf8_str().unwrap_or_default().to_owned(),
                         max_width: request.max_width,
                         max_height: request.max_height,
                         fg_color: request.fg_color,

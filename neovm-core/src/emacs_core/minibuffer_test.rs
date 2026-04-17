@@ -584,7 +584,7 @@ fn builtin_try_completion_common_prefix() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let coll = Value::list(vec![Value::string("application"), Value::string("apple")]);
     let result = builtin_try_completion(&mut eval, vec![Value::string("app"), coll]).unwrap();
-    assert!(result.as_str().unwrap() == "appl");
+    assert!(result.as_utf8_str().unwrap() == "appl");
 }
 
 #[test]
@@ -795,13 +795,13 @@ fn eval_minibuffer_runtime_state_tracks_active_prompt_and_contents() {
     assert_eq!(
         builtin_minibuffer_contents_ctx(&mut eval, vec![])
             .unwrap()
-            .as_str(),
+            .as_utf8_str(),
         Some("value")
     );
     assert_eq!(
         builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![])
             .unwrap()
-            .as_str(),
+            .as_utf8_str(),
         Some("value")
     );
     assert_eq!(
@@ -850,7 +850,7 @@ fn eval_minibuffer_runtime_state_preserves_raw_unibyte_prompt_and_contents() {
     assert_eq!(prompt.as_lisp_string().expect("prompt string"), &raw_prompt);
 
     let contents = builtin_minibuffer_contents_ctx(&mut eval, vec![]).unwrap();
-    assert_eq!(contents.as_str(), Some("value"));
+    assert_eq!(contents.as_utf8_str(), Some("value"));
 }
 
 #[test]
@@ -954,7 +954,7 @@ fn builtin_minibuffer_contents_returns_current_buffer_text() {
         .expect("scratch buffer")
         .insert("probe");
     let result = builtin_minibuffer_contents_ctx(&mut eval, vec![]).unwrap();
-    assert!(result.as_str().unwrap() == "probe");
+    assert!(result.as_utf8_str().unwrap() == "probe");
 }
 
 #[test]
@@ -966,7 +966,7 @@ fn builtin_minibuffer_contents_no_properties_returns_current_buffer_text() {
         .expect("scratch buffer")
         .insert("probe");
     let result = builtin_minibuffer_contents_no_properties_ctx(&mut eval, vec![]).unwrap();
-    assert!(result.as_str().unwrap() == "probe");
+    assert!(result.as_utf8_str().unwrap() == "probe");
 }
 
 #[test]
@@ -999,7 +999,7 @@ fn builtin_abort_minibuffers_signals_not_in_minibuffer_error() {
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "error"
-                && matches!(sig.data.as_slice(), [val] if val.as_str().map(|s| s == "Not in a minibuffer").unwrap_or(false))
+                && matches!(sig.data.as_slice(), [val] if val.as_utf8_str().map(|s| s == "Not in a minibuffer").unwrap_or(false))
     ));
 }
 
@@ -1054,7 +1054,7 @@ fn builtin_read_file_name_signals_end_of_file() {
         result,
         Err(Flow::Signal(sig))
             if sig.symbol_name() == "end-of-file"
-                && matches!(sig.data.as_slice(), [val] if val.as_str().map(|s| s == "Error reading from stdin").unwrap_or(false))
+                && matches!(sig.data.as_slice(), [val] if val.as_utf8_str().map(|s| s == "Error reading from stdin").unwrap_or(false))
     ));
 }
 

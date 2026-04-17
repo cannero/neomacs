@@ -276,7 +276,7 @@ fn obarray_error_message_property() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let msg = ob.get_property("void-variable", "error-message").unwrap();
-    assert_eq!(msg.as_str(), Some("Symbol’s value as variable is void"));
+    assert_eq!(msg.as_utf8_str(), Some("Symbol’s value as variable is void"));
 }
 
 #[test]
@@ -341,7 +341,7 @@ fn define_error_basic() {
         .obarray
         .get_property("my-error", "error-message")
         .unwrap();
-    assert_eq!(msg.as_str(), Some("My error"));
+    assert_eq!(msg.as_utf8_str(), Some("My error"));
 }
 
 #[test]
@@ -503,7 +503,7 @@ fn builtin_error_message_string_basic() {
     assert!(result.is_ok());
     let msg = result.unwrap();
     assert_eq!(
-        msg.as_str(),
+        msg.as_utf8_str(),
         Some("Symbol\u{2019}s value as variable is void: x")
     );
 }
@@ -519,7 +519,7 @@ fn builtin_error_message_string_no_data() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     let msg = result.unwrap();
-    assert_eq!(msg.as_str(), Some("Arithmetic error"));
+    assert_eq!(msg.as_utf8_str(), Some("Arithmetic error"));
 }
 
 #[test]
@@ -533,7 +533,7 @@ fn builtin_error_message_string_void_function_typography() {
     assert!(result.is_ok());
     let msg = result.unwrap();
     assert_eq!(
-        msg.as_str(),
+        msg.as_utf8_str(),
         Some("Symbol\u{2019}s function definition is void: x")
     );
 }
@@ -548,7 +548,7 @@ fn builtin_error_message_string_unknown() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     let msg = result.unwrap();
-    assert_eq!(msg.as_str(), Some("peculiar error"));
+    assert_eq!(msg.as_utf8_str(), Some("peculiar error"));
 
     let err_data_payload = Value::list(vec![
         Value::symbol("mystery-error"),
@@ -559,7 +559,7 @@ fn builtin_error_message_string_unknown() {
     let payload_result = builtin_error_message_string(&mut evaluator, vec![err_data_payload]);
     assert!(payload_result.is_ok());
     assert_eq!(
-        payload_result.unwrap().as_str(),
+        payload_result.unwrap().as_utf8_str(),
         Some("peculiar error: 1, 2, 3")
     );
 }
@@ -573,12 +573,12 @@ fn builtin_error_message_string_no_payload_specials() {
     let error_no_payload = Value::list(vec![Value::symbol("error")]);
     let error_result = builtin_error_message_string(&mut evaluator, vec![error_no_payload]);
     assert!(error_result.is_ok());
-    assert_eq!(error_result.unwrap().as_str(), Some("peculiar error"));
+    assert_eq!(error_result.unwrap().as_utf8_str(), Some("peculiar error"));
 
     let user_error_no_payload = Value::list(vec![Value::symbol("user-error")]);
     let user_result = builtin_error_message_string(&mut evaluator, vec![user_error_no_payload]);
     assert!(user_result.is_ok());
-    assert_eq!(user_result.unwrap().as_str(), Some(""));
+    assert_eq!(user_result.unwrap().as_utf8_str(), Some(""));
 }
 
 #[test]
@@ -591,7 +591,7 @@ fn builtin_error_message_string_error_with_string_payload() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     let msg = result.unwrap();
-    assert_eq!(msg.as_str(), Some("abc"));
+    assert_eq!(msg.as_utf8_str(), Some("abc"));
 }
 
 #[test]
@@ -608,7 +608,7 @@ fn builtin_error_message_string_error_with_string_and_extra() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     let msg = result.unwrap();
-    assert_eq!(msg.as_str(), Some("abc: 1"));
+    assert_eq!(msg.as_utf8_str(), Some("abc: 1"));
 }
 
 #[test]
@@ -624,7 +624,7 @@ fn builtin_error_message_string_user_error_variants() {
     ]);
     let with_string_result = builtin_error_message_string(&mut evaluator, vec![with_string]);
     assert!(with_string_result.is_ok());
-    assert_eq!(with_string_result.unwrap().as_str(), Some("u, 1"));
+    assert_eq!(with_string_result.unwrap().as_utf8_str(), Some("u, 1"));
 
     let non_string = Value::list(vec![
         Value::symbol("user-error"),
@@ -633,7 +633,7 @@ fn builtin_error_message_string_user_error_variants() {
     ]);
     let non_string_result = builtin_error_message_string(&mut evaluator, vec![non_string]);
     assert!(non_string_result.is_ok());
-    assert_eq!(non_string_result.unwrap().as_str(), Some("integerp, x"));
+    assert_eq!(non_string_result.unwrap().as_utf8_str(), Some("integerp, x"));
 }
 
 #[test]
@@ -650,7 +650,7 @@ fn builtin_error_message_string_file_error_string_payload() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     let msg = result.unwrap();
-    assert_eq!(msg.as_str(), Some("No such file: foo"));
+    assert_eq!(msg.as_utf8_str(), Some("No such file: foo"));
 }
 
 #[test]
@@ -669,7 +669,7 @@ fn builtin_error_message_string_file_missing_string_payload() {
     assert!(result.is_ok());
     let msg = result.unwrap();
     assert_eq!(
-        msg.as_str(),
+        msg.as_utf8_str(),
         Some("Opening input file: No such file or directory, /tmp/probe")
     );
 }
@@ -701,7 +701,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let error_single_result = builtin_error_message_string(&mut evaluator, vec![error_single]);
     assert!(error_single_result.is_ok());
     assert_eq!(
-        error_single_result.unwrap().as_str(),
+        error_single_result.unwrap().as_utf8_str(),
         Some("peculiar error")
     );
 
@@ -713,7 +713,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let error_double_result = builtin_error_message_string(&mut evaluator, vec![error_double]);
     assert!(error_double_result.is_ok());
     assert_eq!(
-        error_double_result.unwrap().as_str(),
+        error_double_result.unwrap().as_utf8_str(),
         Some("peculiar error: 2")
     );
 
@@ -726,14 +726,14 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let error_triple_result = builtin_error_message_string(&mut evaluator, vec![error_triple]);
     assert!(error_triple_result.is_ok());
     assert_eq!(
-        error_triple_result.unwrap().as_str(),
+        error_triple_result.unwrap().as_utf8_str(),
         Some("peculiar error: 2, 3")
     );
 
     let file_single = Value::list(vec![Value::symbol("file-error"), Value::fixnum(1)]);
     let file_single_result = builtin_error_message_string(&mut evaluator, vec![file_single]);
     assert!(file_single_result.is_ok());
-    assert_eq!(file_single_result.unwrap().as_str(), Some("peculiar error"));
+    assert_eq!(file_single_result.unwrap().as_utf8_str(), Some("peculiar error"));
 
     let file_double = Value::list(vec![
         Value::symbol("file-error"),
@@ -743,7 +743,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let file_double_result = builtin_error_message_string(&mut evaluator, vec![file_double]);
     assert!(file_double_result.is_ok());
     assert_eq!(
-        file_double_result.unwrap().as_str(),
+        file_double_result.unwrap().as_utf8_str(),
         Some("peculiar error: 2")
     );
 
@@ -756,7 +756,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let file_triple_result = builtin_error_message_string(&mut evaluator, vec![file_triple]);
     assert!(file_triple_result.is_ok());
     assert_eq!(
-        file_triple_result.unwrap().as_str(),
+        file_triple_result.unwrap().as_utf8_str(),
         Some("peculiar error: 2, 3")
     );
 
@@ -770,7 +770,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
         builtin_error_message_string(&mut evaluator, vec![file_missing_triple]);
     assert!(file_missing_triple_result.is_ok());
     assert_eq!(
-        file_missing_triple_result.unwrap().as_str(),
+        file_missing_triple_result.unwrap().as_utf8_str(),
         Some("peculiar error: 2, 3")
     );
 
@@ -784,7 +784,7 @@ fn builtin_error_message_string_peculiar_error_paths() {
         builtin_error_message_string(&mut evaluator, vec![file_locked_strings]);
     assert!(file_locked_strings_result.is_ok());
     assert_eq!(
-        file_locked_strings_result.unwrap().as_str(),
+        file_locked_strings_result.unwrap().as_utf8_str(),
         Some("peculiar error: \"Locking file\", \"Permission denied\", \"/tmp/probe\"")
     );
 }
@@ -802,7 +802,7 @@ fn builtin_error_message_string_end_of_file_does_not_quote_string_payload() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     assert_eq!(
-        result.unwrap().as_str(),
+        result.unwrap().as_utf8_str(),
         Some("End of file during parsing: EOF while reading")
     );
 }
@@ -821,7 +821,7 @@ fn builtin_error_message_string_args_out_of_range_uses_base_message() {
     let result = builtin_error_message_string(&mut evaluator, vec![err_data]);
     assert!(result.is_ok());
     assert_eq!(
-        result.unwrap().as_str(),
+        result.unwrap().as_utf8_str(),
         Some("Args out of range: \"abc\", 9")
     );
 }
@@ -841,7 +841,7 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
     let live_result = builtin_error_message_string(&mut evaluator, vec![live_err]);
     assert!(live_result.is_ok());
     assert_eq!(
-        live_result.unwrap().as_str(),
+        live_result.unwrap().as_utf8_str(),
         Some("Args out of range: #<buffer *ems-live*>, 0")
     );
 
@@ -855,7 +855,7 @@ fn builtin_error_message_string_formats_buffer_handles_with_names() {
     let dead_result = builtin_error_message_string(&mut evaluator, vec![dead_err]);
     assert!(dead_result.is_ok());
     assert_eq!(
-        dead_result.unwrap().as_str(),
+        dead_result.unwrap().as_utf8_str(),
         Some("Args out of range: #<killed buffer>, 0")
     );
 }
@@ -879,7 +879,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
     assert!(mutex_result.is_ok());
     let mutex_text = mutex_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(mutex_text.starts_with("Args out of range: #<mutex"));
@@ -900,7 +900,7 @@ fn builtin_error_message_string_formats_mutex_and_condvar_handles() {
     assert!(condvar_result.is_ok());
     let condvar_text = condvar_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(condvar_text.starts_with("Args out of range: #<condvar"));
@@ -924,7 +924,7 @@ fn builtin_error_message_string_formats_thread_handles() {
     assert!(thread_result.is_ok());
     let thread_text = thread_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(thread_text.starts_with("Args out of range: #<thread"));
@@ -952,7 +952,7 @@ fn builtin_error_message_string_formats_terminal_handles() {
     assert!(terminal_result.is_ok());
     let terminal_text = terminal_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(terminal_text.starts_with("Args out of range: #<terminal"));
@@ -976,7 +976,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
     assert!(frame_result.is_ok());
     let frame_text = frame_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(frame_text.starts_with("Args out of range: #<frame"));
@@ -993,7 +993,7 @@ fn builtin_error_message_string_formats_frame_and_window_handles() {
     assert!(window_result.is_ok());
     let window_text = window_result
         .unwrap()
-        .as_str()
+        .as_utf8_str()
         .expect("error-message-string must return a string")
         .to_string();
     assert!(window_text.starts_with("Args out of range: #<window"));

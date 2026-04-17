@@ -5358,7 +5358,7 @@ fn vm_insert_file_contents_and_write_region_use_shared_runtime_state() {
 
     let insert_parts =
         crate::emacs_core::value::list_to_vec(&insert_result).expect("insert return list");
-    assert_eq!(insert_parts[0].as_str(), Some(alpha.as_str()));
+    assert_eq!(insert_parts[0].as_utf8_str(), Some(alpha.as_str()));
     assert_eq!(insert_parts[1], Value::fixnum(6));
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_eq!(buf.buffer_string(), "abcdef");
@@ -8619,7 +8619,7 @@ fn vm_compiled_autoload_registration_updates_shared_autoload_manager() {
         .autoloads
         .get_entry("vm-bytecode-auto")
         .expect("autoload registration should propagate back out of VM bridge");
-    assert_eq!(entry.file.as_str(), Some("vm-bytecode-auto-file"));
+    assert_eq!(entry.file.as_utf8_str(), Some("vm-bytecode-auto-file"));
 }
 
 #[test]
@@ -8809,7 +8809,7 @@ fn vm_compiled_load_signals_after_gnu_recursive_load_limit() {
     match err {
         EvalError::Signal { symbol, data, .. } => {
             assert_eq!(resolve_sym(symbol), "error");
-            assert_eq!(data[0].as_str(), Some("Recursive load"));
+            assert_eq!(data[0].as_utf8_str(), Some("Recursive load"));
             assert_eq!(data[1].cons_car(), Value::string(fixture.to_string_lossy()));
             assert_eq!(
                 crate::emacs_core::value::list_to_vec(&data[1].cons_cdr())

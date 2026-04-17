@@ -302,7 +302,7 @@ fn defgroup_registers_group() {
         .obarray
         .get_property("my-group", "group-documentation")
         .expect("group-documentation");
-    assert_eq!(doc.as_str(), Some("Docs."));
+    assert_eq!(doc.as_utf8_str(), Some("Docs."));
 }
 
 #[test]

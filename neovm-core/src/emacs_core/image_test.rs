@@ -99,7 +99,7 @@ fn create_image_file() {
     assert_eq!(img_type.as_symbol_name(), Some("png"));
 
     let file = plist_get(&plist, &Value::keyword("file"));
-    assert_eq!(file.as_str(), Some("test.png"));
+    assert_eq!(file.as_utf8_str(), Some("test.png"));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn create_image_data() {
 
     let plist = image_spec_plist(&spec);
     let data = plist_get(&plist, &Value::keyword("data"));
-    assert_eq!(data.as_str(), Some("raw-png-data"));
+    assert_eq!(data.as_utf8_str(), Some("raw-png-data"));
 
     // Should NOT have :file.
     let file = plist_get(&plist, &Value::keyword("file"));
@@ -773,7 +773,7 @@ fn plist_get_basic() {
     assert_eq!(val.as_symbol_name(), Some("png"));
 
     let file = plist_get(&plist, &Value::keyword("file"));
-    assert_eq!(file.as_str(), Some("test.png"));
+    assert_eq!(file.as_utf8_str(), Some("test.png"));
 }
 
 #[test]

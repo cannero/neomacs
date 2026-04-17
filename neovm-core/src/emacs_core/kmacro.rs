@@ -554,7 +554,7 @@ fn resolve_macro_events(eval: &super::eval::Context, value: &Value) -> Result<Ve
         ValueKind::String => {
             // Each character in the string becomes a Char event.
             let s = indirect_macro_function(eval, value)
-                .as_str()
+                .as_utf8_str()
                 .unwrap()
                 .to_owned();
             Ok(s.chars().map(Value::char).collect())

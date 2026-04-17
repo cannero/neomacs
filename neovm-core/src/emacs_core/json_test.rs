@@ -10,56 +10,56 @@ use crate::heap_types::LispString;
 fn serialize_null() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::NIL]);
-    assert_eq!(result.unwrap().as_str(), Some("null"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("null"));
 }
 
 #[test]
 fn serialize_true() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::T]);
-    assert_eq!(result.unwrap().as_str(), Some("true"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("true"));
 }
 
 #[test]
 fn serialize_false_keyword() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::keyword(":false")]);
-    assert_eq!(result.unwrap().as_str(), Some("false"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("false"));
 }
 
 #[test]
 fn serialize_json_false_keyword() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::keyword(":json-false")]);
-    assert_eq!(result.unwrap().as_str(), Some("false"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("false"));
 }
 
 #[test]
 fn serialize_integer() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::fixnum(42)]);
-    assert_eq!(result.unwrap().as_str(), Some("42"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("42"));
 }
 
 #[test]
 fn serialize_negative_integer() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::fixnum(-7)]);
-    assert_eq!(result.unwrap().as_str(), Some("-7"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("-7"));
 }
 
 #[test]
 fn serialize_float() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(3.14)]);
-    assert_eq!(result.unwrap().as_str(), Some("3.14"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("3.14"));
 }
 
 #[test]
 fn serialize_float_whole() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::make_float(1.0)]);
-    assert_eq!(result.unwrap().as_str(), Some("1.0"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("1.0"));
 }
 
 #[test]
@@ -80,14 +80,14 @@ fn serialize_inf_errors() {
 fn serialize_string() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::string("hello")]);
-    assert_eq!(result.unwrap().as_str(), Some("\"hello\""));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("\"hello\""));
 }
 
 #[test]
 fn serialize_string_with_escapes() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::string("a\"b\\c\ndef")]);
-    assert_eq!(result.unwrap().as_str(), Some("\"a\\\"b\\\\c\\ndef\""));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("\"a\\\"b\\\\c\\ndef\""));
 }
 
 #[test]
@@ -108,7 +108,7 @@ fn serialize_ascii_unibyte_string_still_works() {
     crate::test_utils::init_test_tracing();
     let ascii = Value::heap_string(LispString::from_unibyte(b"hello".to_vec()));
     let result = builtin_json_serialize(vec![ascii]).unwrap();
-    assert_eq!(result.as_str(), Some("\"hello\""));
+    assert_eq!(result.as_utf8_str(), Some("\"hello\""));
 }
 
 #[test]
@@ -133,7 +133,7 @@ fn serialize_multibyte_raw_byte_char_rejects_non_json_value() {
 fn serialize_empty_vector() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_serialize(vec![Value::vector(vec![])]);
-    assert_eq!(result.unwrap().as_str(), Some("[]"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("[]"));
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn serialize_vector() {
         Value::T,
         Value::NIL,
     ])]);
-    assert_eq!(result.unwrap().as_str(), Some("[1,\"two\",true,null]"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("[1,\"two\",true,null]"));
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn serialize_hash_table() {
             .insert(HashKey::from_str("name"), Value::string("Alice"));
     });
     let result = builtin_json_serialize(vec![ht]);
-    assert_eq!(result.unwrap().as_str(), Some("{\"name\":\"Alice\"}"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("{\"name\":\"Alice\"}"));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn serialize_alist() {
         Value::cons(Value::symbol("b"), Value::fixnum(2)),
     ]);
     let result = builtin_json_serialize(vec![alist]);
-    assert_eq!(result.unwrap().as_str(), Some("{\"a\":1,\"b\":2}"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("{\"a\":1,\"b\":2}"));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn serialize_nested() {
     let inner = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
     let alist = Value::list(vec![Value::cons(Value::symbol("arr"), inner)]);
     let result = builtin_json_serialize(vec![alist]);
-    assert_eq!(result.unwrap().as_str(), Some("{\"arr\":[1,2]}"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("{\"arr\":[1,2]}"));
 }
 
 #[test]
@@ -205,7 +205,7 @@ fn serialize_custom_false_object() {
     ]);
     // nil matches both null_object (default) and false_object (nil).
     // null_object is checked first, so it becomes "null".
-    assert_eq!(result.unwrap().as_str(), Some("null"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("null"));
 }
 
 #[test]
@@ -416,7 +416,7 @@ fn parse_zero() {
 fn parse_string_simple() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"hello\"")]);
-    assert_eq!(result.unwrap().as_str(), Some("hello"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("hello"));
 }
 
 #[test]
@@ -431,14 +431,14 @@ fn parse_raw_unibyte_input_signals_instead_of_panicking() {
 fn parse_string_with_escapes() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"a\\\"b\\\\c\\nd\"")]);
-    assert_eq!(result.unwrap().as_str(), Some("a\"b\\c\nd"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("a\"b\\c\nd"));
 }
 
 #[test]
 fn parse_string_unicode_escape() {
     crate::test_utils::init_test_tracing();
     let result = builtin_json_parse_string(vec![Value::string("\"\\u0041\"")]);
-    assert_eq!(result.unwrap().as_str(), Some("A"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("A"));
 }
 
 #[test]
@@ -447,7 +447,7 @@ fn parse_string_surrogate_pair() {
     // U+1F600 (grinning face) = \uD83D\uDE00
     let result = builtin_json_parse_string(vec![Value::string("\"\\uD83D\\uDE00\"")]);
     let val = result.unwrap();
-    assert_eq!(val.as_str(), Some("\u{1F600}"));
+    assert_eq!(val.as_utf8_str(), Some("\u{1F600}"));
 }
 
 #[test]
@@ -531,11 +531,11 @@ fn parse_object_hash_table() {
             );
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("a")),
-                Some(key) if (*key).as_str() == Some("a")
+                Some(key) if (*key).as_utf8_str() == Some("a")
             ));
             assert!(matches!(
                 table.key_snapshots.get(&HashKey::from_str("b")),
-                Some(key) if (*key).as_str() == Some("b")
+                Some(key) if (*key).as_utf8_str() == Some("b")
             ));
         }
         _ => panic!("expected hash-table, got {:?}", val),
@@ -709,7 +709,7 @@ fn round_trip_string() {
     let original = Value::string("hello \"world\"\ntest");
     let serialized = builtin_json_serialize(vec![original]).unwrap();
     let parsed = builtin_json_parse_string(vec![serialized]).unwrap();
-    assert_eq!(parsed.as_str(), Some("hello \"world\"\ntest"));
+    assert_eq!(parsed.as_utf8_str(), Some("hello \"world\"\ntest"));
 }
 
 #[test]
@@ -723,7 +723,7 @@ fn round_trip_array() {
             let items = parsed.as_vector_data().unwrap().clone();
             assert_eq!(items.len(), 3);
             assert!(items[0].is_fixnum());
-            assert_eq!(items[1].as_str(), Some("two"));
+            assert_eq!(items[1].as_utf8_str(), Some("two"));
             assert!(items[2].is_t());
         }
         _ => panic!("expected vector"),
@@ -795,7 +795,7 @@ fn serialize_symbol_key_in_alist() {
         Value::string("test"),
     )]);
     let result = builtin_json_serialize(vec![alist]);
-    assert_eq!(result.unwrap().as_str(), Some("{\"name\":\"test\"}"));
+    assert_eq!(result.unwrap().as_utf8_str(), Some("{\"name\":\"test\"}"));
 }
 
 #[test]
