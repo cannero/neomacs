@@ -384,3 +384,55 @@ fn mx_view_hello_file() {
     assert!(gnu_has_name, "GNU should show HELLO in the mode line");
     assert!(neo_has_name, "NEO should show HELLO in the mode line");
 }
+
+/// Strict 100%-match aspiration test: after `M-x view-hello-file`, NeoMacs
+/// should render exactly the same rows as GNU Emacs. Currently fails because
+/// of known feature gaps (not gap-buffer bugs):
+///
+///   - `enriched-mode` is not auto-activated from the buffer's
+///     `Content-Type: text/enriched` header, so the enriched markup
+///     (`<x-color>`, `<x-charset>`, `<param>…</param>`) renders as literal
+///     text and shifts every row down by ~3.
+///   - VC-mode is not wired in, so the mode line is missing the Git branch
+///     marker (GNU shows "Git-<sha>").
+///   - view-mode echo-area hint text uses a different fallback phrasing
+///     (NEO: "M-x help-command for help", GNU: "C-h for help") because the
+///     C-h binding in view-mode isn't set up the same way.
+///   - `global-eldoc-mode` is on by default in NEO and adds " ElDoc" to
+///     the mode-line minor-mode list, which GNU omits.
+///
+/// When all four gaps are closed, remove `#[ignore]` and this test will
+/// guard against any regression of exact-screen parity.
+#[test]
+#[ignore = "tracks known NeoMacs feature gaps: enriched-mode, VC-mode, view-mode C-h, eldoc"]
+fn mx_view_hello_file_strict_match() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+    for s in [&mut gnu, &mut neo] {
+        s.send(b"view-hello-file");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(5));
+
+    let gl = gnu.text_grid();
+    let nl = neo.text_grid();
+    let diffs = diff_text_grids(&gl, &nl);
+
+    if !diffs.is_empty() {
+        eprintln!(
+            "mx_view_hello_file_strict_match: {} of {} rows differ",
+            diffs.len(),
+            gl.len().min(nl.len())
+        );
+        print_row_diffs(&diffs);
+    }
+    assert_eq!(
+        diffs.len(),
+        0,
+        "NEO and GNU HELLO buffers should be byte-for-byte identical (differ in {} rows)",
+        diffs.len()
+    );
+}
