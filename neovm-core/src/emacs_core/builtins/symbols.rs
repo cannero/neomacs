@@ -430,7 +430,7 @@ pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalR
     }
 
     if let Some(function) = obarray.symbol_function_id(symbol) {
-        return Ok(*function);
+        return Ok(function);
     }
 
     if !is_canonical_symbol_id(symbol) {
@@ -559,7 +559,7 @@ pub(crate) fn would_create_function_alias_cycle_in_obarray(
         }
 
         let next = match obarray.symbol_function_id(current) {
-            Some(function) => match symbol_id(function) {
+            Some(function) => match symbol_id(&function) {
                 Some(id) => id,
                 None => return false,
             },
@@ -961,7 +961,7 @@ pub(crate) fn symbol_function_cell_in_obarray(obarray: &Obarray, symbol: SymId) 
     }
 
     if let Some(function) = obarray.symbol_function_id(symbol) {
-        return Some(*function);
+        return Some(function);
     }
 
     if !is_canonical_symbol_id(symbol) {

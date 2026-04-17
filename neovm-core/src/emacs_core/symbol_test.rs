@@ -176,7 +176,7 @@ fn for_each_value_cell_mut_updates_plain_and_buffer_local_values() {
 
     assert_eq!(ob.symbol_value("plain"), Some(&Value::fixnum(11)));
     assert_eq!(ob.symbol_value("buffer-local"), Some(&Value::fixnum(12)));
-    assert_eq!(ob.symbol_function("callable"), Some(&Value::fixnum(99)));
+    assert_eq!(ob.symbol_function("callable"), Some(Value::fixnum(99)));
     assert_eq!(
         ob.get_property("plist-holder", "meta"),
         Some(Value::fixnum(77))

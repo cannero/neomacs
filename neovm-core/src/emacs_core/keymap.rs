@@ -412,7 +412,11 @@ fn resolve_indirect_function_by_id_in_obarray(
         if !seen.insert(current) {
             return None;
         }
-        let function = obarray.get_by_id(current)?.function?;
+        let sym = obarray.get_by_id(current)?;
+        if sym.function.is_nil() {
+            return None;
+        }
+        let function = sym.function;
         if let Some(next_symbol) = keymap_symbol_id(&function) {
             current = next_symbol;
             continue;
@@ -1851,7 +1855,7 @@ fn lookup_minor_mode_binding_in_alist_in_obarray(
                 .and_then(|name| obarray.symbol_value(name).copied())
             {
                 Some(value) if is_list_keymap(&value) => value,
-                _ => match obarray.symbol_function_of_value(&map_value).copied() {
+                _ => match obarray.symbol_function_of_value(&map_value) {
                     Some(value) if is_list_keymap(&value) => value,
                     _ => {
                         return Err(signal(

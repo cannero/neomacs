@@ -339,8 +339,8 @@ pub struct DumpSymbolData {
     pub declared_special: bool,
     /// The value cell, encoded as a `DumpSymbolVal` variant.
     pub val: DumpSymbolVal,
-    /// Function cell (None = void-function / fmakunbound).
-    pub function: Option<DumpValue>,
+    /// Function slot. `DumpValue::Nil` is the unbound sentinel.
+    pub function: DumpValue,
     /// Property list as a Lisp cons list (DumpValue::Nil = empty).
     pub plist: DumpValue,
 }

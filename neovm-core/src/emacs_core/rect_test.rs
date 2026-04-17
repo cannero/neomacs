@@ -245,7 +245,6 @@ fn yank_rectangle_loaded_function_is_simple_bytecode_call() {
     let function = eval
         .obarray
         .symbol_function("yank-rectangle")
-        .cloned()
         .expect("loaded yank-rectangle function cell");
     // When loading .el source (not .elc), the function is interpreted,
     // not byte-compiled.  Just verify it's callable.  When loaded from

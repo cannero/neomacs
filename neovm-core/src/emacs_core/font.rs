@@ -504,8 +504,6 @@ pub(crate) fn update_face_from_frame_parameter(
             if let Some(function) = eval
                 .obarray()
                 .symbol_function("frame-set-background-mode")
-                .copied()
-                && !function.is_nil()
             {
                 let _ = eval.apply(function, vec![Value::make_frame(frame_id.0)])?;
             }

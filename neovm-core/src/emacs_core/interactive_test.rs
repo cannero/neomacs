@@ -672,7 +672,7 @@ fn abbrev_mode_is_real_lisp_function_after_bootstrap() {
         .obarray
         .symbol_function("abbrev-mode")
         .expect("missing abbrev-mode bootstrapped function cell");
-    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("abbrev-mode")])
         .expect("commandp should accept abbrev-mode");
     assert!(command.is_truthy());
@@ -696,7 +696,7 @@ fn bookmark_commands_startup_are_autoloaded() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
+            crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be a GNU autoload"
         );
     }
@@ -720,7 +720,7 @@ fn rectangle_commands_startup_are_autoloaded() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            crate::emacs_core::autoload::is_autoload_value(function),
+            crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be a GNU autoload"
         );
     }
@@ -742,7 +742,7 @@ fn simple_commands_are_real_lisp_functions_after_bootstrap() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            !crate::emacs_core::autoload::is_autoload_value(function),
+            !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
@@ -770,7 +770,7 @@ fn replace_commands_are_real_lisp_functions_after_bootstrap() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            !crate::emacs_core::autoload::is_autoload_value(function),
+            !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
@@ -790,7 +790,7 @@ fn subr_key_binding_commands_are_real_lisp_functions_after_bootstrap() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            !crate::emacs_core::autoload::is_autoload_value(function),
+            !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
@@ -808,7 +808,7 @@ fn env_command_is_real_lisp_function_after_bootstrap() {
         .obarray
         .symbol_function("setenv")
         .expect("missing setenv bootstrapped function cell");
-    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("setenv")])
         .expect("commandp should accept setenv");
     assert!(command.is_truthy());
@@ -823,7 +823,7 @@ fn files_command_is_real_lisp_function_after_bootstrap() {
         .obarray
         .symbol_function("load-file")
         .expect("missing load-file bootstrapped function cell");
-    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("load-file")])
         .expect("commandp should accept load-file");
     assert!(command.is_truthy());
@@ -842,7 +842,7 @@ fn regexp_search_aliases_are_available_after_bootstrap() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            !crate::emacs_core::autoload::is_autoload_value(function),
+            !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} to be a resolved function (defalias), not an autoload"
         );
     }
@@ -856,7 +856,7 @@ fn upcase_char_startup_is_autoloaded() {
         .obarray
         .symbol_function("upcase-char")
         .expect("missing upcase-char startup function cell");
-    assert!(crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 #[test]
@@ -870,7 +870,7 @@ fn mode_and_mark_commands_are_real_lisp_functions_after_bootstrap() {
             .symbol_function(name)
             .unwrap_or_else(|| panic!("missing {name} startup function cell"));
         assert!(
-            !crate::emacs_core::autoload::is_autoload_value(function),
+            !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be loaded, not an autoload"
         );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
@@ -888,7 +888,7 @@ fn count_matches_is_real_lisp_function_after_bootstrap() {
         .obarray
         .symbol_function("count-matches")
         .expect("missing count-matches bootstrapped function cell");
-    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
     let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol("count-matches")])
         .expect("commandp call");
     assert!(command.is_truthy());
@@ -907,7 +907,7 @@ fn kmacro_name_last_macro_startup_is_autoloaded() {
         .symbol_function("kmacro-name-last-macro")
         .expect("missing kmacro-name-last-macro startup function cell");
     assert!(
-        crate::emacs_core::autoload::is_autoload_value(function),
+        crate::emacs_core::autoload::is_autoload_value(&function),
         "expected kmacro-name-last-macro startup function cell to be a GNU autoload"
     );
     let command =
@@ -958,11 +958,11 @@ fn ldefs_boot_aliases_name_last_kbd_macro_to_kmacro_name_last_macro() {
         .symbol_function("kmacro-name-last-macro")
         .expect("kmacro-name-last-macro autoload");
     assert!(
-        crate::emacs_core::autoload::is_autoload_value(kmacro),
+        crate::emacs_core::autoload::is_autoload_value(&kmacro),
         "GNU ldefs-boot should install kmacro-name-last-macro as an autoload"
     );
     assert_eq!(
-        ev.obarray.symbol_function("name-last-kbd-macro").copied(),
+        ev.obarray.symbol_function("name-last-kbd-macro"),
         Some(Value::symbol("kmacro-name-last-macro"))
     );
 }
@@ -978,7 +978,7 @@ fn remove_hook_is_available_after_bootstrap() {
         .symbol_function("remove-hook")
         .expect("missing remove-hook startup function cell");
     assert!(
-        !crate::emacs_core::autoload::is_autoload_value(function),
+        !crate::emacs_core::autoload::is_autoload_value(&function),
         "expected remove-hook to be a resolved function, not an autoload"
     );
 }

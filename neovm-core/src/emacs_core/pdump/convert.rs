@@ -935,7 +935,7 @@ pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> Du
         interned: sd.flags.interned() as u8,
         declared_special: sd.flags.declared_special(),
         val,
-        function: encoder.dump_opt_value(&sd.function),
+        function: encoder.dump_value(&sd.function),
         plist: encoder.dump_value(&sd.plist),
     }
 }
@@ -2403,7 +2403,7 @@ pub(crate) fn load_symbol_data(
         }
     }
 
-    symbol.function = decoder.load_opt_value(&sd.function);
+    symbol.function = decoder.load_value(&sd.function);
     symbol.plist = decoder.load_value(&sd.plist);
     symbol
 }

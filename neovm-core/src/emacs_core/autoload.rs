@@ -413,7 +413,7 @@ pub(crate) fn plan_autoload_do_load_in_state(
     // This prevents redundant re-loads that can cause side effects like
     // advice being installed multiple times.
     if let Some(name) = funname {
-        if let Some(current) = obarray.symbol_function_id(name).cloned() {
+        if let Some(current) = obarray.symbol_function_id(name) {
             if !is_autoload_value(&current) {
                 // The function is already defined (not an autoload) — a previous
                 // load already resolved it. Return the current definition.
@@ -457,7 +457,7 @@ pub(crate) fn finish_autoload_do_load_in_state(
     original_autoload: Option<&Value>,
 ) -> EvalResult {
     if let Some(name) = funname {
-        if let Some(func) = obarray.symbol_function_id(name).cloned() {
+        if let Some(func) = obarray.symbol_function_id(name) {
             // GNU Emacs: if function is still the same autoload form after
             // loading, signal "Autoloading file failed to define function".
             // GNU Emacs eval.c: if (!NILP (Fequal (fun, fundef)))
@@ -564,8 +564,8 @@ pub(crate) fn register_autoload_in_state(
     // GNU Emacs eval.c:Fautoload — "If function is defined and not as an
     // autoload, don't override."  If the symbol already has a real (non-
     // autoload) function definition, return nil without touching it.
-    if let Some(current) = obarray.symbol_function(resolve_sym(name)).cloned() {
-        if !current.is_nil() && !is_autoload_value(&current) {
+    if let Some(current) = obarray.symbol_function(resolve_sym(name)) {
+        if !is_autoload_value(&current) {
             return Ok(Value::NIL);
         }
     }
@@ -659,7 +659,6 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
     if let Some(fndef) = eval
         .obarray
         .symbol_function(resolve_sym(symbol_name))
-        .cloned()
     {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {

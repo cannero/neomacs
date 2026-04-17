@@ -365,7 +365,6 @@ fn runtime_macro_cache_hits_across_equivalent_explicit_environments() {
     let definition = ev
         .obarray()
         .symbol_function("runtime-cache-macro")
-        .cloned()
         .expect("runtime-cache-macro definition");
     let arg = Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]);
     let form = Value::list(vec![Value::symbol("runtime-cache-macro"), arg]);
@@ -409,7 +408,6 @@ fn runtime_macro_cache_handles_raw_unibyte_strings_in_environment() {
     let definition = ev
         .obarray()
         .symbol_function("runtime-cache-macro")
-        .cloned()
         .expect("runtime-cache-macro definition");
     let arg = Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]);
     let form = Value::list(vec![Value::symbol("runtime-cache-macro"), arg]);
@@ -460,7 +458,6 @@ fn runtime_macro_cache_handles_raw_unibyte_string_arguments() {
     let definition = ev
         .obarray()
         .symbol_function("runtime-cache-bytes-macro")
-        .cloned()
         .expect("runtime-cache-bytes-macro definition");
     let arg = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
     let form = Value::list(vec![Value::symbol("runtime-cache-bytes-macro"), arg]);
@@ -4604,7 +4601,6 @@ fn defmacro_captures_docstring_metadata() {
     let macro_val = ev
         .obarray
         .symbol_function("vm-doc-macro")
-        .cloned()
         .expect("macro function cell");
     // The value is (macro . lambda), extract the lambda for docstring.
     let lambda_val = macro_val.cons_cdr();
@@ -9244,7 +9240,6 @@ fn interpreted_closure_trim_cache_survives_exact_gc() {
     let filter_fn = ev
         .obarray()
         .symbol_function("cconv-make-interpreted-closure")
-        .cloned()
         .expect("cconv interpreted closure filter");
     ev.set_interpreted_closure_filter_fn(Some(filter_fn));
 
@@ -9280,7 +9275,6 @@ fn value_lambda_instantiation_uses_interpreted_closure_trim_cache() {
     let filter_fn = ev
         .obarray()
         .symbol_function("cconv-make-interpreted-closure")
-        .cloned()
         .expect("cconv interpreted closure filter");
     ev.set_interpreted_closure_filter_fn(Some(filter_fn));
 

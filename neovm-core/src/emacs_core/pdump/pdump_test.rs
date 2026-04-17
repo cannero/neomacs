@@ -45,7 +45,7 @@ fn test_dump_symbol_data_bincode_round_trip() {
         interned: 1,
         declared_special: true,
         val: DumpSymbolVal::Alias(DumpSymId(7)),
-        function: Some(DumpValue::Int(9)),
+        function: DumpValue::Int(9),
         plist: DumpValue::Nil,
     };
 
@@ -61,7 +61,7 @@ fn test_dump_symbol_data_bincode_round_trip() {
         matches!(decoded.val, DumpSymbolVal::Alias(DumpSymId(7))),
         "val should round-trip as Alias(7)"
     );
-    assert!(matches!(decoded.function, Some(DumpValue::Int(9))));
+    assert!(matches!(decoded.function, DumpValue::Int(9)));
     assert!(matches!(decoded.plist, DumpValue::Nil), "empty plist should round-trip as Nil");
 }
 

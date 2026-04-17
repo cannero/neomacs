@@ -893,8 +893,7 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
     eval.obarray().symbol_function("`--pcase-macroexpander")?;
     let f = eval
         .obarray()
-        .symbol_function("internal-macroexpand-for-load")
-        .cloned()?;
+        .symbol_function("internal-macroexpand-for-load")?;
     // Guard: if the function cell was set to nil (e.g. via fset), treat as unavailable
     if f.is_nil() {
         return None;
@@ -3011,7 +3010,7 @@ fn sync_runtime_interpreted_closure_filter(eval: &mut super::eval::Context) {
         .cloned()
         .and_then(|value| {
             if value.as_symbol_id() == Some(cconv_sym) {
-                eval.obarray().symbol_function_id(cconv_sym).cloned()
+                eval.obarray().symbol_function_id(cconv_sym)
             } else {
                 None
             }

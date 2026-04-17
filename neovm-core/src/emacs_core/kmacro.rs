@@ -535,7 +535,6 @@ fn indirect_macro_function(eval: &super::eval::Context, value: &Value) -> Value 
         current = eval
             .obarray()
             .symbol_function_id(symbol_id)
-            .copied()
             .unwrap_or(Value::NIL);
     }
 }

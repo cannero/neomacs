@@ -579,7 +579,7 @@ pub(crate) fn builtin_define_abbrev(
     let sym_id = symbol_id(sym).expect("abbrev symbol should be a symbol");
 
     let existing_expansion = eval.obarray().symbol_value_id(sym_id).cloned();
-    let existing_hook = eval.obarray().symbol_function_id(sym_id).cloned();
+    let existing_hook = eval.obarray().symbol_function_id(sym_id);
     let existing_system = eval
         .obarray()
         .get_property_id(sym_id, intern(":system"))
@@ -1042,14 +1042,7 @@ pub(crate) fn builtin_insert_abbrev_table_description(
             let hook_fn = eval
                 .obarray()
                 .symbol_function_id(sym_id)
-                .cloned()
-                .and_then(|v| {
-                    if v.is_nil() {
-                        None
-                    } else {
-                        v.as_symbol_name().map(|s| s.to_string())
-                    }
-                });
+                .and_then(|v: Value| v.as_symbol_name().map(|s| s.to_string()));
             entries.push((sym_name.to_string(), exp_str, count, hook_fn));
         }
     }

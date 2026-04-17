@@ -4183,12 +4183,12 @@ impl Context {
         // surface, so restore that surface immediately afterward.
         builtins::init_builtins(&mut ev);
         for (sym_id, symbol) in dumped_function_surface.iter_symbols() {
-            match symbol.function.as_ref() {
-                Some(function) => ev.obarray.set_symbol_function_id(sym_id, *function),
-                None if dumped_function_surface.is_function_unbound_id(sym_id) => {
-                    ev.obarray.fmakunbound_id(sym_id);
-                }
-                None => ev.obarray.clear_function_silent_id(sym_id),
+            if !symbol.function.is_nil() {
+                ev.obarray.set_symbol_function_id(sym_id, symbol.function);
+            } else if dumped_function_surface.is_function_unbound_id(sym_id) {
+                ev.obarray.fmakunbound_id(sym_id);
+            } else {
+                ev.obarray.clear_function_silent_id(sym_id);
             }
         }
 
@@ -6407,8 +6407,8 @@ impl Context {
                 override_func
             } else {
                 match self.obarray.symbol_function_id(sym_id) {
-                    Some(f) if !f.is_nil() => {
-                        let mut f = *f;
+                    Some(f) => {
+                        let mut f = f;
                         // Follow symbol indirection (GNU eval.c:2604)
                         if let Some(alias_id) = f.as_symbol_id() {
                             if let Some(resolved) = self.obarray.indirect_function_id(alias_id) {
@@ -6422,7 +6422,7 @@ impl Context {
                                 vec![f, Value::from_sym_id(sym_id), Value::NIL],
                             )?;
                             match self.obarray.symbol_function_id(sym_id) {
-                                Some(reloaded) if !reloaded.is_nil() => *reloaded,
+                                Some(reloaded) => reloaded,
                                 _ => {
                                     return Err(signal(
                                         "void-function",
@@ -6848,7 +6848,7 @@ impl Context {
             return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         }
 
-        let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
+        let Some(function) = self.obarray.symbol_function_id(sym_id) else {
             return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         };
 
@@ -6901,7 +6901,7 @@ impl Context {
             return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         }
 
-        let Some(function) = self.obarray.symbol_function_id(sym_id).cloned() else {
+        let Some(function) = self.obarray.symbol_function_id(sym_id) else {
             return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
         };
 
@@ -8460,7 +8460,6 @@ impl Context {
         let Some(current_fn) = self
             .obarray
             .symbol_function_id(cconv_make_interpreted_closure_symbol())
-            .cloned()
         else {
             return None;
         };
@@ -8509,7 +8508,6 @@ impl Context {
         let Some(current_fn) = self
             .obarray
             .symbol_function_id(cconv_make_interpreted_closure_symbol())
-            .cloned()
         else {
             return;
         };
@@ -8573,7 +8571,6 @@ impl Context {
         let Some(current_fn) = self
             .obarray
             .symbol_function_id(cconv_make_interpreted_closure_symbol())
-            .cloned()
         else {
             return None;
         };
@@ -8622,7 +8619,6 @@ impl Context {
         let Some(current_fn) = self
             .obarray
             .symbol_function_id(cconv_make_interpreted_closure_symbol())
-            .cloned()
         else {
             return;
         };
@@ -9274,7 +9270,7 @@ impl Context {
         let target =
             if let Some(func) = compiler_function_override_in_obarray(&self.obarray, sym_id) {
                 NamedCallTarget::Obarray(func)
-            } else if let Some(func) = self.obarray.symbol_function_id(sym_id).cloned() {
+            } else if let Some(func) = self.obarray.symbol_function_id(sym_id) {
                 match func.kind() {
                     ValueKind::Nil => NamedCallTarget::Void,
                     // `(fset 'foo (symbol-function 'foo))` writes `#<subr foo>` into

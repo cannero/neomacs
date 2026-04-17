@@ -323,7 +323,6 @@ fn raw_source_debug_early_and_byte_run_define_eval_and_compile_without_shim() {
     let eval_and_compile = eval
         .obarray
         .symbol_function_id(intern("eval-and-compile"))
-        .copied()
         .expect("GNU byte-run should define eval-and-compile");
     assert!(definition_is_macroish(eval_and_compile));
 }
@@ -450,7 +449,7 @@ fn gnu_subr_el_defines_wholenump_without_rust_shim() {
     let eval = partial_bootstrap_eval_until("keymap", true);
     assert_eq!(
         eval.obarray.symbol_function("wholenump"),
-        Some(&Value::symbol("natnump"))
+        Some(Value::symbol("natnump"))
     );
 }
 
@@ -517,7 +516,7 @@ fn gnu_help_el_defines_substitute_command_keys_without_rust_shim() {
         .obarray
         .symbol_function("substitute-command-keys")
         .expect("help.el should define substitute-command-keys");
-    assert!(!crate::emacs_core::autoload::is_autoload_value(function));
+    assert!(!crate::emacs_core::autoload::is_autoload_value(&function));
 }
 
 #[test]
@@ -537,11 +536,11 @@ fn gnu_window_el_defines_window_size_aliases() {
     crate::test_utils::init_test_tracing();
     let eval = partial_bootstrap_eval_until("files", true);
     assert_eq!(
-        eval.obarray.symbol_function("window-height").copied(),
+        eval.obarray.symbol_function("window-height"),
         Some(Value::symbol("window-total-height"))
     );
     assert_eq!(
-        eval.obarray.symbol_function("window-width").copied(),
+        eval.obarray.symbol_function("window-width"),
         Some(Value::symbol("window-body-width"))
     );
 }
@@ -7511,8 +7510,7 @@ fn macroexpand_all_pcase_terminates() {
         .unwrap();
     let mexp_fn = eval
         .obarray()
-        .symbol_function("internal-macroexpand-for-load")
-        .cloned();
+        .symbol_function("internal-macroexpand-for-load");
     match mexp_fn {
         Some(mfn) => {
             tracing::debug!("  internal-macroexpand-for-load found: {mfn}");
@@ -8049,7 +8047,6 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
     let autoload = eval
         .obarray()
         .symbol_function("vm-generated-fn")
-        .copied()
         .expect("autoload function cell");
     assert!(
         crate::emacs_core::autoload::is_autoload_value(&autoload),
@@ -8113,7 +8110,6 @@ fn generated_loaddefs_replays_metadata_forms_on_bootstrap_runtime_surface() {
     let old_function = eval
         .obarray()
         .symbol_function("vm-generated-old")
-        .copied()
         .expect("obsolete alias function cell");
     assert_eq!(old_function, Value::symbol("vm-generated-fn"));
 

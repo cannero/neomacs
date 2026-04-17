@@ -254,8 +254,9 @@ pub struct LispSymbol {
     pub flags: SymbolFlags,
     /// One-word value cell. Reinterpreted by `flags.redirect()`.
     pub val: SymbolVal,
-    /// Function cell (None = void-function).
-    pub function: Option<Value>,
+    /// Function slot. `Value::NIL` is the unbound sentinel (GNU `Qnil` in
+    /// `struct Lisp_Symbol::s.function`, `lisp.h:820`).
+    pub function: Value,
     /// Property list as a Lisp cons list (NIL = empty). Matches GNU
     /// `struct Lisp_Symbol::s.plist` (`lisp.h:820`).
     pub plist: Value,
@@ -367,7 +368,7 @@ impl LispSymbol {
             name: symbol_name_id(id),
             flags,
             val: SymbolVal { plain: Value::UNBOUND },
-            function: None,
+            function: Value::NIL,
             plist: Value::NIL,
             interned_global: false,
             function_unbound: false,
@@ -1327,24 +1328,24 @@ impl Obarray {
     }
 
     /// Get the function cell of a symbol.
-    pub fn symbol_function(&self, name: &str) -> Option<&Value> {
+    pub fn symbol_function(&self, name: &str) -> Option<Value> {
         self.symbol_function_id(intern(name))
     }
 
     /// Get the function cell of a symbol by identity.
-    pub fn symbol_function_id(&self, id: SymId) -> Option<&Value> {
+    pub fn symbol_function_id(&self, id: SymId) -> Option<Value> {
         let sym = self.slot(id)?;
-        if sym.function_unbound {
+        if sym.function_unbound || sym.function.is_nil() {
             return None;
         }
-        sym.function.as_ref()
+        Some(sym.function)
     }
 
     /// Get the function cell of a symbol from its Value representation.
     /// Uses the SymId directly, which works correctly for both interned
     /// and uninterned symbols (unlike `symbol_function(name)` which
     /// re-interns the name and would miss uninterned symbol function cells).
-    pub fn symbol_function_of_value(&self, value: &Value) -> Option<&Value> {
+    pub fn symbol_function_of_value(&self, value: &Value) -> Option<Value> {
         match value.kind() {
             ValueKind::Symbol(id) => self.symbol_function_id(id),
             ValueKind::Nil => self.symbol_function("nil"),
@@ -1358,7 +1359,7 @@ impl Obarray {
         let id = intern(name);
         self.mark_global_member(id);
         let sym = self.ensure_symbol_id(id);
-        sym.function = Some(function);
+        sym.function = function;
         sym.function_unbound = false;
         self.function_epoch = self.function_epoch.wrapping_add(1);
     }
@@ -1367,7 +1368,7 @@ impl Obarray {
     pub fn set_symbol_function_id(&mut self, id: SymId, function: Value) {
         self.ensure_global_member_if_canonical(id);
         let sym = self.ensure_symbol_id(id);
-        sym.function = Some(function);
+        sym.function = function;
         sym.function_unbound = false;
         self.function_epoch = self.function_epoch.wrapping_add(1);
     }
@@ -1381,10 +1382,11 @@ impl Obarray {
     pub fn fmakunbound_id(&mut self, id: SymId) {
         self.ensure_global_member_if_canonical(id);
         let sym = self.ensure_symbol_id(id);
-        let mut changed = !sym.function_unbound;
+        let was_unbound = sym.function_unbound;
+        let was_bound_function = !sym.function.is_nil();
         sym.function_unbound = true;
-        changed |= sym.function.take().is_some();
-        if changed {
+        sym.function = Value::NIL;
+        if !was_unbound || was_bound_function {
             self.function_epoch = self.function_epoch.wrapping_add(1);
         }
     }
@@ -1398,7 +1400,8 @@ impl Obarray {
     /// Remove function cell without marking as explicitly unbound, by identity.
     pub fn clear_function_silent_id(&mut self, id: SymId) {
         if let Some(sym) = self.slot_mut(id) {
-            if sym.function.take().is_some() {
+            if !sym.function.is_nil() {
+                sym.function = Value::NIL;
                 self.function_epoch = self.function_epoch.wrapping_add(1);
             }
         }
@@ -1474,9 +1477,7 @@ impl Obarray {
     /// Check if a symbol has a function cell by identity.
     pub fn fboundp_id(&self, id: SymId) -> bool {
         self.slot(id)
-            .filter(|sym| !sym.function_unbound)
-            .and_then(|s| s.function.as_ref())
-            .is_some_and(|f| !f.is_nil())
+            .is_some_and(|s| !s.function_unbound && !s.function.is_nil())
     }
 
     /// Get a property from the symbol's plist.
@@ -1853,13 +1854,17 @@ impl Obarray {
             if depth > 100 {
                 return None; // Circular alias chain
             }
-            let func = self.slot(current_id)?.function.as_ref()?;
+            let sym = self.slot(current_id)?;
+            if sym.function.is_nil() {
+                return None;
+            }
+            let func = sym.function;
             match func.kind() {
                 ValueKind::Symbol(id) => {
                     current_id = id;
                     depth += 1;
                 }
-                _ => return Some(*func),
+                _ => return Some(func),
             }
         }
     }
@@ -1997,9 +2002,7 @@ impl GcTrace for Obarray {
                 | SymbolRedirect::Forwarded
                 | SymbolRedirect::Localized => {}
             }
-            if let Some(f) = sym.function {
-                roots.push(f);
-            }
+            roots.push(sym.function);
             roots.push(sym.plist);
         }
         // BLV contents for LOCALIZED symbols. Unchanged.

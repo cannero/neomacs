@@ -10517,7 +10517,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-fn")])
             .expect("functionp should recognize autoload function symbol");
     assert!(autoload_function_symbol.is_truthy());
-    let autoload_function_cell = *eval
+    let autoload_function_cell = eval
         .obarray()
         .symbol_function("vm-test-auto-fn")
         .expect("autoload function cell exists");
