@@ -359,31 +359,12 @@ impl<'a> DisplayBackend for GuiDisplayBackend<'a> {
     }
 }
 
-/// Inline replica of `engine::is_wide_char` to avoid cross-module
-/// coupling during the trait-introduction step. Once the walker is
-/// folded into this module (Step 3.3) the original lives in one
-/// place.
+/// Inline replica of `engine::is_wide_char`. Delegates to the
+/// authoritative table in `neovm_core::encoding::char_width` so
+/// every corner of the layout engine answers width questions the
+/// same way the elisp `char-width` builtin does.
 fn is_wide_char_inline(ch: char) -> bool {
-    // Common double-width ranges. This is a placeholder — the real
-    // table lives in unicode.rs and will be wired in when the walker
-    // is ported. For now it handles CJK which is what ASCII+CJK
-    // tests need.
-    matches!(
-        ch as u32,
-        0x1100..=0x115F     // Hangul Jamo
-            | 0x2E80..=0x303E  // CJK Radicals Supplement, Kangxi, Ideographic
-            | 0x3041..=0x33FF  // Hiragana, Katakana, Bopomofo, Hangul Compat Jamo, CJK symbols
-            | 0x3400..=0x4DBF  // CJK Unified Ideographs Extension A
-            | 0x4E00..=0x9FFF  // CJK Unified Ideographs
-            | 0xA000..=0xA4CF  // Yi
-            | 0xAC00..=0xD7A3  // Hangul Syllables
-            | 0xF900..=0xFAFF  // CJK Compatibility Ideographs
-            | 0xFE30..=0xFE4F  // CJK Compatibility Forms
-            | 0xFF00..=0xFF60  // Fullwidth forms
-            | 0xFFE0..=0xFFE6  // Fullwidth signs
-            | 0x20000..=0x2FFFD // CJK Extension B-F
-            | 0x30000..=0x3FFFD
-    )
+    neovm_core::encoding::char_width(ch) == 2
 }
 
 // ---------------------------------------------------------------------------

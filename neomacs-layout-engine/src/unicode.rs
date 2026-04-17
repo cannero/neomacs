@@ -41,35 +41,16 @@ pub(crate) fn decode_utf8(bytes: &[u8]) -> (char, usize) {
     }
 }
 
-/// Check if a character is a wide (CJK) character that occupies 2 columns.
-// is_combining_char has been replaced by is_cluster_extender and
-// collect_grapheme_cluster which properly handle multi-codepoint
-// grapheme clusters (emoji ZWJ, combining marks, etc.)
-
+/// Check if a character is a wide (CJK, emoji, …) character that
+/// occupies 2 display columns.
+///
+/// Delegates to [`neovm_core::encoding::char_width`] so the layout
+/// engine and the elisp `char-width` builtin share the same Unicode
+/// tables (transcribed from `lisp/international/characters.el`'s
+/// default `char-width-table`). Keep them unified here rather than
+/// maintaining a second copy of the ranges.
 pub(crate) fn is_wide_char(ch: char) -> bool {
-    let cp = ch as u32;
-    // CJK Unified Ideographs
-    (0x4E00..=0x9FFF).contains(&cp)
-    // CJK Extension A
-    || (0x3400..=0x4DBF).contains(&cp)
-    // CJK Extension B
-    || (0x20000..=0x2A6DF).contains(&cp)
-    // CJK Compatibility Ideographs
-    || (0xF900..=0xFAFF).contains(&cp)
-    // Fullwidth Forms
-    || (0xFF01..=0xFF60).contains(&cp)
-    || (0xFFE0..=0xFFE6).contains(&cp)
-    // Hangul Syllables
-    || (0xAC00..=0xD7AF).contains(&cp)
-    // CJK Radicals
-    || (0x2E80..=0x2FDF).contains(&cp)
-    // Katakana/Hiragana
-    || (0x3000..=0x303F).contains(&cp)
-    || (0x3040..=0x309F).contains(&cp)
-    || (0x30A0..=0x30FF).contains(&cp)
-    || (0x31F0..=0x31FF).contains(&cp)
-    // Emoji (East Asian Width = W in emoji presentation)
-    || is_emoji_presentation(cp)
+    neovm_core::encoding::char_width(ch) == 2
 }
 
 /// Check if a codepoint is an emoji that should have wide (2-column) presentation.
@@ -98,60 +79,22 @@ pub(crate) fn is_emoji_presentation(cp: u32) -> bool {
 
 /// Check if a character is a grapheme cluster extender: it should be
 /// bundled with the preceding base character for proper rendering.
+///
+/// Delegates to [`neovm_core::encoding::char_width`] for the 0-width
+/// check (matching GNU Emacs's default `char-width-table`), plus a
+/// few explicit codepoints that GNU does not mark zero-width in the
+/// char-width-table but which still cluster with the preceding base
+/// character on the terminal: the ZWJ `U+200D`, the Combining
+/// Enclosing Keycap `U+20E3`, and the skin-tone Emoji Modifier range
+/// `U+1F3FB..U+1F3FF`.
 pub(crate) fn is_cluster_extender(ch: char) -> bool {
+    if neovm_core::encoding::char_width(ch) == 0 {
+        return true;
+    }
     let cp = ch as u32;
-    // Combining Diacritical Marks
-    (0x0300..=0x036F).contains(&cp)
-    // Combining Diacritical Marks Extended
-    || (0x1AB0..=0x1AFF).contains(&cp)
-    // Combining Diacritical Marks Supplement
-    || (0x1DC0..=0x1DFF).contains(&cp)
-    // Combining Diacritical Marks for Symbols
-    || (0x20D0..=0x20FF).contains(&cp)
-    // Combining Half Marks
-    || (0xFE20..=0xFE2F).contains(&cp)
-    // Hebrew combining marks
-    || (0x0591..=0x05BD).contains(&cp)
-    || cp == 0x05BF
-    || (0x05C1..=0x05C2).contains(&cp)
-    || (0x05C4..=0x05C5).contains(&cp)
-    || cp == 0x05C7
-    // Arabic combining marks
-    || (0x0610..=0x061A).contains(&cp)
-    || (0x064B..=0x065F).contains(&cp)
-    || cp == 0x0670
-    || (0x06D6..=0x06DC).contains(&cp)
-    || (0x06DF..=0x06E4).contains(&cp)
-    || (0x06E7..=0x06E8).contains(&cp)
-    || (0x06EA..=0x06ED).contains(&cp)
-    // Devanagari combining marks
-    || (0x0901..=0x0903).contains(&cp)
-    || (0x093A..=0x094F).contains(&cp)
-    || (0x0951..=0x0957).contains(&cp)
-    || (0x0962..=0x0963).contains(&cp)
-    // Thai combining marks
-    || (0x0E31..=0x0E31).contains(&cp)
-    || (0x0E34..=0x0E3A).contains(&cp)
-    || (0x0E47..=0x0E4E).contains(&cp)
-    // Hangul Jamo combining vowels/final consonants
-    || (0x1160..=0x11FF).contains(&cp)
-    // Variation selectors
-    || (0xFE00..=0xFE0F).contains(&cp)
-    || (0xE0100..=0xE01EF).contains(&cp)
-    // Emoji skin tone modifiers
-    || (0x1F3FB..=0x1F3FF).contains(&cp)
-    // Combining Enclosing Keycap
-    || cp == 0x20E3
-    // Emoji tag characters (U+E0020..U+E007F, used in flag tag sequences)
-    || (0xE0020..=0xE007F).contains(&cp)
-    // Zero-width joiner (handled specially in collect_grapheme_cluster)
-    || cp == 0x200D
-    // Zero-width non-joiner, zero-width space, directional marks
-    || cp == 0x200C
-    || cp == 0x200B
-    || cp == 0x200E
-    || cp == 0x200F
-    || cp == 0xFEFF
+    cp == 0x200D
+        || cp == 0x20E3
+        || (0x1F3FB..=0x1F3FF).contains(&cp)
 }
 
 /// Check if a codepoint is a Regional Indicator Symbol.
