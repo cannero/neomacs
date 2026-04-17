@@ -38,7 +38,7 @@ fn overlay_put_preserves_existing_property_position() {
     let plist = list.overlay_plist(overlay).unwrap();
     assert_eq!(
         crate::emacs_core::print::print_value(&plist),
-        "(help-echo \"tip\" face italic)"
+        "(face italic help-echo \"tip\")"
     );
 }
 
