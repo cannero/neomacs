@@ -1047,6 +1047,17 @@ fn format_float_spec(f: f64, spec: &FormatSpec) -> String {
 
 /// Format a string (%s) with width and precision.
 fn format_string_spec(s: &str, spec: &FormatSpec) -> String {
+    format_string_spec_tracked(s, spec).0
+}
+
+/// Like `format_string_spec` but also returns the byte range in the
+/// output string that corresponds to the source argument's content
+/// (excluding padding spaces added for width alignment). Used by
+/// `do_format` to track where each `%s` argument lands so text
+/// properties can be copied from the argument to the result. Mirrors
+/// the `info[i].start` / `info[i].end` tracking in GNU's `styled_format`
+/// (editfns.c:3651-3806).
+fn format_string_spec_tracked(s: &str, spec: &FormatSpec) -> (String, usize, usize) {
     let truncated = if let Some(prec) = spec.precision {
         if prec < s.chars().count() {
             &s[..s.char_indices().nth(prec).map_or(s.len(), |(i, _)| i)]
@@ -1056,7 +1067,40 @@ fn format_string_spec(s: &str, spec: &FormatSpec) -> String {
     } else {
         s
     };
-    apply_width(truncated, spec)
+    let content_bytes = truncated.len();
+    let content_chars = truncated.chars().count();
+    let w = match spec.width {
+        Some(w) if w > content_chars => w,
+        _ => return (truncated.to_string(), 0, content_bytes),
+    };
+    let pad_chars = w - content_chars;
+    // Padding is always ASCII spaces (or ASCII '0'/'-'/'+' for numeric
+    // zero-padding which doesn't apply to %s). Each padding char is 1
+    // byte, so padding byte count == padding char count.
+    if spec.minus {
+        // Left-aligned: content first, then padding.
+        let padded = format!("{:<width$}", truncated, width = w);
+        (padded, 0, content_bytes)
+    } else if spec.zero && !spec.minus {
+        // Numeric zero-padding — unused for %s in practice, but keep
+        // behavior equivalent to apply_width.
+        let padded = if truncated.starts_with('-') {
+            format!("-{:0>width$}", &truncated[1..], width = w - 1)
+        } else if truncated.starts_with('+') {
+            format!("+{:0>width$}", &truncated[1..], width = w - 1)
+        } else {
+            format!("{:0>width$}", truncated, width = w)
+        };
+        // Content is after leading zero padding; exact offset is the
+        // total length minus content_bytes (sign char stays attached
+        // to content visually).
+        let start = padded.len() - content_bytes;
+        (padded, start, start + content_bytes)
+    } else {
+        // Right-aligned (default): padding first, then content.
+        let padded = format!("{:>width$}", truncated, width = w);
+        (padded, pad_chars, pad_chars + content_bytes)
+    }
 }
 
 /// Get the princ representation of a value (for %s).
@@ -1065,13 +1109,28 @@ fn format_value_princ(val: &Value) -> String {
 }
 
 /// Core format implementation shared by both pure and eval variants.
+/// Maps a span of bytes in a `%s` argument to its byte range in the
+/// formatted result, so the caller can copy text properties from the
+/// argument to the corresponding span of the output. Mirrors GNU's
+/// `info[].start`/`info[].end` tracking in `styled_format`
+/// (editfns.c:3808-3813, applied at 4380-4396).
+#[derive(Debug)]
+pub(crate) struct FormatPropSpan {
+    pub result_byte_start: usize,
+    pub result_byte_end: usize,
+    pub arg_idx: usize,
+    pub arg_byte_start: usize,
+    pub arg_byte_end: usize,
+}
+
 fn do_format(
     args: &[Value],
     princ_fn: &dyn Fn(&Value) -> String,
     prin1_fn: &dyn Fn(&Value) -> String,
-) -> Result<String, Flow> {
+) -> Result<(String, Vec<FormatPropSpan>), Flow> {
     let fmt_str = expect_strict_string(&args[0])?;
     let mut result = String::new();
+    let mut spans: Vec<FormatPropSpan> = Vec::new();
     let mut arg_idx = 1;
     let mut chars = fmt_str.chars().peekable();
 
@@ -1097,9 +1156,38 @@ fn do_format(
 
         let formatted = match spec.conversion {
             's' => {
+                let this_arg_idx = arg_idx;
                 let s = princ_fn(&args[arg_idx]);
                 arg_idx += 1;
-                format_string_spec(&s, &spec)
+                // Only `%s` on a string argument preserves text
+                // properties: princ_fn on a string returns the same
+                // bytes, so we can map byte ranges in the argument to
+                // byte ranges in the formatted result. For other types
+                // princ_fn produces a fresh printed representation
+                // with no property origin. Mirrors GNU styled_format
+                // (editfns.c:3808) which sets `spec->intervals` only
+                // when `string_intervals (arg)` is non-NULL.
+                let arg_is_string = args[this_arg_idx].is_string();
+                let (formatted, content_byte_start_in_formatted, content_byte_end_in_formatted) =
+                    format_string_spec_tracked(&s, &spec);
+                if arg_is_string && content_byte_start_in_formatted < content_byte_end_in_formatted
+                {
+                    let result_byte_start = result.len() + content_byte_start_in_formatted;
+                    let result_byte_end = result.len() + content_byte_end_in_formatted;
+                    // Precision may have truncated the content; the
+                    // arg-side range is whatever content bytes actually
+                    // made it into the formatted output.
+                    let arg_bytes_in = content_byte_end_in_formatted
+                        - content_byte_start_in_formatted;
+                    spans.push(FormatPropSpan {
+                        result_byte_start,
+                        result_byte_end,
+                        arg_idx: this_arg_idx,
+                        arg_byte_start: 0,
+                        arg_byte_end: arg_bytes_in,
+                    });
+                }
+                formatted
             }
             'S' => {
                 let s = prin1_fn(&args[arg_idx]);
@@ -1154,7 +1242,7 @@ fn do_format(
         result.push_str(&formatted);
     }
 
-    Ok(result)
+    Ok((result, spans))
 }
 
 pub(crate) fn builtin_format_wrapper_strict(
@@ -1163,15 +1251,52 @@ pub(crate) fn builtin_format_wrapper_strict(
 ) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
         expect_min_args("format", &args, 1)?;
-        let s = do_format(&args, &|v| format_percent_s_in_state(ctx, v), &|v| {
+        let (s, spans) = do_format(&args, &|v| format_percent_s_in_state(ctx, v), &|v| {
             super::error::print_value_in_state(ctx, v)
         })?;
         let multibyte = args.iter().any(|value| value.string_is_multibyte())
             || runtime_string_result_multibyte(false, &s);
-        Ok(Value::heap_string(super::runtime_string_to_lisp_string(
-            &s, multibyte,
-        )))
+        let result = Value::heap_string(super::runtime_string_to_lisp_string(&s, multibyte));
+
+        // Copy text properties from each `%s` argument's string into the
+        // corresponding span of the formatted output, mirroring GNU
+        // `styled_format` (editfns.c:4380-4396). Without this, `format`
+        // silently strips properties that the caller set on the source
+        // string — the bug that left Doom's dashboard menu items
+        // uncolored (their button faces came from a `(buffer-string)`
+        // that got flattened by `(format "%-37s" ...)`).
+        apply_format_prop_spans(result, &args, &spans);
+
+        Ok(result)
     })
+}
+
+fn apply_format_prop_spans(result: Value, args: &[Value], spans: &[FormatPropSpan]) {
+    if spans.is_empty() {
+        return;
+    }
+    let mut table = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
+        .unwrap_or_else(crate::buffer::text_props::TextPropertyTable::new);
+    let mut touched = false;
+    for span in spans {
+        let Some(arg) = args.get(span.arg_idx) else {
+            continue;
+        };
+        let Some(src_table) =
+            crate::emacs_core::value::get_string_text_properties_table_for_value(*arg)
+        else {
+            continue;
+        };
+        let sliced = src_table.slice(span.arg_byte_start, span.arg_byte_end);
+        if sliced.intervals_snapshot().iter().next().is_none() {
+            continue;
+        }
+        table.append_shifted(&sliced, span.result_byte_start);
+        touched = true;
+    }
+    if touched {
+        crate::emacs_core::value::set_string_text_properties_table_for_value(result, table);
+    }
 }
 
 /// Apply `text-quoting-style` translation to a string.
