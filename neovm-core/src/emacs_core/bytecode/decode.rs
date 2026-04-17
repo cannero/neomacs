@@ -281,13 +281,24 @@ fn decode_pass1(
             95 => ops.push(RawOp::Resolved(Op::Mul)),
 
             // 96-127: buffer/point ops
+            //
+            // Mirrors GNU bytecode.c's inline CASE dispatch of opcodes
+            // 0140-0177. Each byte maps to a Lisp function name;
+            // emit Op::CallBuiltinSym with the interned SymId so the
+            // VM dispatches by name without touching the constants
+            // pool. The previous design (add_or_find_symbol +
+            // Op::CallBuiltin) mutated the constants vector, which
+            // silently corrupted any Op::Constant(N) references past
+            // the original pool end when the caller supplied a
+            // truncated pool (observed with cl-generic dispatch
+            // lambdas sharing a bytecode template).
             96..=127 => {
                 if byte == 114 {
                     ops.push(RawOp::Resolved(Op::SaveCurrentBuffer));
                 } else {
                     let (name, arg_count) = buffer_op_info(byte);
-                    let name_idx = add_or_find_symbol(constants, name);
-                    ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, arg_count)));
+                    let sym = intern(name);
+                    ops.push(RawOp::Resolved(Op::CallBuiltinSym(sym, arg_count)));
                 }
             }
 
@@ -384,29 +395,30 @@ fn decode_pass1(
             146 => return Err(DecodeError::UnknownOpcode(byte, byte_offset)),
 
             147 => {
-                // set-marker
-                let name_idx = add_or_find_symbol(constants, "set-marker");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 3)));
+                // set-marker (GNU bytecode.c Bset_marker, inline dispatch)
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(intern("set-marker"), 3)));
             }
             148 => {
                 // match-beginning
-                let name_idx = add_or_find_symbol(constants, "match-beginning");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 1)));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(
+                    intern("match-beginning"),
+                    1,
+                )));
             }
             149 => {
                 // match-end
-                let name_idx = add_or_find_symbol(constants, "match-end");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 1)));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(
+                    intern("match-end"),
+                    1,
+                )));
             }
             150 => {
                 // upcase
-                let name_idx = add_or_find_symbol(constants, "upcase");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 1)));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(intern("upcase"), 1)));
             }
             151 => {
                 // downcase
-                let name_idx = add_or_find_symbol(constants, "downcase");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, 1)));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(intern("downcase"), 1)));
             }
 
             152 => ops.push(RawOp::Resolved(Op::StringEqual)),
@@ -441,10 +453,9 @@ fn decode_pass1(
                 ops.push(RawOp::Resolved(Op::Concat(count as u16)));
             }
             177 => {
-                // insertN: 1-byte count
+                // insertN: 1-byte count (GNU Binsert_n, inline dispatch)
                 let count = fetch1(bytecodes, &mut pos, byte_offset)?;
-                let name_idx = add_or_find_symbol(constants, "insert");
-                ops.push(RawOp::Resolved(Op::CallBuiltin(name_idx, count)));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(intern("insert"), count)));
             }
             178 => {
                 // stack-set: 1-byte

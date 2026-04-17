@@ -183,6 +183,18 @@ pub enum Op {
     /// Call a named builtin (constant pool index for name) with N args.
     /// This is the escape hatch for builtins not covered by dedicated opcodes.
     CallBuiltin(u16, u8),
+    /// Call a named builtin by direct symbol reference, with N args.
+    ///
+    /// Mirrors GNU's inline dispatch of opcodes 0140-0177 (Bpoint,
+    /// Bgoto_char, Bcurrent_buffer, ...) in `src/bytecode.c`, which
+    /// call the underlying C functions directly without any constants
+    /// pool lookup. Using this variant for those opcodes keeps the
+    /// decoded constants vector identical in size to the source
+    /// bytecode's constants — otherwise a too-short pool upstream
+    /// (e.g. a cl-generic dispatch compiled with a shared bytecode
+    /// template) silently shifts Op::Constant(N) references into the
+    /// appended builtin symbols.
+    CallBuiltinSym(crate::emacs_core::intern::SymId, u8),
 }
 
 impl Op {
@@ -293,6 +305,10 @@ impl Op {
             Op::CallBuiltin(idx, n) => {
                 let name = const_name(constants, *idx);
                 format!("call-builtin {} {} ; {}", idx, n, name)
+            }
+            Op::CallBuiltinSym(sym, n) => {
+                let name = crate::emacs_core::intern::resolve_sym(*sym);
+                format!("call-builtin-sym {} {}", name, n)
             }
         }
     }

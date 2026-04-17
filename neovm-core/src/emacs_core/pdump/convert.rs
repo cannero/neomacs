@@ -658,6 +658,7 @@ pub(crate) fn dump_op(op: &Op) -> DumpOp {
         Op::SaveWindowExcursion => DumpOp::SaveWindowExcursion,
         Op::MakeClosure(n) => DumpOp::MakeClosure(n),
         Op::CallBuiltin(a, b) => DumpOp::CallBuiltin(a, b),
+        Op::CallBuiltinSym(sym, b) => DumpOp::CallBuiltinSym(dump_sym_id(sym), b),
     }
 }
 
@@ -2178,6 +2179,7 @@ pub(crate) fn load_op(op: &DumpOp) -> Result<Op, DumpError> {
         DumpOp::SaveWindowExcursion => Op::SaveWindowExcursion,
         DumpOp::MakeClosure(n) => Op::MakeClosure(n),
         DumpOp::CallBuiltin(a, b) => Op::CallBuiltin(a, b),
+        DumpOp::CallBuiltinSym(sym, b) => Op::CallBuiltinSym(load_sym_id(&sym), b),
     };
     Ok(op)
 }

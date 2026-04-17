@@ -228,6 +228,10 @@ pub enum DumpOp {
     SaveWindowExcursion,
     MakeClosure(u16),
     CallBuiltin(u16, u8),
+    /// Built-in dispatch by direct symbol name (GNU inline-dispatch
+    /// mirror). Serialized as the symbol's name so SymId mapping
+    /// survives across dump/load.
+    CallBuiltinSym(DumpSymId, u8),
 }
 
 // ---------------------------------------------------------------------------

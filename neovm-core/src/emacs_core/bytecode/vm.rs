@@ -1652,6 +1652,27 @@ impl<'a> Vm<'a> {
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
                 }
+                // Mirrors GNU bytecode.c inline dispatch of opcodes
+                // 0140-0177 etc. — the symbol name is encoded in the
+                // op, no constants-pool lookup.
+                Op::CallBuiltinSym(sym, n) => {
+                    let name = crate::emacs_core::intern::resolve_sym(*sym).to_owned();
+                    let n = *n as usize;
+                    let args_start = stk!().len().saturating_sub(n);
+                    let args: Vec<Value> = stk!().drain(args_start..).collect();
+                    let writeback_args = args.clone();
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                        func,
+                        &name,
+                        args.clone(),
+                    )) {
+                        result
+                    } else {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args,))
+                    };
+                    self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
+                    stk_push!(result);
+                }
             }
         }
 

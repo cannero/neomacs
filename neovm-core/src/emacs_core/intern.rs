@@ -19,7 +19,7 @@ use std::sync::OnceLock;
 use crate::heap_types::LispString;
 
 /// A compact handle to a Lisp symbol object. Copy, 4 bytes.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub struct SymId(pub(crate) u32);
 
 /// A compact handle to a deduplicated symbol-name atom. Runtime-local only.
