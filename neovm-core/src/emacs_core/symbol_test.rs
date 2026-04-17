@@ -205,10 +205,9 @@ fn fresh_lisp_symbol_is_plainval_nil() {
     assert_eq!(sym.plain(), Value::NIL);
 }
 
-/// `Obarray::set_symbol_value` keeps the legacy `SymbolValue::Plain`
-/// representation in sync with the new `flags + val` shape during the
-/// Phase 1 transition. Once both representations agree, Phase 4-10 can
-/// delete the legacy enum without behavior drift.
+/// Phase F: `Obarray::set_symbol_value` writes ONLY to `flags + val`.
+/// The legacy `value` field is no longer updated (Phase H will delete it).
+/// Verify that the authoritative redirect fields are correct.
 #[test]
 fn plainval_redirect_mirrors_legacy_value_field() {
     crate::test_utils::init_test_tracing();
@@ -218,15 +217,13 @@ fn plainval_redirect_mirrors_legacy_value_field() {
     let sym = ob.get_by_id(id).expect("symbol just installed");
     assert_eq!(sym.redirect(), SymbolRedirect::Plainval);
     assert_eq!(sym.plain(), Value::fixnum(7));
-    match &sym.value {
-        SymbolValue::Plain(Some(v)) => assert_eq!(*v, Value::fixnum(7)),
-        other => panic!("legacy value out of sync: {:?}", other),
-    }
+    // Phase F: legacy `value` field is intentionally not written anymore;
+    // the authoritative source is `flags.redirect() + val`.
+    // (Phase H deletes the field entirely.)
 }
 
-/// `make_alias` flips the redirect tag to `Varalias` AND keeps the
-/// legacy enum in sync. Phase 3 of the refactor cuts the alias-following
-/// hot path over to the redirect tag exclusively.
+/// Phase F: `make_alias` flips the redirect tag to `Varalias` and sets
+/// `val.alias`. The legacy `value` field is no longer updated.
 #[test]
 fn varalias_redirect_mirrors_legacy_alias_field() {
     crate::test_utils::init_test_tracing();
@@ -239,10 +236,9 @@ fn varalias_redirect_mirrors_legacy_alias_field() {
     let sym = ob.get_by_id(from_id).expect("symbol just installed");
     assert_eq!(sym.redirect(), SymbolRedirect::Varalias);
     assert_eq!(sym.alias_target(), to_id);
-    match &sym.value {
-        SymbolValue::Alias(target) => assert_eq!(*target, to_id),
-        other => panic!("legacy value out of sync: {:?}", other),
-    }
+    // Phase F: legacy `value` field is intentionally not written anymore;
+    // the authoritative source is `flags.redirect() + val.alias`.
+    // (Phase H deletes the field entirely.)
 }
 
 /// Pre-interned `t` and `nil` carry their canonical values in both the

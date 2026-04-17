@@ -587,9 +587,10 @@ impl Obarray {
                 // declared-special.
                 sym.special = true;
                 sym.constant = true;
-                if matches!(sym.value, SymbolValue::Plain(None)) {
+                // Only initialize if not already set (idempotent).
+                // Phase F: check val.plain (UNBOUND = not yet set).
+                if unsafe { sym.val.plain } == Value::UNBOUND {
                     let kw = Value::keyword_id(id);
-                    sym.value = SymbolValue::Plain(Some(kw));
                     sym.flags.set_redirect(SymbolRedirect::Plainval);
                     sym.val = SymbolVal { plain: kw };
                 }
@@ -652,7 +653,6 @@ impl Obarray {
         let t_id = intern("t");
         {
             let t_sym = ob.ensure_slot(t_id);
-            t_sym.value = SymbolValue::Plain(Some(Value::T));
             t_sym.flags.set_redirect(SymbolRedirect::Plainval);
             t_sym.val = SymbolVal { plain: Value::T };
             t_sym.constant = true;
@@ -663,7 +663,6 @@ impl Obarray {
         let nil_id = intern("nil");
         {
             let nil_sym = ob.ensure_slot(nil_id);
-            nil_sym.value = SymbolValue::Plain(Some(Value::NIL));
             nil_sym.flags.set_redirect(SymbolRedirect::Plainval);
             nil_sym.val = SymbolVal { plain: Value::NIL };
             nil_sym.constant = true;
@@ -755,24 +754,57 @@ impl Obarray {
     }
 
     /// Get the value cell of a symbol by identity.
-    /// Follows `Alias` chains (with cycle detection, max 50 hops).
+    /// Follows alias chains (with cycle detection, max 50 hops).
+    ///
+    /// Phase F: reads from the redirect union (`val`) rather than the
+    /// legacy `value` enum field.
     pub fn symbol_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
-        let mut hops = 0usize;
-        while hops < 50 {
+        for _ in 0..50 {
             let sym = match self.symbols.get(Self::slot_index(current)) {
                 Some(Some(sym)) => sym,
                 _ => return None,
             };
-            match sym.value {
-                SymbolValue::Plain(ref v) => return v.as_ref(),
-                SymbolValue::Alias(target) => current = target,
-                SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
-                SymbolValue::Forwarded => return None,
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect=Plainval guarantees val.plain is
+                    // the live value field. UNBOUND sentinel = unbound.
+                    let v = unsafe { &sym.val.plain };
+                    if *v == Value::UNBOUND {
+                        return None;
+                    }
+                    return Some(v);
+                }
+                SymbolRedirect::Varalias => {
+                    current = unsafe { sym.val.alias };
+                }
+                SymbolRedirect::Localized => {
+                    // Return the BLV defcell default (global) value.
+                    // The defcell is a heap-allocated cons (sym . default);
+                    // its cdr field lives in the GC heap, which is owned
+                    // by `self` for the lifetime of `&self`.
+                    // UNBOUND cdr means the symbol has no global default.
+                    return self.blv(current).and_then(|blv| {
+                        // Safety: defcell is a valid heap cons (allocated
+                        // by Value::cons in make_symbol_localized and kept
+                        // alive by the GC root in blv.defcell). The cdr
+                        // field lives in the ConsCell in the GC heap and
+                        // is valid for the lifetime of `&self`.
+                        let cdr_ref = unsafe {
+                            let cons_ptr = blv.defcell.xcons_ptr();
+                            &(*cons_ptr).cdr_or_next.cdr
+                        };
+                        if *cdr_ref == Value::UNBOUND {
+                            None
+                        } else {
+                            Some(cdr_ref)
+                        }
+                    });
+                }
+                SymbolRedirect::Forwarded => return None,
             }
-            hops += 1;
         }
-        None // alias cycle — give up
+        None // alias cycle
     }
 
     /// Set the value cell of a symbol. Interns if needed.
@@ -826,11 +858,6 @@ impl Obarray {
         let sym = self.ensure_symbol_id(target);
         sym.flags.set_redirect(SymbolRedirect::Localized);
         sym.val = SymbolVal { blv: raw };
-        // Phase 4 keeps the legacy enum mirror in sync until Phase 10.
-        sym.value = SymbolValue::BufferLocal {
-            default: Some(default),
-            local_if_set: false,
-        };
         raw
     }
 
@@ -955,9 +982,6 @@ impl Obarray {
             fwd: fwd as *const crate::emacs_core::forward::LispBufferObjFwd
                 as *const crate::emacs_core::forward::LispFwd,
         };
-        // Phase 8a keeps the legacy SymbolValue::Forwarded marker in
-        // sync (it's a stub variant in the legacy enum).
-        sym.value = SymbolValue::Forwarded;
     }
 
     /// Read a symbol's value via the redirect dispatch. Mirrors GNU
@@ -1243,20 +1267,9 @@ impl Obarray {
         let _ = blv;
         valcell.set_cdr(value);
 
-        // Phase 10E: keep the legacy `SymbolValue::BufferLocal::default`
-        // mirror in sync when the write lands on the defcell. This
-        // matters because `Obarray::symbol_value_id` and
-        // `default_value_id` still read from the legacy enum, and
-        // GNU `Fdefault_value` for SYMBOL_LOCALIZED returns
-        // `XCDR(blv->defcell)` (`data.c:1659-1668`). Without this
-        // sync, `(default-value 'foo)` returns the stale enum value.
-        if writing_default
-            && let Some(sym) = self.slot_mut(sym_id)
-            && let SymbolValue::BufferLocal { default, .. } = &mut sym.value
-        {
-            *default = Some(value);
-        }
-
+        // Phase F: the legacy SymbolValue::BufferLocal mirror is no
+        // longer written; symbol_value_id reads directly from the BLV
+        // defcell cons via xcons_ptr. No legacy sync needed.
         new_alist
     }
 
@@ -1272,14 +1285,10 @@ impl Obarray {
         let target = self.resolve_alias_for_write(id);
         let sym = self.ensure_symbol_id(target);
 
-        // LOCALIZED: write to BLV defcell (the default). The legacy
-        // enum BufferLocal mirror's `default` field is updated to
-        // match. Do NOT touch the redirect or val.blv — that would
-        // orphan the BLV cache.
+        // LOCALIZED: write to BLV defcell (the default). Do NOT touch
+        // the redirect or val.blv — that would orphan the BLV cache.
+        // Phase F: no legacy SymbolValue mirror write needed.
         if sym.flags.redirect() == SymbolRedirect::Localized {
-            if let SymbolValue::BufferLocal { default, .. } = &mut sym.value {
-                *default = Some(value);
-            }
             // Safety: redirect=Localized guarantees val.blv is a
             // valid pointer to a BLV owned by self.blvs.
             unsafe {
@@ -1298,18 +1307,13 @@ impl Obarray {
 
         match sym.value {
             SymbolValue::Plain(_) => {
-                sym.value = SymbolValue::Plain(Some(value));
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: value };
             }
-            SymbolValue::BufferLocal {
-                ref mut default, ..
-            } => {
+            SymbolValue::BufferLocal { .. } => {
                 // Legacy fallback: a symbol whose legacy enum is
                 // BufferLocal but whose redirect hasn't been flipped
-                // to Localized yet. Maintain the legacy default and
-                // rewrite the new shape as Plainval.
-                *default = Some(value);
+                // to Localized yet. Rewrite the new shape as Plainval.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: value };
             }
@@ -1317,7 +1321,6 @@ impl Obarray {
             SymbolValue::Alias(_) => {
                 // resolve_alias_for_write should have resolved this, but
                 // as a safety fallback write as Plain.
-                sym.value = SymbolValue::Plain(Some(value));
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: value };
             }
@@ -1325,33 +1328,52 @@ impl Obarray {
     }
 
     /// Visit each stored symbol value cell that currently holds a `Value`.
+    ///
+    /// Phase F: reads from the redirect union (`val`) rather than the
+    /// legacy `value` enum field. Visits Plainval symbols (non-UNBOUND)
+    /// and BLV defcell defaults (for Localized symbols).
     pub fn for_each_value_cell_mut(&mut self, mut f: impl FnMut(&mut Value)) {
         for sym in self.symbols.iter_mut().flatten() {
-            match &mut sym.value {
-                SymbolValue::Plain(Some(value)) => f(value),
-                SymbolValue::BufferLocal {
-                    default: Some(value),
-                    ..
-                } => f(value),
-                SymbolValue::Plain(None)
-                | SymbolValue::BufferLocal { default: None, .. }
-                | SymbolValue::Alias(_)
-                | SymbolValue::Forwarded => {}
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect=Plainval guarantees val.plain is live.
+                    let v = unsafe { &mut sym.val.plain };
+                    if *v != Value::UNBOUND {
+                        f(v);
+                    }
+                }
+                SymbolRedirect::Localized => {
+                    // Visit the BLV defcell default.
+                    // Safety: redirect=Localized guarantees val.blv is valid.
+                    unsafe {
+                        let blv = &mut *sym.val.blv;
+                        let cdr = blv.defcell.cons_cdr();
+                        if cdr != Value::UNBOUND {
+                            // Mutate the cdr of the defcell cons in the heap.
+                            let cons_ptr = blv.defcell.xcons_ptr() as *mut crate::tagged::header::ConsCell;
+                            f(&mut (*cons_ptr).cdr_or_next.cdr);
+                        }
+                    }
+                }
+                SymbolRedirect::Varalias | SymbolRedirect::Forwarded => {}
             }
         }
     }
 
     /// Follow alias chain for a mutable write, returning the resolved SymId.
     /// Max 50 hops to prevent infinite loops.
+    ///
+    /// Phase F: uses the redirect tag + val.alias rather than the legacy
+    /// SymbolValue::Alias enum field.
     fn resolve_alias_for_write(&mut self, id: SymId) -> SymId {
         let mut current = id;
         for _ in 0..50 {
             match self.slot(current) {
-                Some(s) => match s.value {
-                    SymbolValue::Alias(target) => current = target,
-                    _ => return current,
-                },
-                None => return current,
+                Some(s) if s.flags.redirect() == SymbolRedirect::Varalias => {
+                    // Safety: redirect=Varalias guarantees val.alias is set.
+                    current = unsafe { s.val.alias };
+                }
+                _ => return current,
             }
         }
         current // cycle — write to the last hop
@@ -1447,17 +1469,8 @@ impl Obarray {
         let target = self.resolve_alias_for_write(id);
         if let Some(sym) = self.slot_mut(target) {
             if !sym.constant {
-                match sym.value {
-                    SymbolValue::Plain(_) => sym.value = SymbolValue::Plain(None),
-                    SymbolValue::BufferLocal {
-                        ref mut default, ..
-                    } => *default = None,
-                    SymbolValue::Forwarded => { /* no-op */ }
-                    SymbolValue::Alias(_) => sym.value = SymbolValue::Plain(None),
-                }
-                // Mirror into the new shape: Plainval / UNBOUND is the
-                // "no value" state, matching GNU where makunbound sets
-                // val.value = Qunbound.
+                // Plainval / UNBOUND is the "no value" state, matching
+                // GNU where makunbound sets val.value = Qunbound.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
                 sym.val = SymbolVal { plain: Value::UNBOUND };
             }
@@ -1471,29 +1484,36 @@ impl Obarray {
 
     /// Check if a symbol is bound by identity.
     /// Follows alias chains (max 50 hops).
+    ///
+    /// Phase F: reads from the redirect union (`val`) rather than the
+    /// legacy `value` enum field. Mirrors GNU `boundp` (`data.c:805-810`).
     pub fn boundp_id(&self, id: SymId) -> bool {
         let mut current = id;
         for _ in 0..50 {
             let Some(s) = self.slot(current) else {
                 return false;
             };
-            // Phase 10D: BUFFER_OBJFWD slots are never unbound;
-            // their value lives in the buffer/buffer_defaults slot
-            // and `boundp` should return t. Mirrors GNU `boundp`
-            // (`data.c:805-810`) which returns true for FORWARDED.
-            if s.flags.redirect() == SymbolRedirect::Forwarded {
-                use crate::emacs_core::forward::LispFwdType;
-                let fwd = unsafe { &*s.val.fwd };
-                if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    return true;
+            match s.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect=Plainval guarantees val.plain is live.
+                    let v = unsafe { s.val.plain };
+                    return v != Value::UNBOUND;
                 }
-                return false;
-            }
-            match &s.value {
-                SymbolValue::Plain(v) => return v.is_some(),
-                SymbolValue::Alias(target) => current = *target,
-                SymbolValue::BufferLocal { default, .. } => return default.is_some(),
-                SymbolValue::Forwarded => return false,
+                SymbolRedirect::Varalias => {
+                    current = unsafe { s.val.alias };
+                }
+                SymbolRedirect::Localized => {
+                    // Bound if the BLV defcell has a non-UNBOUND default.
+                    return self.blv(current).is_some_and(|blv| {
+                        blv.defcell.cons_cdr() != Value::UNBOUND
+                    });
+                }
+                SymbolRedirect::Forwarded => {
+                    // Phase 10D: BUFFER_OBJFWD slots are never unbound.
+                    use crate::emacs_core::forward::LispFwdType;
+                    let fwd = unsafe { &*s.val.fwd };
+                    return matches!(fwd.ty, LispFwdType::BufferObj);
+                }
             }
         }
         false // cycle
@@ -1650,20 +1670,18 @@ impl Obarray {
         self.mark_global_member(id);
         let sym = self.ensure_symbol_id(id);
         let already_localized = sym.flags.redirect() == SymbolRedirect::Localized;
-        let old_default = match &sym.value {
-            SymbolValue::Plain(v) => v.clone(),
-            SymbolValue::BufferLocal { default, .. } => default.clone(),
-            _ => None,
-        };
-        sym.value = SymbolValue::BufferLocal {
-            default: old_default.clone(),
-            local_if_set,
-        };
         if !already_localized {
-            sym.flags.set_redirect(SymbolRedirect::Plainval);
-            sym.val = SymbolVal {
-                plain: old_default.unwrap_or(Value::NIL),
+            // Preserve the current plain value as the new default.
+            // Phase F: read from val.plain (the authoritative field) rather
+            // than the legacy value enum which is no longer written.
+            let current = unsafe { sym.val.plain };
+            let old_default = if current == Value::UNBOUND {
+                Value::NIL
+            } else {
+                current
             };
+            sym.flags.set_redirect(SymbolRedirect::Plainval);
+            sym.val = SymbolVal { plain: old_default };
         }
     }
 
@@ -1673,7 +1691,6 @@ impl Obarray {
     /// Phase 3 cuts callers over to the redirect-only path.
     pub fn make_alias(&mut self, id: SymId, target: SymId) {
         let sym = self.ensure_symbol_id(id);
-        sym.value = SymbolValue::Alias(target);
         sym.set_alias_target(target);
     }
 
@@ -1683,9 +1700,10 @@ impl Obarray {
     }
 
     /// Check whether a symbol is a buffer-local variable by identity.
+    /// Phase F: uses the redirect tag rather than the legacy value enum.
     pub fn is_buffer_local_id(&self, id: SymId) -> bool {
         self.slot(id)
-            .is_some_and(|s| matches!(s.value, SymbolValue::BufferLocal { .. }))
+            .is_some_and(|s| s.flags.redirect() == SymbolRedirect::Localized)
     }
 
     /// Check whether a symbol is an alias by identity. Reads through the
@@ -1790,30 +1808,53 @@ impl Obarray {
     }
 
     /// Get the default value of a symbol, following aliases.
-    /// For `Plain` and `BufferLocal` this is the direct/default value;
-    /// for `Alias` it follows the chain; for `Forwarded` BUFFER_OBJFWD
-    /// it returns the forwarder's static default (Phase 10D).
+    /// For `Plainval` this is the direct value; for `Localized` it's the
+    /// BLV defcell default; for `Varalias` it follows the chain; for
+    /// `Forwarded` BUFFER_OBJFWD it returns the forwarder's static default.
+    ///
+    /// Phase F: reads from the redirect union (`val`) rather than the
+    /// legacy `value` enum field.
     pub fn default_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
         for _ in 0..50 {
             let sym = self.slot(current)?;
-            // Phase 10D: prefer the new redirect tag for FORWARDED
-            // since the legacy `value` field is the `Forwarded`
-            // sentinel which carries no payload.
-            if sym.flags.redirect() == SymbolRedirect::Forwarded {
-                use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
-                let fwd = unsafe { &*sym.val.fwd };
-                if matches!(fwd.ty, LispFwdType::BufferObj) {
-                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
-                    return Some(&buf_fwd.default);
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect=Plainval guarantees val.plain is live.
+                    let v = unsafe { &sym.val.plain };
+                    if *v == Value::UNBOUND {
+                        return None;
+                    }
+                    return Some(v);
                 }
-                return None;
-            }
-            match sym.value {
-                SymbolValue::Plain(ref v) => return v.as_ref(),
-                SymbolValue::BufferLocal { ref default, .. } => return default.as_ref(),
-                SymbolValue::Alias(target) => current = target,
-                SymbolValue::Forwarded => return None,
+                SymbolRedirect::Varalias => {
+                    current = unsafe { sym.val.alias };
+                }
+                SymbolRedirect::Localized => {
+                    // Return a reference to the BLV defcell cdr (the default).
+                    return self.blv(current).and_then(|blv| {
+                        // Safety: same as symbol_value_id's Localized arm.
+                        let cdr_ref = unsafe {
+                            let cons_ptr = blv.defcell.xcons_ptr();
+                            &(*cons_ptr).cdr_or_next.cdr
+                        };
+                        if *cdr_ref == Value::UNBOUND {
+                            None
+                        } else {
+                            Some(cdr_ref)
+                        }
+                    });
+                }
+                SymbolRedirect::Forwarded => {
+                    use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+                    let fwd = unsafe { &*sym.val.fwd };
+                    if matches!(fwd.ty, LispFwdType::BufferObj) {
+                        let buf_fwd =
+                            unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                        return Some(&buf_fwd.default);
+                    }
+                    return None;
+                }
             }
         }
         None

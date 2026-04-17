@@ -911,10 +911,36 @@ fn dump_symbol_value(encoder: &mut DumpEncoder, sv: &SymbolValue) -> DumpSymbolV
 }
 
 pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &SymbolData) -> DumpSymbolData {
+    // Phase F: compute the canonical SymbolValue from the redirect union
+    // rather than the legacy `value` field (which is no longer written).
+    use crate::emacs_core::symbol::SymbolRedirect;
+    let live_sv = match sd.flags.redirect() {
+        SymbolRedirect::Plainval => {
+            let v = unsafe { sd.val.plain };
+            if v == crate::emacs_core::value::Value::UNBOUND {
+                SymbolValue::Plain(None)
+            } else {
+                SymbolValue::Plain(Some(v))
+            }
+        }
+        SymbolRedirect::Varalias => {
+            let target = unsafe { sd.val.alias };
+            SymbolValue::Alias(target)
+        }
+        SymbolRedirect::Localized => {
+            // BLV symbols are not fully round-tripped in pdump yet
+            // (Phase I covers pdump v12). Emit the legacy default if known.
+            SymbolValue::BufferLocal {
+                default: None,
+                local_if_set: false,
+            }
+        }
+        SymbolRedirect::Forwarded => SymbolValue::Forwarded,
+    };
     DumpSymbolData {
         name: None,
         value: None,
-        symbol_value: Some(dump_symbol_value(encoder, &sd.value)),
+        symbol_value: Some(dump_symbol_value(encoder, &live_sv)),
         function: encoder.dump_opt_value(&sd.function),
         plist: sd
             .plist
@@ -2373,8 +2399,10 @@ pub(crate) fn load_symbol_data(
     match &value {
         SymbolValue::Plain(v) => {
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
+            // Phase F: use UNBOUND sentinel for None (unbound) symbols,
+            // not NIL — symbol_value_id now checks val.plain != UNBOUND.
             symbol.val = SymbolVal {
-                plain: v.unwrap_or(crate::emacs_core::value::Value::NIL),
+                plain: v.unwrap_or(crate::emacs_core::value::Value::UNBOUND),
             };
         }
         SymbolValue::Alias(target) => {
@@ -2385,13 +2413,13 @@ pub(crate) fn load_symbol_data(
             // dispatch lands in Phase 4. The default lives in `val.plain`.
             symbol.flags.set_redirect(SymbolRedirect::Plainval);
             symbol.val = SymbolVal {
-                plain: default.unwrap_or(crate::emacs_core::value::Value::NIL),
+                plain: default.unwrap_or(crate::emacs_core::value::Value::UNBOUND),
             };
         }
         SymbolValue::Forwarded => {
             // Phase 1: forwarded symbols are not yet round-tripped through
             // the redirect (Phase 8 wires it up). Leave the new fields at
-            // their default Plainval / NIL.
+            // their default Plainval / UNBOUND.
         }
     }
     symbol.value = value;
