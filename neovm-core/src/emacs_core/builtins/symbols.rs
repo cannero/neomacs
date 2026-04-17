@@ -4397,6 +4397,48 @@ pub(crate) fn make_byte_code_from_parts(
             )
         })?;
 
+    // Surface a clearer error when the bytecode references constants
+    // beyond the pool we received. Seen with cl-generic dispatch
+    // lambdas compiled at runtime: three different generic functions
+    // can produce byte-identical raw_bytes but only one of them also
+    // ships a constants vector of the right length. GNU never hits
+    // this because its VM dispatches opcodes 96-127 (Bpoint,
+    // Bgoto_char, etc.) inline without touching the constants pool,
+    // while neomacs rewrites those opcodes into CallBuiltin + an
+    // appended symbol — so a truncated pool there becomes a silent
+    // OOB at every Op::Constant reference past the original length.
+    //
+    // This assert turns the deferred panic at vm.rs's Op::Constant
+    // handler into an eager diagnostic at construction time, including
+    // the docstring so the caller is identifiable. Non-debug builds
+    // still benefit because the panic message points at the real site.
+    {
+        let max_ref: Option<usize> = ops
+            .iter()
+            .filter_map(|op| {
+                let s = format!("{:?}", op);
+                if let Some(rest) = s.strip_prefix("Constant(") {
+                    rest.strip_suffix(")").and_then(|n| n.parse::<usize>().ok())
+                } else {
+                    None
+                }
+            })
+            .max();
+        if let Some(mx) = max_ref
+            && mx >= constants.len()
+        {
+            tracing::error!(
+                "make-byte-code: Op::Constant({}) out of bounds (pool len={}). \
+                 Bytecode template references more constants than supplied. \
+                 This function will panic when invoked at vm.rs Op::Constant. \
+                 Docstring={:?}",
+                mx,
+                constants.len(),
+                docstring,
+            );
+        }
+    }
+
     // 5. Extract maxdepth
     let max_stack = match maxdepth.kind() {
         ValueKind::Fixnum(n) => n as u16,
