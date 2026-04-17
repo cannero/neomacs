@@ -4424,18 +4424,25 @@ pub(crate) fn make_byte_code_from_parts(
                 }
             })
             .max();
-        if let Some(mx) = max_ref
-            && mx >= constants.len()
-        {
-            tracing::error!(
-                "make-byte-code: Op::Constant({}) out of bounds (pool len={}). \
-                 Bytecode template references more constants than supplied. \
-                 This function will panic when invoked at vm.rs Op::Constant. \
-                 Docstring={:?}",
-                mx,
-                constants.len(),
-                docstring,
-            );
+        if let Some(mx) = max_ref {
+            if mx >= constants.len() {
+                // Observed with cl-generic dispatch compilation in Doom:
+                // three lambdas with identical raw_bytes (max_ref=17)
+                // are built with constants vectors of lengths 5/10/14.
+                // The elisp byte-compiler (or cl-generic's invocation
+                // of it) is producing the bytecode template that
+                // references more constants than it supplies in the
+                // pool. Bytecomp.el and cl-generic.el match GNU
+                // byte-for-byte; the bug is somewhere in their
+                // interaction with neomacs's runtime. See task #43.
+                tracing::error!(
+                    "make-byte-code: bytecode Constant({}) exceeds pool len={}. \
+                     Function will panic at VM Op::Constant. docstring={:?}",
+                    mx,
+                    constants.len(),
+                    docstring.map(|d| format!("{}", d)),
+                );
+            }
         }
     }
 
