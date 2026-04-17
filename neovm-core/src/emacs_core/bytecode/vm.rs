@@ -1784,7 +1784,7 @@ impl<'a> Vm<'a> {
             updated
         };
 
-        if first_arg.as_str() == replacement.as_str() {
+        if crate::emacs_core::value::equal_value(first_arg, &replacement, 0) {
             return;
         }
 

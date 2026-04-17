@@ -216,17 +216,9 @@ fn parse_serialize_kwargs(args: &[Value], start_index: usize) -> Result<Serializ
 // ===========================================================================
 
 /// Check if two Values are equivalent for the purpose of matching the
-/// null/false sentinel objects.  Uses structural equality for simple types.
+/// null/false sentinel objects.
 fn value_matches(a: &Value, b: &Value) -> bool {
-    match (a.kind(), b.kind()) {
-        (ValueKind::Nil, ValueKind::Nil) => true,
-        (ValueKind::T, ValueKind::T) => true,
-        (ValueKind::Fixnum(x), ValueKind::Fixnum(y)) => x == y,
-        (ValueKind::Float, ValueKind::Float) => a.xfloat().to_bits() == b.xfloat().to_bits(),
-        (ValueKind::Symbol(x), ValueKind::Symbol(y)) => x == y,
-        (ValueKind::String, ValueKind::String) => a.as_str() == b.as_str(),
-        _ => false,
-    }
+    super::value::equal_value(a, b, 0)
 }
 
 /// Serialize a Lisp value to a JSON string.
