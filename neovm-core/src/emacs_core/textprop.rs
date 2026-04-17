@@ -7,9 +7,9 @@ use super::builtins::builtin_copy_sequence;
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 // storage imports removed — now using emacs_char directly
+use super::plist;
 use super::symbol::Obarray;
 use super::value::*;
-use crate::buffer::overlay::plist_put_eq;
 use crate::buffer::text_props::TextPropertyTable;
 use crate::buffer::{BufferId, BufferManager};
 
@@ -1683,7 +1683,7 @@ pub(crate) fn builtin_overlay_put_in_buffers(
     } else {
         overlay
             .with_overlay_data_mut(|object| {
-                let (plist, changed) = plist_put_eq(object.plist, args[1], val);
+                let (plist, changed) = plist::plist_put(object.plist, args[1], val);
                 object.plist = plist;
                 changed
             })
@@ -1720,7 +1720,7 @@ pub(crate) fn builtin_overlay_get_in_buffers(
     expect_args("overlay-get", &args, 2)?;
     let overlay = expect_overlay(&args[0])?;
     if let Some(data) = overlay.as_overlay_data() {
-        if let Some(val) = crate::buffer::overlay::plist_get_eq(data.plist, &args[1]) {
+        if let Some(val) = plist::plist_get(data.plist, &args[1]) {
             return Ok(val);
         }
     }

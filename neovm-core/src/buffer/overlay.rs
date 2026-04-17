@@ -10,7 +10,8 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
 
-use crate::emacs_core::value::{Value, ValueKind, eq_value};
+use crate::emacs_core::plist;
+use crate::emacs_core::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use crate::heap_types::OverlayData;
 
@@ -65,7 +66,7 @@ impl OverlayList {
     pub fn overlay_put(&mut self, overlay: Value, prop: Value, value: Value) -> bool {
         overlay
             .with_overlay_data_mut(|data| {
-                let (plist, changed) = plist_put_eq(data.plist, prop, value);
+                let (plist, changed) = plist::plist_put(data.plist, prop, value);
                 data.plist = plist;
                 changed
             })
@@ -73,7 +74,7 @@ impl OverlayList {
     }
 
     pub fn overlay_get(&self, overlay: Value, prop: &Value) -> Option<Value> {
-        plist_get_eq(overlay.as_overlay_data().unwrap().plist, prop)
+        plist::plist_get(overlay.as_overlay_data().unwrap().plist, prop)
     }
 
     pub fn overlay_get_named(&self, overlay: Value, prop_name: Value) -> Option<Value> {
@@ -233,7 +234,7 @@ impl OverlayList {
                     }
 
                     if object.start == object.end
-                        && plist_get_eq(object.plist, &Value::symbol("evaporate"))
+                        && plist::plist_get(object.plist, &Value::symbol("evaporate"))
                             .is_some_and(|v| v.is_truthy())
                     {
                         object.buffer = None;
@@ -442,7 +443,7 @@ fn overlay_overlaps_region(
 
 fn overlay_property_named(overlay: Value, prop_name: Value) -> Option<Value> {
     let plist = overlay.as_overlay_data()?.plist;
-    plist_get_eq(plist, &prop_name)
+    plist::plist_get(plist, &prop_name)
 }
 
 fn compare_overlay_precedence(left: Value, right: Value) -> Ordering {
@@ -506,23 +507,6 @@ fn priority_component(value: Value) -> i64 {
     }
 }
 
-pub(crate) fn plist_get_eq(plist: Value, prop: &Value) -> Option<Value> {
-    let mut tail = plist;
-    loop {
-        if !tail.is_cons() {
-            return None;
-        };
-        let pair_car = tail.cons_car();
-        let pair_cdr = tail.cons_cdr();
-        if !pair_cdr.is_cons() {
-            return None;
-        };
-        if eq_value(&pair_car, prop) {
-            return Some(pair_cdr.cons_car());
-        }
-        tail = pair_cdr.cons_cdr();
-    }
-}
 
 fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
@@ -542,27 +526,6 @@ fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
     }
 }
 
-pub(crate) fn plist_put_eq(plist: Value, prop: Value, value: Value) -> (Value, bool) {
-    let mut tail = plist;
-    loop {
-        if !tail.is_cons() {
-            let changed = !value.is_nil();
-            return (Value::cons(prop, Value::cons(value, plist)), changed);
-        };
-        let pair_car = tail.cons_car();
-        let pair_cdr = tail.cons_cdr();
-        if !pair_cdr.is_cons() {
-            let changed = !value.is_nil();
-            return (Value::cons(prop, Value::cons(value, plist)), changed);
-        };
-        if eq_value(&pair_car, &prop) {
-            let changed = !eq_value(&pair_cdr.cons_car(), &value);
-            pair_cdr.set_car(value);
-            return (plist, changed);
-        }
-        tail = pair_cdr.cons_cdr();
-    }
-}
 
 impl Default for OverlayList {
     fn default() -> Self {

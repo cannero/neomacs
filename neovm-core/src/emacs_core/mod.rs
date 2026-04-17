@@ -79,6 +79,7 @@ pub mod navigation;
 pub mod network;
 pub mod pdump;
 pub mod perf_trace;
+pub mod plist;
 pub mod print;
 pub mod process;
 pub mod reader;
