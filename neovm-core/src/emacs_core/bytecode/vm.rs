@@ -1919,10 +1919,9 @@ impl<'a> Vm<'a> {
         // `find_symbol_value_in_buffer` which will swap the BLV
         // cache for LOCALIZED and read the slot for FORWARDED.
         //
-        // For PLAINVAL / VARALIAS (and the transitional case where a
-        // LOCALIZED read misses because the legacy `make-local-variable`
-        // wrote only to BufferLocals), we fall through to the legacy
-        // buffer-local detour and the PLAINVAL fast path.
+        // For PLAINVAL / VARALIAS, fall through to the PLAINVAL fast path
+        // via `find_symbol_value`. With Phase B complete, every LOCALIZED
+        // symbol is handled by the redirect dispatch above.
         use crate::emacs_core::symbol::SymbolRedirect;
         let redirect = self.ctx.obarray.get_by_id(resolved).map(|s| s.redirect());
         if matches!(
@@ -1972,29 +1971,6 @@ impl<'a> Vm<'a> {
                     return Err(signal("void-variable", vec![Value::from_sym_id(name_id)]));
                 }
                 return Ok(val);
-            }
-        }
-
-        // Phase 2 fall-back: legacy buffer-local detour for symbols
-        // still on the legacy storage path. Gated on
-        // `is_buffer_local_id` so the String allocation + HashMap
-        // lookup only fires for marked buffer-local variables.
-        let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
-            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
-        if is_local
-            && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
-            && let Some(buf) = self.ctx.buffers.current_buffer()
-        {
-            let resolved_name = resolve_sym(resolved);
-            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
-                return binding
-                    .as_value()
-                    .or_else(|| {
-                        (resolved_name == "buffer-undo-list")
-                            .then(|| buf.buffer_local_value(resolved_name))
-                            .flatten()
-                    })
-                    .ok_or_else(|| signal("void-variable", vec![Value::from_sym_id(name_id)]));
             }
         }
 
@@ -2147,27 +2123,7 @@ impl<'a> Vm<'a> {
         }
 
         // specbind writes directly to obarray, so dynamic stack lookup is
-        // no longer needed — fall through to buffer-local and obarray lookups.
-
-        // Phase 2: only consult buffer-local storage if the symbol is
-        // actually marked as buffer-local.
-        let is_local = self.ctx.obarray.is_buffer_local_id(resolved)
-            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
-        if is_local
-            && crate::emacs_core::builtins::is_canonical_symbol_id(resolved)
-            && let Some(buf) = self.ctx.buffers.current_buffer()
-        {
-            if let Some(binding) = buf.get_buffer_local_binding(resolved_name) {
-                return binding
-                    .as_value()
-                    .or_else(|| {
-                        (resolved_name == "buffer-undo-list")
-                            .then(|| buf.buffer_local_value(resolved_name))
-                            .flatten()
-                    })
-                    .ok_or_else(|| signal("void-variable", vec![Value::symbol(name)]));
-            }
-        }
+        // no longer needed — fall through to obarray lookup.
 
         // Obarray top-level via the new redirect dispatch.
         if let Some(val) = self.ctx.obarray.find_symbol_value(resolved) {
@@ -2377,16 +2333,18 @@ impl<'a> Vm<'a> {
             }
         };
         let resolved = resolve_variable_alias_id_in_obarray(&self.ctx.obarray, symbol)?;
-        let resolved_name = resolve_sym(resolved);
         if self.ctx.obarray.is_constant_id(resolved) {
             return Err(signal("setting-constant", vec![args[0]]));
         }
         let value = args[1];
 
-        // GNU PLAINVAL path: for non-buffer-local variables, `set-default`
-        // behaves like `set` -- writes to dynamic frame if let-bound.
-        let is_buffer_local = self.ctx.obarray.is_buffer_local(resolved_name)
-            || self.ctx.custom.is_auto_buffer_local_symbol(resolved);
+        // GNU PLAINVAL path: for non-LOCALIZED variables, `set-default`
+        // behaves like `set` — writes to dynamic frame if let-bound.
+        let is_buffer_local = self
+            .ctx
+            .obarray
+            .get_by_id(resolved)
+            .is_some_and(|s| s.redirect() == crate::emacs_core::symbol::SymbolRedirect::Localized);
         if !is_buffer_local {
             crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
         } else {
