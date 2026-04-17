@@ -131,7 +131,7 @@ fn canonical_id_mutators_keep_symbol_globally_interned() {
     ob.put_property_id(sym, intern("vm-prop"), Value::fixnum(2));
     assert_eq!(
         ob.get_property("vm-ghost", "vm-prop"),
-        Some(&Value::fixnum(2))
+        Some(Value::fixnum(2))
     );
 
     ob.set_symbol_function_id(sym, Value::subr(intern("+")));
@@ -153,7 +153,7 @@ fn replace_symbol_plist_id_overwrites_existing_entries() {
     assert_eq!(ob.get_property("vm-plist", "stale"), None);
     assert_eq!(
         ob.get_property("vm-plist", "fresh"),
-        Some(&Value::fixnum(2))
+        Some(Value::fixnum(2))
     );
 }
 
@@ -179,7 +179,7 @@ fn for_each_value_cell_mut_updates_plain_and_buffer_local_values() {
     assert_eq!(ob.symbol_function("callable"), Some(&Value::fixnum(99)));
     assert_eq!(
         ob.get_property("plist-holder", "meta"),
-        Some(&Value::fixnum(77))
+        Some(Value::fixnum(77))
     );
 }
 

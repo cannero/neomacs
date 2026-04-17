@@ -38,6 +38,7 @@ fn test_dump_symbol_data_bincode_round_trip() {
     crate::test_utils::init_test_tracing();
 
     // Format v21: no legacy name/value/symbol_value/special/constant fields.
+    // plist is now a DumpValue (Lisp cons list) rather than Vec<(DumpSymId, DumpValue)>.
     let original = DumpSymbolData {
         redirect: 1, // Varalias
         trapped_write: 0,
@@ -45,7 +46,7 @@ fn test_dump_symbol_data_bincode_round_trip() {
         declared_special: true,
         val: DumpSymbolVal::Alias(DumpSymId(7)),
         function: Some(DumpValue::Int(9)),
-        plist: vec![(DumpSymId(3), DumpValue::Int(11))],
+        plist: DumpValue::Nil,
     };
 
     let encoded = bincode::serialize(&original).expect("symbol data should serialize");
@@ -61,9 +62,7 @@ fn test_dump_symbol_data_bincode_round_trip() {
         "val should round-trip as Alias(7)"
     );
     assert!(matches!(decoded.function, Some(DumpValue::Int(9))));
-    assert_eq!(decoded.plist.len(), 1);
-    assert_eq!(decoded.plist[0].0, DumpSymId(3));
-    assert!(matches!(decoded.plist[0].1, DumpValue::Int(11)));
+    assert!(matches!(decoded.plist, DumpValue::Nil), "empty plist should round-trip as Nil");
 }
 
 #[test]

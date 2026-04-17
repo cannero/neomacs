@@ -2385,7 +2385,6 @@ impl Context {
     fn signal_conditions_value(&self, sig: &SignalData) -> Value {
         self.obarray
             .get_property(sig.symbol_name(), "error-conditions")
-            .copied()
             .unwrap_or_else(|| Value::list(vec![Value::from_sym_id(sig.symbol)]))
     }
 

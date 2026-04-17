@@ -778,7 +778,7 @@ pub(crate) fn builtin_abbrev_table_put(
 fn get_table_property(eval: &super::eval::Context, vec_val: Value, prop: &str) -> Option<Value> {
     table_header_symbol(vec_val)
         .and_then(symbol_id)
-        .and_then(|id| eval.obarray().get_property_id(id, intern(prop)).cloned())
+        .and_then(|id| eval.obarray().get_property_id(id, intern(prop)))
 }
 
 fn increment_table_modiff(eval: &mut super::eval::Context, vec_val: Value) {

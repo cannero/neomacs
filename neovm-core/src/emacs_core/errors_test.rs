@@ -152,7 +152,7 @@ fn obarray_init_standard_errors() {
     init_standard_errors(&mut ob);
     // Check that error-conditions is set for 'error' itself.
     let conds = ob.get_property("error", "error-conditions").unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert_eq!(items, vec!["error"]);
 }
 
@@ -164,7 +164,7 @@ fn obarray_void_variable_conditions() {
     let conds = ob
         .get_property("void-variable", "error-conditions")
         .unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert!(items.contains(&"void-variable".to_string()));
     assert!(items.contains(&"error".to_string()));
 }
@@ -177,7 +177,7 @@ fn obarray_overflow_error_conditions() {
     let conds = ob
         .get_property("overflow-error", "error-conditions")
         .unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert!(items.contains(&"overflow-error".to_string()));
     assert!(items.contains(&"arith-error".to_string()));
     assert!(items.contains(&"error".to_string()));
@@ -189,7 +189,7 @@ fn obarray_file_missing_conditions() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob.get_property("file-missing", "error-conditions").unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert!(items.contains(&"file-missing".to_string()));
     assert!(items.contains(&"file-error".to_string()));
     assert!(items.contains(&"error".to_string()));
@@ -201,7 +201,7 @@ fn obarray_dbus_error_conditions() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let conds = ob.get_property("dbus-error", "error-conditions").unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert!(items.contains(&"dbus-error".to_string()));
     assert!(items.contains(&"error".to_string()));
 }
@@ -215,14 +215,14 @@ fn obarray_cyclic_indirection_conditions() {
     let function_conds = ob
         .get_property("cyclic-function-indirection", "error-conditions")
         .unwrap();
-    let function_items = iter_symbol_list(function_conds);
+    let function_items = iter_symbol_list(&function_conds);
     assert!(function_items.contains(&"cyclic-function-indirection".to_string()));
     assert!(function_items.contains(&"error".to_string()));
 
     let variable_conds = ob
         .get_property("cyclic-variable-indirection", "error-conditions")
         .unwrap();
-    let variable_items = iter_symbol_list(variable_conds);
+    let variable_items = iter_symbol_list(&variable_conds);
     assert!(variable_items.contains(&"cyclic-variable-indirection".to_string()));
     assert!(variable_items.contains(&"error".to_string()));
 }
@@ -333,7 +333,7 @@ fn define_error_basic() {
         .obarray
         .get_property("my-error", "error-conditions")
         .unwrap();
-    let items = iter_symbol_list(conds);
+    let items = iter_symbol_list(&conds);
     assert!(items.contains(&"my-error".to_string()));
     assert!(items.contains(&"error".to_string()));
 
@@ -1169,7 +1169,7 @@ fn obarray_all_standard_errors_include_self_in_conditions() {
 
     for name in &standard {
         let conds = ob.get_property(name, "error-conditions").unwrap();
-        let items = iter_symbol_list(conds);
+        let items = iter_symbol_list(&conds);
         assert!(
             items.contains(&name.to_string()),
             "{} should contain itself in error-conditions",

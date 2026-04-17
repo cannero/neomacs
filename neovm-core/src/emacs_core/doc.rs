@@ -120,7 +120,6 @@ fn documentation_plan(
         let name = name.to_string();
         if let Some(prop) = obarray
             .get_property(&name, "function-documentation")
-            .cloned()
         {
             return documentation_plan_from_property_value(lisp_directory.as_deref(), prop);
         }
@@ -7944,7 +7943,7 @@ fn documentation_property_plan(
     };
     let raw = args.get(2).is_some_and(|v| v.is_truthy());
 
-    match obarray.get_property(sym, prop).cloned() {
+    match obarray.get_property(sym, prop) {
         Some(value) if startup_variable_doc_offset_symbol(sym, prop, &value) => {
             let base_doc = startup_variable_doc_stub(sym)
                 .map(ToString::to_string)

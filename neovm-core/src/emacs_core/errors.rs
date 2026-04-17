@@ -47,7 +47,7 @@ fn build_conditions_from_obarray(obarray: &Obarray, name: &str, parents: &[&str]
     for &parent in parents {
         // Read the parent's error-conditions list from the obarray.
         if let Some(parent_conds) = obarray.get_property(parent, "error-conditions") {
-            for sym in iter_symbol_list(parent_conds) {
+            for sym in iter_symbol_list(&parent_conds) {
                 if !conditions.contains(&sym) {
                     conditions.push(sym);
                 }
@@ -104,7 +104,7 @@ pub fn signal_matches_hierarchical(
     }
     // Check the error-conditions plist on the signal symbol.
     if let Some(conds) = obarray.get_property(signal_sym, "error-conditions") {
-        for sym_name in iter_symbol_list(conds) {
+        for sym_name in iter_symbol_list(&conds) {
             if sym_name == condition_sym {
                 return true;
             }
@@ -540,7 +540,7 @@ pub(crate) fn builtin_error_message_string(
     let base_message = eval
         .obarray
         .get_property(&sym_name, "error-message")
-        .and_then(runtime_string_value)
+        .and_then(|v| runtime_string_value(&v))
         .unwrap_or_else(|| sym_name.clone());
     let is_known_error = signal_matches_hierarchical(&eval.obarray, &sym_name, "error");
 

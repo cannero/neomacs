@@ -4777,12 +4777,10 @@ fn neovm_loadup_bootstrap() {
 
     let float_pred = eval
         .obarray()
-        .get_property("float", "cl-deftype-satisfies")
-        .copied();
+        .get_property("float", "cl-deftype-satisfies");
     let integer_pred = eval
         .obarray()
-        .get_property("integer", "cl-deftype-satisfies")
-        .copied();
+        .get_property("integer", "cl-deftype-satisfies");
     assert!(
         float_pred.is_some_and(|v| !v.is_nil()),
         "expected float cl-deftype-satisfies property to be non-nil, got {float_pred:?}"

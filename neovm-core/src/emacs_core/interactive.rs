@@ -533,7 +533,6 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
         loop {
             if let Some(modes) = obarray
                 .get_property_id(current, intern("command-modes"))
-                .copied()
                 .filter(|value| !value.is_nil())
             {
                 return Ok(modes);

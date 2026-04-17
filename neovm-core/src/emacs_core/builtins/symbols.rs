@@ -185,9 +185,8 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
 }
 
 pub(crate) fn symbol_raw_plist_value_in_obarray(obarray: &Obarray, symbol: SymId) -> Option<Value> {
-    obarray
-        .get_property_id(symbol, intern(RAW_SYMBOL_PLIST_PROPERTY))
-        .cloned()
+    // BAND-AID (P3 deletes this fn): sym.plist IS the cons list now.
+    obarray.get_by_id(symbol).map(|s| s.plist)
 }
 
 fn symbol_raw_plist_value(eval: &super::eval::Context, symbol: SymId) -> Option<Value> {
@@ -195,24 +194,8 @@ fn symbol_raw_plist_value(eval: &super::eval::Context, symbol: SymId) -> Option<
 }
 
 pub(crate) fn visible_symbol_plist_snapshot_in_obarray(obarray: &Obarray, symbol: SymId) -> Value {
-    let Some(sym) = obarray.get_by_id(symbol) else {
-        return Value::NIL;
-    };
-
-    let mut items = Vec::new();
-    for (key, value) in &sym.plist {
-        if is_internal_symbol_plist_property(resolve_sym(*key)) {
-            continue;
-        }
-        items.push(value_from_symbol_id(*key));
-        items.push(*value);
-    }
-
-    if items.is_empty() {
-        Value::NIL
-    } else {
-        Value::list(items)
-    }
+    // BAND-AID (P3 deletes this fn): return the live plist.
+    obarray.get_by_id(symbol).map(|s| s.plist).unwrap_or(Value::NIL)
 }
 
 fn visible_symbol_plist_entries(plist: Value) -> Vec<(SymId, Value)> {
@@ -246,21 +229,8 @@ fn visible_symbol_plist_entries(plist: Value) -> Vec<(SymId, Value)> {
 }
 
 pub(crate) fn set_symbol_raw_plist_in_obarray(obarray: &mut Obarray, symbol: SymId, plist: Value) {
-    let preserved_internal = obarray
-        .get_by_id(symbol)
-        .map(|sym| {
-            sym.plist
-                .iter()
-                .filter(|(key, _)| is_internal_symbol_plist_property(resolve_sym(**key)))
-                .map(|(key, value)| (*key, *value))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-
-    let mut entries = preserved_internal;
-    entries.push((intern(RAW_SYMBOL_PLIST_PROPERTY), plist));
-    entries.extend(visible_symbol_plist_entries(plist));
-    obarray.replace_symbol_plist_id(symbol, entries);
+    // BAND-AID (P3 deletes this fn): sym.plist IS the cons list.
+    obarray.set_symbol_plist_id(symbol, plist);
 }
 
 fn set_symbol_raw_plist(eval: &mut super::eval::Context, symbol: SymId, plist: Value) {
@@ -762,7 +732,6 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     Ok(eval
         .obarray()
         .get_property_id(sym, prop)
-        .cloned()
         .unwrap_or(Value::NIL))
 }
 
@@ -837,7 +806,6 @@ fn symbol_has_valid_ccl_program_idx_in_obarray(
     let symbol = expect_symbol_id(symbol)?;
     let idx = obarray
         .get_property_id(symbol, intern("ccl-program-idx"))
-        .copied()
         .unwrap_or(Value::NIL);
     Ok(idx.as_int().is_some_and(|n| n >= 0))
 }
@@ -3289,7 +3257,6 @@ pub(crate) fn plan_interactive_form_in_state(
         loop {
             if let Some(property) = obarray
                 .get_property_id(current, intern("interactive-form"))
-                .copied()
                 .filter(|value| !value.is_nil())
             {
                 return Ok(InteractiveFormPlan::Return(property));
@@ -3387,7 +3354,6 @@ pub(crate) fn builtin_interactive_form(
         if let Some(prop) = eval
             .obarray
             .get_property(name, "interactive-form")
-            .copied()
             .filter(|v| !v.is_nil())
         {
             return Ok(prop);

@@ -936,11 +936,7 @@ pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> Du
         declared_special: sd.flags.declared_special(),
         val,
         function: encoder.dump_opt_value(&sd.function),
-        plist: sd
-            .plist
-            .iter()
-            .map(|(k, v)| (dump_sym_id(*k), encoder.dump_value(v)))
-            .collect(),
+        plist: encoder.dump_value(&sd.plist),
     }
 }
 
@@ -2408,11 +2404,7 @@ pub(crate) fn load_symbol_data(
     }
 
     symbol.function = decoder.load_opt_value(&sd.function);
-    symbol.plist = sd
-        .plist
-        .iter()
-        .map(|(k, v)| (load_sym_id(k), decoder.load_value(v)))
-        .collect();
+    symbol.plist = decoder.load_value(&sd.plist);
     symbol
 }
 

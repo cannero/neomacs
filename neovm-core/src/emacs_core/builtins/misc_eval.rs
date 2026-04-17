@@ -460,7 +460,6 @@ pub(crate) fn plan_defalias_in_obarray(
     };
     let hook = obarray
         .get_property_id(symbol, intern("defalias-fset-function"))
-        .cloned()
         .unwrap_or(Value::NIL);
     let action = if hook.is_nil() {
         DefaliasAction::SetFunction { symbol, definition }

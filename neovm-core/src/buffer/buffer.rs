@@ -2269,7 +2269,6 @@ impl Buffer {
                 } else {
                     let prop = obarray
                         .get_property(name, "permanent-local")
-                        .copied()
                         .filter(|v| !v.is_nil());
                     if let Some(prop) = prop {
                         if prop.is_symbol_named("permanent-local-hook") {

@@ -35,7 +35,6 @@ use super::intern::{
 use super::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
-use rustc_hash::FxHashMap;
 
 // ===========================================================================
 // Redirect machinery — mirrors GNU `lisp.h:771-829`
@@ -256,8 +255,9 @@ pub struct LispSymbol {
     pub val: SymbolVal,
     /// Function cell (None = void-function).
     pub function: Option<Value>,
-    /// Property list (flat alternating key-value pairs stored as HashMap).
-    pub plist: FxHashMap<SymId, Value>,
+    /// Property list as a Lisp cons list (NIL = empty). Matches GNU
+    /// `struct Lisp_Symbol::s.plist` (`lisp.h:820`).
+    pub plist: Value,
     /// Whether this symbol is interned in the global obarray.
     interned_global: bool,
     /// Whether `fmakunbound` explicitly masked the symbol's fallback function.
@@ -367,7 +367,7 @@ impl LispSymbol {
             flags,
             val: SymbolVal { plain: Value::UNBOUND },
             function: None,
-            plist: FxHashMap::default(),
+            plist: Value::NIL,
             interned_global: false,
             function_unbound: false,
         }
@@ -1479,13 +1479,14 @@ impl Obarray {
     }
 
     /// Get a property from the symbol's plist.
-    pub fn get_property(&self, name: &str, prop: &str) -> Option<&Value> {
+    pub fn get_property(&self, name: &str, prop: &str) -> Option<Value> {
         self.get_property_id(intern(name), intern(prop))
     }
 
     /// Get a property from the symbol's plist by identity.
-    pub fn get_property_id(&self, symbol: SymId, prop: SymId) -> Option<&Value> {
-        self.slot(symbol).and_then(|s| s.plist.get(&prop))
+    pub fn get_property_id(&self, symbol: SymId, prop: SymId) -> Option<Value> {
+        let sym = self.slot(symbol)?;
+        crate::emacs_core::plist::plist_get(sym.plist, &Value::from_sym_id(prop))
     }
 
     /// Set a property on the symbol's plist.
@@ -1493,14 +1494,24 @@ impl Obarray {
         let symbol = intern(name);
         self.mark_global_member(symbol);
         let sym = self.ensure_symbol_id(symbol);
-        sym.plist.insert(intern(prop), value);
+        let (new_plist, _changed) = crate::emacs_core::plist::plist_put(
+            sym.plist,
+            Value::from_sym_id(intern(prop)),
+            value,
+        );
+        sym.plist = new_plist;
     }
 
     /// Set a property on the symbol's plist by identity.
     pub fn put_property_id(&mut self, symbol: SymId, prop: SymId, value: Value) {
         self.ensure_global_member_if_canonical(symbol);
         let sym = self.ensure_symbol_id(symbol);
-        sym.plist.insert(prop, value);
+        let (new_plist, _changed) = crate::emacs_core::plist::plist_put(
+            sym.plist,
+            Value::from_sym_id(prop),
+            value,
+        );
+        sym.plist = new_plist;
     }
 
     /// Replace the complete plist for a symbol by identity.
@@ -1509,9 +1520,27 @@ impl Obarray {
         I: IntoIterator<Item = (SymId, Value)>,
     {
         self.ensure_global_member_if_canonical(symbol);
+        let mut flat: Vec<Value> = Vec::new();
+        for (k, v) in entries {
+            flat.push(Value::from_sym_id(k));
+            flat.push(v);
+        }
+        let new_plist = if flat.is_empty() {
+            Value::NIL
+        } else {
+            Value::list(flat)
+        };
         let sym = self.ensure_symbol_id(symbol);
-        sym.plist.clear();
-        sym.plist.extend(entries);
+        sym.plist = new_plist;
+    }
+
+    /// Store `plist` verbatim as the symbol's property list. Matches GNU
+    /// `setplist`. `plist` is typically a Lisp cons list but may be any
+    /// value (including NIL).
+    pub fn set_symbol_plist_id(&mut self, symbol: SymId, plist: Value) {
+        self.ensure_global_member_if_canonical(symbol);
+        let sym = self.ensure_symbol_id(symbol);
+        sym.plist = plist;
     }
 
     /// Get the symbol's full plist as a flat list.
@@ -1521,17 +1550,7 @@ impl Obarray {
 
     /// Get the symbol's full plist as a flat list by identity.
     pub fn symbol_plist_id(&self, id: SymId) -> Value {
-        match self.slot(id) {
-            Some(sym) if !sym.plist.is_empty() => {
-                let mut items = Vec::new();
-                for (k, v) in &sym.plist {
-                    items.push(self.value_from_symbol_id(*k));
-                    items.push(*v);
-                }
-                Value::list(items)
-            }
-            _ => Value::NIL,
-        }
+        self.slot(id).map(|s| s.plist).unwrap_or(Value::NIL)
     }
 
     /// Mark a symbol as special (dynamically bound).
@@ -1972,9 +1991,7 @@ impl GcTrace for Obarray {
             if let Some(f) = sym.function {
                 roots.push(f);
             }
-            for pval in sym.plist.values() {
-                roots.push(*pval);
-            }
+            roots.push(sym.plist);
         }
         // BLV contents for LOCALIZED symbols. Unchanged.
         for &blv_ptr in &self.blvs {

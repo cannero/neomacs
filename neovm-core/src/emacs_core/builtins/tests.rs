@@ -5990,8 +5990,7 @@ fn defconst_1_sets_constant_value_and_risky_local_property() {
     assert!(eval.obarray().is_constant_id(symbol));
     assert_eq!(
         eval.obarray()
-            .get_property_id(symbol, intern("risky-local-variable"))
-            .copied(),
+            .get_property_id(symbol, intern("risky-local-variable")),
         Some(Value::T)
     );
 }
@@ -8262,8 +8261,7 @@ fn internal_define_uninitialized_variable_marks_special_and_sets_doc() {
     assert!(eval.obarray().is_special("neo-var"));
     assert_eq!(
         eval.obarray()
-            .get_property("neo-var", "variable-documentation")
-            .copied(),
+            .get_property("neo-var", "variable-documentation"),
         Some(Value::string("Neo doc"))
     );
 }

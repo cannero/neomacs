@@ -236,7 +236,7 @@ where
     if let Some(category) = direct_get(Value::symbol("category"))
         && let Some(category_name) = category.as_symbol_name()
         && let Some(prop_name) = prop.as_symbol_name()
-        && let Some(value) = obarray.get_property(category_name, prop_name).copied()
+        && let Some(value) = obarray.get_property(category_name, prop_name)
     {
         fallback = value;
     }

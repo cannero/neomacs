@@ -2438,7 +2438,6 @@ pub(crate) fn find_file_name_handler_lisp(
             let ops_sym = super::intern::intern("operations");
             if let Some(ops) = obarray
                 .get_property_id(handler_sym, ops_sym)
-                .copied()
                 .filter(|v| !v.is_nil())
             {
                 let mut op_cursor = ops;

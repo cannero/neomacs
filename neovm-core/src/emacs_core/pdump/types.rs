@@ -341,8 +341,8 @@ pub struct DumpSymbolData {
     pub val: DumpSymbolVal,
     /// Function cell (None = void-function / fmakunbound).
     pub function: Option<DumpValue>,
-    /// Property list as a flat vec of (key-sym-id, value) pairs.
-    pub plist: Vec<(DumpSymId, DumpValue)>,
+    /// Property list as a Lisp cons list (DumpValue::Nil = empty).
+    pub plist: DumpValue,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

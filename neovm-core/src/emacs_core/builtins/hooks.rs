@@ -952,7 +952,6 @@ pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>
     let subfeatures = eval
         .obarray
         .get_property(name, "subfeatures")
-        .cloned()
         .unwrap_or(Value::NIL);
     let items = list_to_vec(&subfeatures).ok_or_else(|| {
         signal(
