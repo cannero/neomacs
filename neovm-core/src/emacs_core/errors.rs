@@ -34,8 +34,10 @@ use std::collections::{HashMap, HashSet};
 /// `name` itself, its parents, and their transitive ancestors).
 fn put_error_properties(obarray: &mut Obarray, name: &str, message: &str, conditions: Vec<&str>) {
     let cond_list = Value::list(conditions.iter().map(|s| Value::symbol(*s)).collect());
-    obarray.put_property(name, "error-conditions", cond_list);
-    obarray.put_property(name, "error-message", Value::string(message));
+    obarray.put_property(name, "error-conditions", cond_list)
+        .expect("error-conditions plist should always be valid during init");
+    obarray.put_property(name, "error-message", Value::string(message))
+        .expect("error-message plist should always be valid during init");
 }
 
 /// Collect the full condition list for `name` given its direct `parents`.

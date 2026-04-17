@@ -960,7 +960,7 @@ pub(crate) fn provide_value_in_state(
     })?;
     let name = resolve_sym(sym_id).to_owned();
     if let Some(value) = subfeatures {
-        obarray.put_property(&name, "subfeatures", value);
+        obarray.put_property(&name, "subfeatures", value)?;
     }
     add_feature_in_state(obarray, features, &name);
     Ok(feature)
@@ -3631,11 +3631,13 @@ impl Context {
         // GNU Emacs seeds core startup vars with integer
         // `variable-documentation` offsets in the DOC table.
         for &(name, _) in STARTUP_VARIABLE_DOC_STUBS {
-            obarray.put_property(name, "variable-documentation", Value::fixnum(0));
+            obarray.put_property(name, "variable-documentation", Value::fixnum(0))
+                .expect("startup variable-documentation plist should always be valid");
         }
         // Some startup docs are string-valued in GNU Emacs (not integer offsets).
         for &(name, doc) in STARTUP_VARIABLE_DOC_STRING_PROPERTIES {
-            obarray.put_property(name, "variable-documentation", Value::string(doc));
+            obarray.put_property(name, "variable-documentation", Value::string(doc))
+                .expect("startup variable-documentation plist should always be valid");
         }
 
         // Bootstrap primitive function cells that GNU `simple.el` references
@@ -7890,7 +7892,7 @@ impl Context {
         super::custom::builtin_set_default(self, vec![symbol, value])?;
         self.obarray.make_special_id(sym_id);
         self.obarray
-            .put_property_id(sym_id, intern("risky-local-variable"), Value::T);
+            .put_property_id(sym_id, intern("risky-local-variable"), Value::T)?;
         Ok(Value::from_sym_id(sym_id))
     }
 

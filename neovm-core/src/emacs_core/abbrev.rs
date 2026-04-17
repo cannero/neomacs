@@ -494,7 +494,7 @@ pub(crate) fn builtin_make_abbrev_table(
     eval.obarray_mut()
         .set_symbol_value_id(header_id, Value::NIL);
     eval.obarray_mut()
-        .put_property_id(header_id, intern(":abbrev-table-modiff"), Value::fixnum(0));
+        .put_property_id(header_id, intern(":abbrev-table-modiff"), Value::fixnum(0))?;
 
     // Process optional property list
     if let Some(props_val) = args.first() {
@@ -506,7 +506,7 @@ pub(crate) fn builtin_make_abbrev_table(
                     let val = props[i + 1];
                     if let Some(prop_name) = prop.as_symbol_name() {
                         eval.obarray_mut()
-                            .put_property_id(header_id, intern(prop_name), val);
+                            .put_property_id(header_id, intern(prop_name), val)?;
                     }
                     i += 2;
                 }
@@ -771,7 +771,7 @@ pub(crate) fn builtin_abbrev_table_put(
         return Ok(Value::NIL);
     };
     eval.obarray_mut()
-        .put_property_id(header_id, intern(prop), args[2]);
+        .put_property_id(header_id, intern(prop), args[2])?;
     Ok(args[2])
 }
 
@@ -787,7 +787,7 @@ fn increment_table_modiff(eval: &mut super::eval::Context, vec_val: Value) {
         _ => 1,
     };
     if let Some(header_id) = table_header_symbol(vec_val).and_then(symbol_id) {
-        eval.obarray_mut().put_property_id(
+        let _ = eval.obarray_mut().put_property_id(
             header_id,
             intern(":abbrev-table-modiff"),
             Value::fixnum(next),
@@ -908,7 +908,7 @@ pub(crate) fn builtin_define_abbrev_table(
     if let Some(docstring) = args.get(2) {
         if docstring.is_string() {
             eval.obarray_mut()
-                .put_property_id(header_id, intern(":docstring"), *docstring);
+                .put_property_id(header_id, intern(":docstring"), *docstring)?;
         }
     }
 
@@ -921,7 +921,7 @@ pub(crate) fn builtin_define_abbrev_table(
             let val = args[i + 1];
             if let Some(prop_name) = prop.as_symbol_name() {
                 eval.obarray_mut()
-                    .put_property_id(header_id, intern(prop_name), val);
+                    .put_property_id(header_id, intern(prop_name), val)?;
             }
             i += 2;
         }

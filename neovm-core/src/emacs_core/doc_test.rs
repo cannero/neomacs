@@ -17,7 +17,7 @@ fn raw_documentation_property_does_not_require_substitute_command_keys() {
         "vm-doc-prop",
         "variable-documentation",
         Value::string("Press \\[save-buffer] to save."),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut eval,
@@ -39,7 +39,7 @@ fn runtime_documentation_property_uses_gnu_substitute_command_keys() {
         "vm-doc-prop",
         "variable-documentation",
         Value::string("Press \\[save-buffer] to save."),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut eval,
@@ -511,7 +511,7 @@ fn documentation_prefers_function_documentation_property() {
         "doc-prop",
         "function-documentation",
         Value::string("propdoc"),
-    );
+    ).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert_eq!(result.unwrap().as_utf8_str(), Some("propdoc"));
@@ -526,7 +526,7 @@ fn documentation_integer_function_documentation_property_returns_nil() {
         .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator
         .obarray
-        .put_property("doc-prop", "function-documentation", Value::fixnum(9));
+        .put_property("doc-prop", "function-documentation", Value::fixnum(9)).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert!(result.unwrap().is_nil());
@@ -543,7 +543,7 @@ fn documentation_list_function_documentation_property_is_evaluated() {
         "doc-prop",
         "function-documentation",
         Value::list(vec![Value::symbol("identity"), Value::string("doc")]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert_eq!(result.unwrap().as_utf8_str(), Some("doc"));
@@ -558,7 +558,7 @@ fn documentation_symbol_function_documentation_property_is_evaluated() {
         .set_symbol_function("doc-prop", Value::fixnum(7));
     evaluator
         .obarray
-        .put_property("doc-prop", "function-documentation", Value::symbol("t"));
+        .put_property("doc-prop", "function-documentation", Value::symbol("t")).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert!(result.unwrap().is_truthy());
@@ -575,7 +575,7 @@ fn documentation_vector_function_documentation_property_is_evaluated() {
         "doc-prop",
         "function-documentation",
         Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     assert!(result.unwrap().is_vector());
@@ -592,7 +592,7 @@ fn documentation_unbound_symbol_function_documentation_property_errors() {
         "doc-prop",
         "function-documentation",
         Value::symbol("doc-prop-unbound"),
-    );
+    ).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     match result {
@@ -612,7 +612,7 @@ fn documentation_invalid_form_function_documentation_property_errors() {
         "doc-prop",
         "function-documentation",
         Value::list(vec![Value::fixnum(1), Value::fixnum(2)]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation(&mut evaluator, vec![Value::symbol("doc-prop")]);
     match result {
@@ -753,7 +753,7 @@ fn documentation_property_eval_returns_string_property() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .put_property("doc-sym", "variable-documentation", Value::string("doc"));
+        .put_property("doc-sym", "variable-documentation", Value::string("doc")).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -777,7 +777,7 @@ fn documentation_property_eval_substitutes_command_keys_unless_raw() {
         "doc-sym",
         "variable-documentation",
         Value::string("Press \\[save-buffer] to save."),
-    );
+    ).unwrap();
 
     let display = builtin_documentation_property(
         &mut evaluator,
@@ -812,7 +812,7 @@ fn documentation_property_eval_integer_property_returns_nil() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .put_property("doc-sym", "variable-documentation", Value::fixnum(7));
+        .put_property("doc-sym", "variable-documentation", Value::fixnum(7)).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -855,7 +855,7 @@ fn documentation_property_eval_reads_compiled_doc_ref() {
             Value::string(path.to_string_lossy().into_owned()),
             Value::fixnum(5),
         ),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1309,7 +1309,7 @@ fn documentation_property_eval_list_property_is_evaluated() {
         "doc-sym",
         "variable-documentation",
         Value::list(vec![Value::symbol("identity"), Value::string("doc")]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1328,7 +1328,7 @@ fn documentation_property_eval_symbol_property_is_evaluated() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .put_property("doc-sym", "variable-documentation", Value::symbol("t"));
+        .put_property("doc-sym", "variable-documentation", Value::symbol("t")).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1349,7 +1349,7 @@ fn documentation_property_eval_vector_property_is_evaluated() {
         "doc-sym",
         "variable-documentation",
         Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1370,7 +1370,7 @@ fn documentation_property_eval_unbound_symbol_property_errors() {
         "doc-sym",
         "variable-documentation",
         Value::symbol("doc-sym-unbound"),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1393,7 +1393,7 @@ fn documentation_property_eval_invalid_form_property_errors() {
         "doc-sym",
         "variable-documentation",
         Value::list(vec![Value::fixnum(1), Value::fixnum(2)]),
-    );
+    ).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,
@@ -1414,7 +1414,7 @@ fn documentation_property_eval_non_symbol_prop_returns_nil() {
     let mut evaluator = super::super::eval::Context::new();
     evaluator
         .obarray
-        .put_property("doc-sym", "x", Value::string("v"));
+        .put_property("doc-sym", "x", Value::string("v")).unwrap();
 
     let result = builtin_documentation_property(
         &mut evaluator,

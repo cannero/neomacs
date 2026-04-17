@@ -1679,15 +1679,15 @@ pub(crate) fn builtin_overlay_put_in_buffers(
             .get_mut(buf_id)
             .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?
             .overlays
-            .overlay_put(overlay, args[1], val)
+            .overlay_put(overlay, args[1], val)?
     } else {
         overlay
             .with_overlay_data_mut(|object| {
-                let (plist, changed) = plist::plist_put(object.plist, args[1], val);
+                let (plist, changed) = plist::plist_put(object.plist, args[1], val)?;
                 object.plist = plist;
-                changed
+                Ok::<bool, crate::emacs_core::error::Flow>(changed)
             })
-            .unwrap()
+            .unwrap()?
     };
     if let Some(buf_id) = resolve_overlay_buffer_id(overlay) {
         if changed {

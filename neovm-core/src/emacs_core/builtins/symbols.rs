@@ -262,7 +262,7 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
 
     if !documentation.is_nil() {
         eval.obarray_mut()
-            .put_property_id(symbol, intern("variable-documentation"), documentation);
+            .put_property_id(symbol, intern("variable-documentation"), documentation)?;
     }
 
     Ok(Value::NIL)
@@ -619,7 +619,7 @@ pub(crate) fn builtin_defconst_1(eval: &mut super::eval::Context, args: Vec<Valu
     eval.refresh_gc_runtime_settings_after_change_by_id(resolved);
     eval.obarray_mut().set_constant_id(resolved);
     eval.obarray_mut()
-        .put_property_id(resolved, intern("risky-local-variable"), Value::T);
+        .put_property_id(resolved, intern("risky-local-variable"), Value::T)?;
 
     Ok(Value::from_sym_id(symbol))
 }
@@ -655,7 +655,7 @@ pub(crate) fn put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalRes
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
     let value = args[2];
-    obarray.put_property_id(sym, prop, value);
+    obarray.put_property_id(sym, prop, value)?;
     Ok(value)
 }
 

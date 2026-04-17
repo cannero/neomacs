@@ -3183,7 +3183,8 @@ impl BufferManager {
         self.buffers
             .get_mut(&id)?
             .overlays
-            .overlay_put(overlay_id, name, value);
+            .overlay_put(overlay_id, name, value)
+            .ok()?;
         Some(())
     }
 

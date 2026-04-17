@@ -483,7 +483,7 @@ fn test_format_mode_line_respects_risky_local_variable_for_eval_forms() {
         Value::list(vec![Value::symbol(":eval"), Value::string("ok")]),
     );
     eval.obarray
-        .put_property("trusted-mode-line", "risky-local-variable", Value::T);
+        .put_property("trusted-mode-line", "risky-local-variable", Value::T).unwrap();
 
     let suppressed =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::symbol("unsafe-mode-line")])

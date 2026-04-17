@@ -33,6 +33,7 @@ use super::intern::{
     symbol_name_id,
 };
 use super::value::{Value, ValueKind};
+use crate::emacs_core::error::Flow;
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 
@@ -1490,7 +1491,10 @@ impl Obarray {
     }
 
     /// Set a property on the symbol's plist.
-    pub fn put_property(&mut self, name: &str, prop: &str, value: Value) {
+    ///
+    /// Returns `Err(Flow)` if the existing plist is malformed (non-cons non-nil),
+    /// matching GNU `Fput` / `Fplist_put` semantics.
+    pub fn put_property(&mut self, name: &str, prop: &str, value: Value) -> Result<(), Flow> {
         let symbol = intern(name);
         self.mark_global_member(symbol);
         let sym = self.ensure_symbol_id(symbol);
@@ -1498,20 +1502,25 @@ impl Obarray {
             sym.plist,
             Value::from_sym_id(intern(prop)),
             value,
-        );
+        )?;
         sym.plist = new_plist;
+        Ok(())
     }
 
     /// Set a property on the symbol's plist by identity.
-    pub fn put_property_id(&mut self, symbol: SymId, prop: SymId, value: Value) {
+    ///
+    /// Returns `Err(Flow)` if the existing plist is malformed (non-cons non-nil),
+    /// matching GNU `Fput` / `Fplist_put` semantics.
+    pub fn put_property_id(&mut self, symbol: SymId, prop: SymId, value: Value) -> Result<(), Flow> {
         self.ensure_global_member_if_canonical(symbol);
         let sym = self.ensure_symbol_id(symbol);
         let (new_plist, _changed) = crate::emacs_core::plist::plist_put(
             sym.plist,
             Value::from_sym_id(prop),
             value,
-        );
+        )?;
         sym.plist = new_plist;
+        Ok(())
     }
 
     /// Replace the complete plist for a symbol by identity.

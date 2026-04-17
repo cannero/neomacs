@@ -32,9 +32,9 @@ fn overlay_put_preserves_existing_property_position() {
     list.insert_overlay(overlay);
     let face = Value::symbol("face");
     let help = Value::symbol("help-echo");
-    list.overlay_put(overlay, face, Value::symbol("bold"));
-    list.overlay_put(overlay, help, Value::string("tip"));
-    list.overlay_put(overlay, face, Value::symbol("italic"));
+    list.overlay_put(overlay, face, Value::symbol("bold")).unwrap();
+    list.overlay_put(overlay, help, Value::string("tip")).unwrap();
+    list.overlay_put(overlay, face, Value::symbol("italic")).unwrap();
     let plist = list.overlay_plist(overlay).unwrap();
     assert_eq!(
         crate::emacs_core::print::print_value(&plist),
@@ -105,7 +105,7 @@ fn delete_evaporates_zero_width_overlay() {
     let mut list = OverlayList::new();
     let overlay = alloc_overlay(5, 10);
     list.insert_overlay(overlay);
-    list.overlay_put(overlay, Value::symbol("evaporate"), Value::T);
+    list.overlay_put(overlay, Value::symbol("evaporate"), Value::T).unwrap();
     list.adjust_for_delete(5, 10);
     assert!(list.is_empty());
     assert!(overlay_live_buffer(overlay).is_none());
@@ -119,14 +119,14 @@ fn priority_sort_uses_gnu_precedence_rules() {
     let high = alloc_overlay(4, 7);
     list.insert_overlay(low);
     list.insert_overlay(high);
-    list.overlay_put(low, Value::symbol("face"), Value::symbol("bold"));
-    list.overlay_put(low, Value::symbol("priority"), Value::fixnum(1));
-    list.overlay_put(high, Value::symbol("face"), Value::symbol("italic"));
+    list.overlay_put(low, Value::symbol("face"), Value::symbol("bold")).unwrap();
+    list.overlay_put(low, Value::symbol("priority"), Value::fixnum(1)).unwrap();
+    list.overlay_put(high, Value::symbol("face"), Value::symbol("italic")).unwrap();
     list.overlay_put(
         high,
         Value::symbol("priority"),
         Value::cons(Value::fixnum(1), Value::fixnum(2)),
-    );
+    ).unwrap();
     let mut ids = list.overlays_at(4);
     list.sort_overlay_ids_by_priority_desc(&mut ids);
     assert_eq!(ids, vec![high, low]);

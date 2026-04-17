@@ -10,6 +10,7 @@ use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Bound::{Excluded, Unbounded};
 
+use crate::emacs_core::error::Flow;
 use crate::emacs_core::plist;
 use crate::emacs_core::value::{Value, ValueKind};
 use crate::gc_trace::GcTrace;
@@ -63,12 +64,12 @@ impl OverlayList {
         true
     }
 
-    pub fn overlay_put(&mut self, overlay: Value, prop: Value, value: Value) -> bool {
+    pub fn overlay_put(&mut self, overlay: Value, prop: Value, value: Value) -> Result<bool, Flow> {
         overlay
             .with_overlay_data_mut(|data| {
-                let (plist, changed) = plist::plist_put(data.plist, prop, value);
+                let (plist, changed) = plist::plist_put(data.plist, prop, value)?;
                 data.plist = plist;
-                changed
+                Ok::<bool, Flow>(changed)
             })
             .unwrap()
     }

@@ -2472,9 +2472,9 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
         "compat-mixed-hook",
         "permanent-local",
         Value::symbol("permanent-local-hook"),
-    );
+    ).unwrap();
     eval.obarray
-        .put_property("compat--keep-hook", "permanent-local-hook", Value::T);
+        .put_property("compat--keep-hook", "permanent-local-hook", Value::T).unwrap();
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
         buf.set_buffer_local(
@@ -3420,7 +3420,7 @@ fn featurep_accepts_optional_subfeature_arg() {
         "vm-featurep-present",
         "subfeatures",
         Value::list(vec![Value::symbol("vm-sub"), Value::fixnum(1)]),
-    );
+    ).unwrap();
 
     let base = builtin_featurep(&mut eval, vec![Value::symbol("vm-featurep-present")]).unwrap();
     assert_eq!(base, Value::T);
@@ -3462,7 +3462,7 @@ fn featurep_subfeatures_property_must_be_list() {
         Value::list(vec![Value::symbol("vm-featurep-present")]),
     );
     eval.obarray_mut()
-        .put_property("vm-featurep-present", "subfeatures", Value::fixnum(1));
+        .put_property("vm-featurep-present", "subfeatures", Value::fixnum(1)).unwrap();
 
     let err = builtin_featurep(
         &mut eval,
