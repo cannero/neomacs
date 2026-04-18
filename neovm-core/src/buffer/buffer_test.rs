@@ -1220,3 +1220,162 @@ fn integration_edit_narrow_widen() {
     buf.widen();
     assert_eq!(buf.buffer_string(), "abcdeXXfghij");
 }
+
+// -----------------------------------------------------------------------
+// T8 C-1 regression: state markers must survive GC without Lisp refs
+// -----------------------------------------------------------------------
+
+#[test]
+fn state_markers_survive_gc_without_lisp_references() {
+    // Post-T8 invariant: BufferStateMarkers.pt_marker_ptr / begv_marker_ptr /
+    // zv_marker_ptr must survive GC even when no Lisp value holds them. If the
+    // chain is the only structural reference AND the chain isn't rooted, an
+    // unmarked marker would be spliced out by unchain_dead_markers and freed,
+    // leaving the state_markers struct pointing at freed memory.
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    // Create a base buffer with some text, then make an indirect buffer.
+    // `create_indirect_buffer` is the code path that calls
+    // `ensure_buffer_state_markers` on both the root and the indirect,
+    // which is what materialises the pt/begv/zv state markers.
+    let base_id = eval
+        .buffers
+        .current_buffer_id()
+        .expect("scratch buffer");
+    let _ = eval.buffers.insert_into_buffer(base_id, "hello world");
+    let indirect_id = eval
+        .buffers
+        .create_indirect_buffer(base_id, "*gc-state-marker-indirect*", false)
+        .expect("indirect buffer");
+
+    // Snapshot the raw pointers from state_markers before GC. Use the
+    // indirect buffer because that is where the noncurrent-state markers
+    // conceptually live (the root also gets one for the same reason).
+    let (pt_ptr, begv_ptr, zv_ptr, expected_buf) = {
+        let buffer = eval
+            .buffers
+            .get(indirect_id)
+            .expect("indirect buffer present");
+        let sm = buffer
+            .state_markers
+            .as_ref()
+            .expect("state markers populated by create_indirect_buffer");
+        (
+            sm.pt_marker_ptr,
+            sm.begv_marker_ptr,
+            sm.zv_marker_ptr,
+            buffer.id,
+        )
+    };
+
+    // Sanity: all three pointers are non-null and distinct.
+    assert!(!pt_ptr.is_null(), "pt_marker_ptr populated");
+    assert!(!begv_ptr.is_null(), "begv_marker_ptr populated");
+    assert!(!zv_ptr.is_null(), "zv_marker_ptr populated");
+
+    // Walk the indirect buffer's marker chain BEFORE GC: we expect pt,
+    // begv, zv to all be present (the chain-head slot ultimately points
+    // at one of them, and each one's `next_marker` eventually reaches
+    // the others). This is our positive baseline — if the pre-GC chain
+    // does not contain these three, the test setup is wrong.
+    let chain_contains_before = unsafe {
+        let buffer = eval
+            .buffers
+            .get(indirect_id)
+            .expect("indirect buffer present");
+        let head_slot: *const *mut crate::tagged::header::MarkerObj =
+            buffer.text.markers_head_slot_raw() as *const _;
+        let mut contains = [false; 3];
+        let mut curr = *head_slot;
+        while !curr.is_null() {
+            if curr == pt_ptr {
+                contains[0] = true;
+            }
+            if curr == begv_ptr {
+                contains[1] = true;
+            }
+            if curr == zv_ptr {
+                contains[2] = true;
+            }
+            curr = (*curr).data.next_marker;
+        }
+        contains
+    };
+    assert!(
+        chain_contains_before.iter().all(|&b| b),
+        "pre-GC baseline: chain must contain all three state markers, got {chain_contains_before:?}"
+    );
+
+    // Force a full GC. No Lisp value references these three markers; the
+    // only structural references are (a) the intrusive marker chain and
+    // (b) the `BufferStateMarkers` raw pointers. If neither is treated as
+    // a GC root, `unchain_dead_markers` will splice them out and
+    // `sweep_objects` will free them.
+    eval.gc_collect_exact();
+
+    // After GC, the pointers must still point at LIVE markers whose
+    // header has the expected tag and whose data still reflects the
+    // buffer binding. Reading a freed allocation is UB; we can't make
+    // this test segfault-proof without ASAN, but if the allocation was
+    // reused for something else, `data.buffer` will almost certainly no
+    // longer match `expected_buf`.
+    unsafe {
+        let pt_buffer = (*pt_ptr).data.buffer;
+        let begv_buffer = (*begv_ptr).data.buffer;
+        let zv_buffer = (*zv_ptr).data.buffer;
+
+        assert_eq!(pt_buffer, Some(expected_buf), "pt_marker survived GC");
+        assert_eq!(begv_buffer, Some(expected_buf), "begv_marker survived GC");
+        assert_eq!(zv_buffer, Some(expected_buf), "zv_marker survived GC");
+
+        assert!(
+            (*pt_ptr).data.marker_id.is_some(),
+            "pt_marker retains its marker_id"
+        );
+        assert!(
+            (*begv_ptr).data.marker_id.is_some(),
+            "begv_marker retains its marker_id"
+        );
+        assert!(
+            (*zv_ptr).data.marker_id.is_some(),
+            "zv_marker retains its marker_id"
+        );
+    }
+
+    // The chain must STILL contain all three state markers after GC;
+    // `unchain_dead_markers` splices out anything with `header.gc.marked`
+    // false, so a post-GC chain containing them proves they were marked
+    // (i.e. they were treated as reachable by the mark phase).
+    let chain_contains_after = unsafe {
+        let buffer = eval
+            .buffers
+            .get(indirect_id)
+            .expect("indirect buffer present");
+        let head_slot: *const *mut crate::tagged::header::MarkerObj =
+            buffer.text.markers_head_slot_raw() as *const _;
+        let mut contains = [false; 3];
+        let mut curr = *head_slot;
+        let mut guard = 0usize;
+        while !curr.is_null() && guard < 4096 {
+            if curr == pt_ptr {
+                contains[0] = true;
+            }
+            if curr == begv_ptr {
+                contains[1] = true;
+            }
+            if curr == zv_ptr {
+                contains[2] = true;
+            }
+            curr = (*curr).data.next_marker;
+            guard += 1;
+        }
+        contains
+    };
+    assert!(
+        chain_contains_after.iter().all(|&b| b),
+        "post-GC: all three state markers must remain on the chain; got {chain_contains_after:?}. \
+         A `false` here proves C-1: an unmarked state marker was spliced out and its allocation \
+         freed, leaving BufferStateMarkers with a dangling pointer."
+    );
+}

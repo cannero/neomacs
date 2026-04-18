@@ -1303,11 +1303,20 @@ pub struct BufferStateMarkers {
     /// Allocated once per buffer in `ensure_buffer_state_markers` and
     /// reused on every `record_buffer_state_markers` re-registration
     /// (via `chain_unlink` + `register_marker`) so the intrusive chain
-    /// precondition is upheld. These MarkerObjs stay alive because
-    /// they are spliced into the buffer's intrusive marker chain (a
-    /// GC root post-T8) — `unchain_dead_markers` will only unlink them
-    /// once the buffer is killed or they are removed via the state
-    /// plumbing.
+    /// precondition is upheld.
+    ///
+    /// These MarkerObjs stay alive because
+    /// `BufferManager::<GcTrace>::trace_roots` synthesises a tagged
+    /// `Value` for each of the three pointers and seeds them into the
+    /// GC's root set. Mirrors GNU `mark_buffer` marking the per-buffer
+    /// `pt_marker` / `begv_marker` / `zv_marker` BVAR `Lisp_Object`
+    /// slots in `alloc.c`.
+    ///
+    /// The intrusive marker chain by itself is NOT a GC root:
+    /// `unchain_dead_markers` splices out any MarkerObj whose mark bit
+    /// is clear between `mark_all` and `sweep_objects`. Without the
+    /// explicit root above, an unmarked state marker would be unlinked
+    /// and freed, leaving `BufferStateMarkers` with a dangling pointer.
     pub pt_marker_ptr: *mut crate::tagged::header::MarkerObj,
     pub begv_marker_ptr: *mut crate::tagged::header::MarkerObj,
     pub zv_marker_ptr: *mut crate::tagged::header::MarkerObj,
@@ -3876,10 +3885,13 @@ impl BufferManager {
     /// insertion type.  Returns the new marker's id and the raw
     /// `MarkerObj` pointer for the backing allocation.
     ///
-    /// The backing `MarkerObj` is allocated via the tagged heap. Once
-    /// spliced onto a `BufferText` chain (via `register_marker`), the
-    /// intrusive chain acts as a GC root (post-T8) so `MarkerObj`
-    /// stays live for as long as it's chained. Callers that need to
+    /// The backing `MarkerObj` is allocated via the tagged heap and
+    /// spliced onto the owning buffer's intrusive chain. Chain
+    /// membership is NOT a GC root: `unchain_dead_markers` splices out
+    /// any MarkerObj that isn't marked by the mark phase, so Lisp-side
+    /// code must keep a live `Value` reference (or an explicit root —
+    /// see `BufferStateMarkers` for the pt/begv/zv case) for the
+    /// marker to survive GC. Callers that need to
     /// re-register this marker later (e.g. state-marker buffer switch
     /// plumbing) should retain the returned pointer and pass it to
     /// `register_marker_id` after first calling `chain_unlink` on the
@@ -4090,6 +4102,42 @@ impl GcTrace for BufferManager {
             roots.push(buffer.local_var_alist);
             // `local_map` (buffer's keymap) must also be rooted.
             roots.push(buffer.keymap);
+            // T8 C-1: the noncurrent PT/BEGV/ZV markers stashed in
+            // `state_markers` are referenced only by raw pointers and
+            // the intrusive marker chain. Neither is a GC root on its
+            // own: the chain is spliced by `unchain_dead_markers` in
+            // the mark/sweep gap, so anything not independently marked
+            // would be freed here and leave `BufferStateMarkers`
+            // holding dangling pointers. Synthesize a Value for each
+            // `MarkerObj*` and seed it into the root set so the mark
+            // phase walks them. Mirrors GNU `mark_buffer` walking the
+            // buffer's `pt_marker` / `begv_marker` / `zv_marker`
+            // `Lisp_Object` BVAR slots in `alloc.c`.
+            if let Some(sm) = buffer.state_markers {
+                // SAFETY: the pointers were obtained from
+                // `as_veclike_ptr()` on freshly allocated marker
+                // values in `create_marker` and stored in
+                // `state_markers`; they remain valid as long as the
+                // buffer exists. `from_veclike_ptr` is a pure bit-cast
+                // to the tagged encoding.
+                unsafe {
+                    if !sm.pt_marker_ptr.is_null() {
+                        roots.push(Value::from_veclike_ptr(
+                            sm.pt_marker_ptr as *const crate::tagged::header::VecLikeHeader,
+                        ));
+                    }
+                    if !sm.begv_marker_ptr.is_null() {
+                        roots.push(Value::from_veclike_ptr(
+                            sm.begv_marker_ptr as *const crate::tagged::header::VecLikeHeader,
+                        ));
+                    }
+                    if !sm.zv_marker_ptr.is_null() {
+                        roots.push(Value::from_veclike_ptr(
+                            sm.zv_marker_ptr as *const crate::tagged::header::VecLikeHeader,
+                        ));
+                    }
+                }
+            }
         }
         for last_name in self.dead_buffer_last_names.values() {
             roots.push(*last_name);
