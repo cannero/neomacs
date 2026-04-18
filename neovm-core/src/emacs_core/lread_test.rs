@@ -170,6 +170,57 @@ fn eval_buffer_preserves_unibyte_filename_in_load_state() {
 }
 
 #[test]
+fn eval_buffer_load_in_progress_preserves_unibyte_current_load_list() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_variable("load-in-progress", Value::T);
+    {
+        let buf = ev.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert(
+            "(setq lread-eb-load-file-name load-file-name \
+                   lread-eb-load-true-file-name load-true-file-name \
+                   lread-eb-current-load-list current-load-list)",
+        );
+    }
+
+    let filename = crate::heap_types::LispString::from_unibyte(vec![
+        b'/', b't', b'm', b'p', b'/', 0xFF, b'.', b'e', b'l',
+    ]);
+    let result = builtin_eval_buffer(
+        &mut ev,
+        vec![Value::NIL, Value::NIL, Value::heap_string(filename.clone())],
+    )
+    .unwrap();
+    assert!(result.is_truthy());
+
+    for symbol_name in ["lread-eb-load-file-name", "lread-eb-load-true-file-name"] {
+        let value = ev
+            .obarray
+            .symbol_value(symbol_name)
+            .copied()
+            .unwrap_or_else(|| panic!("eval-buffer should bind {symbol_name}"));
+        assert!(
+            value.is_nil(),
+            "{symbol_name} should remain nil for GNU-shaped eval-buffer loads"
+        );
+    }
+
+    let current_load_list = ev
+        .obarray
+        .symbol_value("lread-eb-current-load-list")
+        .copied()
+        .expect("eval-buffer should capture current-load-list");
+    let current_load_items =
+        list_to_vec(&current_load_list).expect("current-load-list should be a list");
+    assert_eq!(current_load_items.len(), 1);
+    let current_load_name = current_load_items[0]
+        .as_lisp_string()
+        .expect("current-load-list filename should stay a Lisp string");
+    assert_eq!(current_load_name.as_bytes(), filename.as_bytes());
+    assert!(!current_load_name.is_multibyte());
+}
+
+#[test]
 fn eval_buffer_reports_designator_and_arity_errors() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

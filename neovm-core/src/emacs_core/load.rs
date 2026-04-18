@@ -738,6 +738,10 @@ fn strip_utf8_bom(source: &str) -> &str {
     source.strip_prefix('\u{feff}').unwrap_or(source)
 }
 
+fn strip_utf8_bom_bytes(source: &[u8]) -> &[u8] {
+    source.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(source)
+}
+
 fn strip_reader_prefix(source: &str) -> (&str, bool) {
     let without_bom = strip_utf8_bom(source);
     if !without_bom.starts_with("#!") {
@@ -789,6 +793,46 @@ fn lexical_binding_cookie_in_file_local_cookie_line(line: &str) -> LexicalBindin
     LexicalBindingCookie::None
 }
 
+fn trim_cookie_ascii(bytes: &[u8]) -> &[u8] {
+    let start = bytes
+        .iter()
+        .position(|byte| *byte != b' ' && *byte != b'\t')
+        .unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .rposition(|byte| *byte != b' ' && *byte != b'\t')
+        .map(|index| index + 1)
+        .unwrap_or(start);
+    &bytes[start..end]
+}
+
+fn lexical_binding_cookie_in_file_local_cookie_line_bytes(line: &[u8]) -> LexicalBindingCookie {
+    let Some(start) = line.windows(3).position(|window| window == b"-*-") else {
+        return LexicalBindingCookie::None;
+    };
+    let rest = &line[start + 3..];
+    let Some(end_rel) = rest.windows(3).position(|window| window == b"-*-") else {
+        return LexicalBindingCookie::None;
+    };
+    let cookie = &rest[..end_rel];
+
+    for entry in cookie.split(|byte| *byte == b';') {
+        let Some(colon) = entry.iter().position(|byte| *byte == b':') else {
+            continue;
+        };
+        let name = trim_cookie_ascii(&entry[..colon]);
+        let value = trim_cookie_ascii(&entry[colon + 1..]);
+        if name == b"lexical-binding" {
+            return if value == b"t" {
+                LexicalBindingCookie::Lexical
+            } else {
+                LexicalBindingCookie::Dynamic
+            };
+        }
+    }
+    LexicalBindingCookie::None
+}
+
 pub(crate) fn lexical_binding_cookie_for_source(source: &str) -> LexicalBindingCookie {
     let mut lines = strip_utf8_bom(source).lines();
     let first_line = lines.next();
@@ -806,6 +850,22 @@ pub(crate) fn lexical_binding_cookie_for_source(source: &str) -> LexicalBindingC
     }
 
     LexicalBindingCookie::None
+}
+
+pub(crate) fn lexical_binding_cookie_for_lisp_source(source: &LispString) -> LexicalBindingCookie {
+    let mut lines = strip_utf8_bom_bytes(source.as_bytes()).split(|byte| *byte == b'\n');
+    let Some(first_line) = lines.next() else {
+        return LexicalBindingCookie::None;
+    };
+
+    if first_line.starts_with(b"#!") {
+        return lines
+            .next()
+            .map(lexical_binding_cookie_in_file_local_cookie_line_bytes)
+            .unwrap_or(LexicalBindingCookie::None);
+    }
+
+    lexical_binding_cookie_in_file_local_cookie_line_bytes(first_line)
 }
 
 pub(crate) fn lexical_binding_enabled_for_source(source: &str) -> bool {
@@ -859,6 +919,14 @@ pub(crate) fn source_lexical_binding_for_load(
     from: Option<Value>,
 ) -> Result<bool, EvalError> {
     lexical_binding_from_cookie(eval, lexical_binding_cookie_for_source(source), from)
+}
+
+pub(crate) fn source_lexical_binding_for_lisp_source(
+    eval: &mut super::eval::Context,
+    source: &LispString,
+    from: Option<Value>,
+) -> Result<bool, EvalError> {
+    lexical_binding_from_cookie(eval, lexical_binding_cookie_for_lisp_source(source), from)
 }
 
 fn is_unsupported_compiled_path(path: &Path) -> bool {
@@ -1318,6 +1386,153 @@ fn streaming_readevalloop(
     Ok(Value::T)
 }
 
+fn streaming_readevalloop_lisp_source(
+    eval: &mut super::eval::Context,
+    path: &Path,
+    hist_file_name: &LispString,
+    content: &LispString,
+    macroexpand_fn: Option<Value>,
+) -> Result<Value, EvalError> {
+    let file_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    let read_source = super::value_reader::LispReadSource::new(content);
+
+    let mut pos = 0;
+    let mut form_idx = 0;
+
+    loop {
+        let read_result = read_source.read_one(pos).map_err(|e| {
+            if e.message.contains("end of input") || e.message.contains("unterminated") {
+                return EvalError::Signal {
+                    symbol: intern("end-of-file"),
+                    data: vec![],
+                    raw_data: None,
+                };
+            }
+            EvalError::Signal {
+                symbol: intern("error"),
+                data: vec![Value::string(format!(
+                    "Read error in {}: {} at position {}",
+                    path.display(),
+                    e.message,
+                    e.position
+                ))],
+                raw_data: None,
+            }
+        })?;
+
+        let Some((form, next_pos)) = read_result else {
+            break;
+        };
+
+        let form_start = pos;
+        pos = next_pos;
+
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let preview: String = read_source
+                .storage_slice_range(form_start, next_pos)
+                .chars()
+                .take(80)
+                .collect();
+            tracing::debug!("{} FORM[{}/streaming]: {}", file_name, form_idx, preview,);
+        }
+
+        let eval_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        let eval_result = if let Some(mexp) = macroexpand_fn {
+            streaming_readevalloop_eager_expand_eval(eval, form, mexp)
+        } else {
+            eval.eval_sub(form).map_err(map_flow)
+        };
+        eval.restore_specpdl_roots(eval_roots);
+
+        if let Err(ref e) = eval_result {
+            let err_detail = match e {
+                EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => {
+                    let sym_name = super::intern::resolve_sym(*symbol);
+                    let payload = if let Some(raw) = raw_data {
+                        format_value_for_error(raw)
+                    } else if data.is_empty() {
+                        "nil".to_string()
+                    } else {
+                        let data_strs: Vec<String> =
+                            data.iter().map(|v| format_value_for_error(v)).collect();
+                        format!("({})", data_strs.join(" "))
+                    };
+                    format!("({} {})", sym_name, payload)
+                }
+                other => format!("{:?}", other),
+            };
+            let preview: String = read_source
+                .storage_slice_range(form_start, next_pos)
+                .chars()
+                .take(120)
+                .collect();
+            tracing::error!(
+                "  !! {} FORM[{}] FAILED: {} => {}",
+                file_name,
+                form_idx,
+                preview,
+                err_detail,
+            );
+            {
+                let bt_frames: Vec<_> = eval
+                    .specpdl
+                    .iter()
+                    .rev()
+                    .filter_map(|entry| match entry {
+                        super::eval::SpecBinding::Backtrace { function, args, .. } => {
+                            Some((function, args))
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                if !bt_frames.is_empty() {
+                    tracing::error!("  Lisp backtrace:");
+                    for (j, (function, frame_args)) in bt_frames.iter().enumerate() {
+                        let func_name = super::print::print_value(function);
+                        let args_str = frame_args
+                            .iter()
+                            .take(4)
+                            .map(|a| {
+                                let s = super::print::print_value(a);
+                                if s.len() > 40 {
+                                    format!("{}...", &s[..37])
+                                } else {
+                                    s
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ");
+                        let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
+                        tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
+                        if j >= 20 {
+                            tracing::error!("    ... ({} more frames)", bt_frames.len() - j - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        eval_result?;
+
+        let gc_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(form);
+        eval.gc_safe_point_exact();
+        eval.restore_specpdl_roots(gc_roots);
+        form_idx += 1;
+    }
+
+    Ok(Value::T)
+}
+
 /// GNU-style eager macro expansion during streaming load.
 ///
 /// Matches `readevalloop_eager_expand_eval` in lread.c:
@@ -1612,6 +1827,16 @@ pub(crate) fn eval_decoded_source_file_in_context(
         source_multibyte,
         macroexpand_fn,
     )
+}
+
+pub(crate) fn eval_lisp_source_file_in_context(
+    eval: &mut super::eval::Context,
+    found: &LispString,
+    content: &LispString,
+) -> Result<Value, EvalError> {
+    let macroexpand_fn = get_eager_macroexpand_fn(eval);
+    let path = load_path_buf(found);
+    streaming_readevalloop_lisp_source(eval, &path, found, content, macroexpand_fn)
 }
 
 /// Skip the `;ELC` magic header in a byte-compiled Elisp file.

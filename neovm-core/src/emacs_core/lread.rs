@@ -465,10 +465,9 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         {
             binding.is_truthy()
         } else {
-            let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
-            match super::load::source_lexical_binding_for_load(
+            match super::load::source_lexical_binding_for_lisp_source(
                 eval,
-                &source_runtime,
+                &source,
                 Some(buffer_value),
             ) {
                 Ok(enabled) => enabled,
@@ -487,18 +486,12 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             .is_truthy()
             && filename.is_some();
         let result = if loading_source_file {
-            let source_runtime = super::builtins::runtime_string_from_lisp_string(&source);
-            let filename_runtime = super::builtins::runtime_string_from_lisp_string(
+            super::load::eval_lisp_source_file_in_context(
+                eval,
                 filename
                     .as_ref()
                     .expect("load-in-progress eval-buffer must have filename"),
-            );
-            let path = Path::new(&filename_runtime);
-            super::load::eval_decoded_source_file_in_context(
-                eval,
-                path,
-                &source_runtime,
-                source.is_multibyte(),
+                &source,
             )
             .map_err(map_eval_error_to_flow)
         } else {

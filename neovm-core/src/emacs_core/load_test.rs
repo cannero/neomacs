@@ -3645,6 +3645,30 @@ fn lexical_binding_detects_second_line_cookie_after_shebang() {
 }
 
 #[test]
+fn lexical_binding_cookie_for_lisp_source_handles_raw_unibyte_cookie_lines() {
+    crate::test_utils::init_test_tracing();
+
+    let lexical = crate::heap_types::LispString::from_unibyte(
+        b"#!/usr/bin/env emacs --script\n;; \xFF -*- lexical-binding: t; mode: emacs-lisp; -*-\n"
+            .to_vec(),
+    );
+    assert_eq!(
+        lexical_binding_cookie_for_lisp_source(&lexical),
+        LexicalBindingCookie::Lexical,
+        "raw unibyte shebang sources should still expose lexical-binding cookies",
+    );
+
+    let dynamic = crate::heap_types::LispString::from_unibyte(
+        b";; -*- lexical-binding: nil; foo: \xFE -*-\n(setq vm-lb 1)\n".to_vec(),
+    );
+    assert_eq!(
+        lexical_binding_cookie_for_lisp_source(&dynamic),
+        LexicalBindingCookie::Dynamic,
+        "raw unibyte cookie lines should preserve explicit dynamic binding",
+    );
+}
+
+#[test]
 fn find_file_nonexistent() {
     crate::test_utils::init_test_tracing();
     assert!(find_file_in_load_path("nonexistent", &[]).is_none());
