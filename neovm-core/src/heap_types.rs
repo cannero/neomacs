@@ -285,12 +285,11 @@ pub struct OverlayData {
 #[derive(Clone, Debug)]
 pub struct MarkerData {
     pub buffer: Option<BufferId>,
-    pub position: Option<i64>,
     pub insertion_type: bool,
     pub marker_id: Option<u64>,
-    /// Byte offset in buffer (authoritative after T6; unused before).
+    /// Byte offset in buffer (authoritative after T6/T7).
     pub bytepos: usize,
-    /// Char offset in buffer (authoritative after T6; unused before).
+    /// Char offset in buffer (authoritative after T6/T7).
     pub charpos: usize,
     /// Intrusive link to next marker in the owning buffer's chain.
     /// `null` if not on a chain. GC sweep order: `unchain_dead_markers`

@@ -150,7 +150,6 @@ fn replace_lisp_string_invalidates_position_cache() {
     text.replace_lisp_string(
         &lisp_string,
         crate::buffer::text_props::TextPropertyTable::new(),
-        Vec::new(),
     );
 
     // Same-count replacement would leave a stale pos_cache; verify it was

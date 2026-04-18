@@ -721,12 +721,11 @@ fn format_marker_handle(
     if marker.insertion_type {
         out.push_str("(moves after insertion) ");
     }
+    // T7: read authoritative charpos (1-based Lisp shape). A marker with
+    // no buffer prints as "in no buffer"; otherwise include its current
+    // chain-tracked position.
     if let Some(name) = buffer_name.as_deref() {
-        if let Some(pos) = marker.position {
-            out.push_str(&format!("at {pos} in {name}"));
-        } else {
-            out.push_str("in no buffer");
-        }
+        out.push_str(&format!("at {} in {}", marker.charpos + 1, name));
     } else {
         out.push_str("in no buffer");
     }

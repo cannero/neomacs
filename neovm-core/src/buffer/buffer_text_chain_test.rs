@@ -6,7 +6,6 @@ use crate::tagged::header::MarkerObj;
 fn alloc_marker_for_test(heap: &mut TaggedHeap) -> *mut MarkerObj {
     let tv = heap.alloc_marker(MarkerData {
         buffer: None,
-        position: None,
         insertion_type: false,
         marker_id: None,
         bytepos: 0,

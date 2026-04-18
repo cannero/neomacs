@@ -78,10 +78,10 @@ pub(crate) fn make_marker_value_with_id(
     insertion_type: bool,
     marker_id: Option<u64>,
 ) -> Value {
-    // Initialize charpos from the 1-based Lisp position so unregistered
-    // markers (e.g. the synthesized mark-marker, or make-marker-with-id
-    // callers that bypass the chain) still report a sensible position
-    // when the reader path reads MarkerData.charpos directly.
+    // Seed charpos from the 1-based Lisp position so unregistered markers
+    // (e.g. synthesized mark-markers, bufferless fixture markers that never
+    // get registered into a buffer's chain) still report a sensible
+    // position when the reader path reads MarkerData.charpos directly.
     //
     // Markers that later get registered via register_marker have their
     // charpos/bytepos overwritten through the chain path, so this only
@@ -92,7 +92,6 @@ pub(crate) fn make_marker_value_with_id(
     };
     Value::make_marker(crate::heap_types::MarkerData {
         buffer: buffer_id,
-        position,
         insertion_type,
         marker_id,
         bytepos: 0,
@@ -142,8 +141,20 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Opti
     if !v.is_marker() {
         return None;
     };
-    let marker = v.as_marker_data().unwrap().clone();
-    Some((marker.buffer, marker.position, marker.insertion_type))
+    let data = v.as_marker_data().unwrap();
+    // T7: the stale `position` cache is gone. Equality now compares live
+    // charpos (+1 for 1-based Lisp shape) when the marker has any
+    // position information — either attached to a buffer, or a
+    // bufferless fixture marker seeded from
+    // `make_marker_value(None, Some(N), _)`. A truly unset marker has
+    // `buffer == None && charpos == 0`, which reports `None` and matches
+    // GNU's "points nowhere" semantics.
+    let position = if data.buffer.is_some() || data.charpos > 0 {
+        Some(data.charpos as i64 + 1)
+    } else {
+        None
+    };
+    Some((data.buffer, position, data.insertion_type))
 }
 
 /// Tagged-pointer version: compute equal hash key from a marker Value.
@@ -197,20 +208,20 @@ fn marker_position_value(v: &Value) -> Value {
         return Value::NIL;
     };
     let data = v.as_marker_data().unwrap();
-    // Unset markers (no buffer, or synthesized markers like an unset
-    // mark-marker that carries a buffer but no position) return nil,
-    // matching GNU. Registered markers have their `position` and
-    // `charpos` kept in sync by the writer paths (T4/T5), so we use
-    // `position.is_none()` as the "unset" discriminator and read the
-    // authoritative `charpos` for live markers.
-    match data.position {
-        None => Value::NIL,
-        Some(_) if data.buffer.is_some() => Value::fixnum(data.charpos as i64 + 1),
-        // Bufferless fixture markers: NeoVM-internal tests construct
-        // `make_marker_value(None, Some(N), _)` for arithmetic/comparison
-        // builtins. Fall back to the cached position so those tests keep
-        // working; real Elisp code cannot create such markers.
-        Some(pos) => Value::fixnum(pos),
+    // T7: the stale `position` cache is gone. The only source of truth is
+    // `charpos` (live for buffer-attached markers, pre-seeded from the
+    // Lisp position for unregistered/synthesized markers in
+    // `make_marker_value_with_id`). Use `buffer.is_some()` to decide
+    // "attached", matching GNU (`Fmarker_position` returns nil for a
+    // detached marker). Bufferless NeoVM-internal fixture markers that
+    // carry a seeded charpos report it back as `charpos + 1`; if charpos
+    // is 0 (i.e. `make_marker_value(None, None, _)`), return nil.
+    if data.buffer.is_some() {
+        Value::fixnum(data.charpos as i64 + 1)
+    } else if data.charpos > 0 {
+        Value::fixnum(data.charpos as i64 + 1)
+    } else {
+        Value::NIL
     }
 }
 
@@ -252,17 +263,20 @@ pub(crate) fn marker_position_as_int_with_buffers(
     }
 
     let data = v.as_marker_data().unwrap();
-    // Same discriminator as marker_position_value: position==None means
-    // unset (signal); otherwise prefer chain-tracked charpos for live
-    // buffer-attached markers, falling back to the cached position for
-    // bufferless NeoVM-internal fixture markers.
-    match data.position {
-        None => Err(signal(
+    // T7: stale `position` cache is gone. Attached markers return live
+    // charpos+1; bufferless NeoVM-internal fixture markers seeded with a
+    // position keep reporting it back via the seeded charpos; a truly
+    // unset marker (`make-marker` with no buffer and no position) has
+    // charpos == 0 and buffer == None, which signals "points nowhere".
+    if data.buffer.is_some() {
+        Ok(data.charpos as i64 + 1)
+    } else if data.charpos > 0 {
+        Ok(data.charpos as i64 + 1)
+    } else {
+        Err(signal(
             "error",
             vec![Value::string("Marker does not point anywhere")],
-        )),
-        Some(_) if data.buffer.is_some() => Ok(data.charpos as i64 + 1),
-        Some(pos) => Ok(pos),
+        ))
     }
 }
 
@@ -545,7 +559,16 @@ pub(crate) fn builtin_set_marker_in_buffers(
     if args[0].is_marker() {
         let _ = args[0].with_marker_data_mut(|data| {
             data.buffer = buffer_id;
-            data.position = position;
+            // T7: stale `position` cache removed. If `position` is None
+            // (marker detached), clear charpos/bytepos so the unset
+            // discriminator (`buffer.is_none() && charpos == 0`) fires
+            // correctly. For attached markers, register_marker_in_buffers
+            // above already spliced the marker into the new buffer's
+            // chain, which wrote authoritative charpos/bytepos.
+            if position.is_none() {
+                data.charpos = 0;
+                data.bytepos = 0;
+            }
         });
     }
 
@@ -748,8 +771,13 @@ pub(crate) fn builtin_mark_marker_in_buffers(
                 Some(MARK_MARKER_ID),
             ))
         }
+        // T7: with MarkerData.position deleted, an unset marker must be
+        // distinguishable solely by `buffer.is_none()`. Drop the buffer
+        // binding for unset mark-markers; `marker-position` on this value
+        // still returns nil, and `marker-buffer` returns nil, matching
+        // GNU's "unset marker points nowhere" semantics.
         None => Ok(make_marker_value_with_id(
-            Some(buffer_id),
+            None,
             None,
             false,
             Some(MARK_MARKER_ID),

@@ -22,7 +22,6 @@ fn register_marker_for_test(
 ) {
     let marker_value = Value::make_marker(crate::heap_types::MarkerData {
         buffer: Some(buf.id),
-        position: None,
         insertion_type: insertion_type == InsertionType::After,
         marker_id: Some(marker_id),
         bytepos: 0,
@@ -481,9 +480,10 @@ fn delete_region_moves_marker_at_end_to_start() {
     let mut buf = buf_with_text("0123456789ABCDEF");
     register_marker_for_test(&mut buf, 1, 12, InsertionType::Before);
     buf.delete_region(5, 12);
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 5);
-    assert_eq!(marker.char_pos, 5);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 5);
+    assert_eq!(char_pos, 5);
 }
 
 #[test]
@@ -620,9 +620,10 @@ fn marker_tracks_insertion_after() {
     buf.goto_char(1);
     buf.insert("XY");
     // Marker was at 1 with After => advances to 3.
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 3);
-    assert_eq!(marker.char_pos, 3);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 3);
+    assert_eq!(char_pos, 3);
 }
 
 #[test]
@@ -633,9 +634,10 @@ fn marker_stays_on_insertion_before() {
     buf.goto_char(1);
     buf.insert("XY");
     // Marker was at 1 with Before => stays at 1.
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 1);
-    assert_eq!(marker.char_pos, 1);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 1);
+    assert_eq!(char_pos, 1);
 }
 
 #[test]
@@ -645,9 +647,10 @@ fn marker_adjusts_on_deletion() {
     register_marker_for_test(&mut buf, 1, 4, InsertionType::After);
     buf.delete_region(1, 3);
     // Marker was at 4 (past deleted range [1,3)), shifts by 2 => 2.
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 2);
-    assert_eq!(marker.char_pos, 2);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 2);
+    assert_eq!(char_pos, 2);
 }
 
 #[test]
@@ -657,9 +660,10 @@ fn marker_inside_deleted_range_collapses() {
     register_marker_for_test(&mut buf, 1, 2, InsertionType::After);
     buf.delete_region(1, 5);
     // Marker at 2 inside [1,5) => collapses to 1.
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 1);
-    assert_eq!(marker.char_pos, 1);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 1);
+    assert_eq!(char_pos, 1);
 }
 
 #[test]
@@ -669,14 +673,16 @@ fn marker_char_pos_tracks_multibyte_edits() {
     register_marker_for_test(&mut buf, 1, 'é'.len_utf8(), InsertionType::After);
     buf.goto_byte('é'.len_utf8());
     buf.insert("ß");
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 4);
-    assert_eq!(marker.char_pos, 2);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 4);
+    assert_eq!(char_pos, 2);
 
     buf.delete_region(2, 4);
-    let marker = buf.marker_entry(1).expect("marker");
-    assert_eq!(marker.byte_pos, 2);
-    assert_eq!(marker.char_pos, 1);
+    let (byte_pos, char_pos, _ins) =
+        buf.text.marker_chain_lookup(1).expect("marker");
+    assert_eq!(byte_pos, 2);
+    assert_eq!(char_pos, 1);
 }
 
 // -----------------------------------------------------------------------

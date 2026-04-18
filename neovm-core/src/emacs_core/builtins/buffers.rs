@@ -1489,15 +1489,18 @@ pub(crate) fn builtin_set_buffer_multibyte(
         }
     };
 
-    let mut markers = shared_text.marker_entries_snapshot();
-    for marker in &mut markers {
-        let logical_byte = shared_text.storage_byte_to_emacs_byte(marker.byte_pos);
+    // T7: the Vec<MarkerEntry> parallel bookkeeping is gone. Walk the
+    // intrusive chain and remap each marker's (bytepos, charpos) through
+    // the same boundary arithmetic that the old snapshot+replace code
+    // applied to its Vec copy.
+    shared_text.remap_markers_through(|old_byte| {
+        let logical_byte = shared_text.storage_byte_to_emacs_byte(old_byte);
         let boundary =
             lisp_string_advance_byte_to_boundary(&new_storage, logical_byte.min(new_total_bytes));
-        marker.char_pos = lisp_string_byte_to_char(&new_storage, boundary);
-        marker.byte_pos = boundary;
-    }
-    shared_text.replace_lisp_string(&new_storage, new_props, markers);
+        let new_char = lisp_string_byte_to_char(&new_storage, boundary);
+        (boundary, new_char)
+    });
+    shared_text.replace_lisp_string(&new_storage, new_props);
 
     for snapshot in snapshots {
         let buf = eval

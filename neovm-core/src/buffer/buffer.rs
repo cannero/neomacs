@@ -1291,18 +1291,8 @@ pub enum InsertionType {
 }
 
 // ---------------------------------------------------------------------------
-// MarkerEntry
+// BufferStateMarkers
 // ---------------------------------------------------------------------------
-
-/// A tracked position inside a buffer.
-#[derive(Clone, Debug)]
-pub struct MarkerEntry {
-    pub id: u64,
-    pub buffer_id: BufferId,
-    pub byte_pos: usize,
-    pub char_pos: usize,
-    pub insertion_type: InsertionType,
-}
 
 #[derive(Clone, Copy, Debug)]
 pub struct BufferStateMarkers {
@@ -1998,10 +1988,6 @@ impl Buffer {
             char_pos,
             insertion_type,
         );
-    }
-
-    pub fn marker_entry(&self, marker_id: u64) -> Option<MarkerEntry> {
-        self.text.marker_entry(marker_id)
     }
 
     pub fn remove_marker_entry(&mut self, marker_id: u64) {
@@ -3094,8 +3080,10 @@ impl BufferManager {
     fn clone_marker_in_buffer(&mut self, buffer_id: BufferId, marker_id: u64) -> Option<u64> {
         let (pos, insertion_type) = {
             let buf = self.buffers.get(&buffer_id)?;
-            let marker = buf.marker_entry(marker_id)?;
-            (marker.byte_pos, marker.insertion_type)
+            // T7: read byte_pos / insertion_type directly from the chain
+            // node instead of the deleted Vec<MarkerEntry>.
+            let (bytepos, _charpos, ins_type) = buf.text.marker_chain_lookup(marker_id)?;
+            (bytepos, ins_type)
         };
         let (marker_id, _marker_ptr) = self.create_marker(buffer_id, pos, insertion_type);
         Some(marker_id)
@@ -3884,7 +3872,6 @@ impl BufferManager {
         let marker_value =
             crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
                 buffer: Some(buffer_id),
-                position: None,
                 insertion_type: insertion_type == InsertionType::After,
                 marker_id: Some(marker_id),
                 bytepos: 0,
@@ -3915,16 +3902,19 @@ impl BufferManager {
 
     /// Query the current byte position of a marker.
     pub fn marker_position(&self, buffer_id: BufferId, marker_id: u64) -> Option<usize> {
+        // T7: walk the chain rather than the deleted Vec<MarkerEntry>.
         self.buffers
             .get(&buffer_id)
-            .and_then(|buf| buf.marker_entry(marker_id).map(|marker| marker.byte_pos))
+            .and_then(|buf| buf.text.marker_chain_lookup(marker_id))
+            .map(|(bytepos, _charpos, _ins)| bytepos)
     }
 
     /// Query the current character position of a marker.
     pub fn marker_char_position(&self, buffer_id: BufferId, marker_id: u64) -> Option<usize> {
         self.buffers
             .get(&buffer_id)
-            .and_then(|buf| buf.marker_entry(marker_id).map(|marker| marker.char_pos))
+            .and_then(|buf| buf.text.marker_chain_lookup(marker_id))
+            .map(|(_bytepos, charpos, _ins)| charpos)
     }
 
     /// Phase 10D: write the global default for a `BUFFER_OBJFWD`
@@ -3961,7 +3951,9 @@ impl BufferManager {
     /// Update the insertion type of a registered marker across all buffers.
     pub fn update_marker_insertion_type(&mut self, marker_id: u64, ins_type: InsertionType) {
         for buf in self.buffers.values_mut() {
-            if buf.marker_entry(marker_id).is_some() {
+            // T7: chain presence check replaces the deleted Vec-based
+            // `marker_entry().is_some()`.
+            if buf.text.has_marker(marker_id) {
                 buf.update_marker_insertion_type(marker_id, ins_type);
                 return;
             }

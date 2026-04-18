@@ -213,12 +213,14 @@ fn format_opaque_handle_in_state(
             if marker.insertion_type {
                 out.push_str("(moves after insertion) ");
             }
+            // T7: read authoritative charpos (1-based Lisp shape) directly
+            // from MarkerData, not the deleted stale `position` cache.
             if let Some(buffer_id) = marker.buffer
                 && let Some(buffer) = buffers.get(buffer_id)
-                && let Some(pos) = marker.position
             {
                 out.push_str(&format!(
-                    "at {pos} in {}",
+                    "at {} in {}",
+                    marker.charpos + 1,
                     buffer.name_runtime_string_owned()
                 ));
             } else {

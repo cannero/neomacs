@@ -1648,7 +1648,16 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Marker) => {
             let marker = args[0].as_marker_data().unwrap();
-            Ok(Value::fixnum(marker.position.unwrap_or(0)))
+            // T7: stale `position` cache removed. `marker-last-position`
+            // reads live charpos+1 when attached; an unset marker
+            // (no buffer and no seeded charpos) reports 0, matching
+            // pre-T7 behavior for make-marker.
+            let last = if marker.buffer.is_some() || marker.charpos > 0 {
+                marker.charpos as i64 + 1
+            } else {
+                0
+            };
+            Ok(Value::fixnum(last))
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[0].as_vector_data().unwrap().clone();

@@ -986,8 +986,11 @@ impl TaggedHeap {
         for ptr in &self.marker_ptrs {
             let marker = unsafe { &mut (**ptr).data };
             if marker.buffer.is_some_and(|b| killed.contains(&b)) {
+                // T7: the stale `position` cache is gone. Clear the live
+                // chain-tracked positions so the marker reads as unset.
                 marker.buffer = None;
-                marker.position = None;
+                marker.bytepos = 0;
+                marker.charpos = 0;
             }
         }
     }

@@ -8,7 +8,7 @@ use rustc_hash::FxHashSet;
 
 use super::DumpError;
 use super::types::*;
-use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType, MarkerEntry};
+use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
 use crate::buffer::shared::SharedUndoState;
@@ -346,11 +346,18 @@ impl LoadDecoder {
             DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
             DumpHeapObject::Marker(marker) => Value::make_marker(crate::heap_types::MarkerData {
                 buffer: marker.buffer.map(|id| BufferId(id.0)),
-                position: marker.position,
                 insertion_type: marker.insertion_type,
                 marker_id: marker.marker_id,
+                // T7: `MarkerData.position` was deleted. Seed charpos from
+                // the dumped 1-based position when available (best-effort
+                // for stale dumps); T10 reworks the format to carry
+                // bytepos/charpos directly.
                 bytepos: 0,
-                charpos: 0,
+                charpos: marker
+                    .position
+                    .filter(|p| *p > 0)
+                    .map(|p| (p - 1) as usize)
+                    .unwrap_or(0),
                 next_marker: std::ptr::null_mut(),
             }),
             DumpHeapObject::Overlay(overlay) => {
@@ -457,7 +464,17 @@ impl LoadDecoder {
             DumpHeapObject::Marker(marker) => {
                 let _ = value.with_marker_data_mut(|data| {
                     data.buffer = marker.buffer.map(|id| BufferId(id.0));
-                    data.position = marker.position;
+                    // T7: `MarkerData.position` was deleted. Seed charpos
+                    // from the dumped 1-based position so this marker
+                    // reports a stable position even before the chain
+                    // reload step re-splices it into a buffer chain.
+                    // T10 reworks the format to carry bytepos/charpos.
+                    data.charpos = marker
+                        .position
+                        .filter(|p| *p > 0)
+                        .map(|p| (p - 1) as usize)
+                        .unwrap_or(0);
+                    data.bytepos = 0;
                     data.insertion_type = marker.insertion_type;
                     data.marker_id = marker.marker_id;
                 });
@@ -1002,13 +1019,16 @@ fn dump_insertion_type(it: &InsertionType) -> DumpInsertionType {
     }
 }
 
-fn dump_marker(m: &MarkerEntry) -> DumpMarkerEntry {
+fn dump_marker_chain_entry(
+    entry: &(u64, BufferId, usize, usize, InsertionType),
+) -> DumpMarkerEntry {
+    let (id, buffer_id, byte_pos, char_pos, insertion_type) = entry;
     DumpMarkerEntry {
-        id: m.id,
-        buffer_id: m.buffer_id.0,
-        byte_pos: m.byte_pos,
-        char_pos: Some(m.char_pos),
-        insertion_type: dump_insertion_type(&m.insertion_type),
+        id: *id,
+        buffer_id: buffer_id.0,
+        byte_pos: *byte_pos,
+        char_pos: Some(*char_pos),
+        insertion_type: dump_insertion_type(insertion_type),
     }
 }
 
@@ -1052,9 +1072,20 @@ fn dump_overlay(encoder: &mut DumpEncoder, o: &Overlay) -> DumpOverlay {
 }
 
 fn dump_marker_object(marker: &crate::heap_types::MarkerData) -> DumpMarker {
+    // T7: MarkerData.position is deleted. Round-trip the 1-based Lisp
+    // position from the authoritative charpos when the marker is
+    // attached, or None otherwise. T10 replaces DumpMarker with a
+    // bytepos/charpos shape and bumps the format version.
+    let position = if marker.buffer.is_some() {
+        Some(marker.charpos as i64 + 1)
+    } else if marker.charpos > 0 {
+        Some(marker.charpos as i64 + 1)
+    } else {
+        None
+    };
     DumpMarker {
         buffer: marker.buffer.map(|id| DumpBufferId(id.0)),
-        position: marker.position,
+        position,
         insertion_type: marker.insertion_type,
         marker_id: marker.marker_id,
     }
@@ -1105,10 +1136,13 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         auto_save_file_name_lisp: buf.auto_save_file_name_lisp_string().map(dump_lisp_string),
         auto_save_file_name: None,
         markers: if is_shared_text_owner {
+            // T7: chain snapshot replaces the deleted Vec<MarkerEntry>.
+            // The serialized shape still matches DumpMarkerEntry for
+            // backward compatibility; T10 bumps the pdump format.
             buf.text
-                .marker_entries_snapshot()
+                .chain_marker_snapshot()
                 .iter()
-                .map(dump_marker)
+                .map(dump_marker_chain_entry)
                 .collect()
         } else {
             Vec::new()
@@ -2470,14 +2504,20 @@ fn load_insertion_type(it: &DumpInsertionType) -> InsertionType {
     }
 }
 
-fn load_marker(m: &DumpMarkerEntry, text: &BufferText) -> MarkerEntry {
-    MarkerEntry {
-        id: m.id,
-        buffer_id: BufferId(m.buffer_id),
-        byte_pos: m.byte_pos,
-        char_pos: m.char_pos.unwrap_or_else(|| text.byte_to_char(m.byte_pos)),
-        insertion_type: load_insertion_type(&m.insertion_type),
-    }
+/// Decode a `DumpMarkerEntry` into the tuple shape used by
+/// `BufferText::register_marker`. T7 dropped the `MarkerEntry` struct
+/// since the intrusive chain is now authoritative.
+fn load_marker(
+    m: &DumpMarkerEntry,
+    text: &BufferText,
+) -> (u64, BufferId, usize, usize, InsertionType) {
+    (
+        m.id,
+        BufferId(m.buffer_id),
+        m.byte_pos,
+        m.char_pos.unwrap_or_else(|| text.byte_to_char(m.byte_pos)),
+        load_insertion_type(&m.insertion_type),
+    )
 }
 
 fn load_property_interval(
@@ -2539,24 +2579,24 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         })),
         None => None,
     };
-    for marker in db.markers.iter().map(|marker| load_marker(marker, &text)) {
+    for (marker_id, buffer_id, byte_pos, char_pos, insertion_type) in
+        db.markers.iter().map(|marker| load_marker(marker, &text))
+    {
         // Resolve the backing MarkerObj allocated during
-        // `preload_tagged_heap`. If pdump dumped a MarkerEntry whose
+        // `preload_tagged_heap`. If pdump dumped a marker whose
         // marker_id has no corresponding live MarkerObj (possible for
-        // older dumps or GC-dropped markers), we still need to register
-        // something for Vec-based readers, so allocate a fresh scratch
-        // MarkerObj. The scratch is not reachable as a Lisp value but is
-        // tracked in `TaggedHeap::marker_ptrs` and will be swept if it
-        // stays unreferenced.
-        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id(marker.id))
+        // older dumps or GC-dropped markers), allocate a fresh scratch
+        // MarkerObj so the chain still has a live node to splice. The
+        // scratch is not reachable as a Lisp value but is tracked in
+        // `TaggedHeap::marker_ptrs` and will be swept if it stays
+        // unreferenced.
+        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id(marker_id))
             .unwrap_or_else(|| {
                 let scratch =
                     crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
-                        buffer: Some(marker.buffer_id),
-                        position: None,
-                        insertion_type: marker.insertion_type
-                            == crate::buffer::InsertionType::After,
-                        marker_id: Some(marker.id),
+                        buffer: Some(buffer_id),
+                        insertion_type: insertion_type == crate::buffer::InsertionType::After,
+                        marker_id: Some(marker_id),
                         bytepos: 0,
                         charpos: 0,
                         next_marker: std::ptr::null_mut(),
@@ -2572,11 +2612,11 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         text.chain_unlink(marker_ptr);
         text.register_marker(
             marker_ptr,
-            marker.buffer_id,
-            marker.id,
-            marker.byte_pos,
-            marker.char_pos,
-            marker.insertion_type,
+            buffer_id,
+            marker_id,
+            byte_pos,
+            char_pos,
+            insertion_type,
         );
     }
     // Phase 10F: the legacy `BufferLocals` struct is gone.
@@ -2721,7 +2761,6 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                             let scratch = crate::emacs_core::value::Value::make_marker(
                                 crate::heap_types::MarkerData {
                                     buffer: Some(BufferId(db.id.0)),
-                                    position: None,
                                     insertion_type: false,
                                     marker_id: Some(mid),
                                     bytepos: 0,

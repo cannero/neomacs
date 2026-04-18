@@ -14,7 +14,7 @@ use std::rc::Rc;
 use crate::emacs_core::value::Value;
 use crate::gc_trace::GcTrace;
 
-use super::buffer::{BufferId, InsertionType, MarkerEntry};
+use super::buffer::{BufferId, InsertionType};
 use super::gap_buffer::GapBuffer;
 use super::text_props::{PropertyInterval, TextPropertyTable};
 
@@ -50,9 +50,8 @@ struct BufferTextStorage {
     chars_modified_tick: i64,
     save_modified_tick: i64,
     text_props: TextPropertyTable,
-    markers: Vec<MarkerEntry>,
     /// Head of the intrusive per-buffer marker chain (GNU `buffer->own_text.markers`).
-    /// Populated in T4+; stays `null` until then.
+    /// Authoritative since T6; the parallel `Vec<MarkerEntry>` was deleted in T7.
     markers_head: *mut crate::tagged::header::MarkerObj,
     /// Interior-mutable last-query cache for char↔byte conversion.
     pos_cache: Cell<PositionCache>,
@@ -73,10 +72,9 @@ impl Clone for BufferTextStorage {
             chars_modified_tick: self.chars_modified_tick,
             save_modified_tick: self.save_modified_tick,
             text_props: self.text_props.clone(),
-            markers: self.markers.clone(),
             // Chain head intentionally not cloned: chain pointers are unique
             // per TaggedHeap; a cloned buffer starts with an empty chain and
-            // rebuilds it via register_marker (T4+).
+            // rebuilds it via register_marker.
             markers_head: std::ptr::null_mut(),
             pos_cache: self.pos_cache.clone(),
             anchor_cache: self.anchor_cache.clone(),
@@ -125,7 +123,6 @@ impl BufferText {
                 chars_modified_tick: 1,
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
-                markers: Vec::new(),
                 markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
@@ -144,7 +141,6 @@ impl BufferText {
                 chars_modified_tick: 1,
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
-                markers: Vec::new(),
                 markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
@@ -355,7 +351,6 @@ impl BufferText {
                 chars_modified_tick: 1,
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
-                markers: Vec::new(),
                 markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
@@ -444,7 +439,6 @@ impl BufferText {
         text: &str,
         multibyte: bool,
         text_props: TextPropertyTable,
-        markers: Vec<MarkerEntry>,
     ) {
         let bytes =
             crate::emacs_core::string_escape::storage_string_to_buffer_bytes(text, multibyte);
@@ -453,50 +447,53 @@ impl BufferText {
         } else {
             crate::heap_types::LispString::from_unibyte(bytes)
         };
-        self.replace_lisp_string(&string, text_props, markers);
+        self.replace_lisp_string(&string, text_props);
     }
 
     pub fn replace_lisp_string(
         &self,
         text: &crate::heap_types::LispString,
         text_props: TextPropertyTable,
-        markers: Vec<MarkerEntry>,
     ) {
         let mut storage = self.storage.borrow_mut();
         storage.gap = GapBuffer::from_emacs_bytes(text.as_bytes(), text.is_multibyte());
         storage.layout = Self::layout_from_gap(&storage.gap);
         storage.text_props = text_props;
-        // Chain-side drift fix: the caller (set-buffer-multibyte) remapped
-        // the MarkerEntry Vec wholesale; the chain's MarkerData positions
-        // still hold pre-remap values. Mirror the Vec's new (byte, char)
-        // into each chain node by matching on marker_id. Pre-T6 the chain
-        // is not read, but T6 flips readers so the drift must be
-        // eliminated now.
-        //
-        // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
-        // `markers_head` until null. Each non-null node was spliced in via
-        // `chain_splice_at_head`, so its `data.next_marker` is a valid
-        // chain link or null.
-        let mut curr = storage.markers_head;
-        unsafe {
-            while !curr.is_null() {
-                let data = &mut (*curr).data;
-                if let Some(id) = data.marker_id {
-                    if let Some(entry) = markers.iter().find(|m| m.id == id) {
-                        data.bytepos = entry.byte_pos;
-                        data.charpos = entry.char_pos;
-                    }
-                }
-                curr = data.next_marker;
-            }
-        }
-        storage.markers = markers;
         // Wholesale content replacement: invalidate position caches. If the new
         // content happens to have the same (total_chars, total_bytes) as the old,
         // a stale pos_cache entry could otherwise return a wrong bytepos.
         storage.pos_cache.set(PositionCache::default());
         storage.anchor_cache.borrow_mut().clear();
         storage.anchor_cache_key.set((0, 0));
+    }
+
+    /// Walk the intrusive marker chain and remap each marker's (bytepos,
+    /// charpos) through the caller-supplied closure. Used by
+    /// `set-buffer-multibyte` to translate marker positions across a
+    /// wholesale gap-buffer replacement (the boundary arithmetic lives in
+    /// the caller; this helper only handles chain traversal).
+    ///
+    /// The closure receives the marker's current `bytepos` and returns
+    /// the new `(bytepos, charpos)` pair.
+    pub fn remap_markers_through<F>(&self, mut remap: F)
+    where
+        F: FnMut(usize) -> (usize, usize),
+    {
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
+        // `markers_head` until null. Each non-null node was spliced in via
+        // `chain_splice_at_head`, so its `data.next_marker` is a valid
+        // chain link or null.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                let (new_byte, new_char) = remap(data.bytepos);
+                data.bytepos = new_byte;
+                data.charpos = new_char;
+                curr = data.next_marker;
+            }
+        }
     }
 
     pub fn text_props_put_property(
@@ -587,9 +584,8 @@ impl BufferText {
     }
 
     /// Register a marker in this buffer. Updates `MarkerData` fields
-    /// authoritatively (buffer/bytepos/charpos/marker_id/insertion_type),
-    /// splices the marker into this buffer's intrusive chain at head, AND
-    /// pushes a legacy `MarkerEntry` into the Vec (Vec is removed in T7).
+    /// authoritatively (buffer/bytepos/charpos/marker_id/insertion_type)
+    /// and splices the marker into this buffer's intrusive chain at head.
     ///
     /// **Precondition:** `marker_ptr.data.next_marker` is null, i.e. the
     /// marker is not currently on any chain. Callers re-binding a marker
@@ -619,36 +615,64 @@ impl BufferText {
             (*marker_ptr).data.insertion_type = insertion_type == InsertionType::After;
         }
         self.chain_splice_at_head(marker_ptr);
-
-        // Legacy Vec maintained for now; deleted in T7.
-        //
-        // Callers (BufferManager::create_marker, pdump load) assign IDs
-        // from the buffer's monotonic counter, so the old unconditional
-        // `retain |m| m.id != marker_id` was O(N) wasted work on every
-        // registration. Duplicate IDs never happen in practice; if they
-        // did, downstream `marker_entry` / `remove_marker` would still
-        // touch the first match. Keeping the push cheap is what lets
-        // font-lock's match-data markers scale — each match creates
-        // ~10 markers and a single fontification pass on *scratch*
-        // builds tens of thousands of them (a separate marker-GC bug
-        // tracks cleanup).
-        let mut storage = self.storage.borrow_mut();
-        storage.markers.push(MarkerEntry {
-            id: marker_id,
-            buffer_id,
-            byte_pos,
-            char_pos,
-            insertion_type,
-        });
     }
 
-    pub fn marker_entry(&self, marker_id: u64) -> Option<MarkerEntry> {
-        self.storage
-            .borrow()
-            .markers
-            .iter()
-            .find(|marker| marker.id == marker_id)
-            .cloned()
+    /// Snapshot every chain-attached marker into a flat Vec for pdump.
+    /// Each entry carries the marker's owning buffer id (may differ from
+    /// the shared-text owner for indirect buffers), its current
+    /// `(bytepos, charpos)`, and its insertion type. The iteration order
+    /// is chain order (head-to-tail); callers should not rely on it.
+    pub fn chain_marker_snapshot(
+        &self,
+    ) -> Vec<(u64, BufferId, usize, usize, InsertionType)> {
+        let storage = self.storage.borrow();
+        let mut out = Vec::new();
+        let mut curr = storage.markers_head;
+        // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
+        unsafe {
+            while !curr.is_null() {
+                let data = &(*curr).data;
+                if let (Some(id), Some(buffer_id)) = (data.marker_id, data.buffer) {
+                    let ins = if data.insertion_type {
+                        InsertionType::After
+                    } else {
+                        InsertionType::Before
+                    };
+                    out.push((id, buffer_id, data.bytepos, data.charpos, ins));
+                }
+                curr = data.next_marker;
+            }
+        }
+        out
+    }
+
+    /// Walk the intrusive chain and return the MarkerData-derived fields
+    /// `(bytepos, charpos, insertion_type)` for the marker with the given
+    /// id, or `None` if no live chain node carries that id.
+    ///
+    /// Production code should prefer reading `MarkerData` directly off a
+    /// Lisp `Value`. This helper exists for internal buffer-manager
+    /// callers (e.g. `clone_marker_in_buffer`) that track markers by id
+    /// without holding the Lisp value.
+    pub fn marker_chain_lookup(&self, marker_id: u64) -> Option<(usize, usize, InsertionType)> {
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
+        unsafe {
+            while !curr.is_null() {
+                let data = &(*curr).data;
+                if data.marker_id == Some(marker_id) {
+                    let ins = if data.insertion_type {
+                        InsertionType::After
+                    } else {
+                        InsertionType::Before
+                    };
+                    return Some((data.bytepos, data.charpos, ins));
+                }
+                curr = data.next_marker;
+            }
+        }
+        None
     }
 
     pub fn remove_marker(&self, marker_id: u64) {
@@ -672,74 +696,63 @@ impl BufferText {
                 (*ptr).data.charpos = 0;
             }
         }
-        self.storage
-            .borrow_mut()
-            .markers
-            .retain(|marker| marker.id != marker_id);
     }
 
     pub fn update_marker_insertion_type(&self, marker_id: u64, insertion_type: InsertionType) {
-        {
-            let storage = self.storage.borrow();
-            let mut curr = storage.markers_head;
-            // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
-            unsafe {
-                while !curr.is_null() {
-                    if (*curr).data.marker_id == Some(marker_id) {
-                        (*curr).data.insertion_type = insertion_type == InsertionType::After;
-                        break;
-                    }
-                    curr = (*curr).data.next_marker;
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
+        unsafe {
+            while !curr.is_null() {
+                if (*curr).data.marker_id == Some(marker_id) {
+                    (*curr).data.insertion_type = insertion_type == InsertionType::After;
+                    return;
                 }
+                curr = (*curr).data.next_marker;
             }
         }
-        let mut storage = self.storage.borrow_mut();
-        let Some(marker) = storage
-            .markers
-            .iter_mut()
-            .find(|marker| marker.id == marker_id)
-        else {
-            return;
-        };
-        marker.insertion_type = insertion_type;
+    }
+
+    /// Return true iff a marker with `marker_id` is currently spliced
+    /// into this buffer's chain. Used by BufferManager to pick the
+    /// correct buffer when updating insertion type across buffers.
+    pub fn has_marker(&self, marker_id: u64) -> bool {
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
+        unsafe {
+            while !curr.is_null() {
+                if (*curr).data.marker_id == Some(marker_id) {
+                    return true;
+                }
+                curr = (*curr).data.next_marker;
+            }
+        }
+        false
     }
 
     pub fn adjust_markers_for_insert(&self, insert_pos: usize, byte_len: usize, char_len: usize) {
         if byte_len == 0 {
             return;
         }
-        // Chain-side update. MarkerData bytepos/charpos become authoritative in T6.
-        {
-            let storage = self.storage.borrow();
-            let mut curr = storage.markers_head;
-            // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
-            // `markers_head` until null. Each non-null node was spliced in via
-            // `chain_splice_at_head`, so its `data.next_marker` is a valid
-            // chain link or null.
-            unsafe {
-                while !curr.is_null() {
-                    let data = &mut (*curr).data;
-                    if data.bytepos > insert_pos {
-                        data.bytepos += byte_len;
-                        data.charpos += char_len;
-                    } else if data.bytepos == insert_pos && data.insertion_type {
-                        // insertion_type == true means "after" in GNU terms.
-                        data.bytepos += byte_len;
-                        data.charpos += char_len;
-                    }
-                    curr = data.next_marker;
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
+        // `markers_head` until null. Each non-null node was spliced in via
+        // `chain_splice_at_head`, so its `data.next_marker` is a valid
+        // chain link or null.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                if data.bytepos > insert_pos {
+                    data.bytepos += byte_len;
+                    data.charpos += char_len;
+                } else if data.bytepos == insert_pos && data.insertion_type {
+                    // insertion_type == true means "after" in GNU terms.
+                    data.bytepos += byte_len;
+                    data.charpos += char_len;
                 }
-            }
-        }
-        // Legacy Vec side (deleted in T7).
-        for marker in &mut self.storage.borrow_mut().markers {
-            if marker.byte_pos > insert_pos {
-                marker.byte_pos += byte_len;
-                marker.char_pos += char_len;
-            } else if marker.byte_pos == insert_pos && marker.insertion_type == InsertionType::After
-            {
-                marker.byte_pos += byte_len;
-                marker.char_pos += char_len;
+                curr = data.next_marker;
             }
         }
     }
@@ -756,33 +769,20 @@ impl BufferText {
         }
         let byte_len = end - start;
         let char_len = end_char - start_char;
-        // Chain-side update.
-        {
-            let storage = self.storage.borrow();
-            let mut curr = storage.markers_head;
-            // SAFETY: same invariant as adjust_markers_for_insert.
-            unsafe {
-                while !curr.is_null() {
-                    let data = &mut (*curr).data;
-                    if data.bytepos >= end {
-                        data.bytepos -= byte_len;
-                        data.charpos -= char_len;
-                    } else if data.bytepos > start {
-                        data.bytepos = start;
-                        data.charpos = start_char;
-                    }
-                    curr = data.next_marker;
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: same invariant as adjust_markers_for_insert.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                if data.bytepos >= end {
+                    data.bytepos -= byte_len;
+                    data.charpos -= char_len;
+                } else if data.bytepos > start {
+                    data.bytepos = start;
+                    data.charpos = start_char;
                 }
-            }
-        }
-        // Legacy Vec side.
-        for marker in &mut self.storage.borrow_mut().markers {
-            if marker.byte_pos >= end {
-                marker.byte_pos -= byte_len;
-                marker.char_pos -= char_len;
-            } else if marker.byte_pos > start {
-                marker.byte_pos = start;
-                marker.char_pos = start_char;
+                curr = data.next_marker;
             }
         }
     }
@@ -791,44 +791,75 @@ impl BufferText {
         if byte_len == 0 {
             return;
         }
-        // Chain-side update.
-        {
-            let storage = self.storage.borrow();
-            let mut curr = storage.markers_head;
-            // SAFETY: same invariant as adjust_markers_for_insert.
-            unsafe {
-                while !curr.is_null() {
-                    let data = &mut (*curr).data;
-                    if data.bytepos == pos {
-                        data.bytepos += byte_len;
-                        data.charpos += char_len;
-                    }
-                    curr = data.next_marker;
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: same invariant as adjust_markers_for_insert.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                if data.bytepos == pos {
+                    data.bytepos += byte_len;
+                    data.charpos += char_len;
+                }
+                curr = data.next_marker;
+            }
+        }
+    }
+
+    /// Detach every marker currently spliced onto this buffer's chain.
+    /// Leaves each MarkerData's `buffer` field as `None` and clears
+    /// positions so subsequent reads report "unset". Used when a buffer
+    /// is killed.
+    pub fn clear_markers(&self) {
+        let mut storage = self.storage.borrow_mut();
+        let mut curr = storage.markers_head;
+        storage.markers_head = std::ptr::null_mut();
+        // SAFETY: chain walks live chain-owned MarkerObj pointers until
+        // null. We drop the head reference above so each node is no
+        // longer reachable via the chain, then clear its per-node fields.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                let next = data.next_marker;
+                data.next_marker = std::ptr::null_mut();
+                data.buffer = None;
+                data.bytepos = 0;
+                data.charpos = 0;
+                curr = next;
+            }
+        }
+    }
+
+    /// Unlink every chain node whose `MarkerData.buffer` is in `killed`.
+    /// Used by `kill_buffer_collect` when an indirect (shared-text)
+    /// buffer is killed but the root survives: markers registered
+    /// against the dead buffer must be detached from the shared chain.
+    pub fn remove_markers_for_buffers(&self, killed: &std::collections::HashSet<BufferId>) {
+        let mut storage = self.storage.borrow_mut();
+        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =
+            &mut storage.markers_head;
+        // SAFETY: analogous to `chain_unlink`. Every non-null `*prev_slot`
+        // was installed via `chain_splice_at_head`, i.e. a live GC-managed
+        // MarkerObj with a valid `data.next_marker` link.
+        unsafe {
+            while !(*prev_slot).is_null() {
+                let curr = *prev_slot;
+                let data = &mut (*curr).data;
+                let belongs_to_killed = data
+                    .buffer
+                    .map(|id| killed.contains(&id))
+                    .unwrap_or(false);
+                if belongs_to_killed {
+                    *prev_slot = data.next_marker;
+                    data.next_marker = std::ptr::null_mut();
+                    data.buffer = None;
+                    data.bytepos = 0;
+                    data.charpos = 0;
+                } else {
+                    prev_slot = &mut data.next_marker;
                 }
             }
         }
-        // Legacy Vec side.
-        for marker in &mut self.storage.borrow_mut().markers {
-            if marker.byte_pos == pos {
-                marker.byte_pos += byte_len;
-                marker.char_pos += char_len;
-            }
-        }
-    }
-
-    pub fn clear_markers(&self) {
-        self.storage.borrow_mut().markers.clear();
-    }
-
-    pub fn remove_markers_for_buffers(&self, killed: &std::collections::HashSet<BufferId>) {
-        self.storage
-            .borrow_mut()
-            .markers
-            .retain(|marker| !killed.contains(&marker.buffer_id));
-    }
-
-    pub fn marker_entries_snapshot(&self) -> Vec<MarkerEntry> {
-        self.storage.borrow().markers.clone()
     }
 
     /// Splice `marker` at the head of this buffer's marker chain.
@@ -955,14 +986,31 @@ impl BufferText {
         }
 
         let mut distance: usize = POSITION_DISTANCE_BASE;
-        for m in &storage.markers {
-            consider_anchor(target, (m.char_pos, m.byte_pos), &mut best_below, &mut best_above);
-            if best_above.0.saturating_sub(target) < distance
-                || target.saturating_sub(best_below.0) < distance
-            {
-                break;
+        // T7: marker chain walk. The chain carries the same (char, byte)
+        // pairs that the deleted Vec<MarkerEntry> used to.
+        //
+        // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
+        // `storage.markers_head` until null. Each non-null node was
+        // spliced in via `chain_splice_at_head`, so its `data.next_marker`
+        // is a valid chain link or null.
+        let mut curr = storage.markers_head;
+        unsafe {
+            while !curr.is_null() {
+                let data = &(*curr).data;
+                consider_anchor(
+                    target,
+                    (data.charpos, data.bytepos),
+                    &mut best_below,
+                    &mut best_above,
+                );
+                if best_above.0.saturating_sub(target) < distance
+                    || target.saturating_sub(best_below.0) < distance
+                {
+                    break;
+                }
+                distance = distance.saturating_add(POSITION_DISTANCE_INCR);
+                curr = data.next_marker;
             }
-            distance = distance.saturating_add(POSITION_DISTANCE_INCR);
         }
 
         let walked_below = target.saturating_sub(best_below.0);
@@ -1038,14 +1086,26 @@ impl BufferText {
         }
 
         let mut distance: usize = POSITION_DISTANCE_BASE;
-        for m in &storage.markers {
-            consider_anchor_byte(target, (m.byte_pos, m.char_pos), &mut best_below, &mut best_above);
-            if best_above.0.saturating_sub(target) < distance
-                || target.saturating_sub(best_below.0) < distance
-            {
-                break;
+        // T7: marker chain walk. See sibling comment in
+        // `buf_charpos_to_bytepos` for the SAFETY rationale.
+        let mut curr = storage.markers_head;
+        unsafe {
+            while !curr.is_null() {
+                let data = &(*curr).data;
+                consider_anchor_byte(
+                    target,
+                    (data.bytepos, data.charpos),
+                    &mut best_below,
+                    &mut best_above,
+                );
+                if best_above.0.saturating_sub(target) < distance
+                    || target.saturating_sub(best_below.0) < distance
+                {
+                    break;
+                }
+                distance = distance.saturating_add(POSITION_DISTANCE_INCR);
+                curr = data.next_marker;
             }
-            distance = distance.saturating_add(POSITION_DISTANCE_INCR);
         }
 
         let walked_below = target.saturating_sub(best_below.0);

@@ -4,7 +4,6 @@ use super::*;
 fn marker_data_new_fields_default() {
     let data = MarkerData {
         buffer: None,
-        position: None,
         insertion_type: false,
         marker_id: None,
         bytepos: 0,
