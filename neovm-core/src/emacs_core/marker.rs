@@ -78,13 +78,25 @@ pub(crate) fn make_marker_value_with_id(
     insertion_type: bool,
     marker_id: Option<u64>,
 ) -> Value {
+    // Initialize charpos from the 1-based Lisp position so unregistered
+    // markers (e.g. the synthesized mark-marker, or make-marker-with-id
+    // callers that bypass the chain) still report a sensible position
+    // when the reader path reads MarkerData.charpos directly.
+    //
+    // Markers that later get registered via register_marker have their
+    // charpos/bytepos overwritten through the chain path, so this only
+    // matters for unregistered/synthesized markers.
+    let charpos = match position {
+        Some(p) if p > 0 => (p - 1) as usize,
+        _ => 0,
+    };
     Value::make_marker(crate::heap_types::MarkerData {
         buffer: buffer_id,
         position,
         insertion_type,
         marker_id,
         bytepos: 0,
-        charpos: 0,
+        charpos,
         next_marker: std::ptr::null_mut(),
     })
 }
@@ -138,9 +150,9 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Opti
 pub(crate) fn marker_equal_hash_key_value(v: &Value) -> HashKey {
     if let Some(marker) = v.as_marker_data() {
         HashKey::Text(format!(
-            "marker:{:?}:{:?}:{}",
+            "marker:{:?}:{}:{}",
             marker.buffer.map(|buffer| buffer.0),
-            marker.position,
+            marker.charpos,
             marker.insertion_type
         ))
     } else {
@@ -184,9 +196,21 @@ fn marker_position_value(v: &Value) -> Value {
     if !v.is_marker() {
         return Value::NIL;
     };
-    match v.as_marker_data().unwrap().position {
-        Some(position) => Value::fixnum(position),
+    let data = v.as_marker_data().unwrap();
+    // Unset markers (no buffer, or synthesized markers like an unset
+    // mark-marker that carries a buffer but no position) return nil,
+    // matching GNU. Registered markers have their `position` and
+    // `charpos` kept in sync by the writer paths (T4/T5), so we use
+    // `position.is_none()` as the "unset" discriminator and read the
+    // authoritative `charpos` for live markers.
+    match data.position {
         None => Value::NIL,
+        Some(_) if data.buffer.is_some() => Value::fixnum(data.charpos as i64 + 1),
+        // Bufferless fixture markers: NeoVM-internal tests construct
+        // `make_marker_value(None, Some(N), _)` for arithmetic/comparison
+        // builtins. Fall back to the cached position so those tests keep
+        // working; real Elisp code cannot create such markers.
+        Some(pos) => Value::fixnum(pos),
     }
 }
 
@@ -211,6 +235,8 @@ pub(crate) fn marker_position_as_int_with_buffers(
 ) -> Result<i64, Flow> {
     expect_marker("marker-position", v)?;
 
+    // Special mark-marker: resolves via buffer's tracked mark-char.
+    // (See buffer.rs mark_char() for how the mark position is stored.)
     if is_mark_marker(v) {
         if let Some(buf_id) = marker_buffer_id(v)
             && let Some(buf) = buffers.get(buf_id)
@@ -225,16 +251,19 @@ pub(crate) fn marker_position_as_int_with_buffers(
         }
     }
 
-    if let Some(mid) = marker_id_value(v) {
-        if let Some(buf_id) = marker_buffer_id(v)
-            && let Some(buf) = buffers.get(buf_id)
-            && let Some(marker_entry) = buf.marker_entry(mid)
-        {
-            return Ok(marker_entry.char_pos as i64 + 1);
-        }
+    let data = v.as_marker_data().unwrap();
+    // Same discriminator as marker_position_value: position==None means
+    // unset (signal); otherwise prefer chain-tracked charpos for live
+    // buffer-attached markers, falling back to the cached position for
+    // bufferless NeoVM-internal fixture markers.
+    match data.position {
+        None => Err(signal(
+            "error",
+            vec![Value::string("Marker does not point anywhere")],
+        )),
+        Some(_) if data.buffer.is_some() => Ok(data.charpos as i64 + 1),
+        Some(pos) => Ok(pos),
     }
-
-    marker_position_as_int(v)
 }
 
 pub(crate) fn marker_position_as_int_eval(
@@ -296,21 +325,11 @@ pub(crate) fn builtin_marker_position(
 }
 
 pub(crate) fn builtin_marker_position_in_buffers(
-    buffers: &BufferManager,
+    _buffers: &BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("marker-position", &args, 1)?;
     expect_marker("marker-position", &args[0])?;
-
-    if let Some(mid) = marker_id_value(&args[0]) {
-        if let Some(buf_id) = marker_buffer_id(&args[0])
-            && let Some(buf) = buffers.get(buf_id)
-            && let Some(marker_entry) = buf.marker_entry(mid)
-        {
-            return Ok(Value::fixnum(marker_entry.char_pos as i64 + 1));
-        }
-    }
-
     Ok(marker_position_value(&args[0]))
 }
 
@@ -418,11 +437,6 @@ pub(crate) fn builtin_copy_marker_in_buffers(
                 buffer_id
                     .and_then(|buf_id| buffers.get(buf_id))
                     .and_then(|buf| buf.mark_char().map(|m| m as i64 + 1))
-            } else if let Some(mid) = marker_id_value(src) {
-                buffer_id
-                    .and_then(|buf_id| buffers.get(buf_id))
-                    .and_then(|buf| buf.marker_entry(mid))
-                    .map(|marker| marker.char_pos as i64 + 1)
             } else {
                 match marker_position_value(src).kind() {
                     ValueKind::Fixnum(n) => Some(n),
