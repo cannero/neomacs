@@ -78,6 +78,27 @@ pub(crate) struct SubrEntry {
 
 thread_local! {
     static GLOBAL_SUBR_TABLE: RefCell<HashMap<SymId, SubrEntry>> = RefCell::new(HashMap::new());
+
+    /// Thread-local handle to the active `Context::quit_requested`
+    /// atomic. Installed by `Context::setup_thread_locals`, read by
+    /// leaf functions (e.g. the regex matcher) that need a cheap quit
+    /// check without threading `&mut Context` through their signature.
+    /// Mirrors the call site shape of GNU's `maybe_quit()` — reachable
+    /// from anywhere without an explicit context pointer.
+    static QUIT_REQUESTED_TLS: RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> = const { RefCell::new(None) };
+}
+
+/// Check whether a quit is pending without needing `&mut Context`.
+/// The regex matcher calls this at jump/fail sites, mirroring GNU's
+/// `regex-emacs.c:4901,5236`. When it returns `true`, the caller
+/// should unwind its work so the next `maybe_quit()` poll can promote
+/// the pending flag to a `quit` signal.
+pub(crate) fn tls_quit_pending() -> bool {
+    QUIT_REQUESTED_TLS.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+    })
 }
 
 /// Register a subr entry in the global static table.
@@ -4465,6 +4486,12 @@ impl Context {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
         super::syntax::restore_standard_syntax_table_object(self.standard_syntax_table);
         super::category::restore_standard_category_table_object(self.standard_category_table);
+        // Install this Context's quit-request flag so leaf functions
+        // (regex matcher, other long-running scans) can poll it
+        // without `&mut Context` access.
+        QUIT_REQUESTED_TLS.with(|cell| {
+            *cell.borrow_mut() = Some(std::sync::Arc::clone(&self.quit_requested));
+        });
     }
 
     fn initialize_gc_stack_bottom(&mut self) {

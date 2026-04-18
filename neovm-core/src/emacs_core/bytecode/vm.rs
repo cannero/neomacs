@@ -1694,15 +1694,19 @@ impl<'a> Vm<'a> {
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
                     let writeback_args = args.clone();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        &name,
-                        args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args,))
-                    };
+                    // GNU-parity: opcodes 0140-0177 (decode.rs:295-303)
+                    // dispatch *directly* to their C implementations
+                    // (bytecode.c:1412-1545), bypassing the symbol's
+                    // function cell and advice table. `(advice-add
+                    // 'point ...)` deliberately does not fire when
+                    // bytecode calls `(point)` via Bpoint — GNU docs
+                    // this as a limitation of advice on
+                    // bytecode-inlined primitives. Routing these
+                    // through maybe_call_named_function_cell (which
+                    // consults the symbol's function cell) would make
+                    // neomacs MORE advisable than GNU, breaking parity.
+                    let result =
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args));
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());

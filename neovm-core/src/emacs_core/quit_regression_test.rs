@@ -89,6 +89,43 @@ fn quit_requested_atomic_is_drained_into_flag() {
     );
 }
 
+/// Regex matcher must abort on TLS quit flag, and the top-level
+/// builtin must surface the pending state as a `quit` signal rather
+/// than `search-failed`. Mirrors GNU `regex-emacs.c:4901,5236` polling
+/// plus `search.c:1247,1291` wrapper-level promotion.
+#[test]
+fn regex_search_promotes_quit_to_signal() {
+    crate::test_utils::init_test_tracing();
+    let mut ctx = Context::new();
+
+    // Set up a buffer with content so `re-search-forward` has somewhere
+    // to search.
+    ctx.eval_str(
+        "(with-current-buffer (get-buffer-create \"*q*\") \
+           (erase-buffer) \
+           (insert \"hello world\"))",
+    )
+    .ok();
+
+    // Simulate the bridge thread raising quit.
+    ctx.quit_requested.store(true, Ordering::Relaxed);
+
+    // Any regex builtin should surface the quit — not "search-failed" —
+    // once the post-matcher `maybe_quit` runs.
+    let result = ctx.eval_str("(with-current-buffer \"*q*\" (re-search-forward \"world\"))");
+    match result {
+        Err(e) => {
+            let msg = format!("{}", e);
+            assert!(
+                msg.contains("quit"),
+                "expected quit signal, got: {}",
+                msg
+            );
+        }
+        Ok(v) => panic!("expected quit, got: {:?}", v),
+    }
+}
+
 /// `unbind_to` must not let a pending `Vquit_flag` re-fire inside
 /// `unwind-protect` CLEANUP forms.
 #[test]

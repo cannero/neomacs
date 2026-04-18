@@ -2695,6 +2695,14 @@ pub(crate) fn re_match(
             }
 
             RegexOp::Jump => {
+                // Mirrors GNU `regex-emacs.c:4901`: poll quit at the
+                // unconditional-jump site inside the matcher bytecode
+                // dispatch loop. Gives interactive `C-g` a chance to
+                // abort a pathological regex that would otherwise run
+                // for many seconds on a large input.
+                if crate::emacs_core::eval::tls_quit_pending() {
+                    return None;
+                }
                 let offset = extract_number(bytecode, pc);
                 pc = ((pc as i64) + 2 + (offset as i64)) as usize;
             }
@@ -2926,6 +2934,14 @@ fn goto_fail(
     regend: &mut Vec<Option<usize>>,
     counters: &mut HashMap<usize, i16>,
 ) -> Option<()> {
+    // Mirrors GNU `regex-emacs.c:5236`: poll quit at the failure /
+    // backtrack site. Backtracking loops are the worst offenders for
+    // pathological-regex responsiveness; a `C-g` arriving mid-backtrack
+    // aborts the entire search here so the evaluator can surface the
+    // quit signal on its next `maybe_quit` poll.
+    if crate::emacs_core::eval::tls_quit_pending() {
+        return None;
+    }
     let fp = fail_stack.pop()?;
     *pc = fp.pattern_pos;
     if let Some(sp) = fp.string_pos {

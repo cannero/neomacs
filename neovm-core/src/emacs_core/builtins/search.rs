@@ -368,7 +368,14 @@ pub(crate) fn builtin_re_search_forward(
     } else {
         &mut eval.match_data
     };
-    builtin_re_search_forward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
+    let result = builtin_re_search_forward_with_state(case_fold, &mut eval.buffers, md_slot, &args);
+    // Mirrors GNU `search.c:1247,1291`: poll quit after each search
+    // call so a `C-g` that set `tls_quit_pending()` during the match
+    // surfaces as a `quit` signal rather than being interpreted as
+    // `search-failed`. The matcher itself returned None on the TLS
+    // flag; here we promote it.
+    eval.maybe_quit()?;
+    result
 }
 
 pub(crate) fn builtin_re_search_forward_with_state(
@@ -461,7 +468,11 @@ pub(crate) fn builtin_re_search_backward(
     } else {
         &mut eval.match_data
     };
-    builtin_re_search_backward_with_state(case_fold, &mut eval.buffers, md_slot, &args)
+    let result =
+        builtin_re_search_backward_with_state(case_fold, &mut eval.buffers, md_slot, &args);
+    // See `builtin_re_search_forward`: promote a TLS-detected quit.
+    eval.maybe_quit()?;
+    result
 }
 
 pub(crate) fn builtin_re_search_backward_with_state(
@@ -637,7 +648,11 @@ pub(crate) fn builtin_looking_at(eval: &mut super::eval::Context, args: Vec<Valu
     } else {
         &mut eval.match_data
     };
-    builtin_looking_at_with_state(case_fold, &eval.buffers, md_slot, &args)
+    let result = builtin_looking_at_with_state(case_fold, &eval.buffers, md_slot, &args);
+    // Promote a TLS-detected quit to a `quit` signal (see
+    // `builtin_re_search_forward`).
+    eval.maybe_quit()?;
+    result
 }
 
 pub(crate) fn builtin_looking_at_with_state(
@@ -839,7 +854,10 @@ pub(crate) fn builtin_string_match(
     } else {
         &mut eval.match_data
     };
-    builtin_string_match_with_state(case_fold, md_slot, &args)
+    let result = builtin_string_match_with_state(case_fold, md_slot, &args);
+    // Promote a TLS-detected quit (see `builtin_re_search_forward`).
+    eval.maybe_quit()?;
+    result
 }
 
 pub(crate) fn builtin_posix_string_match_with_state(
