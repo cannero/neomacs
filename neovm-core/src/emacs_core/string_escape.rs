@@ -388,13 +388,6 @@ pub(crate) fn decode_storage_char_codes(s: &str) -> Vec<u32> {
 }
 
 /// Compute Emacs-like display width for NeoVM string storage.
-pub(crate) fn storage_string_display_width(s: &str) -> usize {
-    decode_storage_units(s)
-        .into_iter()
-        .map(|(_, width)| width)
-        .sum()
-}
-
 /// Count logical Emacs characters in NeoVM string storage.
 pub(crate) fn storage_char_len(s: &str) -> usize {
     if !storage_has_special_units(s) {
@@ -471,50 +464,6 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
 
 /// Append the logical Emacs-byte range `[start, end)` from NeoVM string
 /// storage into `out`.
-pub(crate) fn append_storage_logical_byte_range_as_emacs_bytes(
-    s: &str,
-    start: usize,
-    end: usize,
-    out: &mut Vec<u8>,
-) {
-    assert!(
-        start <= end,
-        "start logical byte position {start} exceeds end {end}"
-    );
-    let logical_len = storage_byte_len(s);
-    assert!(
-        end <= logical_len,
-        "end logical byte position {end} exceeds logical length {logical_len}"
-    );
-    if start == end {
-        return;
-    }
-
-    if !storage_has_special_units(s) {
-        out.extend_from_slice(&s.as_bytes()[start..end]);
-        return;
-    }
-
-    let units = scan_storage_units(s);
-    let mut logical = 0usize;
-    for unit in &units {
-        if logical >= end {
-            break;
-        }
-
-        let next = logical + unit.logical_byte_len;
-        if next <= start {
-            logical = next;
-            continue;
-        }
-
-        let bytes = storage_unit_logical_bytes(unit);
-        let slice_start = start.saturating_sub(logical);
-        let slice_end = end.min(next) - logical;
-        out.extend_from_slice(&bytes[slice_start..slice_end]);
-        logical = next;
-    }
-}
 
 pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
     if !storage_has_special_units(s) {
@@ -644,12 +593,6 @@ pub(crate) fn format_lisp_string(s: &str) -> String {
 /// Format with `print-escape-newlines` support.
 /// When `escape_newlines` is true, `\n` → `\\n` and `\f` → `\\f` in output,
 /// matching GNU Emacs print.c behavior.
-pub(crate) fn format_lisp_string_with_escape(s: &str, escape_newlines: bool) -> String {
-    let mut opts = PrintOptions::default();
-    opts.print_escape_newlines = escape_newlines;
-    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, &opts)).into_owned()
-}
-
 /// Format with full `PrintOptions`.
 pub(crate) fn format_lisp_string_with_options(s: &str, options: &PrintOptions) -> String {
     String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, options)).into_owned()

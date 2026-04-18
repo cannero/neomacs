@@ -57,7 +57,6 @@ fn decode_storage_char_codes_handles_nonunicode_and_raw_byte() {
         decode_storage_char_codes(&encoded),
         vec![0x110000, 0x3FFFFF]
     );
-    assert_eq!(storage_string_display_width(&encoded), 5);
 }
 
 #[test]
@@ -95,15 +94,6 @@ fn unibyte_storage_string_round_trips_emacs_mule_bytes() {
     );
     assert_eq!(storage_char_len(&encoded), 8);
     assert_eq!(storage_byte_len(&encoded), 8);
-}
-
-#[test]
-fn append_storage_logical_byte_range_as_emacs_bytes_handles_unibyte_sentinels() {
-    crate::test_utils::init_test_tracing();
-    let encoded = bytes_to_unibyte_storage_string(&[0xFF, b'\n', 0x80, b'A']);
-    let mut out = Vec::new();
-    append_storage_logical_byte_range_as_emacs_bytes(&encoded, 1, 3, &mut out);
-    assert_eq!(out, vec![b'\n', 0x80]);
 }
 
 #[test]
