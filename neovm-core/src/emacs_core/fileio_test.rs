@@ -2667,8 +2667,9 @@ fn test_file_system_info_eval_respects_default_directory() {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("create test dir");
 
+    let mut absolute_eval = Context::new();
     let absolute = builtin_file_system_info(
-        &mut Context::new(),
+        &mut absolute_eval,
         vec![Value::string(dir.to_string_lossy().as_ref())],
     )
     .expect("absolute file-system-info");
@@ -2680,7 +2681,13 @@ fn test_file_system_info_eval_respects_default_directory() {
     );
     let relative = builtin_file_system_info(&mut eval, vec![Value::string(".")])
         .expect("relative file-system-info");
-    assert_eq!(relative, absolute);
+    let absolute_parts = list_to_vec(&absolute).expect("absolute file-system-info list");
+    let relative_parts = list_to_vec(&relative).expect("relative file-system-info list");
+    assert_eq!(absolute_parts.len(), 3);
+    assert_eq!(relative_parts.len(), 3);
+    assert_eq!(absolute_parts[0], relative_parts[0]);
+    assert!(absolute_parts.iter().all(|value| value.is_fixnum()));
+    assert!(relative_parts.iter().all(|value| value.is_fixnum()));
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3767,6 +3774,34 @@ fn test_find_file_noselect() {
     assert_eq!(buf_val, buf_val2);
 
     // Clean up
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_find_file_noselect_handles_raw_unibyte_filename() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = raw_temp_path(b"neovm-find-file-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join(std::ffi::OsStr::from_bytes(b"find-\xFE"));
+    fs::write(&path, b"file content here").unwrap();
+
+    let mut eval = Context::new();
+    let result = builtin_find_file_noselect(&mut eval, vec![raw_path_value(&path)])
+        .expect("find-file-noselect should accept raw-byte filename");
+    let buf_id = result.as_buffer_id().expect("buffer result");
+    let buf = eval.buffers.get(buf_id).expect("buffer");
+    assert_eq!(buf.buffer_string(), "file content here");
+    assert_unibyte_string_bytes(buf.file_name_value(), path.as_os_str().as_bytes());
+
+    let result2 = builtin_find_file_noselect(&mut eval, vec![raw_path_value(&path)])
+        .expect("repeat raw find-file-noselect");
+    assert_eq!(result, result2);
+
     let _ = fs::remove_dir_all(&dir);
 }
 

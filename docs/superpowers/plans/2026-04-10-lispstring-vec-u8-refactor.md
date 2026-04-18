@@ -29,6 +29,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `file-newer-than-file-p` now mirrors GNU's `expand_and_dir_to_file` flow before handler dispatch and stat, and `set-file-times` now expands to a Lisp filename before handler dispatch and uses the byte-preserving path boundary instead of rebuilding the path through a runtime `String`.
 - `insert-file-contents` and `write-region` now expand the Lisp filename before handler dispatch, return/store resolved Lisp filename values without rebuilding them through `Value::string`, and reach the Unix filesystem through the byte-preserving `LispString`/`PathBuf` boundary for raw unibyte file names.
 - `file-system-info` now also expands to a Lisp filename before handler dispatch and uses the byte-preserving path boundary, so raw unibyte directory names no longer have to round-trip through a runtime `String`.
+- `find-file-noselect` now resolves and stores visited file names as Lisp strings, compares existing visited buffers against the resolved `LispString` path instead of a runtime string, and can reopen raw unibyte file names without losing the filename bytes.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -47,12 +48,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `src/fileio.c`: `file-newer-than-file-p` uses `expand_and_dir_to_file` on both inputs before handler dispatch and stat, and `set-file-times` similarly expands to a Lisp filename before both handler lookup and `ENCODE_FILE`. The remaining Neomacs path audit should keep matching that "expand first, then dispatch / I/O" boundary.
 - `src/fileio.c`: `insert-file-contents` and `write-region` both expand the file name before handler dispatch; `write-region` also passes the expanded output filename into the handler call while tracking the visit name separately. The remaining Neomacs audit should keep matching that filename/visit split instead of dispatching on raw UTF-8-only strings.
 - `src/fileio.c`: `file-system-info` is another simple "expand first, dispatch on the Lisp filename, then ENCODE_FILE" surface. Neomacs should keep finishing the remaining file-name builtins in that same order.
+- `lisp/files.el`: `find-file-noselect` normalizes the input file name early and keeps passing file names around as Lisp strings while it looks up existing visiting buffers and decides how to populate the new buffer. The remaining Neomacs caller paths should keep moving in that same direction rather than collapsing the visited file name back to a runtime `String`.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info work, especially `find-file-noselect` and the remaining process-facing helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file work, especially the remaining process-facing helpers and backup/auto-save paths that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---

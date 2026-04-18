@@ -4260,27 +4260,38 @@ pub(crate) fn builtin_find_file_noselect(
 ) -> EvalResult {
     expect_min_args("find-file-noselect", &args, 1)?;
     expect_max_args("find-file-noselect", &args, 4)?;
-    let filename = expect_string(&args[0])?;
-    let abs_path = resolve_filename_for_eval(eval, &filename);
+    let abs_path = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let abs_path_buf = lisp_file_name_to_path_buf(&abs_path);
 
     // Check if there's already a buffer visiting this file
     for buf_id in eval.buffers.buffer_list() {
         if let Some(buf) = eval.buffers.get(buf_id) {
-            if buf.file_name_runtime_string_owned().as_deref() == Some(abs_path.as_str()) {
+            if buf
+                .file_name_value()
+                .as_lisp_string()
+                .is_some_and(|name| name == &abs_path)
+            {
                 return Ok(Value::make_buffer(buf_id));
             }
         }
     }
 
     // Derive buffer name from file name
-    let buf_name = file_name_nondirectory(&abs_path);
+    let buf_name = crate::emacs_core::builtins::runtime_string_from_lisp_string(
+        &lisp_file_name_nondirectory(&abs_path),
+    );
     let unique_name = eval.buffers.generate_new_buffer_name(&buf_name);
     let buf_id = eval.buffers.create_buffer(&unique_name);
 
     // If the file exists, read its contents into the new buffer
-    if file_exists_p(&abs_path) {
-        let contents = read_file_contents(&abs_path)
-            .map_err(|e| signal_file_io_path(e, "Opening input file", &abs_path))?;
+    if file_exists_path(&abs_path_buf) {
+        let contents = fs::read_to_string(&abs_path_buf).map_err(|err| {
+            signal_file_action_error_value(
+                err,
+                "Opening input file",
+                Value::heap_string(abs_path.clone()),
+            )
+        })?;
 
         // Save and restore current buffer around the insert
         let saved_current = eval.buffers.current_buffer_id();
@@ -4293,7 +4304,7 @@ pub(crate) fn builtin_find_file_noselect(
         let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
         let _ = eval
             .buffers
-            .set_buffer_file_name(buf_id, Value::string(abs_path.clone()));
+            .set_buffer_file_name(buf_id, Value::heap_string(abs_path.clone()));
         let _ = eval.buffers.set_buffer_modified_flag(buf_id, false);
 
         // Restore the previous current buffer
@@ -4304,7 +4315,7 @@ pub(crate) fn builtin_find_file_noselect(
         // File doesn't exist — create an empty buffer with the file name set
         let _ = eval
             .buffers
-            .set_buffer_file_name(buf_id, Value::string(abs_path));
+            .set_buffer_file_name(buf_id, Value::heap_string(abs_path));
     }
 
     Ok(Value::make_buffer(buf_id))
