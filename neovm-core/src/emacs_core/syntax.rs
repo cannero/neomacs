@@ -534,24 +534,6 @@ impl SyntaxTable {
         ]);
     }
 
-    // pdump accessors — kept to preserve the format until T4 bumps
-    // v23→v24. They return an always-empty HashMap and `None` parent;
-    // the real chartable is serialized via the buffer slot.
-    pub(crate) fn dump_entries(&self) -> HashMap<char, SyntaxEntry> {
-        HashMap::new()
-    }
-    pub(crate) fn dump_parent(&self) -> Option<Box<SyntaxTable>> {
-        None
-    }
-    pub(crate) fn from_dump(
-        _entries: HashMap<char, SyntaxEntry>,
-        _parent: Option<Box<SyntaxTable>>,
-    ) -> Self {
-        // The chartable is re-attached by
-        // `sync_current_buffer_syntax_table_state` on first buffer
-        // access after load.
-        Self::new_standard()
-    }
 }
 
 impl Default for SyntaxTable {

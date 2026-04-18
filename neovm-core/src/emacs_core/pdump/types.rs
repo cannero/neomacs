@@ -470,39 +470,6 @@ pub struct DumpOverlayList {
     pub overlays: Vec<DumpOverlay>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub enum DumpSyntaxClass {
-    Whitespace,
-    Word,
-    Symbol,
-    Punctuation,
-    Open,
-    Close,
-    Prefix,
-    StringDelim,
-    MathDelim,
-    Escape,
-    CharQuote,
-    Comment,
-    EndComment,
-    InheritStandard,
-    Generic,
-    StringFence,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpSyntaxEntry {
-    pub class: DumpSyntaxClass,
-    pub matching_char: Option<char>,
-    pub flags: u8,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpSyntaxTable {
-    pub entries: Vec<(char, DumpSyntaxEntry)>,
-    pub parent: Option<Box<DumpSyntaxTable>>,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum DumpUndoRecord {
     Insert {
@@ -592,7 +559,6 @@ pub struct DumpBuffer {
     pub local_map: DumpValue,
     pub text_props: DumpTextPropertyTable,
     pub overlays: DumpOverlayList,
-    pub syntax_table: DumpSyntaxTable,
     /// Legacy field — retained for backward compatibility with old pdump files.
     /// New dumps always write an empty DumpUndoList here; the real undo state
     /// lives inside the `properties` map as `buffer-undo-list`.

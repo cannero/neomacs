@@ -1068,49 +1068,6 @@ fn dump_overlay_list(encoder: &mut DumpEncoder, ol: &OverlayList) -> DumpOverlay
     }
 }
 
-fn dump_syntax_class(c: &SyntaxClass) -> DumpSyntaxClass {
-    match c {
-        SyntaxClass::Whitespace => DumpSyntaxClass::Whitespace,
-        SyntaxClass::Word => DumpSyntaxClass::Word,
-        SyntaxClass::Symbol => DumpSyntaxClass::Symbol,
-        SyntaxClass::Punctuation => DumpSyntaxClass::Punctuation,
-        SyntaxClass::Open => DumpSyntaxClass::Open,
-        SyntaxClass::Close => DumpSyntaxClass::Close,
-        SyntaxClass::Quote => DumpSyntaxClass::Prefix,
-        SyntaxClass::StringDelim => DumpSyntaxClass::StringDelim,
-        SyntaxClass::Math => DumpSyntaxClass::MathDelim,
-        SyntaxClass::Escape => DumpSyntaxClass::Escape,
-        SyntaxClass::CharQuote => DumpSyntaxClass::CharQuote,
-        SyntaxClass::Comment => DumpSyntaxClass::Comment,
-        SyntaxClass::EndComment => DumpSyntaxClass::EndComment,
-        SyntaxClass::InheritStd => DumpSyntaxClass::InheritStandard,
-        SyntaxClass::CommentFence => DumpSyntaxClass::Generic,
-        SyntaxClass::StringFence => DumpSyntaxClass::StringFence,
-    }
-}
-
-fn dump_syntax_entry(se: &SyntaxEntry) -> DumpSyntaxEntry {
-    DumpSyntaxEntry {
-        class: dump_syntax_class(&se.class),
-        matching_char: se.matching_char,
-        flags: se.flags.bits(),
-    }
-}
-
-fn dump_syntax_table(st: &SyntaxTable) -> DumpSyntaxTable {
-    DumpSyntaxTable {
-        entries: st
-            .dump_entries()
-            .iter()
-            .map(|(c, e)| (*c, dump_syntax_entry(e)))
-            .collect(),
-        parent: st
-            .dump_parent()
-            .as_ref()
-            .map(|p| Box::new(dump_syntax_table(p))),
-    }
-}
-
 // dump_undo_record and dump_undo_list removed — undo state is now a
 // buffer-local Lisp Value serialized through the properties map.
 
@@ -1181,13 +1138,8 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         },
         overlays: dump_overlay_list(encoder, &buf.overlays),
         // Syntax table lives in `buf.slots[BUFFER_SLOT_SYNTAX_TABLE]`
-        // (serialized via the slots Vec below). No compiled form to
-        // dump. An empty `DumpSyntaxTable` is emitted to preserve the
-        // bincode field layout until T4 v25 removes the field.
-        syntax_table: DumpSyntaxTable {
-            entries: Vec::new(),
-            parent: None,
-        },
+        // (serialized via the slots Vec below) — matches GNU where
+        // `buffer->syntax_table` is a single Lisp_Object slot.
         undo_list: None,
         // Phase 11.1: round-trip the BUFFER_OBJFWD slot table.
         // Previously blocked on the BLV GC trace bug (5699c3569);
@@ -2548,45 +2500,6 @@ fn load_property_interval(
         properties,
         key_order,
     }
-}
-
-fn load_syntax_class(c: &DumpSyntaxClass) -> SyntaxClass {
-    match c {
-        DumpSyntaxClass::Whitespace => SyntaxClass::Whitespace,
-        DumpSyntaxClass::Word => SyntaxClass::Word,
-        DumpSyntaxClass::Symbol => SyntaxClass::Symbol,
-        DumpSyntaxClass::Punctuation => SyntaxClass::Punctuation,
-        DumpSyntaxClass::Open => SyntaxClass::Open,
-        DumpSyntaxClass::Close => SyntaxClass::Close,
-        DumpSyntaxClass::Prefix => SyntaxClass::Quote,
-        DumpSyntaxClass::StringDelim => SyntaxClass::StringDelim,
-        DumpSyntaxClass::MathDelim => SyntaxClass::Math,
-        DumpSyntaxClass::Escape => SyntaxClass::Escape,
-        DumpSyntaxClass::CharQuote => SyntaxClass::CharQuote,
-        DumpSyntaxClass::Comment => SyntaxClass::Comment,
-        DumpSyntaxClass::EndComment => SyntaxClass::EndComment,
-        DumpSyntaxClass::InheritStandard => SyntaxClass::InheritStd,
-        DumpSyntaxClass::Generic => SyntaxClass::CommentFence,
-        DumpSyntaxClass::StringFence => SyntaxClass::StringFence,
-    }
-}
-
-fn load_syntax_entry(se: &DumpSyntaxEntry) -> SyntaxEntry {
-    SyntaxEntry {
-        class: load_syntax_class(&se.class),
-        matching_char: se.matching_char,
-        flags: SyntaxFlags::new(se.flags),
-    }
-}
-
-fn load_syntax_table(st: &DumpSyntaxTable) -> SyntaxTable {
-    let entries: HashMap<char, SyntaxEntry> = st
-        .entries
-        .iter()
-        .map(|(c, e)| (*c, load_syntax_entry(e)))
-        .collect();
-    let parent = st.parent.as_ref().map(|p| Box::new(load_syntax_table(p)));
-    SyntaxTable::from_dump(entries, parent)
 }
 
 // load_undo_record removed — undo state is loaded from buffer-local properties.
