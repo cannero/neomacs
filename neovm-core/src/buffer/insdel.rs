@@ -281,24 +281,29 @@ impl Buffer {
     /// Insert `text` at point, advancing point past the inserted text.
     ///
     /// Markers at the insertion site move according to their `InsertionType`.
-    fn insert_internal(&mut self, text: &str, before_markers: bool) {
+    /// Returns the `(byte_len, char_len)` of the inserted text so callers
+    /// can update sibling-buffer bookkeeping without re-measuring the
+    /// storage-form input.
+    fn insert_internal(&mut self, text: &str, before_markers: bool) -> (usize, usize) {
         if text.is_empty() {
-            return;
+            return (0, 0);
         }
         let bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
             text,
             self.get_multibyte(),
         );
         let char_len = emacs_char_count(&bytes, self.get_multibyte());
+        let byte_len = bytes.len();
         self.insert_bytes_internal(&bytes, char_len, before_markers);
+        (byte_len, char_len)
     }
 
-    pub fn insert(&mut self, text: &str) {
-        self.insert_internal(text, false);
+    pub fn insert(&mut self, text: &str) -> (usize, usize) {
+        self.insert_internal(text, false)
     }
 
-    pub fn insert_before_markers(&mut self, text: &str) {
-        self.insert_internal(text, true);
+    pub fn insert_before_markers(&mut self, text: &str) -> (usize, usize) {
+        self.insert_internal(text, true)
     }
 
     pub fn insert_lisp_string(&mut self, text: &LispString) {
@@ -499,16 +504,13 @@ impl BufferManager {
         if text.is_empty() {
             return Some(());
         }
-        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
-        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
-
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;
         let insert_pos = source.pt_byte;
         let insert_char_pos = source.pt;
 
-        self.buffers.get_mut(&id)?.insert(text);
+        let (byte_len, char_len) = self.buffers.get_mut(&id)?.insert(text);
 
         for sibling_id in shared_ids {
             if sibling_id == id {
@@ -575,15 +577,13 @@ impl BufferManager {
         if text.is_empty() {
             return Some(());
         }
-        let byte_len = crate::emacs_core::string_escape::storage_byte_len(text);
-        let char_len = crate::emacs_core::string_escape::storage_char_len(text);
         let root_id = self.shared_text_root_id(id)?;
         let shared_ids = self.buffers_sharing_root_ids(root_id);
         let source = self.buffers.get(&id)?;
         let insert_pos = source.pt_byte;
         let insert_char_pos = source.pt;
 
-        self.buffers.get_mut(&id)?.insert_before_markers(text);
+        let (byte_len, char_len) = self.buffers.get_mut(&id)?.insert_before_markers(text);
 
         for sibling_id in shared_ids {
             if sibling_id == id {
