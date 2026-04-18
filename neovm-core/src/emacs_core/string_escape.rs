@@ -462,17 +462,6 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
     s.len()
 }
 
-fn storage_unit_logical_bytes(unit: &StorageUnit) -> Vec<u8> {
-    if unit.logical_byte_len == 1 && unit.code <= 0xFF {
-        return vec![unit.code as u8];
-    }
-
-    let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
-    let len = crate::emacs_core::emacs_char::char_string(unit.code, &mut buf);
-    debug_assert_eq!(len, unit.logical_byte_len);
-    buf[..len].to_vec()
-}
-
 fn decode_extended_sequence(chars: &mut Peekable<Chars<'_>>) -> Option<Vec<u8>> {
     let len_char = chars.peek().copied()?;
     let len_code = len_char as u32;
