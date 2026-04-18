@@ -340,46 +340,78 @@ impl Buffer {
         );
     }
 
-    /// Replace every occurrence of `from_code` with `to_storage` in the byte range
-    /// `[start, end)`.
+    /// Replace every occurrence of `from_code` with the Emacs-encoded
+    /// bytes in `to_bytes` in the byte range `[start, end)`.
     ///
     /// The replacement is performed in place, so callers must ensure the
-    /// matched storage units have the same storage-byte length.
+    /// matched character's Emacs-byte length equals `to_bytes.len()`.
     pub fn subst_char_in_region(
         &mut self,
         start: usize,
         end: usize,
         from_code: u32,
-        to_storage: &str,
+        to_bytes: &[u8],
         noundo: bool,
     ) -> bool {
         if start >= end {
             return false;
         }
         let changed_chars = self.text.emacs_byte_to_char(end) - self.text.emacs_byte_to_char(start);
-        let original = self.text.text_range(start, end);
-        let Some(replacement) =
-            crate::emacs_core::string_escape::replace_storage_char_code_same_len(
-                &original, from_code, to_storage,
-            )
-        else {
+
+        // Copy the region's raw Emacs bytes and build a replacement by
+        // walking chars and substituting the matched ones with to_bytes.
+        use crate::emacs_core::emacs_char;
+        let mut region_bytes = Vec::with_capacity(end - start);
+        self.text
+            .copy_emacs_bytes_to(start, end, &mut region_bytes);
+        let mut replacement_bytes = Vec::with_capacity(region_bytes.len());
+        let mut changed = false;
+        if self.get_multibyte() {
+            let mut pos = 0;
+            while pos < region_bytes.len() {
+                let (code, len) = emacs_char::string_char(&region_bytes[pos..]);
+                let clen = len.max(1);
+                if code == from_code {
+                    debug_assert_eq!(
+                        clen,
+                        to_bytes.len(),
+                        "subst_char_in_region: matched char byte length ({}) must equal replacement length ({})",
+                        clen,
+                        to_bytes.len()
+                    );
+                    replacement_bytes.extend_from_slice(to_bytes);
+                    changed = true;
+                } else {
+                    replacement_bytes.extend_from_slice(&region_bytes[pos..pos + clen]);
+                }
+                pos += clen;
+            }
+        } else {
+            // Unibyte: each byte is one character. Replacement must be a
+            // single byte whose value matches to_bytes[0].
+            if from_code > 0xFF || to_bytes.len() != 1 {
+                return false;
+            }
+            let from_byte = from_code as u8;
+            for &b in &region_bytes {
+                if b == from_byte {
+                    replacement_bytes.push(to_bytes[0]);
+                    changed = true;
+                } else {
+                    replacement_bytes.push(b);
+                }
+            }
+        }
+        if !changed {
             return false;
-        };
-        let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
-            &replacement,
-            self.get_multibyte(),
-        );
+        }
 
         if !noundo && !self.undo_state.in_progress() {
             self.undo_prepare_change(start, self.pt_byte);
             let mut ul = self.get_undo_list();
             if !undo::undo_list_is_disabled(&ul) {
-                let deleted_bytes =
-                    crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
-                        &original,
-                        self.get_multibyte(),
-                    );
-                let deleted = lisp_string_from_buffer_bytes(deleted_bytes, self.get_multibyte());
+                let deleted =
+                    lisp_string_from_buffer_bytes(region_bytes.clone(), self.get_multibyte());
                 undo::undo_list_record_delete(&mut ul, start, deleted, self.pt_byte);
                 undo::undo_list_record_insert(
                     &mut ul,
@@ -653,7 +685,7 @@ impl BufferManager {
         start: usize,
         end: usize,
         from_code: u32,
-        to_storage: &str,
+        to_bytes: &[u8],
         noundo: bool,
     ) -> Option<bool> {
         if start >= end {
@@ -669,7 +701,7 @@ impl BufferManager {
         let changed = self
             .buffers
             .get_mut(&id)?
-            .subst_char_in_region(start, end, from_code, to_storage, noundo);
+            .subst_char_in_region(start, end, from_code, to_bytes, noundo);
         if !changed {
             return Some(false);
         }

@@ -2654,21 +2654,6 @@ fn buffer_insert_char_codes(
     codes
 }
 
-fn encode_char_code_for_buffer_storage(code: u32, multibyte: bool) -> Option<String> {
-    if code > crate::emacs_core::emacs_char::MAX_CHAR {
-        return None;
-    }
-    if multibyte {
-        crate::emacs_core::string_escape::encode_char_code_for_string_storage(code, true)
-    } else {
-        Some(
-            crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(&[
-                (code & 0xFF) as u8
-            ]),
-        )
-    }
-}
-
 fn encode_char_code_for_buffer_bytes(code: u32, multibyte: bool) -> Option<Vec<u8>> {
     if code > crate::emacs_core::emacs_char::MAX_CHAR {
         return None;
@@ -3207,11 +3192,6 @@ pub(crate) fn builtin_subst_char_in_region(
         ));
     }
 
-    // Buffer internals still speak storage form; reconstruct for the
-    // replacement call (to be migrated separately).
-    let to_storage = encode_char_code_for_buffer_storage(to_code as u32, target_multibyte)
-        .expect("validated above via from_bytes/to_bytes lengths");
-
     let (byte_start, byte_end, needs_change) = {
         let buf = &mut eval
             .buffers
@@ -3261,7 +3241,7 @@ pub(crate) fn builtin_subst_char_in_region(
         byte_start,
         byte_end,
         from_code as u32,
-        &to_storage,
+        &to_bytes,
         noundo,
     );
     super::editfns::signal_after_change(eval, byte_start, byte_end, region_len)?;

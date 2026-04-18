@@ -473,58 +473,6 @@ fn storage_unit_logical_bytes(unit: &StorageUnit) -> Vec<u8> {
     buf[..len].to_vec()
 }
 
-pub(crate) fn replace_storage_char_code_same_len(
-    s: &str,
-    from_code: u32,
-    to_storage: &str,
-) -> Option<String> {
-    if !storage_has_special_units(s) {
-        let from_char = char::from_u32(from_code)?;
-        if !s.contains(from_char) {
-            return None;
-        }
-        let mut out = String::with_capacity(s.len());
-        let mut changed = false;
-        for ch in s.chars() {
-            if ch as u32 == from_code {
-                debug_assert_eq!(
-                    ch.len_utf8(),
-                    to_storage.len(),
-                    "replacement storage length must match matched unit length"
-                );
-                out.push_str(to_storage);
-                changed = true;
-            } else {
-                out.push(ch);
-            }
-        }
-        return changed.then_some(out);
-    }
-
-    let units = scan_storage_units(s);
-    let matched_len = units
-        .iter()
-        .find(|unit| unit.code == from_code)
-        .map(|unit| unit.storage_end - unit.storage_start)?;
-    debug_assert_eq!(
-        matched_len,
-        to_storage.len(),
-        "replacement storage length must match matched unit length"
-    );
-
-    let mut out = String::with_capacity(s.len());
-    let mut changed = false;
-    for unit in units {
-        if unit.code == from_code {
-            out.push_str(to_storage);
-            changed = true;
-        } else {
-            out.push_str(&s[unit.storage_start..unit.storage_end]);
-        }
-    }
-    changed.then_some(out)
-}
-
 fn decode_extended_sequence(chars: &mut Peekable<Chars<'_>>) -> Option<Vec<u8>> {
     let len_char = chars.peek().copied()?;
     let len_code = len_char as u32;
