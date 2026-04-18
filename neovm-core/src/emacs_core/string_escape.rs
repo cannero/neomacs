@@ -571,14 +571,6 @@ fn push_escaped_literal_byte(out: &mut Vec<u8>, byte: u8) {
 
 use super::print::PrintOptions;
 
-/// Format with `print-escape-newlines` support.
-/// When `escape_newlines` is true, `\n` → `\\n` and `\f` → `\\f` in output,
-/// matching GNU Emacs print.c behavior.
-/// Format with full `PrintOptions`.
-pub(crate) fn format_lisp_string_with_options(s: &str, options: &PrintOptions) -> String {
-    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, options)).into_owned()
-}
-
 /// Format a `LispString` as an Emacs Lisp string literal (UTF-8 `String` output).
 pub(crate) fn format_lisp_string_emacs(
     ls: &crate::heap_types::LispString,

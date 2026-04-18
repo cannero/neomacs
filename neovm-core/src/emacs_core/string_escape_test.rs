@@ -4,7 +4,8 @@ use crate::emacs_core::print::PrintOptions;
 // Test-only helpers that restore the default-options ergonomics of the
 // deleted format_lisp_string / format_lisp_string_bytes shims.
 fn format_lisp_string_with_options_default(s: &str) -> String {
-    format_lisp_string_with_options(s, &PrintOptions::default())
+    String::from_utf8_lossy(&format_lisp_string_bytes_inner(s, &PrintOptions::default()))
+        .into_owned()
 }
 
 fn format_lisp_string_bytes_default(s: &str) -> Vec<u8> {

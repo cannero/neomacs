@@ -6,9 +6,7 @@ use std::fmt::Write as _;
 
 use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::intern::{SymId, lookup_interned_lisp_string, resolve_sym, resolve_sym_lisp_string};
-use super::string_escape::{
-    format_lisp_string_bytes_emacs, format_lisp_string_emacs, format_lisp_string_with_options,
-};
+use super::string_escape::{format_lisp_string_bytes_emacs, format_lisp_string_emacs};
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
 };
@@ -780,25 +778,6 @@ fn format_frame_handle(id: u64) -> String {
     } else {
         format!("#<frame {}>", id)
     }
-}
-
-fn format_lisp_propertized_string(
-    s: &str,
-    runs: &[StringTextPropertyRun],
-    options: PrintOptions,
-) -> String {
-    let mut out = String::from("#(");
-    out.push_str(&format_lisp_string_with_options(s, &options));
-    for run in runs {
-        out.push(' ');
-        out.push_str(&run.start.to_string());
-        out.push(' ');
-        out.push_str(&run.end.to_string());
-        out.push(' ');
-        out.push_str(&print_value_with_options(&run.plist, options));
-    }
-    out.push(')');
-    out
 }
 
 fn format_lisp_propertized_string_emacs(
