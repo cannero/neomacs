@@ -643,6 +643,14 @@ impl BufferText {
     /// or null when none found. Used by pdump load (v26) to resolve
     /// `BufferStateMarkers` (pt/begv/zv) ids back to chain pointers
     /// after the chain has been reconstructed.
+    ///
+    /// Pointer lifetime: the returned `*mut MarkerObj` is only valid while
+    /// `self`'s chain still holds it. Any subsequent splice/unlink on this
+    /// buffer's chain, or a GC cycle that runs `unchain_dead_markers`, may
+    /// detach the node from the chain — callers must use the pointer
+    /// before doing anything that could mutate the chain, and must not
+    /// re-enter the chain (or invoke arbitrary Lisp) between lookup and
+    /// use.
     pub fn chain_find_by_id(
         &self,
         marker_id: u64,

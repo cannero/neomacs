@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::DumpError;
 use super::types::*;
@@ -210,7 +210,7 @@ impl DumpEncoder {
     }
 }
 
-struct TaggedLoadState {
+pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -219,6 +219,15 @@ struct TaggedLoadState {
     frames: HashMap<u64, Value>,
     timers: HashMap<u64, Value>,
     floats: HashMap<u32, Value>,
+    /// O(1) `marker_id` → `MarkerObj*` index built during
+    /// `preload_tagged_heap`. Replaces the post-T8
+    /// `find_marker_by_id_during_load` heap scan that was used while
+    /// reconstructing per-buffer marker chains and resolving state-marker
+    /// pointers (`pt`/`begv`/`zv`). The pointer is only valid for the
+    /// duration of the load — it points at a `MarkerObj` allocated in the
+    /// tagged heap during `preload_tagged_heap` and reachable via the
+    /// load-side `Value` cache, so the GC will not free it underneath us.
+    pub(crate) markers_by_id: FxHashMap<u64, *mut crate::tagged::header::MarkerObj>,
 }
 
 impl TaggedLoadState {
@@ -233,6 +242,7 @@ impl TaggedLoadState {
             frames: HashMap::new(),
             timers: HashMap::new(),
             floats: HashMap::new(),
+            markers_by_id: FxHashMap::default(),
         }
     }
 }
@@ -344,15 +354,29 @@ impl LoadDecoder {
                 interactive: None,
             }),
             DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
-            DumpHeapObject::Marker(marker) => Value::make_marker(crate::heap_types::MarkerData {
-                buffer: marker.buffer.map(|id| BufferId(id.0)),
-                insertion_type: marker.insertion_type,
-                marker_id: marker.marker_id,
-                // v26: bytepos/charpos round-trip directly from MarkerData.
-                bytepos: marker.bytepos,
-                charpos: marker.charpos,
-                next_marker: std::ptr::null_mut(),
-            }),
+            DumpHeapObject::Marker(marker) => {
+                let value = Value::make_marker(crate::heap_types::MarkerData {
+                    buffer: marker.buffer.map(|id| BufferId(id.0)),
+                    insertion_type: marker.insertion_type,
+                    marker_id: marker.marker_id,
+                    // v26: bytepos/charpos round-trip directly from MarkerData.
+                    bytepos: marker.bytepos,
+                    charpos: marker.charpos,
+                    next_marker: std::ptr::null_mut(),
+                });
+                // Index by `marker_id` so per-buffer chain reconstruction and
+                // state-marker resolution can do an O(1) lookup instead of a
+                // heap-wide walk. Both call sites consult `markers_by_id` in
+                // place of the retired `find_marker_by_id_during_load`.
+                if let Some(id) = marker.marker_id {
+                    if let Some(ptr) = value.as_veclike_ptr() {
+                        self.state
+                            .markers_by_id
+                            .insert(id, ptr as *mut crate::tagged::header::MarkerObj);
+                    }
+                }
+                value
+            }
             DumpHeapObject::Overlay(overlay) => {
                 Value::make_overlay(crate::heap_types::OverlayData {
                     plist: Value::NIL,
@@ -2556,7 +2580,11 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         } else {
             crate::buffer::InsertionType::Before
         };
-        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id_during_load(marker_id))
+        let marker_ptr = decoder
+            .state
+            .markers_by_id
+            .get(&marker_id)
+            .copied()
             .unwrap_or_else(|| {
                 let scratch =
                     crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
@@ -2695,9 +2723,10 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
 
     // v26: resolve state markers (pt/begv/zv) by walking the freshly-built
     // chain on `text` before moving `text` into the Buffer literal below.
-    // Falls back to the heap-wide search for any state marker missing from
-    // `db.markers`, and only allocates a scratch MarkerObj as a final
-    // safety net.
+    // Falls back to the LoadDecoder's `markers_by_id` index (built during
+    // `preload_tagged_heap`) for any state marker missing from `db.markers`,
+    // and only allocates a scratch MarkerObj as a final safety net.
+    let markers_by_id = &decoder.state.markers_by_id;
     let state_markers = match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
         (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
             let resolve = |mid: u64| -> *mut crate::tagged::header::MarkerObj {
@@ -2705,9 +2734,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                 if !chain_hit.is_null() {
                     return chain_hit;
                 }
-                if let Some(p) =
-                    with_tagged_heap(|heap| heap.find_marker_by_id_during_load(mid))
-                {
+                if let Some(p) = markers_by_id.get(&mid).copied() {
                     return p;
                 }
                 let scratch = crate::emacs_core::value::Value::make_marker(

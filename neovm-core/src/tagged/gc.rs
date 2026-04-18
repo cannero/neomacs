@@ -983,34 +983,10 @@ impl TaggedHeap {
     // Marker operations
     // -----------------------------------------------------------------------
 
-    /// Find a live `MarkerObj` by its logical marker id by walking the
-    /// intrusive `all_objects` list. O(N) over every live heap object;
-    /// this is only called during pdump load to reconnect a dumped
-    /// marker_id to the MarkerObj allocated by `preload_tagged_heap`.
-    ///
-    /// Post-T8 the global `marker_ptrs` Vec is gone, so this walks
-    /// `all_objects` to find marker-kind objects by id. Intentionally
-    /// *not* a drop-in replacement for the old `find_marker_by_id`
-    /// — production code should hold marker pointers directly or look
-    /// them up via a buffer's intrusive chain.
-    pub fn find_marker_by_id_during_load(&self, marker_id: u64) -> Option<*mut MarkerObj> {
-        let mut curr = self.all_objects;
-        unsafe {
-            while !curr.is_null() {
-                if (*curr).kind == HeapObjectKind::VecLike {
-                    let vh = curr as *mut VecLikeHeader;
-                    if (*vh).type_tag == VecLikeType::Marker {
-                        let m = curr as *mut MarkerObj;
-                        if (*m).data.marker_id == Some(marker_id) {
-                            return Some(m);
-                        }
-                    }
-                }
-                curr = (*curr).next;
-            }
-        }
-        None
-    }
+    // `find_marker_by_id_during_load` was retired in T11. Pdump load now
+    // builds an O(1) `marker_id` → `MarkerObj*` index in
+    // `TaggedLoadState::markers_by_id` during `preload_tagged_heap`, so the
+    // O(N·M) heap scan is no longer needed.
 
     /// Install the raw chain-head slots the next `complete_collection`
     /// cycle should walk when unlinking dead markers. Caller (typically
