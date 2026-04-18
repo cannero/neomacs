@@ -1056,6 +1056,47 @@ fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     }
 }
 
+fn expect_lisp_string_strict(value: &Value) -> Result<crate::heap_types::LispString, Flow> {
+    match value.kind() {
+        ValueKind::String => Ok(value
+            .as_lisp_string()
+            .expect("ValueKind::String must carry LispString payload")
+            .clone()),
+        other => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), *value],
+        )),
+    }
+}
+
+fn file_name_runtime_result_value(text: &str, multibyte: bool) -> Value {
+    Value::heap_string(crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        text, multibyte,
+    ))
+}
+
+fn fallback_root_default_directory() -> crate::heap_types::LispString {
+    crate::heap_types::LispString::from_utf8("/")
+}
+
+fn expand_file_name_result_multibyte(
+    name: &crate::heap_types::LispString,
+    default_directory: &crate::heap_types::LispString,
+) -> bool {
+    let mut multibyte = name.is_multibyte();
+    let defdir_multibyte = default_directory.is_multibyte();
+    if multibyte != defdir_multibyte {
+        if multibyte {
+            if name.is_ascii() || !default_directory.is_ascii() {
+                multibyte = false;
+            }
+        } else if name.is_ascii() {
+            multibyte = true;
+        }
+    }
+    multibyte
+}
+
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(fileio_owned_runtime_string(*value)),
@@ -1287,28 +1328,24 @@ pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> 
             ],
         ));
     }
-    let name = expect_string_strict(&args[0])?;
-    let default_dir = if let Some(arg) = args.get(1) {
+    let name_lisp = expect_lisp_string_strict(&args[0])?;
+    let name = crate::emacs_core::builtins::runtime_string_from_lisp_string(&name_lisp);
+    let default_dir_lisp = if let Some(arg) = args.get(1) {
         match arg.kind() {
-            ValueKind::Nil => default_directory_in_state(&eval.obarray, &[], &eval.buffers),
-            ValueKind::String => Some(fileio_owned_runtime_string(*arg)),
-            _ => Some("/".to_string()),
+            ValueKind::Nil => default_directory_lisp_for_eval(eval)
+                .unwrap_or_else(fallback_root_default_directory),
+            ValueKind::String => expect_lisp_string_strict(arg)?,
+            _ => fallback_root_default_directory(),
         }
     } else {
-        default_directory_in_state(&eval.obarray, &[], &eval.buffers)
+        default_directory_lisp_for_eval(eval).unwrap_or_else(fallback_root_default_directory)
     };
+    let default_dir =
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(&default_dir_lisp);
 
-    let result = expand_file_name(&name, default_dir.as_deref());
-    // Preserve the multibyte flag of the input: if the input name was
-    // unibyte (or the result is pure ASCII), return unibyte. This
-    // matches GNU Emacs where expand-file-name preserves the encoding
-    // and avoids "default-directory must be unibyte" errors during dump.
-    let input_multibyte = args[0].string_is_multibyte();
-    if input_multibyte {
-        Ok(Value::multibyte_string(result))
-    } else {
-        Ok(Value::unibyte_string(result))
-    }
+    let result = expand_file_name(&name, Some(&default_dir));
+    let result_multibyte = expand_file_name_result_multibyte(&name_lisp, &default_dir_lisp);
+    Ok(file_name_runtime_result_value(&result, result_multibyte))
 }
 
 /// (make-temp-name PREFIX) -> string
@@ -1331,7 +1368,10 @@ pub(crate) fn builtin_next_read_file_uses_dialog_p(args: Vec<Value>) -> EvalResu
 pub(crate) fn builtin_unhandled_file_name_directory(args: Vec<Value>) -> EvalResult {
     expect_args("unhandled-file-name-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    Ok(Value::string(file_name_as_directory(&filename)))
+    Ok(file_name_runtime_result_value(
+        &file_name_as_directory(&filename),
+        args[0].string_is_multibyte(),
+    ))
 }
 
 /// (get-truename-buffer FILENAME) -> buffer or nil
@@ -1442,7 +1482,10 @@ pub(crate) fn builtin_file_name_directory(eval: &mut Context, args: Vec<Value>) 
     expect_args("file-name-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
     match file_name_directory(&filename) {
-        Some(dir) => Ok(Value::string(dir)),
+        Some(dir) => Ok(file_name_runtime_result_value(
+            &dir,
+            args[0].string_is_multibyte(),
+        )),
         None => Ok(Value::NIL),
     }
 }
@@ -1454,7 +1497,10 @@ pub(crate) fn builtin_file_name_nondirectory(eval: &mut Context, args: Vec<Value
     }
     expect_args("file-name-nondirectory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    Ok(Value::string(file_name_nondirectory(&filename)))
+    Ok(file_name_runtime_result_value(
+        &file_name_nondirectory(&filename),
+        args[0].string_is_multibyte(),
+    ))
 }
 
 /// (file-name-as-directory FILENAME) -> string
@@ -1464,12 +1510,10 @@ pub(crate) fn builtin_file_name_as_directory(eval: &mut Context, args: Vec<Value
     }
     expect_args("file-name-as-directory", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    // Preserve multibyte flag of input
-    if args[0].string_is_multibyte() {
-        Ok(Value::multibyte_string(file_name_as_directory(&filename)))
-    } else {
-        Ok(Value::unibyte_string(file_name_as_directory(&filename)))
-    }
+    Ok(file_name_runtime_result_value(
+        &file_name_as_directory(&filename),
+        args[0].string_is_multibyte(),
+    ))
 }
 
 /// (directory-file-name FILENAME) -> string
@@ -1479,11 +1523,10 @@ pub(crate) fn builtin_directory_file_name(eval: &mut Context, args: Vec<Value>) 
     }
     expect_args("directory-file-name", &args, 1)?;
     let filename = expect_string_strict(&args[0])?;
-    if args[0].string_is_multibyte() {
-        Ok(Value::multibyte_string(directory_file_name(&filename)))
-    } else {
-        Ok(Value::unibyte_string(directory_file_name(&filename)))
-    }
+    Ok(file_name_runtime_result_value(
+        &directory_file_name(&filename),
+        args[0].string_is_multibyte(),
+    ))
 }
 
 /// (file-name-concat DIRECTORY &rest COMPONENTS) -> string
@@ -1564,8 +1607,29 @@ pub(crate) fn default_directory_in_state(
     }
 }
 
+fn default_directory_lisp_in_state(
+    obarray: &Obarray,
+    _dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+) -> Option<crate::heap_types::LispString> {
+    if let Some(buf) = buffers.current_buffer() {
+        if let Some(val) = buf.get_buffer_local("default-directory") {
+            if let Some(string) = val.as_lisp_string() {
+                return Some(string.clone());
+            }
+        }
+    }
+    obarray
+        .symbol_value("default-directory")
+        .and_then(|val| val.as_lisp_string().cloned())
+}
+
 fn default_directory_for_eval(eval: &Context) -> Option<String> {
     default_directory_in_state(&eval.obarray, &[], &eval.buffers)
+}
+
+fn default_directory_lisp_for_eval(eval: &Context) -> Option<crate::heap_types::LispString> {
+    default_directory_lisp_in_state(&eval.obarray, &[], &eval.buffers)
 }
 
 pub(crate) fn resolve_filename_in_state(
@@ -2455,18 +2519,19 @@ pub(crate) fn find_file_name_handler_lisp(
 
         // Match the regexp against the filename.
         let mut match_data: Option<crate::emacs_core::regex::MatchData> = None;
-        let match_pos = match super::regex::string_match_full_with_case_fold_source_lisp_pattern_posix(
-            regexp,
-            filename,
-            crate::emacs_core::regex::SearchedString::Owned(filename.clone()),
-            0,
-            false,
-            false,
-            &mut match_data,
-        ) {
-            Ok(Some(pos)) => pos as i64,
-            _ => continue,
-        };
+        let match_pos =
+            match super::regex::string_match_full_with_case_fold_source_lisp_pattern_posix(
+                regexp,
+                filename,
+                crate::emacs_core::regex::SearchedString::Owned(filename.clone()),
+                0,
+                false,
+                false,
+                &mut match_data,
+            ) {
+                Ok(Some(pos)) => pos as i64,
+                _ => continue,
+            };
 
         if match_pos > best_pos {
             // Skip if this handler is inhibited for the current operation.

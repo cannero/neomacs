@@ -47,6 +47,14 @@ fn assert_same_file_paths(path1: &str, path2: &str) {
     );
 }
 
+fn assert_unibyte_string_bytes(value: Value, expected: &[u8]) {
+    let string = value
+        .as_lisp_string()
+        .expect("expected string result for raw-byte assertion");
+    assert!(!string.is_multibyte(), "expected unibyte string");
+    assert_eq!(string.as_bytes(), expected);
+}
+
 #[test]
 fn temporary_file_directory_for_eval_accepts_raw_unibyte_string() {
     crate::test_utils::init_test_tracing();
@@ -945,6 +953,51 @@ fn test_builtin_expand_file_name_eval_uses_default_directory() {
 }
 
 #[test]
+fn builtin_expand_file_name_preserves_raw_unibyte_default_directory_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw_default = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"/tmp/neovm-\xFF/".to_vec(),
+    ));
+    eval.set_variable("default-directory", raw_default);
+
+    let value = builtin_expand_file_name(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"alpha.txt".to_vec()),
+        )],
+    )
+    .expect("expand-file-name should keep raw default-directory bytes");
+
+    assert_unibyte_string_bytes(value, b"/tmp/neovm-\xFF/alpha.txt");
+}
+
+#[test]
+fn builtin_expand_file_name_promotes_ascii_unibyte_name_for_multibyte_default_directory() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.set_variable(
+        "default-directory",
+        Value::multibyte_string("/tmp/neovm-e/"),
+    );
+
+    let value = builtin_expand_file_name(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"alpha.txt".to_vec()),
+        )],
+    )
+    .expect("expand-file-name should promote ascii unibyte names like GNU");
+
+    let string = value.as_lisp_string().expect("string result");
+    assert!(string.is_multibyte(), "expected multibyte string");
+    assert_eq!(
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(string),
+        "/tmp/neovm-e/alpha.txt"
+    );
+}
+
+#[test]
 fn test_fileio_eval_prefers_current_buffer_local_default_directory() {
     crate::test_utils::init_test_tracing();
     let base =
@@ -1045,7 +1098,10 @@ fn test_builtin_file_truename_eval_uses_default_directory() {
     );
 
     let value = builtin_file_truename(&mut eval, vec![Value::string("alpha.txt")]).unwrap();
-    assert_eq!(value.as_utf8_str(), Some("/tmp/neovm-file-truename/alpha.txt"));
+    assert_eq!(
+        value.as_utf8_str(),
+        Some("/tmp/neovm-file-truename/alpha.txt")
+    );
 }
 
 #[test]
@@ -1105,6 +1161,62 @@ fn test_builtin_make_temp_file_validation() {
         }
         other => panic!("expected signal, got {:?}", other),
     }
+}
+
+#[test]
+fn builtin_file_name_directory_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let value = call_fileio_builtin!(
+        builtin_file_name_directory,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"/tmp/neovm-\xFF/alpha.txt".to_vec())
+        )]
+    )
+    .expect("file-name-directory should keep raw bytes");
+
+    assert_unibyte_string_bytes(value, b"/tmp/neovm-\xFF/");
+}
+
+#[test]
+fn builtin_file_name_nondirectory_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let value = call_fileio_builtin!(
+        builtin_file_name_nondirectory,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"/tmp/neovm-\xFF".to_vec())
+        )]
+    )
+    .expect("file-name-nondirectory should keep raw bytes");
+
+    assert_unibyte_string_bytes(value, b"neovm-\xFF");
+}
+
+#[test]
+fn builtin_file_name_as_directory_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let value = call_fileio_builtin!(
+        builtin_file_name_as_directory,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"neovm-\xFF".to_vec())
+        )]
+    )
+    .expect("file-name-as-directory should keep raw bytes");
+
+    assert_unibyte_string_bytes(value, b"neovm-\xFF/");
+}
+
+#[test]
+fn builtin_directory_file_name_preserves_raw_unibyte_bytes() {
+    crate::test_utils::init_test_tracing();
+    let value = call_fileio_builtin!(
+        builtin_directory_file_name,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"neovm-\xFF/".to_vec())
+        )]
+    )
+    .expect("directory-file-name should keep raw bytes");
+
+    assert_unibyte_string_bytes(value, b"neovm-\xFF");
 }
 
 #[test]
