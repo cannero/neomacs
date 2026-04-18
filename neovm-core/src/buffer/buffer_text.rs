@@ -684,6 +684,54 @@ impl BufferText {
         self.storage.borrow().markers.clone()
     }
 
+    /// Splice `marker` at the head of this buffer's marker chain.
+    /// Overwrites `marker.next_marker` with the old head.
+    /// Caller sets `marker.buffer` / `marker.bytepos` / `marker.charpos` —
+    /// this helper only manipulates chain topology.
+    pub fn chain_splice_at_head(&self, marker: *mut crate::tagged::header::MarkerObj) {
+        let mut storage = self.storage.borrow_mut();
+        let old_head = storage.markers_head;
+        unsafe {
+            (*marker).data.next_marker = old_head;
+        }
+        storage.markers_head = marker;
+    }
+
+    /// Unlink `marker` from this buffer's chain. Silent no-op if not present.
+    /// Does NOT clear `marker.buffer` / positions — caller owns semantic cleanup.
+    pub fn chain_unlink(&self, marker: *mut crate::tagged::header::MarkerObj) {
+        let mut storage = self.storage.borrow_mut();
+        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =
+            &mut storage.markers_head;
+        unsafe {
+            while !(*prev_slot).is_null() {
+                let curr = *prev_slot;
+                if curr == marker {
+                    *prev_slot = (*curr).data.next_marker;
+                    (*curr).data.next_marker = std::ptr::null_mut();
+                    return;
+                }
+                prev_slot = &mut (*curr).data.next_marker;
+            }
+        }
+    }
+
+    /// Walk the chain from head to tail, collecting raw pointers in order.
+    /// Test-only helper.
+    #[cfg(test)]
+    pub fn chain_walk_collect(&self) -> Vec<*mut crate::tagged::header::MarkerObj> {
+        let storage = self.storage.borrow();
+        let mut out = Vec::new();
+        let mut curr = storage.markers_head;
+        unsafe {
+            while !curr.is_null() {
+                out.push(curr);
+                curr = (*curr).data.next_marker;
+            }
+        }
+        out
+    }
+
     /// Convert a character position to a logical Emacs byte offset using an
     /// anchor-bracketed cached search. Mirrors GNU `buf_charpos_to_bytepos`
     /// (`src/marker.c:167`).
@@ -1002,3 +1050,7 @@ fn scan_backward_bytes(gap: &GapBuffer, anchor: (usize, usize), target: usize) -
 #[cfg(test)]
 #[path = "buffer_text_test.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "buffer_text_chain_test.rs"]
+mod chain_test;
