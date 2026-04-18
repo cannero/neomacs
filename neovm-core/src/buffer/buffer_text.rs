@@ -676,20 +676,33 @@ impl BufferText {
     }
 
     pub fn remove_marker(&self, marker_id: u64) {
-        // Look up the MarkerObj via the GC's live `marker_ptrs` registry
-        // rather than walking the intrusive chain directly. Pre-T8 the
-        // sweep may free a MarkerObj that's still linked in the chain
-        // (the chain is not yet a GC root), so dereferencing an
-        // unvalidated chain pointer here would read freed memory. The
-        // heap's `find_marker_by_id` iterates only live markers.
-        let marker_ptr = crate::tagged::gc::with_tagged_heap(|heap| {
-            heap.find_marker_by_id(marker_id)
-        });
+        // Post-T8: `unchain_dead_markers` splices unmarked MarkerObjs
+        // out of this buffer's chain between the mark and sweep GC
+        // phases, so a chain walk between GC cycles never dereferences
+        // a freed allocation. Walk the chain directly and splice the
+        // matching node.
+        let marker_ptr: Option<*mut crate::tagged::header::MarkerObj> = {
+            let storage = self.storage.borrow();
+            let mut curr = storage.markers_head;
+            let mut found = None;
+            // SAFETY: chain walks live chain-owned MarkerObj pointers
+            // from `storage.markers_head` until null.
+            unsafe {
+                while !curr.is_null() {
+                    if (*curr).data.marker_id == Some(marker_id) {
+                        found = Some(curr);
+                        break;
+                    }
+                    curr = (*curr).data.next_marker;
+                }
+            }
+            found
+        };
         if let Some(ptr) = marker_ptr {
             self.chain_unlink(ptr);
-            // SAFETY: ptr was returned by the live marker registry, so
-            // it's still a valid allocation. chain_unlink left it
-            // detached from any chain; field writes are sound.
+            // SAFETY: `ptr` was read from this buffer's chain; chain-
+            // owned allocations stay live until the next GC sweep.
+            // `chain_unlink` left it detached; field writes are sound.
             unsafe {
                 (*ptr).data.buffer = None;
                 (*ptr).data.bytepos = 0;
@@ -860,6 +873,19 @@ impl BufferText {
                 }
             }
         }
+    }
+
+    /// Raw pointer to the `markers_head` slot inside this buffer's
+    /// storage. ONLY for GC use — bypasses RefCell's runtime borrow
+    /// checks. Callers must hold exclusive access to the tagged heap and
+    /// have no outstanding storage borrows (GC is stop-the-world).
+    ///
+    /// Used by `TaggedHeap::unchain_dead_markers` to splice unmarked
+    /// MarkerObj nodes out of the intrusive per-buffer chain before
+    /// `sweep_objects` frees them.
+    pub unsafe fn markers_head_slot_raw(&self) -> *mut *mut crate::tagged::header::MarkerObj {
+        let storage_ptr: *mut BufferTextStorage = self.storage.as_ptr();
+        unsafe { &mut (*storage_ptr).markers_head as *mut _ }
     }
 
     /// Splice `marker` at the head of this buffer's marker chain.

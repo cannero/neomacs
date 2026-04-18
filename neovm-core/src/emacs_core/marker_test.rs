@@ -251,6 +251,28 @@ fn mark_marker_follows_cached_mark_char_position() {
 }
 
 #[test]
+fn mark_marker_with_no_mark_returns_detached() {
+    // T7 I-1 follow-up: when the current buffer has no mark set,
+    // `(mark-marker)` returns a detached marker. Post-T7 the stale
+    // `MarkerData.position` cache is gone, so "unset" is discriminated
+    // solely by `buffer.is_none() && charpos == 0`. This pins the
+    // invariant by checking that both `(marker-buffer ...)` and
+    // `(marker-position ...)` report nil.
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    // Don't set a mark; default buffer has no mark.
+    let marker = builtin_mark_marker(&mut eval, vec![]).expect("mark-marker");
+    assert!(
+        call_marker_buffer(vec![marker]).unwrap().is_nil(),
+        "(marker-buffer (mark-marker)) should be nil when mark is unset"
+    );
+    assert!(
+        call_marker_position(vec![marker]).unwrap().is_nil(),
+        "(marker-position (mark-marker)) should be nil when mark is unset"
+    );
+}
+
+#[test]
 fn copy_marker_from_integer_tracks_insertions_before_it() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

@@ -5584,6 +5584,12 @@ impl Context {
             self.trace_roots(&mut |root| {
                 (*heap_ptr).seed_root(root);
             });
+            // Install per-buffer marker-chain head slots so
+            // `unchain_dead_markers` can splice unmarked markers out of
+            // every live chain before sweep. Mirrors GNU
+            // `sweep_buffer → unchain_dead_markers` (alloc.c).
+            let chain_heads = self.buffers.collect_marker_chain_head_slots();
+            (*heap_ptr).set_marker_chain_head_slots(chain_heads);
             (*heap_ptr).complete_collection();
         }
         self.gc_pending = false;

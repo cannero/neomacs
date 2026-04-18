@@ -1303,8 +1303,11 @@ pub struct BufferStateMarkers {
     /// Allocated once per buffer in `ensure_buffer_state_markers` and
     /// reused on every `record_buffer_state_markers` re-registration
     /// (via `chain_unlink` + `register_marker`) so the intrusive chain
-    /// precondition is upheld. These pointers are rooted in GC via the
-    /// `TaggedHeap::marker_ptrs` registry (all allocations land there).
+    /// precondition is upheld. These MarkerObjs stay alive because
+    /// they are spliced into the buffer's intrusive marker chain (a
+    /// GC root post-T8) — `unchain_dead_markers` will only unlink them
+    /// once the buffer is killed or they are removed via the state
+    /// plumbing.
     pub pt_marker_ptr: *mut crate::tagged::header::MarkerObj,
     pub begv_marker_ptr: *mut crate::tagged::header::MarkerObj,
     pub zv_marker_ptr: *mut crate::tagged::header::MarkerObj,
@@ -2804,6 +2807,23 @@ impl BufferManager {
         self.buffers.get_mut(&id)
     }
 
+    /// Collect a raw `*mut *mut MarkerObj` pointer to every live buffer's
+    /// marker-chain head slot. Used by the GC to feed
+    /// `TaggedHeap::unchain_dead_markers` between mark and sweep so dead
+    /// markers are spliced out of the intrusive chain before the sweep
+    /// frees them. Mirrors GNU `sweep_buffer → unchain_dead_markers` (`alloc.c`).
+    ///
+    /// SAFETY: callers must ensure no concurrent borrows of the returned
+    /// storage exist. Stop-the-world GC is the only caller.
+    pub unsafe fn collect_marker_chain_head_slots(
+        &self,
+    ) -> Vec<*mut *mut crate::tagged::header::MarkerObj> {
+        self.buffers
+            .values()
+            .map(|buf| unsafe { buf.text.markers_head_slot_raw() })
+            .collect()
+    }
+
     /// Immutable access to the current buffer.
     pub fn current_buffer(&self) -> Option<&Buffer> {
         self.current.and_then(|id| self.buffers.get(&id))
@@ -2970,7 +2990,12 @@ impl BufferManager {
             self.replace_labeled_restrictions(*killed_id, None);
         }
 
-        with_tagged_heap(|heap| heap.clear_markers_for_buffers(&killed_set));
+        // T8: `clear_markers_for_buffers` on the tagged heap is gone;
+        // detaching markers is now purely a chain-level operation.
+        // `clear_markers` on the root buffer or `remove_markers_for_buffers`
+        // on the shared chain walks the intrusive chain directly and
+        // resets each unlinked node's `buffer`/`bytepos`/`charpos`. T9
+        // will rewrite this path more holistically.
         if kill_root {
             self.buffers.get(&id)?.text.clear_markers();
         } else {
@@ -3851,13 +3876,15 @@ impl BufferManager {
     /// insertion type.  Returns the new marker's id and the raw
     /// `MarkerObj` pointer for the backing allocation.
     ///
-    /// The backing `MarkerObj` is allocated via the tagged heap and is
-    /// tracked in `TaggedHeap::marker_ptrs`, so GC will see it. Callers
-    /// that need to re-register this marker later (e.g. state-marker
-    /// buffer switch plumbing) should retain the returned pointer and
-    /// pass it to `register_marker_id` after first calling
-    /// `chain_unlink` on the owning buffer's `BufferText` to satisfy
-    /// the chain_splice_at_head precondition.
+    /// The backing `MarkerObj` is allocated via the tagged heap. Once
+    /// spliced onto a `BufferText` chain (via `register_marker`), the
+    /// intrusive chain acts as a GC root (post-T8) so `MarkerObj`
+    /// stays live for as long as it's chained. Callers that need to
+    /// re-register this marker later (e.g. state-marker buffer switch
+    /// plumbing) should retain the returned pointer and pass it to
+    /// `register_marker_id` after first calling `chain_unlink` on the
+    /// owning buffer's `BufferText` to satisfy the
+    /// `chain_splice_at_head` precondition.
     pub fn create_marker(
         &mut self,
         buffer_id: BufferId,

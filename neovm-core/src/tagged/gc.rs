@@ -393,9 +393,18 @@ pub struct TaggedHeap {
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
-    /// Tracking list of all allocated marker objects for bulk operations
-    /// like clearing markers when buffers are killed.
-    marker_ptrs: Vec<*mut MarkerObj>,
+    /// Raw pointers to the `markers_head` slot of every live buffer's
+    /// `BufferText`. Populated by the caller immediately before
+    /// `complete_collection` via `set_marker_chain_head_slots`; drained
+    /// by `unchain_dead_markers` between the mark and sweep phases so
+    /// unmarked markers are spliced out of the intrusive per-buffer
+    /// chain before `sweep_objects` frees them. Mirrors GNU
+    /// `sweep_buffer → unchain_dead_markers` (`alloc.c`).
+    ///
+    /// Empty for GC cycles that don't go through a `Context` (raw-heap
+    /// tests in `tagged/tests.rs`), which is fine because those never
+    /// create chain-linked markers.
+    marker_chain_head_slots: Vec<*mut *mut MarkerObj>,
 
     /// Canonical runtime handle wrappers keyed by their underlying object id.
     buffer_registry: FxHashMap<crate::buffer::BufferId, TaggedValue>,
@@ -428,7 +437,7 @@ impl TaggedHeap {
             gray_queue: Vec::new(),
             cons_free_list: std::ptr::null_mut(),
             cons_live_count: 0,
-            marker_ptrs: Vec::new(),
+            marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
             window_registry: FxHashMap::default(),
             frame_registry: FxHashMap::default(),
@@ -931,7 +940,6 @@ impl TaggedHeap {
             data,
         });
         let ptr = Box::into_raw(obj);
-        self.marker_ptrs.push(ptr);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
         self.note_allocation_bytes(size_of::<MarkerObj>());
@@ -975,37 +983,77 @@ impl TaggedHeap {
     // Marker operations
     // -----------------------------------------------------------------------
 
-    /// Clear buffer association for all markers belonging to any of the
-    /// killed buffers.
-    pub fn clear_markers_for_buffers<S>(
-        &mut self,
-        killed: &std::collections::HashSet<crate::buffer::BufferId, S>,
-    ) where
-        S: std::hash::BuildHasher,
-    {
-        for ptr in &self.marker_ptrs {
-            let marker = unsafe { &mut (**ptr).data };
-            if marker.buffer.is_some_and(|b| killed.contains(&b)) {
-                // T7: the stale `position` cache is gone. Clear the live
-                // chain-tracked positions so the marker reads as unset.
-                marker.buffer = None;
-                marker.bytepos = 0;
-                marker.charpos = 0;
+    /// Find a live `MarkerObj` by its logical marker id by walking the
+    /// intrusive `all_objects` list. O(N) over every live heap object;
+    /// this is only called during pdump load to reconnect a dumped
+    /// marker_id to the MarkerObj allocated by `preload_tagged_heap`.
+    ///
+    /// Post-T8 the global `marker_ptrs` Vec is gone, so this walks
+    /// `all_objects` to find marker-kind objects by id. Intentionally
+    /// *not* a drop-in replacement for the old `find_marker_by_id`
+    /// — production code should hold marker pointers directly or look
+    /// them up via a buffer's intrusive chain.
+    pub fn find_marker_by_id_during_load(&self, marker_id: u64) -> Option<*mut MarkerObj> {
+        let mut curr = self.all_objects;
+        unsafe {
+            while !curr.is_null() {
+                if (*curr).kind == HeapObjectKind::VecLike {
+                    let vh = curr as *mut VecLikeHeader;
+                    if (*vh).type_tag == VecLikeType::Marker {
+                        let m = curr as *mut MarkerObj;
+                        if (*m).data.marker_id == Some(marker_id) {
+                            return Some(m);
+                        }
+                    }
+                }
+                curr = (*curr).next;
             }
         }
+        None
     }
 
-    /// Find a live `MarkerObj` by its logical marker id.
+    /// Install the raw chain-head slots the next `complete_collection`
+    /// cycle should walk when unlinking dead markers. Caller (typically
+    /// `Context::gc_collect_from_current_roots`) passes one slot per
+    /// live `BufferText`. The vec is consumed and cleared by
+    /// `unchain_dead_markers` so successive cycles must re-install.
     ///
-    /// Used during pdump load to reconnect per-buffer marker registrations
-    /// (which carry only `marker_id`) to the corresponding heap-allocated
-    /// MarkerObj. O(N) over all live markers; acceptable because this is
-    /// called once per dumped marker during a single load.
-    pub fn find_marker_by_id(&self, marker_id: u64) -> Option<*mut MarkerObj> {
-        self.marker_ptrs
-            .iter()
-            .copied()
-            .find(|ptr| unsafe { (**ptr).data.marker_id == Some(marker_id) })
+    /// SAFETY: each slot must point to a valid `*mut MarkerObj` living
+    /// inside a live `BufferText`'s storage and must remain valid for
+    /// the duration of the GC cycle. The caller must hold exclusive
+    /// access to the heap and the buffer manager during the cycle.
+    pub unsafe fn set_marker_chain_head_slots(
+        &mut self,
+        slots: Vec<*mut *mut MarkerObj>,
+    ) {
+        self.marker_chain_head_slots = slots;
+    }
+
+    /// Walk each installed buffer-chain head slot and splice out markers
+    /// whose GC mark bit is clear. Runs between `mark_all` and
+    /// `sweep_objects` so reading `header.gc.marked` is sound (the
+    /// allocation is still live). Mirrors GNU Emacs `sweep_buffer →
+    /// unchain_dead_markers` (alloc.c).
+    fn unchain_dead_markers(&mut self) {
+        // Take the slot list out so we don't alias self while iterating.
+        let slots = std::mem::take(&mut self.marker_chain_head_slots);
+        for slot in slots {
+            unsafe {
+                let mut prev_slot: *mut *mut MarkerObj = slot;
+                while !(*prev_slot).is_null() {
+                    let curr = *prev_slot;
+                    if (*curr).header.gc.marked {
+                        // Live — advance prev
+                        prev_slot = &mut (*curr).data.next_marker;
+                    } else {
+                        // Dead — splice out. The generic `sweep_objects`
+                        // pass frees the allocation.
+                        *prev_slot = (*curr).data.next_marker;
+                        (*curr).data.next_marker = std::ptr::null_mut();
+                    }
+                }
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1102,9 +1150,12 @@ impl TaggedHeap {
         // -- Mark phase: drain gray queue --
         self.mark_all();
 
-        // (Post-mark verification removed — the "corrupt data pointer 0x1"
-        //  check was a false alarm. Rust's empty String uses ptr=0x1
-        //  (NonNull::dangling), which is normal, not corruption.)
+        // Unchain dead markers BEFORE `sweep_objects` frees them; the
+        // chain would otherwise hold dangling pointers after the sweep.
+        // Mirrors GNU `sweep_buffer → unchain_dead_markers` (`alloc.c`).
+        // Reading `header.gc.marked` is sound here because the
+        // allocation is still live until `sweep_objects` runs below.
+        self.unchain_dead_markers();
 
         // -- Sweep phase --
         let cons_live_bytes = self.sweep_cons();
@@ -1329,17 +1380,11 @@ impl TaggedHeap {
 
     /// Sweep non-cons objects: walk intrusive list, free unmarked, rebuild list.
     fn sweep_objects(&mut self) -> usize {
-        // Prune marker_ptrs BEFORE the free walk. The retain closure reads
-        // `header.gc.marked` on each marker, and that bit is only valid
-        // while the allocation is live. Once the free walk below drops an
-        // unmarked MarkerObj, reading its header is a use-after-free.
-        // Mirrors GNU Emacs where markers are unlinked from the buffer's
-        // marker chain before being freed (buffer.c unchain_marker).
-        self.marker_ptrs.retain(|ptr| unsafe {
-            let header = &(*(*ptr)).header;
-            header.gc.marked
-        });
-
+        // `unchain_dead_markers` (invoked in `complete_collection`
+        // between mark and sweep) has already spliced unmarked markers
+        // out of every live buffer's intrusive chain, so freeing them
+        // here leaves no dangling chain pointers. Mirrors GNU
+        // `sweep_buffer → unchain_dead_markers` (alloc.c).
         let mut prev: *mut *mut GcHeader = &mut self.all_objects;
         let mut current = self.all_objects;
         let mut live_bytes = 0usize;

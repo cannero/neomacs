@@ -2586,11 +2586,11 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         // `preload_tagged_heap`. If pdump dumped a marker whose
         // marker_id has no corresponding live MarkerObj (possible for
         // older dumps or GC-dropped markers), allocate a fresh scratch
-        // MarkerObj so the chain still has a live node to splice. The
-        // scratch is not reachable as a Lisp value but is tracked in
-        // `TaggedHeap::marker_ptrs` and will be swept if it stays
-        // unreferenced.
-        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id(marker_id))
+        // MarkerObj so the chain still has a live node to splice.
+        // Post-T8 the heap no longer maintains a `marker_ptrs` Vec;
+        // `find_marker_by_id_during_load` walks `all_objects` to find
+        // the pre-allocated MarkerObj by marker_id.
+        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id_during_load(marker_id))
             .unwrap_or_else(|| {
                 let scratch =
                     crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
@@ -2756,7 +2756,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                 // back to a fresh scratch allocation so the chain stays valid
                 // for the dual-write Vec path.
                 let resolve = |mid: u64| -> *mut crate::tagged::header::MarkerObj {
-                    with_tagged_heap(|heap| heap.find_marker_by_id(mid))
+                    with_tagged_heap(|heap| heap.find_marker_by_id_during_load(mid))
                         .unwrap_or_else(|| {
                             let scratch = crate::emacs_core::value::Value::make_marker(
                                 crate::heap_types::MarkerData {
