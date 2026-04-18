@@ -43,7 +43,6 @@ struct PositionCache {
     bytepos: usize,
 }
 
-#[derive(Clone)]
 struct BufferTextStorage {
     layout: BufferTextLayout,
     gap: GapBuffer,
@@ -52,6 +51,9 @@ struct BufferTextStorage {
     save_modified_tick: i64,
     text_props: TextPropertyTable,
     markers: Vec<MarkerEntry>,
+    /// Head of the intrusive per-buffer marker chain (GNU `buffer->own_text.markers`).
+    /// Populated in T4+; stays `null` until then.
+    markers_head: *mut crate::tagged::header::MarkerObj,
     /// Interior-mutable last-query cache for char↔byte conversion.
     pos_cache: Cell<PositionCache>,
     /// Internal (non-Lisp-visible) anchor positions populated on long scans.
@@ -60,6 +62,27 @@ struct BufferTextStorage {
     /// `(epoch_chars, epoch_bytes)` at which the anchor_cache is valid.
     /// Mismatch triggers a wholesale clear on next read.
     anchor_cache_key: Cell<(usize, usize)>,
+}
+
+impl Clone for BufferTextStorage {
+    fn clone(&self) -> Self {
+        Self {
+            layout: self.layout.clone(),
+            gap: self.gap.clone(),
+            modified_tick: self.modified_tick,
+            chars_modified_tick: self.chars_modified_tick,
+            save_modified_tick: self.save_modified_tick,
+            text_props: self.text_props.clone(),
+            markers: self.markers.clone(),
+            // Chain head intentionally not cloned: chain pointers are unique
+            // per TaggedHeap; a cloned buffer starts with an empty chain and
+            // rebuilds it via register_marker (T4+).
+            markers_head: std::ptr::null_mut(),
+            pos_cache: self.pos_cache.clone(),
+            anchor_cache: self.anchor_cache.clone(),
+            anchor_cache_key: self.anchor_cache_key.clone(),
+        }
+    }
 }
 
 pub struct BufferText {
@@ -103,6 +126,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
                 anchor_cache_key: Cell::new((0, 0)),
@@ -121,6 +145,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
                 anchor_cache_key: Cell::new((0, 0)),
@@ -331,6 +356,7 @@ impl BufferText {
                 save_modified_tick: 1,
                 text_props: TextPropertyTable::new(),
                 markers: Vec::new(),
+                markers_head: std::ptr::null_mut(),
                 pos_cache: Cell::new(PositionCache::default()),
                 anchor_cache: RefCell::new(Vec::new()),
                 anchor_cache_key: Cell::new((0, 0)),
