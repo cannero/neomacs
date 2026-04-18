@@ -405,10 +405,17 @@ fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<LispStri
     }
 }
 
-fn parse_sequence_args(args: &[Value]) -> Result<Vec<String>, Flow> {
-    args.iter()
-        .map(super::process::sequence_value_to_env_string)
-        .collect()
+fn obarray_lisp_string_variable(
+    obarray: &super::symbol::Obarray,
+    name: &str,
+    fallback: &str,
+) -> Result<LispString, Flow> {
+    let value = obarray.symbol_value(name).copied().unwrap_or(Value::NIL);
+    if value.is_nil() {
+        Ok(LispString::from_utf8(fallback))
+    } else {
+        Ok(super::builtins::expect_lisp_string(&value)?.clone())
+    }
 }
 
 fn signal_process_lines_status_error(program: &LispString, status: i32) -> Flow {
@@ -416,38 +423,55 @@ fn signal_process_lines_status_error(program: &LispString, status: i32) -> Flow 
         "error",
         vec![Value::string(format!(
             "{} exited with status {status}",
-            super::builtins::runtime_string_from_lisp_string(program)
+            crate::emacs_core::emacs_char::to_utf8_lossy(program.as_bytes())
         ))],
     )
 }
 
-fn shell_quote_argument(arg: &str) -> String {
-    let mut out = String::from("'");
-    for ch in arg.chars() {
-        if ch == '\'' {
-            out.push_str("'\\''");
-        } else {
-            out.push(ch);
-        }
+fn shell_command_fragment(value: &Value) -> Result<LispString, Flow> {
+    if let Some(string) = value.as_lisp_string() {
+        return Ok(string.clone());
     }
-    out.push('\'');
-    out
+
+    let runtime = super::process::sequence_value_to_env_string(value)?;
+    Ok(super::builtins::runtime_string_to_lisp_string(
+        &runtime, true,
+    ))
 }
 
-fn shell_command_with_args(command: &str, args: &[String]) -> String {
-    if args.is_empty() {
-        return command.to_string();
+fn mapconcat_identity_lisp_strings(strings: &[LispString], separator: &[u8]) -> LispString {
+    if strings.is_empty() {
+        return LispString::from_unibyte(Vec::new());
     }
-    let quoted = args
-        .iter()
-        .map(|arg| shell_quote_argument(arg))
-        .collect::<Vec<_>>()
-        .join(" ");
-    if command.is_empty() {
-        quoted
+
+    let multibyte = strings.iter().any(LispString::is_multibyte);
+    let separator_bytes = separator
+        .len()
+        .saturating_mul(strings.len().saturating_sub(1));
+    let total_len = strings.iter().map(LispString::sbytes).sum::<usize>() + separator_bytes;
+    let mut bytes = Vec::with_capacity(total_len);
+
+    for (index, string) in strings.iter().enumerate() {
+        if index != 0 {
+            bytes.extend_from_slice(separator);
+        }
+        bytes.extend_from_slice(string.as_bytes());
+    }
+
+    if multibyte {
+        LispString::from_emacs_bytes(bytes)
     } else {
-        format!("{command} {quoted}")
+        LispString::from_unibyte(bytes)
     }
+}
+
+fn shell_command_with_legacy_args(command: &Value, args: &[Value]) -> Result<LispString, Flow> {
+    let mut parts = Vec::with_capacity(args.len() + 1);
+    parts.push(shell_command_fragment(command)?);
+    for arg in args {
+        parts.push(shell_command_fragment(arg)?);
+    }
+    Ok(mapconcat_identity_lisp_strings(&parts, b" "))
 }
 
 fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> EvalResult {
@@ -620,23 +644,16 @@ pub(crate) fn builtin_call_process_shell_command(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("call-process-shell-command", &args, 1)?;
-    let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(|v| v.is_truthy());
-    let cmd_args = if args.len() > 4 {
-        parse_sequence_args(&args[4..])?
-    } else {
-        Vec::new()
-    };
-    let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec![
-        LispString::from_utf8("-c"),
-        LispString::from_utf8(&shell_command),
-    ];
+    let shell_command = shell_command_with_legacy_args(&args[0], args.get(4..).unwrap_or(&[]))?;
+    let shell_program = obarray_lisp_string_variable(eval.obarray(), "shell-file-name", "sh")?;
+    let shell_switch = obarray_lisp_string_variable(eval.obarray(), "shell-command-switch", "-c")?;
+    let shell_args = vec![shell_switch, shell_command];
     let result = run_process_command_in_state(
         &mut eval.buffers,
-        &LispString::from_utf8("sh"),
+        &shell_program,
         infile,
         &destination,
         &shell_args,
@@ -670,23 +687,16 @@ pub(crate) fn builtin_process_file_shell_command(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-file-shell-command", &args, 1)?;
-    let command = super::process::sequence_value_to_env_string(&args[0])?;
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(|v| v.is_truthy());
-    let cmd_args = if args.len() > 4 {
-        parse_sequence_args(&args[4..])?
-    } else {
-        Vec::new()
-    };
-    let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec![
-        LispString::from_utf8("-c"),
-        LispString::from_utf8(&shell_command),
-    ];
+    let shell_command = shell_command_with_legacy_args(&args[0], args.get(4..).unwrap_or(&[]))?;
+    let shell_program = obarray_lisp_string_variable(eval.obarray(), "shell-file-name", "sh")?;
+    let shell_switch = obarray_lisp_string_variable(eval.obarray(), "shell-command-switch", "-c")?;
+    let shell_args = vec![shell_switch, shell_command];
     let result = run_process_command_in_state(
         &mut eval.buffers,
-        &LispString::from_utf8("sh"),
+        &shell_program,
         infile,
         &destination,
         &shell_args,

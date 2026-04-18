@@ -25,6 +25,11 @@ fn load_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
 }
 
+fn load_display_string(value: &LispString) -> String {
+    crate::emacs_core::emacs_char::to_utf8_lossy(value.as_bytes())
+}
+
+#[cfg(not(unix))]
 fn load_runtime_string(value: &LispString) -> String {
     super::builtins::runtime_string_from_lisp_string(value)
 }
@@ -659,7 +664,7 @@ pub(crate) fn plan_load_in_state(
                     "file-missing",
                     vec![Value::string(format!(
                         "Cannot open load file: {}",
-                        load_runtime_string(&file)
+                        load_display_string(&file)
                     ))],
                 ))
             }
@@ -1902,7 +1907,7 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
 }
 
 fn record_load_history(eval: &mut super::eval::Context, path_lisp: &LispString) {
-    let path_str = load_runtime_string(path_lisp);
+    let path_str = load_display_string(path_lisp);
     tracing::debug!("record_load_history: {}", path_str);
     let roots = eval.save_specpdl_roots();
     // GNU protects the same post-load temporaries with GCPRO/specpdl roots

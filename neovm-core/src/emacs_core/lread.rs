@@ -49,33 +49,12 @@ fn lread_string_text(value: &Value) -> Option<String> {
     value.as_runtime_string_owned()
 }
 
-fn lread_runtime_string(value: &LispString) -> String {
-    super::builtins::runtime_string_from_lisp_string(value)
-}
-
-fn runtime_path_to_lisp_string(text: &str) -> LispString {
-    super::builtins::runtime_string_to_lisp_string(text, !text.is_ascii())
-}
-
 fn expect_lisp_string(value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
         ValueKind::String => Ok(value.as_lisp_string().expect("checked string").clone()),
         ValueKind::Symbol(id) => Ok(LispString::from_utf8(resolve_sym(id))),
         ValueKind::Nil => Ok(LispString::from_unibyte(b"nil".to_vec())),
         ValueKind::T => Ok(LispString::from_unibyte(b"t".to_vec())),
-        other => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("stringp"), *value],
-        )),
-    }
-}
-
-fn expect_string(value: &Value) -> Result<String, Flow> {
-    match value.kind() {
-        ValueKind::String => Ok(lread_string_text(value).expect("checked string")),
-        ValueKind::Symbol(id) => Ok(resolve_sym(id).to_owned()),
-        ValueKind::Nil => Ok("nil".to_string()),
-        ValueKind::T => Ok("t".to_string()),
         other => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("stringp"), *value],

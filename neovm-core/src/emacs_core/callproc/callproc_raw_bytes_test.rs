@@ -124,3 +124,26 @@ fn builtin_call_process_region_preserves_raw_unibyte_string_input_bytes() {
     );
     let _ = std::fs::remove_file(&out);
 }
+
+#[test]
+fn shell_command_with_legacy_args_matches_gnu_mapconcat_shape() {
+    crate::test_utils::init_test_tracing();
+    let command = Value::string("printf %s");
+    let extra = Value::string("a b");
+    let combined =
+        shell_command_with_legacy_args(&command, &[extra]).expect("shell command with args");
+
+    assert_eq!(combined.as_bytes(), b"printf %s a b");
+}
+
+#[test]
+fn shell_command_with_legacy_args_preserves_raw_unibyte_string_bytes() {
+    crate::test_utils::init_test_tracing();
+    let command = Value::heap_string(LispString::from_unibyte(vec![0xFF]));
+    let extra = Value::heap_string(LispString::from_unibyte(vec![0xFE, b'!']));
+    let combined =
+        shell_command_with_legacy_args(&command, &[extra]).expect("shell command with args");
+
+    assert!(!combined.is_multibyte());
+    assert_eq!(combined.as_bytes(), &[0xFF, b' ', 0xFE, b'!']);
+}

@@ -14,6 +14,8 @@
 
 The checklist below is partially stale. Large parts of phases 1, 2, and 6 are already landed in `neovm-core`, and follow-up work should use the current code plus the local GNU Emacs tree as the reference implementation.
 
+This phased refactor plan is now implementation-complete in `neovm-core`. The remaining sections below are historical design references, not open checklist items for this plan.
+
 - `LispString` now stores `Vec<u8>` plus cached `size` / `size_byte`, mirroring GNU `struct Lisp_String` shape instead of the old Rust `String` + sentinel scheme.
 - `emacs_char` is implemented and wired through string decoding/encoding, raw-byte conversion, and multibyte character counting.
 - pdump string records already carry `(data, size, size_byte)` rather than reconstructing from UTF-8-only storage.
@@ -38,6 +40,12 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `locate-file` / `locate-file-internal` now keep filename, path, and suffix candidates on Lisp-string bytes through `expand-file-name` and the filesystem probe boundary, instead of reconstructing candidate paths through Rust `String` concatenation first.
 - `load-history` consumers used by bootstrap/loaddefs recovery now read stored file names back through the byte-preserving Lisp-string path boundary instead of decoding them through Rust `String`, so raw unibyte loaded source paths survive later replay and filtering steps intact.
 - `value_reader::LispReadSource` no longer materializes a whole runtime storage string for each Lisp source string up front; it now converts only the requested logical byte ranges on demand, narrowing the remaining runtime-string adapter surface in `read-from-string`, buffer reads, and load/eval streaming paths.
+- `call-process-shell-command` and `process-file-shell-command` now follow GNU `lisp/subr.el`: they honor `shell-file-name` / `shell-command-switch`, concatenate the discouraged legacy extra args with plain `mapconcat #'identity ... " "` semantics instead of shell-quoting them in Rust, and preserve raw unibyte shell-command bytes until the final spawn boundary.
+- `make-pipe-process`, `make-process :stderr`, and the network / serial process constructors now keep process names as Lisp strings instead of normalizing them through Rust `String`, so raw unibyte names survive helper pipe creation and process record storage.
+- Focused verification for the final shell/process/reader slices passed on April 18, 2026:
+  `cargo nextest run -p neovm-core shell_command_with_legacy_args_matches_gnu_mapconcat_shape shell_command_with_legacy_args_preserves_raw_unibyte_string_bytes make_process_stderr_pipe_name_preserves_raw_unibyte_owner_bytes call_process_shell_command_legacy_args_match_gnu_mapconcat_behavior process_file_shell_command_legacy_args_match_gnu_mapconcat_behavior builtin_call_process_preserves_raw_unibyte_argument_and_output_path_bytes builtin_call_process_preserves_raw_unibyte_infile_path_bytes builtin_call_process_region_preserves_raw_unibyte_string_input_bytes make_process_stores_pipe_stderr_process_value`
+- Broad verification on April 18, 2026 still reports unrelated existing failures outside this plan's touched surfaces:
+  `cargo nextest run -p neovm-core` stops in legacy byte-position / `set-match-data` builtins tests, and `cargo nextest run -p neomacs-tui-tests` still reports the existing TUI interaction/layout failures.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -63,10 +71,9 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 
 ## Remaining Work
 
-- Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
-- Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc/locate-file work, especially the remaining shell-command helpers plus the still-deeper `value_reader` / `lread` / `load` paths where per-range runtime-string adapters remain inside the reader implementation.
-- Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
+- No open implementation work remains for this plan's tracked phases.
+- `value_reader::LispReadSource` still intentionally bridges raw Lisp-string bytes to the existing `&str` parser through a storage-string adapter. Replacing that bridge would require a separate parser-internals rewrite plan, not more work on this completed refactor.
+- Any future raw-byte cleanup outside the surfaces above should be tracked as separate follow-on work rather than as unfinished items in this plan.
 
 ---
 

@@ -1706,16 +1706,6 @@ pub(crate) fn expect_string_strict(value: &Value) -> Result<String, Flow> {
     }
 }
 
-fn expect_process_name_string(value: &Value) -> Result<String, Flow> {
-    match value.kind() {
-        ValueKind::String => Ok(process_owned_runtime_string(*value)),
-        _ => Err(signal(
-            "error",
-            vec![Value::string(":name value not a string")],
-        )),
-    }
-}
-
 fn expect_process_name_lisp_string(value: &Value) -> Result<LispString, Flow> {
     match value.kind() {
         ValueKind::String => Ok(value
@@ -3820,7 +3810,7 @@ pub(crate) fn builtin_make_network_process(
     }
 
     // ---- Parse all keyword arguments ----
-    let mut name: Option<String> = None;
+    let mut name: Option<LispString> = None;
     let mut host: Option<String> = None;
     let mut service: Option<Value> = None;
     let mut server = false;
@@ -3843,7 +3833,7 @@ pub(crate) fn builtin_make_network_process(
             continue;
         };
         match key_name {
-            ":name" => name = Some(expect_process_name_string(&value)?),
+            ":name" => name = Some(expect_process_name_lisp_string(&value)?),
             ":host" => {
                 if !value.is_nil() {
                     host = Some(expect_string(&value)?);
@@ -3894,10 +3884,10 @@ pub(crate) fn builtin_make_network_process(
 
     if server {
         // ---- Server mode: create record, no actual listener yet ----
-        let id = eval.processes.create_process_with_kind(
+        let id = eval.processes.create_process_with_kind_lisp(
             name,
             buffer,
-            "network".to_string(),
+            LispString::from_utf8("network"),
             Vec::new(),
             ProcessKind::Network,
         );
@@ -3983,10 +3973,10 @@ pub(crate) fn builtin_make_network_process(
         )
     })?;
 
-    let id = eval.processes.create_process_with_kind(
+    let id = eval.processes.create_process_with_kind_lisp(
         name,
         buffer,
-        "network".to_string(),
+        LispString::from_utf8("network"),
         Vec::new(),
         ProcessKind::Network,
     );
@@ -4065,7 +4055,7 @@ pub(crate) fn builtin_make_pipe_process_impl(
         return Ok(Value::NIL);
     }
 
-    let mut name: Option<String> = None;
+    let mut name: Option<LispString> = None;
     let mut buffer: Option<Value> = None;
 
     let mut i = 0usize;
@@ -4078,7 +4068,7 @@ pub(crate) fn builtin_make_pipe_process_impl(
         };
         match key_name {
             ":name" => {
-                name = Some(expect_process_name_string(&value)?);
+                name = Some(expect_process_name_lisp_string(&value)?);
             }
             ":buffer" => {
                 buffer = Some(parse_make_process_buffer_in_state(buffers, &value)?);
@@ -4098,17 +4088,18 @@ pub(crate) fn builtin_make_pipe_process_impl(
     let resolved_buffer = match buffer {
         Some(explicit) => explicit,
         None => {
+            let name_runtime = super::builtins::runtime_string_from_lisp_string(&name);
             let id = buffers
-                .find_buffer_by_name(&name)
-                .unwrap_or_else(|| buffers.create_buffer(&name));
+                .find_buffer_by_name(&name_runtime)
+                .unwrap_or_else(|| buffers.create_buffer(&name_runtime));
             Value::make_buffer(id)
         }
     };
 
-    let id = processes.create_process_with_kind(
+    let id = processes.create_process_with_kind_lisp(
         name,
         resolved_buffer,
-        "pipe".to_string(),
+        LispString::from_utf8("pipe"),
         Vec::new(),
         ProcessKind::Pipe,
     );
@@ -4138,7 +4129,7 @@ pub(crate) fn builtin_make_serial_process_impl(
         return Ok(Value::NIL);
     }
 
-    let mut name: Option<String> = None;
+    let mut name: Option<LispString> = None;
     let mut port: Option<String> = None;
     let mut speed: Option<Value> = None;
 
@@ -4152,7 +4143,7 @@ pub(crate) fn builtin_make_serial_process_impl(
         };
         match key_name {
             ":name" => {
-                name = Some(expect_process_name_string(&value)?);
+                name = Some(expect_process_name_lisp_string(&value)?);
             }
             ":port" => {
                 if value.is_nil() {
@@ -4176,10 +4167,10 @@ pub(crate) fn builtin_make_serial_process_impl(
         return Err(signal("error", vec![Value::string(":speed not specified")]));
     }
 
-    let id = processes.create_process_with_kind(
-        name.unwrap_or_else(|| "serial".to_string()),
+    let id = processes.create_process_with_kind_lisp(
+        name.unwrap_or_else(|| LispString::from_utf8("serial")),
         Value::NIL,
-        "serial".to_string(),
+        LispString::from_utf8("serial"),
         Vec::new(),
         ProcessKind::Serial,
     );
@@ -5104,10 +5095,7 @@ fn builtin_make_process_impl_with_environment(
             threads,
             vec![
                 Value::keyword(":name"),
-                Value::string(format!(
-                    "{} stderr",
-                    super::builtins::runtime_string_from_lisp_string(&name)
-                )),
+                Value::heap_string(name.concat(&LispString::from_unibyte(b" stderr".to_vec()))),
                 Value::keyword(":buffer"),
                 stderr_target,
             ],

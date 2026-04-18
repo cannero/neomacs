@@ -619,6 +619,52 @@ fn make_process_stores_pipe_stderr_process_value() {
 }
 
 #[test]
+fn make_process_stderr_pipe_name_preserves_raw_unibyte_owner_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut buffers = crate::buffer::BufferManager::new();
+    let mut pm = ProcessManager::new();
+    let threads = crate::emacs_core::threads::ThreadManager::new();
+    let process = builtin_make_process_impl(
+        &mut pm,
+        &mut buffers,
+        &threads,
+        vec![
+            Value::keyword(":name"),
+            Value::heap_string(LispString::from_unibyte(vec![0xFF, b'p'])),
+            Value::keyword(":command"),
+            Value::list(vec![Value::string("cat")]),
+            Value::keyword(":stderr"),
+            Value::string("*proc-stderr-raw-buffer*"),
+        ],
+        true,
+    )
+    .expect("make-process");
+    let id = match process.kind() {
+        ValueKind::Fixnum(id) => id as u64,
+        other => panic!("expected process id fixnum, got {other:?}"),
+    };
+
+    let stderr_id = pm
+        .get(id)
+        .expect("main process")
+        .stderrproc
+        .as_fixnum()
+        .expect("stderr pipe id") as u64;
+    let stderr_name = pm
+        .get(stderr_id)
+        .expect("stderr pipe")
+        .name
+        .as_lisp_string()
+        .expect("stderr pipe name");
+
+    assert!(!stderr_name.is_multibyte());
+    assert_eq!(
+        stderr_name.as_bytes(),
+        &[0xFF, b'p', b' ', b's', b't', b'd', b'e', b'r', b'r']
+    );
+}
+
+#[test]
 fn make_process_accepts_existing_pipe_process_for_stderr() {
     crate::test_utils::init_test_tracing();
     let mut buffers = crate::buffer::BufferManager::new();
@@ -1068,6 +1114,54 @@ fn call_process_false() {
     // false exits with code 1
     let result = eval_one(&format!(r#"(call-process "{false_bin}")"#));
     assert_eq!(result, "OK 1");
+}
+
+#[test]
+fn call_process_shell_command_legacy_args_match_gnu_mapconcat_behavior() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let buffer_id = eval.buffers.create_buffer("*call-process-shell-command*");
+    let result = builtin_call_process_shell_command(
+        &mut eval,
+        vec![
+            Value::string("printf %s"),
+            Value::NIL,
+            Value::make_buffer(buffer_id),
+            Value::NIL,
+            Value::string("a b"),
+        ],
+    )
+    .expect("call-process-shell-command");
+
+    assert_eq!(result.as_fixnum(), Some(0));
+    assert_eq!(
+        eval.buffers.get(buffer_id).expect("buffer").buffer_string(),
+        "ab"
+    );
+}
+
+#[test]
+fn process_file_shell_command_legacy_args_match_gnu_mapconcat_behavior() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let buffer_id = eval.buffers.create_buffer("*process-file-shell-command*");
+    let result = builtin_process_file_shell_command(
+        &mut eval,
+        vec![
+            Value::string("printf %s"),
+            Value::NIL,
+            Value::make_buffer(buffer_id),
+            Value::NIL,
+            Value::string("a b"),
+        ],
+    )
+    .expect("process-file-shell-command");
+
+    assert_eq!(result.as_fixnum(), Some(0));
+    assert_eq!(
+        eval.buffers.get(buffer_id).expect("buffer").buffer_string(),
+        "ab"
+    );
 }
 
 #[test]

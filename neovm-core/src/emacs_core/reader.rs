@@ -771,7 +771,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     }
 
     let prompt = expect_lisp_string(&args[0])?;
-    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
+    let prompt_display = crate::emacs_core::emacs_char::to_utf8_lossy(prompt.as_bytes());
     // Extract optional arguments
     let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
@@ -811,7 +811,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
-        prompt_runtime,
+        prompt_display,
         minibuf_id,
         buffers.current_buffer_id(),
         *active_minibuffer_window,
@@ -1254,7 +1254,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     }
 
     let prompt = expect_lisp_string(&args[0])?;
-    let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
+    let prompt_display = crate::emacs_core::emacs_char::to_utf8_lossy(prompt.as_bytes());
     let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
     let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
@@ -1290,7 +1290,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
-        prompt_runtime,
+        prompt_display,
         minibuf_id,
         shared.buffers.current_buffer_id(),
         shared.active_minibuffer_window,
