@@ -760,7 +760,7 @@ impl<'a> Vm<'a> {
                         .current_buffer()
                         .map(|buffer| (buffer.id, buffer.pt_byte))
                     {
-                        let marker_id =
+                        let (marker_id, _marker_ptr) =
                             self.ctx
                                 .buffers
                                 .create_marker(buffer_id, point, InsertionType::Before);

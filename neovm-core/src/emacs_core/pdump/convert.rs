@@ -2540,7 +2540,38 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         None => None,
     };
     for marker in db.markers.iter().map(|marker| load_marker(marker, &text)) {
+        // Resolve the backing MarkerObj allocated during
+        // `preload_tagged_heap`. If pdump dumped a MarkerEntry whose
+        // marker_id has no corresponding live MarkerObj (possible for
+        // older dumps or GC-dropped markers), we still need to register
+        // something for Vec-based readers, so allocate a fresh scratch
+        // MarkerObj. The scratch is not reachable as a Lisp value but is
+        // tracked in `TaggedHeap::marker_ptrs` and will be swept if it
+        // stays unreferenced.
+        let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id(marker.id))
+            .unwrap_or_else(|| {
+                let scratch =
+                    crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
+                        buffer: Some(marker.buffer_id),
+                        position: None,
+                        insertion_type: marker.insertion_type
+                            == crate::buffer::InsertionType::After,
+                        marker_id: Some(marker.id),
+                        bytepos: 0,
+                        charpos: 0,
+                        next_marker: std::ptr::null_mut(),
+                    });
+                scratch
+                    .as_veclike_ptr()
+                    .expect("freshly allocated marker should have a veclike ptr")
+                    as *mut crate::tagged::header::MarkerObj
+            });
+        // The MarkerObj may already be on a chain from a prior load in
+        // the same process (e.g. reload after a bootstrap). Unlink
+        // defensively from this buffer's chain before splicing.
+        text.chain_unlink(marker_ptr);
         text.register_marker(
+            marker_ptr,
             marker.buffer_id,
             marker.id,
             marker.byte_pos,
@@ -2679,10 +2710,38 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         inhibit_buffer_hooks: false,
         state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
             (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
+                // Resolve each state marker's backing MarkerObj pointer from
+                // the tagged heap (allocated via `preload_tagged_heap`). If
+                // the dumped `state_*_marker` id has no live MarkerObj, fall
+                // back to a fresh scratch allocation so the chain stays valid
+                // for the dual-write Vec path.
+                let resolve = |mid: u64| -> *mut crate::tagged::header::MarkerObj {
+                    with_tagged_heap(|heap| heap.find_marker_by_id(mid))
+                        .unwrap_or_else(|| {
+                            let scratch = crate::emacs_core::value::Value::make_marker(
+                                crate::heap_types::MarkerData {
+                                    buffer: Some(BufferId(db.id.0)),
+                                    position: None,
+                                    insertion_type: false,
+                                    marker_id: Some(mid),
+                                    bytepos: 0,
+                                    charpos: 0,
+                                    next_marker: std::ptr::null_mut(),
+                                },
+                            );
+                            scratch
+                                .as_veclike_ptr()
+                                .expect("freshly allocated marker should have a veclike ptr")
+                                as *mut crate::tagged::header::MarkerObj
+                        })
+                };
                 Some(crate::buffer::buffer::BufferStateMarkers {
                     pt_marker,
                     begv_marker,
                     zv_marker,
+                    pt_marker_ptr: resolve(pt_marker),
+                    begv_marker_ptr: resolve(begv_marker),
+                    zv_marker_ptr: resolve(zv_marker),
                 })
             }
             _ => None,

@@ -11,6 +11,31 @@ fn buf_with_text(text: &str) -> Buffer {
     buf
 }
 
+/// Test helper: allocate a scratch `MarkerObj` via the tagged heap and
+/// register it on `buf` at `pos`. Keeps the old `buf.register_marker(id, pos, ty)`
+/// call shape used by the pre-chain tests.
+fn register_marker_for_test(
+    buf: &mut Buffer,
+    marker_id: u64,
+    pos: usize,
+    insertion_type: InsertionType,
+) {
+    let marker_value = Value::make_marker(crate::heap_types::MarkerData {
+        buffer: Some(buf.id),
+        position: None,
+        insertion_type: insertion_type == InsertionType::After,
+        marker_id: Some(marker_id),
+        bytepos: 0,
+        charpos: 0,
+        next_marker: std::ptr::null_mut(),
+    });
+    let marker_ptr = marker_value
+        .as_veclike_ptr()
+        .expect("freshly allocated marker should have a veclike ptr")
+        as *mut crate::tagged::header::MarkerObj;
+    buf.register_marker(marker_ptr, marker_id, pos, insertion_type);
+}
+
 // -----------------------------------------------------------------------
 // Buffer creation & naming
 // -----------------------------------------------------------------------
@@ -454,7 +479,7 @@ fn delete_region_adjusts_mark() {
 fn delete_region_moves_marker_at_end_to_start() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("0123456789ABCDEF");
-    buf.register_marker(1, 12, InsertionType::Before);
+    register_marker_for_test(&mut buf, 1, 12, InsertionType::Before);
     buf.delete_region(5, 12);
     let marker = buf.marker_entry(1).expect("marker");
     assert_eq!(marker.byte_pos, 5);
@@ -591,7 +616,7 @@ fn narrow_clamps_point() {
 fn marker_tracks_insertion_after() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("ab");
-    buf.register_marker(1, 1, InsertionType::After);
+    register_marker_for_test(&mut buf, 1, 1, InsertionType::After);
     buf.goto_char(1);
     buf.insert("XY");
     // Marker was at 1 with After => advances to 3.
@@ -604,7 +629,7 @@ fn marker_tracks_insertion_after() {
 fn marker_stays_on_insertion_before() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("ab");
-    buf.register_marker(1, 1, InsertionType::Before);
+    register_marker_for_test(&mut buf, 1, 1, InsertionType::Before);
     buf.goto_char(1);
     buf.insert("XY");
     // Marker was at 1 with Before => stays at 1.
@@ -617,7 +642,7 @@ fn marker_stays_on_insertion_before() {
 fn marker_adjusts_on_deletion() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("abcdef");
-    buf.register_marker(1, 4, InsertionType::After);
+    register_marker_for_test(&mut buf, 1, 4, InsertionType::After);
     buf.delete_region(1, 3);
     // Marker was at 4 (past deleted range [1,3)), shifts by 2 => 2.
     let marker = buf.marker_entry(1).expect("marker");
@@ -629,7 +654,7 @@ fn marker_adjusts_on_deletion() {
 fn marker_inside_deleted_range_collapses() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("abcdef");
-    buf.register_marker(1, 2, InsertionType::After);
+    register_marker_for_test(&mut buf, 1, 2, InsertionType::After);
     buf.delete_region(1, 5);
     // Marker at 2 inside [1,5) => collapses to 1.
     let marker = buf.marker_entry(1).expect("marker");
@@ -641,7 +666,7 @@ fn marker_inside_deleted_range_collapses() {
 fn marker_char_pos_tracks_multibyte_edits() {
     crate::test_utils::init_test_tracing();
     let mut buf = buf_with_text("ééz");
-    buf.register_marker(1, 'é'.len_utf8(), InsertionType::After);
+    register_marker_for_test(&mut buf, 1, 'é'.len_utf8(), InsertionType::After);
     buf.goto_byte('é'.len_utf8());
     buf.insert("ß");
     let marker = buf.marker_entry(1).expect("marker");
@@ -1031,7 +1056,7 @@ fn manager_create_and_query_marker() {
     mgr.get_mut(id).unwrap().text = BufferText::from_str("abcdef");
     mgr.get_mut(id).unwrap().widen();
 
-    let mid = mgr.create_marker(id, 3, InsertionType::After);
+    let (mid, _) = mgr.create_marker(id, 3, InsertionType::After);
     assert_eq!(mgr.marker_position(id, mid), Some(3));
     assert_eq!(mgr.marker_char_position(id, mid), Some(3));
 }
@@ -1042,7 +1067,7 @@ fn manager_marker_clamped_to_buffer_len() {
     let mut mgr = BufferManager::new();
     let id = mgr.create_buffer("m");
     // Buffer is empty (len = 0), marker at 100 should be clamped.
-    let mid = mgr.create_marker(id, 100, InsertionType::Before);
+    let (mid, _) = mgr.create_marker(id, 100, InsertionType::Before);
     assert_eq!(mgr.marker_position(id, mid), Some(0));
     assert_eq!(mgr.marker_char_position(id, mid), Some(0));
 }

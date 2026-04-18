@@ -8238,7 +8238,7 @@ impl Context {
         let count = self.specpdl.len();
         if let Some(buf_id) = self.buffers.current_buffer().map(|b| b.id) {
             let pt = self.buffers.get(buf_id).map(|b| b.pt_byte).unwrap_or(0);
-            let marker_id = self.buffers.create_marker(
+            let (marker_id, _marker_ptr) = self.buffers.create_marker(
                 buf_id,
                 pt,
                 InsertionType::Before,

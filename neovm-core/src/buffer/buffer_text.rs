@@ -562,15 +562,42 @@ impl BufferText {
         self.storage.borrow().text_props.trace_roots(roots);
     }
 
+    /// Register a marker in this buffer. Updates `MarkerData` fields
+    /// authoritatively (buffer/bytepos/charpos/marker_id/insertion_type),
+    /// splices the marker into this buffer's intrusive chain at head, AND
+    /// pushes a legacy `MarkerEntry` into the Vec (Vec is removed in T7).
+    ///
+    /// **Precondition:** `marker_ptr.data.next_marker` is null, i.e. the
+    /// marker is not currently on any chain. Callers re-binding a marker
+    /// must `chain_unlink` from the old buffer first; the
+    /// `debug_assert!` in `chain_splice_at_head` catches violations.
     pub fn register_marker(
         &self,
+        marker_ptr: *mut crate::tagged::header::MarkerObj,
         buffer_id: BufferId,
         marker_id: u64,
         byte_pos: usize,
         char_pos: usize,
         insertion_type: InsertionType,
     ) {
-        let mut storage = self.storage.borrow_mut();
+        // Update MarkerData so its fields are authoritative before the
+        // chain ever exposes this marker.
+        //
+        // SAFETY: `marker_ptr` is a live MarkerObj allocated via
+        // `TaggedHeap::alloc_marker`; writes through a raw pointer are
+        // sound for the heap's lifetime. The chain precondition is
+        // enforced by `chain_splice_at_head`'s debug_assert below.
+        unsafe {
+            (*marker_ptr).data.buffer = Some(buffer_id);
+            (*marker_ptr).data.marker_id = Some(marker_id);
+            (*marker_ptr).data.bytepos = byte_pos;
+            (*marker_ptr).data.charpos = char_pos;
+            (*marker_ptr).data.insertion_type = insertion_type == InsertionType::After;
+        }
+        self.chain_splice_at_head(marker_ptr);
+
+        // Legacy Vec maintained for now; deleted in T7.
+        //
         // Callers (BufferManager::create_marker, pdump load) assign IDs
         // from the buffer's monotonic counter, so the old unconditional
         // `retain |m| m.id != marker_id` was O(N) wasted work on every
@@ -581,6 +608,7 @@ impl BufferText {
         // ~10 markers and a single fontification pass on *scratch*
         // builds tens of thousands of them (a separate marker-GC bug
         // tracks cleanup).
+        let mut storage = self.storage.borrow_mut();
         storage.markers.push(MarkerEntry {
             id: marker_id,
             buffer_id,
@@ -600,6 +628,26 @@ impl BufferText {
     }
 
     pub fn remove_marker(&self, marker_id: u64) {
+        // Look up the MarkerObj via the GC's live `marker_ptrs` registry
+        // rather than walking the intrusive chain directly. Pre-T8 the
+        // sweep may free a MarkerObj that's still linked in the chain
+        // (the chain is not yet a GC root), so dereferencing an
+        // unvalidated chain pointer here would read freed memory. The
+        // heap's `find_marker_by_id` iterates only live markers.
+        let marker_ptr = crate::tagged::gc::with_tagged_heap(|heap| {
+            heap.find_marker_by_id(marker_id)
+        });
+        if let Some(ptr) = marker_ptr {
+            self.chain_unlink(ptr);
+            // SAFETY: ptr was returned by the live marker registry, so
+            // it's still a valid allocation. chain_unlink left it
+            // detached from any chain; field writes are sound.
+            unsafe {
+                (*ptr).data.buffer = None;
+                (*ptr).data.bytepos = 0;
+                (*ptr).data.charpos = 0;
+            }
+        }
         self.storage
             .borrow_mut()
             .markers
@@ -607,6 +655,20 @@ impl BufferText {
     }
 
     pub fn update_marker_insertion_type(&self, marker_id: u64, insertion_type: InsertionType) {
+        {
+            let storage = self.storage.borrow();
+            let mut curr = storage.markers_head;
+            // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
+            unsafe {
+                while !curr.is_null() {
+                    if (*curr).data.marker_id == Some(marker_id) {
+                        (*curr).data.insertion_type = insertion_type == InsertionType::After;
+                        break;
+                    }
+                    curr = (*curr).data.next_marker;
+                }
+            }
+        }
         let mut storage = self.storage.borrow_mut();
         let Some(marker) = storage
             .markers

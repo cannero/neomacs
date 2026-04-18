@@ -1304,12 +1304,30 @@ pub struct MarkerEntry {
     pub insertion_type: InsertionType,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug)]
 pub struct BufferStateMarkers {
     pub pt_marker: u64,
     pub begv_marker: u64,
     pub zv_marker: u64,
+    /// Non-Lisp-visible MarkerObj pointers for the three state markers.
+    /// Allocated once per buffer in `ensure_buffer_state_markers` and
+    /// reused on every `record_buffer_state_markers` re-registration
+    /// (via `chain_unlink` + `register_marker`) so the intrusive chain
+    /// precondition is upheld. These pointers are rooted in GC via the
+    /// `TaggedHeap::marker_ptrs` registry (all allocations land there).
+    pub pt_marker_ptr: *mut crate::tagged::header::MarkerObj,
+    pub begv_marker_ptr: *mut crate::tagged::header::MarkerObj,
+    pub zv_marker_ptr: *mut crate::tagged::header::MarkerObj,
 }
+
+impl PartialEq for BufferStateMarkers {
+    fn eq(&self, other: &Self) -> bool {
+        self.pt_marker == other.pt_marker
+            && self.begv_marker == other.begv_marker
+            && self.zv_marker == other.zv_marker
+    }
+}
+impl Eq for BufferStateMarkers {}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LabeledRestrictionLabel {
@@ -1957,7 +1975,13 @@ impl Buffer {
         self.narrow_to_byte_region(0, self.total_bytes());
     }
 
-    pub fn register_marker(&mut self, marker_id: u64, pos: usize, insertion_type: InsertionType) {
+    pub fn register_marker(
+        &mut self,
+        marker_ptr: *mut crate::tagged::header::MarkerObj,
+        marker_id: u64,
+        pos: usize,
+        insertion_type: InsertionType,
+    ) {
         let clamped = pos.min(self.total_bytes());
         let char_pos = if clamped == self.begv_byte {
             self.begv
@@ -1966,8 +1990,14 @@ impl Buffer {
         } else {
             self.text.emacs_byte_to_char(clamped)
         };
-        self.text
-            .register_marker(self.id, marker_id, clamped, char_pos, insertion_type);
+        self.text.register_marker(
+            marker_ptr,
+            self.id,
+            marker_id,
+            clamped,
+            char_pos,
+            insertion_type,
+        );
     }
 
     pub fn marker_entry(&self, marker_id: u64) -> Option<MarkerEntry> {
@@ -2824,13 +2854,17 @@ impl BufferManager {
             let buffer = self.buffers.get(&buffer_id)?;
             (buffer.pt_byte, buffer.begv_byte, buffer.zv_byte)
         };
-        let pt_marker = self.create_marker(buffer_id, pt, InsertionType::Before);
-        let begv_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
-        let zv_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+        let (pt_marker, pt_marker_ptr) = self.create_marker(buffer_id, pt, InsertionType::Before);
+        let (begv_marker, begv_marker_ptr) =
+            self.create_marker(buffer_id, begv, InsertionType::Before);
+        let (zv_marker, zv_marker_ptr) = self.create_marker(buffer_id, zv, InsertionType::After);
         self.buffers.get_mut(&buffer_id)?.state_markers = Some(BufferStateMarkers {
             pt_marker,
             begv_marker,
             zv_marker,
+            pt_marker_ptr,
+            begv_marker_ptr,
+            zv_marker_ptr,
         });
         Some(())
     }
@@ -2841,9 +2875,34 @@ impl BufferManager {
             let buffer = self.buffers.get(&buffer_id)?;
             (buffer.pt_byte, buffer.begv_byte, buffer.zv_byte)
         };
-        self.register_marker_id(buffer_id, markers.pt_marker, pt, InsertionType::Before)?;
-        self.register_marker_id(buffer_id, markers.begv_marker, begv, InsertionType::Before)?;
-        self.register_marker_id(buffer_id, markers.zv_marker, zv, InsertionType::After)?;
+        // State markers live on this buffer's chain already; unlink before
+        // re-registering so chain_splice_at_head's precondition holds.
+        if let Some(buf) = self.buffers.get(&buffer_id) {
+            buf.text.chain_unlink(markers.pt_marker_ptr);
+            buf.text.chain_unlink(markers.begv_marker_ptr);
+            buf.text.chain_unlink(markers.zv_marker_ptr);
+        }
+        self.register_marker_id(
+            markers.pt_marker_ptr,
+            buffer_id,
+            markers.pt_marker,
+            pt,
+            InsertionType::Before,
+        )?;
+        self.register_marker_id(
+            markers.begv_marker_ptr,
+            buffer_id,
+            markers.begv_marker,
+            begv,
+            InsertionType::Before,
+        )?;
+        self.register_marker_id(
+            markers.zv_marker_ptr,
+            buffer_id,
+            markers.zv_marker,
+            zv,
+            InsertionType::After,
+        )?;
         Some(())
     }
 
@@ -3038,7 +3097,8 @@ impl BufferManager {
             let marker = buf.marker_entry(marker_id)?;
             (marker.byte_pos, marker.insertion_type)
         };
-        Some(self.create_marker(buffer_id, pos, insertion_type))
+        let (marker_id, _marker_ptr) = self.create_marker(buffer_id, pos, insertion_type);
+        Some(marker_id)
     }
 
     fn clone_labeled_restrictions(
@@ -3106,8 +3166,8 @@ impl BufferManager {
             let buf = self.buffers.get(&buffer_id)?;
             (buf.begv_byte, buf.zv_byte)
         };
-        let beg_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
-        let end_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+        let (beg_marker, _) = self.create_marker(buffer_id, begv, InsertionType::Before);
+        let (end_marker, _) = self.create_marker(buffer_id, zv, InsertionType::After);
         self.labeled_restrictions
             .entry(buffer_id)
             .or_default()
@@ -3523,8 +3583,8 @@ impl BufferManager {
         let restriction = if begv == 0 && zv == len {
             SavedRestrictionKind::None
         } else {
-            let beg_marker = self.create_marker(buffer_id, begv, InsertionType::Before);
-            let end_marker = self.create_marker(buffer_id, zv, InsertionType::After);
+            let (beg_marker, _) = self.create_marker(buffer_id, begv, InsertionType::Before);
+            let (end_marker, _) = self.create_marker(buffer_id, zv, InsertionType::After);
             SavedRestrictionKind::Markers {
                 beg_marker,
                 end_marker,
@@ -3800,29 +3860,56 @@ impl BufferManager {
     }
 
     /// Create a marker in `buffer_id` at byte position `pos` with the given
-    /// insertion type.  Returns the new marker's id.
+    /// insertion type.  Returns the new marker's id and the raw
+    /// `MarkerObj` pointer for the backing allocation.
+    ///
+    /// The backing `MarkerObj` is allocated via the tagged heap and is
+    /// tracked in `TaggedHeap::marker_ptrs`, so GC will see it. Callers
+    /// that need to re-register this marker later (e.g. state-marker
+    /// buffer switch plumbing) should retain the returned pointer and
+    /// pass it to `register_marker_id` after first calling
+    /// `chain_unlink` on the owning buffer's `BufferText` to satisfy
+    /// the chain_splice_at_head precondition.
     pub fn create_marker(
         &mut self,
         buffer_id: BufferId,
         pos: usize,
         insertion_type: InsertionType,
-    ) -> u64 {
+    ) -> (u64, *mut crate::tagged::header::MarkerObj) {
         let marker_id = self.next_marker_id;
         self.next_marker_id += 1;
-        let _ = self.register_marker_id(buffer_id, marker_id, pos, insertion_type);
-        marker_id
+        // Allocate a backing MarkerObj so the new chain has a valid node.
+        // Position fields are overwritten inside register_marker; starting
+        // values are placeholders.
+        let marker_value =
+            crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
+                buffer: Some(buffer_id),
+                position: None,
+                insertion_type: insertion_type == InsertionType::After,
+                marker_id: Some(marker_id),
+                bytepos: 0,
+                charpos: 0,
+                next_marker: std::ptr::null_mut(),
+            });
+        let marker_ptr = marker_value
+            .as_veclike_ptr()
+            .expect("freshly allocated marker should have a veclike ptr")
+            as *mut crate::tagged::header::MarkerObj;
+        let _ = self.register_marker_id(marker_ptr, buffer_id, marker_id, pos, insertion_type);
+        (marker_id, marker_ptr)
     }
 
     /// Register an existing marker id in `buffer_id` at byte position `pos`.
     pub fn register_marker_id(
         &mut self,
+        marker_ptr: *mut crate::tagged::header::MarkerObj,
         buffer_id: BufferId,
         marker_id: u64,
         pos: usize,
         insertion_type: InsertionType,
     ) -> Option<()> {
         let buf = self.buffers.get_mut(&buffer_id)?;
-        buf.register_marker(marker_id, pos, insertion_type);
+        buf.register_marker(marker_ptr, marker_id, pos, insertion_type);
         Some(())
     }
 

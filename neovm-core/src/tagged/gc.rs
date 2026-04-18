@@ -992,6 +992,19 @@ impl TaggedHeap {
         }
     }
 
+    /// Find a live `MarkerObj` by its logical marker id.
+    ///
+    /// Used during pdump load to reconnect per-buffer marker registrations
+    /// (which carry only `marker_id`) to the corresponding heap-allocated
+    /// MarkerObj. O(N) over all live markers; acceptable because this is
+    /// called once per dumped marker during a single load.
+    pub fn find_marker_by_id(&self, marker_id: u64) -> Option<*mut MarkerObj> {
+        self.marker_ptrs
+            .iter()
+            .copied()
+            .find(|ptr| unsafe { (**ptr).data.marker_id == Some(marker_id) })
+    }
+
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------

@@ -100,16 +100,28 @@ pub(crate) fn make_registered_buffer_marker(
         None => 0,
     };
     let marker = make_marker_value(Some(buffer_id), Some(position), insertion_type);
-    let marker_id = buffers.create_marker(
-        buffer_id,
-        byte_pos,
-        if insertion_type {
-            InsertionType::After
-        } else {
-            InsertionType::Before
-        },
-    );
+    let marker_id = buffers.allocate_marker_id();
     set_marker_id(&marker, marker_id);
+    // Reuse the just-allocated MarkerObj as the chain node for this
+    // buffer; calling `create_marker` here would allocate a *second*
+    // MarkerObj with the same marker_id, wasting an allocation and
+    // leaving the Lisp-visible Value off-chain.
+    if let Some(marker_ptr) = marker
+        .as_veclike_ptr()
+        .map(|p| p as *mut crate::tagged::header::MarkerObj)
+    {
+        let _ = buffers.register_marker_id(
+            marker_ptr,
+            buffer_id,
+            marker_id,
+            byte_pos,
+            if insertion_type {
+                InsertionType::After
+            } else {
+                InsertionType::Before
+            },
+        );
+    }
 
     marker
 }
@@ -593,7 +605,9 @@ fn register_marker_in_buffers(
     // Get or assign a marker-id
     let existing_mid = marker_id_value(marker);
 
-    // Remove old registration from all buffers
+    // Remove old registration from all buffers (this also unchains the
+    // marker on the old buffer's intrusive chain — BufferText::remove_marker
+    // walks the chain and unlinks, clearing MarkerData.buffer/bytepos/charpos).
     if let Some(mid) = existing_mid {
         buffers.remove_marker(mid);
     }
@@ -601,8 +615,28 @@ fn register_marker_in_buffers(
     if let (Some(buf_id), Some(pos)) = (buffer_id, position) {
         let mid = existing_mid.unwrap_or_else(|| buffers.allocate_marker_id());
         set_marker_id(marker, mid);
-        if let Some(byte_pos) = buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos)) {
-            let _ = buffers.register_marker_id(buf_id, mid, byte_pos, ins_type);
+        // Resolve the MarkerObj pointer from the Lisp-visible Value so
+        // register_marker_id can splice it into buf_id's chain.
+        let marker_ptr = marker
+            .as_veclike_ptr()
+            .map(|p| p as *mut crate::tagged::header::MarkerObj);
+        // Defensive: the marker's old chain was cleared by `remove_marker`
+        // above if it had a previous buffer binding. But Values freshly
+        // created via `make_marker_value` (point-marker etc.) don't go
+        // through that path — they arrive here with `next_marker == null`
+        // by construction of `MarkerData`. If for some reason this marker
+        // is still on a chain (e.g. same-buffer re-registration where
+        // `existing_mid` matched a chain entry we just removed), the
+        // chain_splice_at_head precondition would fire; belt-and-braces
+        // unlink from this buffer first.
+        if let (Some(ptr), Some(buf)) = (marker_ptr, buffers.get(buf_id)) {
+            buf.text.chain_unlink(ptr);
+        }
+        if let (Some(ptr), Some(byte_pos)) = (
+            marker_ptr,
+            buffers.get(buf_id).map(|buf| lisp_pos_to_byte(buf, pos)),
+        ) {
+            let _ = buffers.register_marker_id(ptr, buf_id, mid, byte_pos, ins_type);
         }
     }
 }
