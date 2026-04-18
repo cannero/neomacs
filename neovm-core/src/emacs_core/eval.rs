@@ -6450,6 +6450,26 @@ impl Context {
         let original_fun = self.unwrap_symbol(form.cons_car());
         let original_args = form.cons_cdr();
 
+        // GNU eval.c:2583-2585 records an UNEVALLED backtrace frame on
+        // every `eval_sub` cons-form evaluation. The frame starts in
+        // UNEVALLED shape holding the surface function symbol and the
+        // raw argument-form cons list, then transitions to EVALD in
+        // place via `set_backtrace_args` once arguments have been
+        // evaluated (eval.c:2638, 2660, 3299). Special forms leave
+        // the frame UNEVALLED throughout.
+        let outer_bt_count = self.specpdl.len();
+        self.push_unevalled_backtrace_frame(original_fun, original_args);
+        let result = self.eval_sub_cons_dispatch(original_fun, original_args, outer_bt_count);
+        self.unbind_to(outer_bt_count);
+        result
+    }
+
+    fn eval_sub_cons_dispatch(
+        &mut self,
+        original_fun: Value,
+        original_args: Value,
+        outer_bt_count: usize,
+    ) -> EvalResult {
         // Resolve function (GNU eval.c:2600-2605)
         let sym_id = original_fun.as_symbol_id();
 
@@ -6520,12 +6540,11 @@ impl Context {
             && let Some(target_sym_id) = func.as_subr_id()
             && self.subr_is_special_form_id(target_sym_id)
         {
-            // GNU eval.c:2585 records an UNEVALLED backtrace frame for
-            // every special-form dispatch so walkers (`backtrace`,
-            // `mapbacktrace`, `backtrace-frame--internal`) observe the
-            // frame with `(nil FUNC FORMS FLAGS)` shape.
-            let bt_count = self.specpdl.len();
-            self.push_unevalled_backtrace_frame(original_fun, original_args);
+            // The outer eval_sub_cons UNEVALLED frame (pushed by the
+            // wrapper) already records the surface function and raw
+            // argument forms. Special forms leave the frame UNEVALLED
+            // throughout (no `set_backtrace_args_evalled` call),
+            // matching GNU eval.c:2618-2619.
             let result = if surface_sym_id == target_sym_id {
                 self.try_special_form_value_id(surface_sym_id, original_args)
             } else {
@@ -6535,7 +6554,6 @@ impl Context {
                     original_args,
                 )
             };
-            self.unbind_to(bt_count);
             if let Some(result) = result {
                 return result;
             }
@@ -6622,31 +6640,24 @@ impl Context {
             return Err(signal("invalid-function", vec![original_fun]));
         }
 
-        // Regular function call: evaluate args, then apply
-        // (GNU eval.c:2625-2715)
-        let frame_function = sym_id.map(Value::from_sym_id).unwrap_or(func);
-        let bt_count = self.specpdl.len();
-        self.push_backtrace_frame(frame_function, &[]);
+        // Regular function call: evaluate args, promote the outer
+        // UNEVALLED frame to EVALD in place, then dispatch directly.
+        // Matches GNU `eval_sub` non-UNEVALLED SUBRP path
+        // (eval.c:2631-2640) and CLOSUREP → apply_lambda
+        // (eval.c:2715, 3292-3300) which both mutate the outer
+        // record_in_backtrace entry via `set_backtrace_args`.
         let mut args = Vec::new();
-        let result = (|| {
-            let mut cursor = original_args;
-            while cursor.is_cons() {
-                let arg_form = cursor.cons_car();
-                let arg_val = self.eval_sub(arg_form)?;
-                self.push_backtrace_arg(arg_val);
-                args.push(arg_val);
-                cursor = cursor.cons_cdr();
-            }
+        let mut cursor = original_args;
+        while cursor.is_cons() {
+            let arg_form = cursor.cons_car();
+            let arg_val = self.eval_sub(arg_form)?;
+            args.push(arg_val);
+            cursor = cursor.cons_cdr();
+        }
+        self.set_backtrace_args_evalled(outer_bt_count, &args);
 
-            // The backtrace frame already records frame_function.
-            // Dispatch directly to the resolved function.
-            self.maybe_gc_and_quit()?;
-            self.maybe_grow_eval_stack(|ctx| {
-                ctx.funcall_general_untraced(func, args)
-            })
-        })();
-        self.unbind_to(bt_count);
-        result
+        self.maybe_gc_and_quit()?;
+        self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
     }
 
     /// Legacy eval_value: delegates to eval_sub.
@@ -8899,15 +8910,36 @@ impl Context {
         });
     }
 
-    /// Append an additional arg to the most recent `SpecBinding::Backtrace` on
-    /// the specpdl.  Used by `eval_sub_cons` which evaluates arguments one-by-one
-    /// and needs the partially-evaluated arg list visible to the backtrace.
-    pub(crate) fn push_backtrace_arg(&mut self, arg: Value) {
-        for entry in self.specpdl.iter_mut().rev() {
-            if let SpecBinding::Backtrace { args, .. } = entry {
-                args.push(arg);
-                return;
+    /// Promote the UNEVALLED backtrace frame at `specpdl[count]` to the
+    /// EVALD shape in place. Mirrors GNU `set_backtrace_args`
+    /// (eval.c:144-156) called at eval.c:2638, 2660, 3299 after
+    /// argument evaluation completes.
+    ///
+    /// `count` is the `specpdl.len()` observed *before* the outer
+    /// `push_unevalled_backtrace_frame` — the same value a caller
+    /// would pass to `unbind_to`.
+    ///
+    /// Panics if the slot is not an UNEVALLED backtrace frame. Callers
+    /// must keep the invariant that every `set_backtrace_args_evalled`
+    /// matches exactly one prior `push_unevalled_backtrace_frame`.
+    pub(crate) fn set_backtrace_args_evalled(&mut self, count: usize, evaluated: &[Value]) {
+        let entry = self
+            .specpdl
+            .get_mut(count)
+            .expect("set_backtrace_args_evalled: specpdl index out of range");
+        match entry {
+            SpecBinding::Backtrace {
+                unevalled,
+                args,
+                ..
+            } if *unevalled => {
+                args.clear();
+                args.extend(evaluated.iter().copied());
+                *unevalled = false;
             }
+            other => panic!(
+                "set_backtrace_args_evalled: expected UNEVALLED Backtrace at specpdl[{count}], got {other:?}"
+            ),
         }
     }
 

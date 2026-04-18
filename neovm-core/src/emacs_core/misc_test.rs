@@ -615,6 +615,95 @@ fn eval_sub_cons_pushes_unevalled_frame_for_special_forms() {
     );
 }
 
+/// Regression for the Phase 2 architectural change: GNU `eval_sub`
+/// pushes an UNEVALLED backtrace frame for EVERY cons-form call
+/// (eval.c:2585), not just special forms. During arg evaluation of
+/// `(foo (probe))`, walkers must see the outer `foo` frame on the
+/// stack.
+#[test]
+fn eval_sub_cons_pushes_outer_unevalled_during_arg_eval() {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static ARG_PROBE: RefCell<Vec<(Value, bool)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn probe(eval: &mut super::super::eval::Context) -> EvalResult {
+        let snap: Vec<(Value, bool)> = eval
+            .specpdl
+            .iter()
+            .filter_map(|e| match e {
+                super::super::eval::SpecBinding::Backtrace {
+                    function,
+                    unevalled,
+                    ..
+                } => Some((*function, *unevalled)),
+                _ => None,
+            })
+            .collect();
+        ARG_PROBE.with(|p| *p.borrow_mut() = snap);
+        Ok(Value::NIL)
+    }
+
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    eval.defsubr_0("__arg_eval_probe__", probe);
+
+    // Wrap in a user lambda so there's an "outer" non-builtin frame we
+    // can look for. `defun` is an elisp macro not available in a bare
+    // Context; `fset` with a literal lambda is primitive and works.
+    eval.eval_str("(fset 'my-outer-fn (lambda (x) x))")
+        .expect("fset outer");
+
+    ARG_PROBE.with(|p| p.borrow_mut().clear());
+    eval.eval_str("(my-outer-fn (__arg_eval_probe__))")
+        .expect("eval outer call");
+    let snap = ARG_PROBE.with(|p| p.borrow().clone());
+    assert!(
+        snap.iter()
+            .any(|(f, u)| *f == Value::symbol("my-outer-fn") && *u),
+        "expected UNEVALLED my-outer-fn frame visible during arg eval, \
+         got {:?}",
+        snap
+    );
+}
+
+/// Unit test for `set_backtrace_args_evalled` — mirrors GNU
+/// `set_backtrace_args` (eval.c:144-156) called at eval.c:2638, 2660,
+/// 3299 to promote a UNEVALLED frame to EVALD in place.
+#[test]
+fn set_backtrace_args_evalled_mutates_in_place() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let bt_count = eval.specpdl.len();
+    let original_args = Value::list(vec![
+        Value::symbol("x"),
+        Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]),
+    ]);
+    eval.push_unevalled_backtrace_frame(Value::symbol("my-func"), original_args);
+
+    // Promote to EVALD with evaluated values.
+    let evaluated = [Value::fixnum(42), Value::fixnum(3)];
+    eval.set_backtrace_args_evalled(bt_count, &evaluated);
+
+    // Inspect slot — should now be EVALD with the evaluated values.
+    match eval.specpdl.last().expect("frame present") {
+        super::super::eval::SpecBinding::Backtrace {
+            function,
+            args,
+            unevalled,
+            ..
+        } => {
+            assert!(!*unevalled, "flag cleared after promotion");
+            assert_eq!(*function, Value::symbol("my-func"), "function preserved");
+            let got: Vec<Value> = args.iter().copied().collect();
+            assert_eq!(got, evaluated, "args replaced with evaluated values");
+        }
+        other => panic!("expected Backtrace, got {other:?}"),
+    }
+}
+
 /// Regression for `backtrace-frame--internal` UNEVALLED dispatch. Set
 /// up an artificial UNEVALLED frame via `push_unevalled_backtrace_frame`
 /// and assert the callback receives `(nil FUNC FORMS nil)`.
