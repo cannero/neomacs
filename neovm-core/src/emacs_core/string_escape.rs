@@ -1,8 +1,5 @@
 //! Shared Lisp string escaping helpers.
 
-use std::iter::Peekable;
-use std::str::Chars;
-
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
 const RAW_BYTE_SENTINEL_MIN: u32 = 0xE080;
 const RAW_BYTE_SENTINEL_MAX: u32 = 0xE0FF;
@@ -284,15 +281,6 @@ fn storage_has_special_units(s: &str) -> bool {
     })
 }
 
-fn plain_utf8_char_to_byte(s: &str, char_idx: usize) -> usize {
-    if s.is_ascii() {
-        return char_idx.min(s.len());
-    }
-    s.char_indices()
-        .nth(char_idx)
-        .map(|(byte_idx, _)| byte_idx)
-        .unwrap_or(s.len())
-}
 
 /// Encode raw byte values as a unibyte storage string.
 ///
@@ -460,28 +448,6 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
         "logical byte position {logical_byte_pos} exceeds logical length {logical}"
     );
     s.len()
-}
-
-fn decode_extended_sequence(chars: &mut Peekable<Chars<'_>>) -> Option<Vec<u8>> {
-    let len_char = chars.peek().copied()?;
-    let len_code = len_char as u32;
-    if !(EXT_SEQ_LEN_BASE + 1..=EXT_SEQ_LEN_BASE + EXT_SEQ_MAX_LEN).contains(&len_code) {
-        return None;
-    }
-    chars.next();
-    let len = (len_code - EXT_SEQ_LEN_BASE) as usize;
-
-    let mut out = Vec::with_capacity(len);
-    for _ in 0..len {
-        let b_char = chars.peek().copied()?;
-        let b = b_char as u32;
-        if !(EXT_SEQ_BYTE_BASE..=EXT_SEQ_BYTE_BASE + 0xFF).contains(&b) {
-            return None;
-        }
-        chars.next();
-        out.push((b - EXT_SEQ_BYTE_BASE) as u8);
-    }
-    Some(out)
 }
 
 fn push_octal_escape(out: &mut Vec<u8>, byte: u8) {
