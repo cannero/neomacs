@@ -103,6 +103,23 @@ impl Default for BufferText {
 }
 
 impl BufferText {
+    fn from_gap(gap: GapBuffer) -> Self {
+        Self {
+            storage: Rc::new(RefCell::new(BufferTextStorage {
+                layout: Self::layout_from_gap(&gap),
+                gap,
+                modified_tick: 1,
+                chars_modified_tick: 1,
+                save_modified_tick: 1,
+                text_props: TextPropertyTable::new(),
+                markers_head: std::ptr::null_mut(),
+                pos_cache: Cell::new(PositionCache::default()),
+                anchor_cache: RefCell::new(Vec::new()),
+                anchor_cache_key: Cell::new((0, 0)),
+            })),
+        }
+    }
+
     fn layout_from_gap(gap: &GapBuffer) -> BufferTextLayout {
         BufferTextLayout {
             gpt: gap.gpt(),
@@ -114,39 +131,18 @@ impl BufferText {
     }
 
     pub fn new() -> Self {
-        let gap = GapBuffer::new();
-        Self {
-            storage: Rc::new(RefCell::new(BufferTextStorage {
-                layout: Self::layout_from_gap(&gap),
-                gap,
-                modified_tick: 1,
-                chars_modified_tick: 1,
-                save_modified_tick: 1,
-                text_props: TextPropertyTable::new(),
-                markers_head: std::ptr::null_mut(),
-                pos_cache: Cell::new(PositionCache::default()),
-                anchor_cache: RefCell::new(Vec::new()),
-                anchor_cache_key: Cell::new((0, 0)),
-            })),
-        }
+        Self::from_gap(GapBuffer::new())
     }
 
     pub fn from_str(text: &str) -> Self {
-        let gap = GapBuffer::from_str(text);
-        Self {
-            storage: Rc::new(RefCell::new(BufferTextStorage {
-                layout: Self::layout_from_gap(&gap),
-                gap,
-                modified_tick: 1,
-                chars_modified_tick: 1,
-                save_modified_tick: 1,
-                text_props: TextPropertyTable::new(),
-                markers_head: std::ptr::null_mut(),
-                pos_cache: Cell::new(PositionCache::default()),
-                anchor_cache: RefCell::new(Vec::new()),
-                anchor_cache_key: Cell::new((0, 0)),
-            })),
-        }
+        Self::from_gap(GapBuffer::from_str(text))
+    }
+
+    pub fn from_lisp_string(text: &crate::heap_types::LispString) -> Self {
+        Self::from_gap(GapBuffer::from_emacs_bytes(
+            text.as_bytes(),
+            text.is_multibyte(),
+        ))
     }
 
     pub fn len(&self) -> usize {
@@ -333,21 +329,7 @@ impl BufferText {
     }
 
     pub(crate) fn from_dump(text: Vec<u8>, multibyte: bool) -> Self {
-        let gap = GapBuffer::from_dump(text, multibyte);
-        Self {
-            storage: Rc::new(RefCell::new(BufferTextStorage {
-                layout: Self::layout_from_gap(&gap),
-                gap,
-                modified_tick: 1,
-                chars_modified_tick: 1,
-                save_modified_tick: 1,
-                text_props: TextPropertyTable::new(),
-                markers_head: std::ptr::null_mut(),
-                pos_cache: Cell::new(PositionCache::default()),
-                anchor_cache: RefCell::new(Vec::new()),
-                anchor_cache_key: Cell::new((0, 0)),
-            })),
-        }
+        Self::from_gap(GapBuffer::from_dump(text, multibyte))
     }
 
     pub fn set_modification_state(
@@ -438,7 +420,6 @@ impl BufferText {
         };
         self.replace_lisp_string(&string, text_props);
     }
-
     pub fn replace_lisp_string(
         &self,
         text: &crate::heap_types::LispString,

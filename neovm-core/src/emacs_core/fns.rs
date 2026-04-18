@@ -1065,6 +1065,9 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
     if ls.is_multibyte() {
         return Ok(args[0]);
     }
+    if ls.as_bytes().is_ascii() {
+        return Ok(args[0]);
+    }
     // Unibyte -> multibyte: each byte 0x80..0xFF becomes a raw-byte char.
     let src = ls.as_bytes();
     let mut out = Vec::with_capacity(src.len() * 2);
@@ -1085,22 +1088,19 @@ pub(crate) fn builtin_string_make_unibyte(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::String => {
             let string = args[0].as_lisp_string().expect("string");
+            if !string.is_multibyte() {
+                return Ok(args[0]);
+            }
             let src_bytes = string.as_bytes();
-            let result_bytes: Vec<u8> = if string.is_multibyte() {
-                let mut out = Vec::with_capacity(string.schars());
-                let mut pos = 0;
-                while pos < src_bytes.len() {
-                    let (cp, len) = crate::emacs_core::emacs_char::string_char(&src_bytes[pos..]);
-                    out.push((cp & 0xFF) as u8);
-                    pos += len;
-                }
-                out
-            } else {
-                // Already unibyte
-                src_bytes.to_vec()
-            };
+            let mut out = Vec::with_capacity(string.schars());
+            let mut pos = 0;
+            while pos < src_bytes.len() {
+                let (cp, len) = crate::emacs_core::emacs_char::string_char(&src_bytes[pos..]);
+                out.push((cp & 0xFF) as u8);
+                pos += len;
+            }
             Ok(Value::heap_string(
-                crate::heap_types::LispString::from_unibyte(result_bytes),
+                crate::heap_types::LispString::from_unibyte(out),
             ))
         }
         _ => Err(signal(

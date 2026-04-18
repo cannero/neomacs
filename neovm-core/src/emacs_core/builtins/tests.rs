@@ -10012,6 +10012,38 @@ fn set_buffer_multibyte_rejects_narrowed_and_indirect_buffers() {
 }
 
 #[test]
+fn set_buffer_multibyte_records_gnu_style_undo_entry() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    assert!(eval.buffers.current_buffer().expect("current buffer").get_multibyte());
+    assert_eq!(
+        builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
+        Value::NIL
+    );
+
+    let undo_list = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer")
+        .get_undo_list();
+    let entries = crate::emacs_core::value::list_to_vec(&undo_list).expect("undo list");
+    assert_eq!(entries.len(), 1);
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&entries[0]).expect("undo entry"),
+        vec![
+            Value::symbol("apply"),
+            Value::symbol("set-buffer-multibyte"),
+            Value::T,
+        ]
+    );
+
+    crate::emacs_core::undo::builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), undo_list])
+        .expect("primitive-undo should replay set-buffer-multibyte");
+    assert!(eval.buffers.current_buffer().expect("current buffer").get_multibyte());
+}
+
+#[test]
 fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

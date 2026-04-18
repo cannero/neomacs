@@ -1368,6 +1368,11 @@ pub(crate) fn builtin_set_buffer_multibyte(
             eval.buffers.shared_text_buffer_ids(current_id),
         )
     };
+    let old_undo_list = eval
+        .buffers
+        .get(current_id)
+        .map(|buffer| buffer.get_undo_list())
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
 
     if base_buffer.is_some() {
         return Err(signal(
@@ -1555,9 +1560,17 @@ pub(crate) fn builtin_set_buffer_multibyte(
         );
     }
 
-    let _ = eval
-        .buffers
-        .configure_buffer_undo_list(current_id, Value::NIL);
+    if !old_undo_list.is_t() {
+        let restore_flag = if flag.is_nil() { Value::T } else { Value::NIL };
+        let undo_entry = Value::list(vec![
+            Value::symbol("apply"),
+            Value::symbol("set-buffer-multibyte"),
+            restore_flag,
+        ]);
+        let _ = eval
+            .buffers
+            .configure_buffer_undo_list(current_id, Value::cons(undo_entry, old_undo_list));
+    }
     Ok(flag)
 }
 

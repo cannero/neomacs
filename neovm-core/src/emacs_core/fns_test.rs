@@ -949,7 +949,11 @@ fn equal_including_properties_strings() {
 #[test]
 fn string_make_multibyte_passthrough_ascii() {
     crate::test_utils::init_test_tracing();
-    let r = builtin_string_make_multibyte(vec![Value::string("abc")]).unwrap();
+    let s = Value::string("abc");
+    let r = builtin_string_make_multibyte(vec![s]).unwrap();
+    assert!(crate::emacs_core::value::eq_value(&s, &r));
+    let ls = r.as_lisp_string().unwrap();
+    assert!(!ls.is_multibyte());
     assert_eq!(r.as_utf8_str(), Some("abc"));
 }
 
@@ -967,7 +971,9 @@ fn string_make_multibyte_promotes_unibyte_byte() {
 #[test]
 fn string_make_unibyte_passthrough_ascii() {
     crate::test_utils::init_test_tracing();
-    let r = builtin_string_make_unibyte(vec![Value::string("abc")]).unwrap();
+    let s = Value::string("abc");
+    let r = builtin_string_make_unibyte(vec![s]).unwrap();
+    assert!(crate::emacs_core::value::eq_value(&s, &r));
     let ls = r.as_lisp_string().unwrap();
     assert!(!ls.is_multibyte());
     assert_eq!(ls.as_bytes(), b"abc");

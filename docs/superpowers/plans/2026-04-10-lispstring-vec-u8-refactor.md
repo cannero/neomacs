@@ -10,6 +10,33 @@
 
 **Regression safety:** Run `cargo nextest run -p neomacs-tui-tests` after each phase. Currently 9/10 passing — no regressions allowed.
 
+## Current Status (2026-04-18)
+
+The checklist below is partially stale. Large parts of phases 1, 2, and 6 are already landed in `neovm-core`, and follow-up work should use the current code plus the local GNU Emacs tree as the reference implementation.
+
+- `LispString` now stores `Vec<u8>` plus cached `size` / `size_byte`, mirroring GNU `struct Lisp_String` shape instead of the old Rust `String` + sentinel scheme.
+- `emacs_char` is implemented and wired through string decoding/encoding, raw-byte conversion, and multibyte character counting.
+- pdump string records already carry `(data, size, size_byte)` rather than reconstructing from UTF-8-only storage.
+- `BufferText::from_lisp_string` and `BufferText::replace_lisp_string` now rebuild gap storage directly from raw Lisp string bytes, preserving unibyte 0x80..0xFF payloads without a Rust `String` round-trip.
+- GNU-aligned fast paths are now in place for `string-make-multibyte` and `string-make-unibyte`: unchanged inputs return the original Lisp object instead of allocating a replacement string.
+- `set-buffer-multibyte` now records the GNU-style special undo entry `(apply set-buffer-multibyte ...)` instead of clearing `buffer-undo-list`.
+
+## GNU Alignment Notes (Local Source Audit)
+
+Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
+
+- `src/alloc.c`: GNU has both auto-detecting `make_string` and explicit constructors (`make_unibyte_string`, `make_multibyte_string`, `make_specified_string`). In Neomacs, `Value::string` should remain the valid-UTF-8 convenience entry point; raw-byte-sensitive paths should keep using explicit unibyte/multibyte constructors.
+- `src/fns.c`: `string-make-multibyte` is identity for multibyte inputs and for unibyte ASCII inputs. Only unibyte non-ASCII bytes allocate a new multibyte string. `string-make-unibyte` is identity for unibyte inputs and truncates multibyte character codes to the low byte otherwise.
+- `src/insdel.c`: buffer insertion converts text at the insertion boundary via `copy_text(from_multibyte, to_multibyte)` instead of globally normalizing Lisp string storage. Neomacs should keep conversion decisions at this boundary.
+- `src/editfns.c`: `make_buffer_string_both` copies raw bytes out of the buffer gap into a Lisp string and labels the result based on buffer multibyteness. Buffer substring helpers should continue to be byte-faithful first.
+- `src/buffer.c`: `set-buffer-multibyte` preserves the underlying bytes, then remaps char/byte positions, markers, overlays, and interval boundaries across the rewritten view of the same text. The remaining Neomacs audit should keep matching that shape instead of introducing higher-level string reinterpretation shortcuts.
+
+## Remaining Work
+
+- Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
+- Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
+- Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
+
 ---
 
 ## Phase Overview

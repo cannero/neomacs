@@ -1,6 +1,21 @@
 use super::BufferText;
 
 #[test]
+fn from_lisp_string_preserves_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A', 0x80]);
+    let text = BufferText::from_lisp_string(&raw);
+
+    assert!(!text.is_multibyte());
+    assert_eq!(text.len(), 3);
+    assert_eq!(text.char_count(), 3);
+
+    let mut bytes = Vec::new();
+    text.copy_emacs_bytes_to(0, text.emacs_byte_len(), &mut bytes);
+    assert_eq!(bytes, vec![0xFF, b'A', 0x80]);
+}
+
+#[test]
 fn char_count_tracks_multibyte_inserts_and_deletes() {
     crate::test_utils::init_test_tracing();
     let mut text = BufferText::from_str("ééz");
@@ -162,4 +177,30 @@ fn replace_lisp_string_invalidates_position_cache() {
     // '本' is 0xE6 0x9C 0xAC. So buffer[6] should be 0xE6.
     let b = text.byte_at(6);
     assert_eq!(b, 0xE6, "post-replace byte at position 6 should be 0xE6 (lead byte of 本)");
+}
+
+#[test]
+fn replace_lisp_string_handles_unibyte_raw_bytes() {
+    crate::test_utils::init_test_tracing();
+    let text = BufferText::from_str("ééz");
+    let cached_before = text.buf_charpos_to_bytepos(2);
+    assert_eq!(cached_before, 4);
+
+    let raw = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A', 0x80]);
+    text.replace_lisp_string(
+        &raw,
+        crate::buffer::text_props::TextPropertyTable::new(),
+        Vec::new(),
+    );
+
+    assert!(!text.is_multibyte());
+    assert_eq!(text.char_count(), 3);
+    assert_eq!(text.buf_charpos_to_bytepos(2), 2);
+    assert_eq!(text.byte_at(0), 0xFF);
+    assert_eq!(text.byte_at(1), b'A');
+    assert_eq!(text.byte_at(2), 0x80);
+
+    let mut bytes = Vec::new();
+    text.copy_emacs_bytes_to(0, text.emacs_byte_len(), &mut bytes);
+    assert_eq!(bytes, vec![0xFF, b'A', 0x80]);
 }
