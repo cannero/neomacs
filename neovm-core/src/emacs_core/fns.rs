@@ -178,9 +178,13 @@ fn base64_encode(input: &[u8], alphabet: &[u8; 64], pad: bool, line_break: bool)
 // ---------------------------------------------------------------------------
 
 fn base64_decode(input: &str, table: &[u8; 256]) -> Result<Vec<u8>, ()> {
-    // Strip whitespace (CR, LF, space, tab) per Emacs behaviour
+    base64_decode_bytes(input.as_bytes(), table)
+}
+
+fn base64_decode_bytes(input: &[u8], table: &[u8; 256]) -> Result<Vec<u8>, ()> {
     let bytes: Vec<u8> = input
-        .bytes()
+        .iter()
+        .copied()
         .filter(|&b| b != b'\n' && b != b'\r' && b != b' ' && b != b'\t')
         .collect();
 
@@ -231,18 +235,23 @@ pub(crate) fn builtin_base64_encode_string(args: Vec<Value>) -> EvalResult {
 /// (base64-decode-string STRING &optional BASE64URL)
 pub(crate) fn builtin_base64_decode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64-decode-string", &args, 1, 2)?;
-    let s = require_string("base64-decode-string", &args[0])?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
     let use_url = args.get(1).is_some_and(|v| v.is_truthy());
     let table = if use_url {
         build_decode_table(B64_URL)
     } else {
         build_decode_table(B64_STD)
     };
-    match base64_decode(&s, &table) {
-        Ok(bytes) => {
-            let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            Ok(Value::string(decoded))
-        }
+    // base64 data is ASCII, so LispString.as_bytes() equals the storage
+    // form for valid input. Decoded bytes are arbitrary; return as a
+    // unibyte LispString to match GNU Fbase64_decode_string (fns.c) which
+    // returns a unibyte string.
+    match base64_decode_bytes(ls.as_bytes(), &table) {
+        Ok(bytes) => Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        )),
         Err(()) => Err(signal("error", vec![Value::string("Invalid base64 data")])),
     }
 }
@@ -262,13 +271,14 @@ pub(crate) fn builtin_base64url_encode_string(args: Vec<Value>) -> EvalResult {
 #[cfg(test)]
 pub(crate) fn builtin_base64url_decode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64url-decode-string", &args, 1, 2)?;
-    let s = require_string("base64url-decode-string", &args[0])?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
     let table = build_decode_table(B64_URL);
-    match base64_decode(&s, &table) {
-        Ok(bytes) => {
-            let decoded = String::from_utf8_lossy(&bytes).into_owned();
-            Ok(Value::string(decoded))
-        }
+    match base64_decode_bytes(ls.as_bytes(), &table) {
+        Ok(bytes) => Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        )),
         Err(()) => Ok(Value::NIL),
     }
 }
