@@ -617,33 +617,49 @@ impl BufferText {
         self.chain_splice_at_head(marker_ptr);
     }
 
-    /// Snapshot every chain-attached marker into a flat Vec for pdump.
-    /// Each entry carries the marker's owning buffer id (may differ from
-    /// the shared-text owner for indirect buffers), its current
-    /// `(bytepos, charpos)`, and its insertion type. The iteration order
-    /// is chain order (head-to-tail); callers should not rely on it.
-    pub fn chain_marker_snapshot(
-        &self,
-    ) -> Vec<(u64, BufferId, usize, usize, InsertionType)> {
+    /// Walk the intrusive marker chain head→tail and invoke `f` on each
+    /// live `MarkerData` by reference. Read-only counterpart to
+    /// `chain_walk_mut`; used by pdump (v26) to serialize the chain
+    /// without materializing an intermediate Vec.
+    ///
+    /// SAFETY: walks live chain-owned MarkerObj pointers from
+    /// `storage.markers_head` until null; each `(*curr).data` reference
+    /// stays valid for the duration of the call because the GC sweep
+    /// runs `unchain_dead_markers` between mark and free.
+    pub fn chain_walk_data<F: FnMut(&crate::heap_types::MarkerData)>(&self, mut f: F) {
         let storage = self.storage.borrow();
-        let mut out = Vec::new();
         let mut curr = storage.markers_head;
-        // SAFETY: chain walks live chain-owned MarkerObj pointers until null.
         unsafe {
             while !curr.is_null() {
                 let data = &(*curr).data;
-                if let (Some(id), Some(buffer_id)) = (data.marker_id, data.buffer) {
-                    let ins = if data.insertion_type {
-                        InsertionType::After
-                    } else {
-                        InsertionType::Before
-                    };
-                    out.push((id, buffer_id, data.bytepos, data.charpos, ins));
-                }
+                f(data);
                 curr = data.next_marker;
             }
         }
-        out
+    }
+
+    /// Walk this buffer's intrusive marker chain and return the raw
+    /// MarkerObj pointer for the first node whose `marker_id` matches,
+    /// or null when none found. Used by pdump load (v26) to resolve
+    /// `BufferStateMarkers` (pt/begv/zv) ids back to chain pointers
+    /// after the chain has been reconstructed.
+    pub fn chain_find_by_id(
+        &self,
+        marker_id: u64,
+    ) -> *mut crate::tagged::header::MarkerObj {
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: chain walks live chain-owned MarkerObj pointers from
+        // `storage.markers_head` until null.
+        unsafe {
+            while !curr.is_null() {
+                if (*curr).data.marker_id == Some(marker_id) {
+                    return curr;
+                }
+                curr = (*curr).data.next_marker;
+            }
+        }
+        std::ptr::null_mut()
     }
 
     /// Walk the intrusive chain and return the MarkerData-derived fields

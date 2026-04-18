@@ -348,16 +348,9 @@ impl LoadDecoder {
                 buffer: marker.buffer.map(|id| BufferId(id.0)),
                 insertion_type: marker.insertion_type,
                 marker_id: marker.marker_id,
-                // T7: `MarkerData.position` was deleted. Seed charpos from
-                // the dumped 1-based position when available (best-effort
-                // for stale dumps); T10 reworks the format to carry
-                // bytepos/charpos directly.
-                bytepos: 0,
-                charpos: marker
-                    .position
-                    .filter(|p| *p > 0)
-                    .map(|p| (p - 1) as usize)
-                    .unwrap_or(0),
+                // v26: bytepos/charpos round-trip directly from MarkerData.
+                bytepos: marker.bytepos,
+                charpos: marker.charpos,
                 next_marker: std::ptr::null_mut(),
             }),
             DumpHeapObject::Overlay(overlay) => {
@@ -464,17 +457,9 @@ impl LoadDecoder {
             DumpHeapObject::Marker(marker) => {
                 let _ = value.with_marker_data_mut(|data| {
                     data.buffer = marker.buffer.map(|id| BufferId(id.0));
-                    // T7: `MarkerData.position` was deleted. Seed charpos
-                    // from the dumped 1-based position so this marker
-                    // reports a stable position even before the chain
-                    // reload step re-splices it into a buffer chain.
-                    // T10 reworks the format to carry bytepos/charpos.
-                    data.charpos = marker
-                        .position
-                        .filter(|p| *p > 0)
-                        .map(|p| (p - 1) as usize)
-                        .unwrap_or(0);
-                    data.bytepos = 0;
+                    // v26: bytepos/charpos round-trip directly.
+                    data.bytepos = marker.bytepos;
+                    data.charpos = marker.charpos;
                     data.insertion_type = marker.insertion_type;
                     data.marker_id = marker.marker_id;
                 });
@@ -1012,26 +997,11 @@ pub(crate) fn dump_ordered_sym_map(
 
 // --- Buffer types ---
 
-fn dump_insertion_type(it: &InsertionType) -> DumpInsertionType {
-    match it {
-        InsertionType::Before => DumpInsertionType::Before,
-        InsertionType::After => DumpInsertionType::After,
-    }
-}
-
-fn dump_marker_chain_entry(
-    entry: &(u64, BufferId, usize, usize, InsertionType),
-) -> DumpMarkerEntry {
-    let (id, buffer_id, byte_pos, char_pos, insertion_type) = entry;
-    DumpMarkerEntry {
-        id: *id,
-        buffer_id: buffer_id.0,
-        byte_pos: *byte_pos,
-        char_pos: Some(*char_pos),
-        insertion_type: dump_insertion_type(insertion_type),
-    }
-}
-
+// `dump_insertion_type` / `load_insertion_type` were retired in v26: chain
+// entries now serialize the `MarkerData::insertion_type` bool directly via
+// `DumpMarker`. Together with the deletion of `DumpMarkerEntry` and the
+// `DumpInsertionType` enum this removes the last consumer of the
+// flat-tuple chain shape.
 fn dump_property_interval(
     encoder: &mut DumpEncoder,
     pi: &PropertyInterval,
@@ -1072,22 +1042,15 @@ fn dump_overlay(encoder: &mut DumpEncoder, o: &Overlay) -> DumpOverlay {
 }
 
 fn dump_marker_object(marker: &crate::heap_types::MarkerData) -> DumpMarker {
-    // T7: MarkerData.position is deleted. Round-trip the 1-based Lisp
-    // position from the authoritative charpos when the marker is
-    // attached, or None otherwise. T10 replaces DumpMarker with a
-    // bytepos/charpos shape and bumps the format version.
-    let position = if marker.buffer.is_some() {
-        Some(marker.charpos as i64 + 1)
-    } else if marker.charpos > 0 {
-        Some(marker.charpos as i64 + 1)
-    } else {
-        None
-    };
+    // T10 (v26): MarkerData fields are authoritative. We round-trip
+    // `bytepos` and `charpos` directly; the legacy `position` cache is
+    // gone in both runtime and on-disk shapes.
     DumpMarker {
         buffer: marker.buffer.map(|id| DumpBufferId(id.0)),
-        position,
         insertion_type: marker.insertion_type,
         marker_id: marker.marker_id,
+        bytepos: marker.bytepos,
+        charpos: marker.charpos,
     }
 }
 
@@ -1136,14 +1099,21 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
         auto_save_file_name_lisp: buf.auto_save_file_name_lisp_string().map(dump_lisp_string),
         auto_save_file_name: None,
         markers: if is_shared_text_owner {
-            // T7: chain snapshot replaces the deleted Vec<MarkerEntry>.
-            // The serialized shape still matches DumpMarkerEntry for
-            // backward compatibility; T10 bumps the pdump format.
-            buf.text
-                .chain_marker_snapshot()
-                .iter()
-                .map(dump_marker_chain_entry)
-                .collect()
+            // T10 (v26): walk the intrusive chain head→tail and emit a
+            // `DumpMarker` per node. Identity with the heap-object
+            // Marker decode is preserved via `marker_id`; the load-side
+            // chain reconstruction reuses the heap-allocated MarkerObj.
+            let mut out = Vec::new();
+            buf.text.chain_walk_data(|data| {
+                out.push(DumpMarker {
+                    buffer: data.buffer.map(|id| DumpBufferId(id.0)),
+                    insertion_type: data.insertion_type,
+                    marker_id: data.marker_id,
+                    bytepos: data.bytepos,
+                    charpos: data.charpos,
+                });
+            });
+            out
         } else {
             Vec::new()
         },
@@ -2497,28 +2467,12 @@ pub(crate) fn load_obarray(
 
 // --- Buffer types ---
 
-fn load_insertion_type(it: &DumpInsertionType) -> InsertionType {
-    match it {
-        DumpInsertionType::Before => InsertionType::Before,
-        DumpInsertionType::After => InsertionType::After,
-    }
-}
-
-/// Decode a `DumpMarkerEntry` into the tuple shape used by
-/// `BufferText::register_marker`. T7 dropped the `MarkerEntry` struct
-/// since the intrusive chain is now authoritative.
-fn load_marker(
-    m: &DumpMarkerEntry,
-    text: &BufferText,
-) -> (u64, BufferId, usize, usize, InsertionType) {
-    (
-        m.id,
-        BufferId(m.buffer_id),
-        m.byte_pos,
-        m.char_pos.unwrap_or_else(|| text.byte_to_char(m.byte_pos)),
-        load_insertion_type(&m.insertion_type),
-    )
-}
+// `load_insertion_type` / `load_marker` were removed in v26: the per-buffer
+// chain entries now serialize directly as `DumpMarker` (the same shape used
+// by `DumpHeapObject::Marker`), so the dedicated tuple-decode helper has no
+// remaining caller — `load_buffer` walks `db.markers` and feeds each
+// `DumpMarker` straight to `BufferText::register_marker` after resolving
+// the backing MarkerObj by `marker_id`.
 
 fn load_property_interval(
     decoder: &mut LoadDecoder,
@@ -2579,26 +2533,38 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         })),
         None => None,
     };
-    for (marker_id, buffer_id, byte_pos, char_pos, insertion_type) in
-        db.markers.iter().map(|marker| load_marker(marker, &text))
-    {
-        // Resolve the backing MarkerObj allocated during
-        // `preload_tagged_heap`. If pdump dumped a marker whose
-        // marker_id has no corresponding live MarkerObj (possible for
-        // older dumps or GC-dropped markers), allocate a fresh scratch
-        // MarkerObj so the chain still has a live node to splice.
-        // Post-T8 the heap no longer maintains a `marker_ptrs` Vec;
-        // `find_marker_by_id_during_load` walks `all_objects` to find
-        // the pre-allocated MarkerObj by marker_id.
+    // v26: walk `db.markers` in dumped chain order (head→tail). For each
+    // entry, resolve the backing MarkerObj allocated during
+    // `preload_tagged_heap` so the chain reuses the same allocation that
+    // Lisp values reference. Allocate a fresh scratch MarkerObj only when
+    // the dump's heap section did not contain a matching object (defensive
+    // — should not happen for self-consistent v26 dumps).
+    //
+    // We splice at head (`register_marker` uses `chain_splice_at_head`),
+    // so iterate in reverse to restore head→tail order on the loaded
+    // chain.
+    for dump_marker in db.markers.iter().rev() {
+        let Some(marker_id) = dump_marker.marker_id else {
+            continue;
+        };
+        let buffer_id = match dump_marker.buffer {
+            Some(id) => BufferId(id.0),
+            None => BufferId(db.id.0),
+        };
+        let insertion_type = if dump_marker.insertion_type {
+            crate::buffer::InsertionType::After
+        } else {
+            crate::buffer::InsertionType::Before
+        };
         let marker_ptr = with_tagged_heap(|heap| heap.find_marker_by_id_during_load(marker_id))
             .unwrap_or_else(|| {
                 let scratch =
                     crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
                         buffer: Some(buffer_id),
-                        insertion_type: insertion_type == crate::buffer::InsertionType::After,
+                        insertion_type: dump_marker.insertion_type,
                         marker_id: Some(marker_id),
-                        bytepos: 0,
-                        charpos: 0,
+                        bytepos: dump_marker.bytepos,
+                        charpos: dump_marker.charpos,
                         next_marker: std::ptr::null_mut(),
                     });
                 scratch
@@ -2614,8 +2580,8 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
             marker_ptr,
             buffer_id,
             marker_id,
-            byte_pos,
-            char_pos,
+            dump_marker.bytepos,
+            dump_marker.charpos,
             insertion_type,
         );
     }
@@ -2727,6 +2693,50 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
 
     text.set_modification_state(db.modified_tick, db.chars_modified_tick, save_modified_tick);
 
+    // v26: resolve state markers (pt/begv/zv) by walking the freshly-built
+    // chain on `text` before moving `text` into the Buffer literal below.
+    // Falls back to the heap-wide search for any state marker missing from
+    // `db.markers`, and only allocates a scratch MarkerObj as a final
+    // safety net.
+    let state_markers = match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
+        (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
+            let resolve = |mid: u64| -> *mut crate::tagged::header::MarkerObj {
+                let chain_hit = text.chain_find_by_id(mid);
+                if !chain_hit.is_null() {
+                    return chain_hit;
+                }
+                if let Some(p) =
+                    with_tagged_heap(|heap| heap.find_marker_by_id_during_load(mid))
+                {
+                    return p;
+                }
+                let scratch = crate::emacs_core::value::Value::make_marker(
+                    crate::heap_types::MarkerData {
+                        buffer: Some(BufferId(db.id.0)),
+                        insertion_type: false,
+                        marker_id: Some(mid),
+                        bytepos: 0,
+                        charpos: 0,
+                        next_marker: std::ptr::null_mut(),
+                    },
+                );
+                scratch
+                    .as_veclike_ptr()
+                    .expect("freshly allocated marker should have a veclike ptr")
+                    as *mut crate::tagged::header::MarkerObj
+            };
+            Some(crate::buffer::buffer::BufferStateMarkers {
+                pt_marker,
+                begv_marker,
+                zv_marker,
+                pt_marker_ptr: resolve(pt_marker),
+                begv_marker_ptr: resolve(begv_marker),
+                zv_marker_ptr: resolve(zv_marker),
+            })
+        }
+        _ => None,
+    };
+
     Buffer {
         id: BufferId(db.id.0),
         name: if let Some(ref name) = db.name_lisp {
@@ -2748,43 +2758,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
         last_window_start,
         last_selected_window: None,
         inhibit_buffer_hooks: false,
-        state_markers: match (db.state_pt_marker, db.state_begv_marker, db.state_zv_marker) {
-            (Some(pt_marker), Some(begv_marker), Some(zv_marker)) => {
-                // Resolve each state marker's backing MarkerObj pointer from
-                // the tagged heap (allocated via `preload_tagged_heap`). If
-                // the dumped `state_*_marker` id has no live MarkerObj, fall
-                // back to a fresh scratch allocation so the chain stays valid
-                // for the dual-write Vec path.
-                let resolve = |mid: u64| -> *mut crate::tagged::header::MarkerObj {
-                    with_tagged_heap(|heap| heap.find_marker_by_id_during_load(mid))
-                        .unwrap_or_else(|| {
-                            let scratch = crate::emacs_core::value::Value::make_marker(
-                                crate::heap_types::MarkerData {
-                                    buffer: Some(BufferId(db.id.0)),
-                                    insertion_type: false,
-                                    marker_id: Some(mid),
-                                    bytepos: 0,
-                                    charpos: 0,
-                                    next_marker: std::ptr::null_mut(),
-                                },
-                            );
-                            scratch
-                                .as_veclike_ptr()
-                                .expect("freshly allocated marker should have a veclike ptr")
-                                as *mut crate::tagged::header::MarkerObj
-                        })
-                };
-                Some(crate::buffer::buffer::BufferStateMarkers {
-                    pt_marker,
-                    begv_marker,
-                    zv_marker,
-                    pt_marker_ptr: resolve(pt_marker),
-                    begv_marker_ptr: resolve(begv_marker),
-                    zv_marker_ptr: resolve(zv_marker),
-                })
-            }
-            _ => None,
-        },
+        state_markers,
         // Phase 10F: per-buffer alist for SYMBOL_LOCALIZED variables.
         // Prefer the dump's `local_var_alist` field when present
         // (new format). Fall back to the alist we rebuilt from the

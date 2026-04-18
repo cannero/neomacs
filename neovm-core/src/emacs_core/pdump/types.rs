@@ -419,21 +419,9 @@ pub struct DumpGapBuffer {
     pub text: Vec<u8>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
-pub enum DumpInsertionType {
-    Before,
-    After,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct DumpMarkerEntry {
-    pub id: u64,
-    pub buffer_id: u64,
-    pub byte_pos: usize,
-    #[serde(default)]
-    pub char_pos: Option<usize>,
-    pub insertion_type: DumpInsertionType,
-}
+// `DumpInsertionType` was retired in v26 alongside `DumpMarkerEntry`:
+// the marker chain now serializes through `DumpMarker`, which encodes
+// the insertion type as a plain `bool` matching `MarkerData`.
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpPropertyInterval {
@@ -457,12 +445,19 @@ pub struct DumpOverlay {
     pub rear_advance: bool,
 }
 
+/// Pdump v26: marker shape mirrors `MarkerData` post-GNU-parity refactor.
+///
+/// The legacy `position: Option<i64>` cache is gone — `bytepos` and `charpos`
+/// are the authoritative on-disk fields, matching the runtime `MarkerData`
+/// layout. Used both for individual heap-object marker decode
+/// (`DumpHeapObject::Marker`) and for `DumpBuffer.markers` chain entries.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpMarker {
     pub buffer: Option<DumpBufferId>,
-    pub position: Option<i64>,
     pub insertion_type: bool,
     pub marker_id: Option<u64>,
+    pub bytepos: usize,
+    pub charpos: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -541,7 +536,11 @@ pub struct DumpBuffer {
     pub auto_save_file_name_lisp: Option<DumpLispString>,
     #[serde(default)]
     pub auto_save_file_name: Option<String>,
-    pub markers: Vec<DumpMarkerEntry>,
+    /// v26: chain order, head→tail. Each entry is a full `DumpMarker`
+    /// (the same shape used by `DumpHeapObject::Marker`); the load-side
+    /// chain reconstruction reuses the heap-allocated MarkerObj for the
+    /// same `marker_id` to preserve identity with Lisp references.
+    pub markers: Vec<DumpMarker>,
     #[serde(default)]
     pub state_pt_marker: Option<u64>,
     #[serde(default)]

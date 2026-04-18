@@ -47,7 +47,14 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // and regenerated (no backward compatibility required per project memory S105).
 // v22: LispSymbol::plist flipped to Value cons list (DumpSymbolData::plist is now DumpValue).
 // v23: LispSymbol::function flipped to Value with NIL sentinel (DumpSymbolData::function is now DumpValue).
-const FORMAT_VERSION: u32 = 25;
+// v25: see commit history (slot/local_var_alist round-trip).
+// v26: marker GNU-parity refactor (T10). DumpMarker now carries `bytepos`/`charpos`
+//   directly (the legacy `position: Option<i64>` field is gone) and `DumpBuffer.markers`
+//   is `Vec<DumpMarker>` walked in head→tail chain order. The retired
+//   `DumpMarkerEntry` shape (per-buffer flat tuple) is no longer accepted; old v25
+//   dumps fail with `UnsupportedVersion` and are regenerated from scratch
+//   per the project's "no backward compat for pdump" policy.
+const FORMAT_VERSION: u32 = 26;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
