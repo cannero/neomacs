@@ -3,7 +3,7 @@
 //! Provides path manipulation, file predicates, read/write operations,
 //! directory operations, and file attribute queries.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 #[cfg(unix)]
 use std::ffi::{CStr, CString};
 use std::fs;
@@ -152,6 +152,82 @@ pub fn file_truename(filename: &str, default_dir: Option<&str>) -> String {
     }
 
     resolved
+}
+
+fn file_truename_lisp_inner(
+    filename: &crate::heap_types::LispString,
+    default_dir: &crate::heap_types::LispString,
+    remaining_links: &mut i64,
+    prev_dirs: &mut HashMap<String, crate::heap_types::LispString>,
+) -> Result<crate::heap_types::LispString, Flow> {
+    let mut filename = if lisp_file_name_absolute_system_p(filename) {
+        filename.clone()
+    } else {
+        expand_file_name_lisp(filename, Some(default_dir))
+    };
+
+    loop {
+        *remaining_links -= 1;
+        if *remaining_links < 0 {
+            return Err(signal(
+                "error",
+                vec![Value::string(format!(
+                    "Apparent cycle of symbolic links for {}",
+                    crate::emacs_core::builtins::runtime_string_from_lisp_string(&filename)
+                ))],
+            ));
+        }
+
+        let mut dir = lisp_file_name_directory(&filename).unwrap_or_else(|| default_dir.clone());
+        let dirfile = lisp_directory_file_name(&dir);
+        if !lisp_string_runtime_eq(&dir, &dirfile) {
+            let dir_key = crate::emacs_core::builtins::runtime_string_from_lisp_string(&dir);
+            if let Some(cached) = prev_dirs.get(&dir_key).cloned() {
+                dir = cached;
+            } else {
+                let new = lisp_file_name_as_directory(&file_truename_lisp_inner(
+                    &dirfile,
+                    default_dir,
+                    remaining_links,
+                    prev_dirs,
+                )?);
+                prev_dirs.insert(dir_key, new.clone());
+                dir = new;
+            }
+        }
+
+        let filename_no_dir = lisp_file_name_nondirectory(&filename);
+        if lisp_file_name_is_ascii_text(&filename_no_dir, b"..") {
+            let parent = lisp_directory_file_name(&dir);
+            return Ok(match lisp_file_name_directory(&parent) {
+                Some(parent_dir) => lisp_directory_file_name(&parent_dir),
+                None => parent,
+            });
+        }
+        if lisp_file_name_is_ascii_text(&filename_no_dir, b".") {
+            return Ok(lisp_directory_file_name(&dir));
+        }
+
+        filename = concat_file_name_lisp(&dir, &filename_no_dir);
+        match file_symlink_target_lisp(&filename) {
+            Some(target) => {
+                filename = lisp_files_splice_dirname_file(&dir, &target);
+            }
+            None => return Ok(filename),
+        }
+    }
+}
+
+fn file_truename_lisp(
+    filename: &crate::heap_types::LispString,
+    default_dir: Option<&crate::heap_types::LispString>,
+) -> Result<crate::heap_types::LispString, Flow> {
+    let default_dir = default_dir
+        .cloned()
+        .unwrap_or_else(fallback_root_default_directory);
+    let mut remaining_links = 100;
+    let mut prev_dirs = HashMap::new();
+    file_truename_lisp_inner(filename, &default_dir, &mut remaining_links, &mut prev_dirs)
 }
 
 /// Clean up a path by resolving `.` and `..` components without touching the
@@ -658,6 +734,19 @@ pub fn file_symlink_target(filename: &str) -> Option<String> {
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+pub fn file_symlink_target_lisp(
+    filename: &crate::heap_types::LispString,
+) -> Option<crate::heap_types::LispString> {
+    let path = lisp_file_name_to_path_buf(filename);
+    let meta = fs::symlink_metadata(&path).ok()?;
+    if !meta.file_type().is_symlink() {
+        return None;
+    }
+    fs::read_link(&path)
+        .ok()
+        .map(|target| path_to_lisp_file_name(&target))
+}
+
 /// Return true if FILENAME is on a case-insensitive filesystem.
 pub fn file_name_case_insensitive_p(filename: &str) -> bool {
     let mut probe = PathBuf::from(filename);
@@ -1097,6 +1186,113 @@ fn expand_file_name_result_multibyte(
     multibyte
 }
 
+fn file_name_concat_result_multibyte(parts: &[&crate::heap_types::LispString]) -> bool {
+    let any_multibyte = parts.iter().any(|part| part.is_multibyte());
+    let any_unibyte_non_ascii = parts
+        .iter()
+        .any(|part| !part.is_multibyte() && !part.is_ascii());
+    any_multibyte && !any_unibyte_non_ascii
+}
+
+fn concat_file_name_lisp(
+    left: &crate::heap_types::LispString,
+    right: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    let text = format!(
+        "{}{}",
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(left),
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(right)
+    );
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        &text,
+        file_name_concat_result_multibyte(&[left, right]),
+    )
+}
+
+fn lisp_file_name_directory(
+    filename: &crate::heap_types::LispString,
+) -> Option<crate::heap_types::LispString> {
+    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
+    file_name_directory(&filename_runtime).map(|dir| {
+        crate::emacs_core::builtins::runtime_string_to_lisp_string(&dir, filename.is_multibyte())
+    })
+}
+
+fn lisp_file_name_nondirectory(
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        &file_name_nondirectory(&filename_runtime),
+        filename.is_multibyte(),
+    )
+}
+
+fn lisp_file_name_as_directory(
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        &file_name_as_directory(&filename_runtime),
+        filename.is_multibyte(),
+    )
+}
+
+fn lisp_directory_file_name(
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        &directory_file_name(&filename_runtime),
+        filename.is_multibyte(),
+    )
+}
+
+fn expand_file_name_lisp(
+    name: &crate::heap_types::LispString,
+    default_directory: Option<&crate::heap_types::LispString>,
+) -> crate::heap_types::LispString {
+    let name_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(name);
+    let default_directory = default_directory
+        .cloned()
+        .unwrap_or_else(fallback_root_default_directory);
+    let default_runtime =
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(&default_directory);
+    let result = expand_file_name(&name_runtime, Some(&default_runtime));
+    crate::emacs_core::builtins::runtime_string_to_lisp_string(
+        &result,
+        expand_file_name_result_multibyte(name, &default_directory),
+    )
+}
+
+fn lisp_file_name_absolute_system_p(filename: &crate::heap_types::LispString) -> bool {
+    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
+    file_name_absolute_p(&filename_runtime) && !filename_runtime.starts_with('~')
+}
+
+fn lisp_string_runtime_eq(
+    left: &crate::heap_types::LispString,
+    right: &crate::heap_types::LispString,
+) -> bool {
+    crate::emacs_core::builtins::runtime_string_from_lisp_string(left)
+        == crate::emacs_core::builtins::runtime_string_from_lisp_string(right)
+}
+
+fn lisp_file_name_is_ascii_text(filename: &crate::heap_types::LispString, text: &[u8]) -> bool {
+    filename.as_bytes() == text
+}
+
+fn lisp_files_splice_dirname_file(
+    dirname: &crate::heap_types::LispString,
+    file: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    if lisp_file_name_absolute_system_p(file) {
+        file.clone()
+    } else {
+        concat_file_name_lisp(dirname, file)
+    }
+}
+
 fn expect_temp_prefix(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(fileio_owned_runtime_string(*value)),
@@ -1463,15 +1659,16 @@ pub(crate) fn builtin_file_truename(eval: &mut Context, args: Vec<Value>) -> Eva
         ));
     }
 
-    let filename = expect_string_strict(&args[0])?;
+    let filename = expect_lisp_string_strict(&args[0])?;
     if let Some(counter) = args.get(1) {
         validate_file_truename_counter(counter)?;
     }
 
-    Ok(Value::string(file_truename(
+    let default_dir = default_directory_lisp_for_eval(eval);
+    Ok(Value::heap_string(file_truename_lisp(
         &filename,
-        default_directory_in_state(&eval.obarray, &[], &eval.buffers).as_deref(),
-    )))
+        default_dir.as_ref(),
+    )?))
 }
 
 /// (file-name-directory FILENAME) -> string or nil
@@ -1630,6 +1827,27 @@ fn default_directory_for_eval(eval: &Context) -> Option<String> {
 
 fn default_directory_lisp_for_eval(eval: &Context) -> Option<crate::heap_types::LispString> {
     default_directory_lisp_in_state(&eval.obarray, &[], &eval.buffers)
+}
+
+fn resolve_filename_lisp_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    if lisp_file_name_absolute_system_p(filename) {
+        return filename.clone();
+    }
+    let default_dir = default_directory_lisp_in_state(obarray, dynamic, buffers)
+        .unwrap_or_else(fallback_root_default_directory);
+    expand_file_name_lisp(filename, Some(&default_dir))
+}
+
+fn resolve_filename_lisp_for_eval(
+    eval: &Context,
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    resolve_filename_lisp_in_state(&eval.obarray, &[], &eval.buffers, filename)
 }
 
 pub(crate) fn resolve_filename_in_state(
@@ -1949,10 +2167,10 @@ pub(crate) fn builtin_file_symlink_p(eval: &mut Context, args: Vec<Value>) -> Ev
         return Ok(result);
     }
     expect_args("file-symlink-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(match file_symlink_target(&filename) {
-        Some(target) => Value::string(target),
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(match file_symlink_target_lisp(&filename) {
+        Some(target) => Value::heap_string(target),
         None => Value::NIL,
     })
 }

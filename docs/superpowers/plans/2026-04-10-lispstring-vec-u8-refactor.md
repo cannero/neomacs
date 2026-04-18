@@ -22,6 +22,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `set-buffer-multibyte` now records the GNU-style special undo entry `(apply set-buffer-multibyte ...)` instead of clearing `buffer-undo-list`.
 - `find-file-name-handler` now matches handler regexps against the original Lisp filename bytes, matching GNU `src/fileio.c` instead of decoding through a Rust runtime string first.
 - `expand-file-name`, `file-name-directory`, `file-name-nondirectory`, `file-name-as-directory`, `directory-file-name`, and `unhandled-file-name-directory` now preserve GNU-style unibyte/multibyte results for raw-byte-sensitive file names instead of rebuilding through `Value::string`.
+- `file-truename` now follows a GNU-shaped Lisp-level symlink chase in Neomacs, and `file-symlink-p` now hits the Unix filesystem through `LispString`/`PathBuf` byte-preserving helpers so raw unibyte file names and link targets survive intact.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -33,12 +34,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `src/editfns.c`: `make_buffer_string_both` copies raw bytes out of the buffer gap into a Lisp string and labels the result based on buffer multibyteness. Buffer substring helpers should continue to be byte-faithful first.
 - `src/buffer.c`: `set-buffer-multibyte` preserves the underlying bytes, then remaps char/byte positions, markers, overlays, and interval boundaries across the rewritten view of the same text. The remaining Neomacs audit should keep matching that shape instead of introducing higher-level string reinterpretation shortcuts.
 - `src/fileio.c`: `find-file-name-handler` matches regexps against the incoming Lisp filename directly, while `file-name-directory`, `file-name-nondirectory`, `file-name-as-directory`, `directory-file-name`, and `expand-file-name` return strings with the same or reconciled multibyteness instead of normalizing through a UTF-8-only constructor.
+- `lisp/files.el`: GNU `file-truename` is not a thin syscall wrapper; it iteratively resolves parent directories and symlink targets in Lisp, splicing relative link targets back onto the resolved directory without re-running `expand-file-name` on the target. The Neomacs `file-truename` path should keep moving toward that structure.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at real filesystem boundaries, especially `file-truename`, symlink/canonicalization paths, and any remaining file I/O entry points that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at real filesystem boundaries beyond the new `file-truename`/`file-symlink-p` work, especially `file-exists-p`, `file-readable-p`, `file-writable-p`, directory predicates, and the rest of the file I/O entry points that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---

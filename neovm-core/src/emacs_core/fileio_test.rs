@@ -4,6 +4,8 @@ use crate::emacs_core::format_eval_result;
 use crate::emacs_core::value::list_to_vec;
 use crate::test_utils::runtime_startup_eval_all;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 
 fn bootstrap_eval(src: &str) -> Vec<String> {
     runtime_startup_eval_all(src)
@@ -53,6 +55,16 @@ fn assert_unibyte_string_bytes(value: Value, expected: &[u8]) {
         .expect("expected string result for raw-byte assertion");
     assert!(!string.is_multibyte(), "expected unibyte string");
     assert_eq!(string.as_bytes(), expected);
+}
+
+#[cfg(unix)]
+fn raw_temp_path(component: &[u8]) -> std::path::PathBuf {
+    let mut bytes = std::env::temp_dir().as_os_str().as_bytes().to_vec();
+    if bytes.last() != Some(&b'/') {
+        bytes.push(b'/');
+    }
+    bytes.extend_from_slice(component);
+    std::path::PathBuf::from(std::ffi::OsString::from_vec(bytes))
 }
 
 #[test]
@@ -192,6 +204,41 @@ fn test_file_truename_resolves_relative_default_directory() {
 
     let _ = fs::remove_file(file);
     let _ = fs::remove_dir(dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_file_truename_preserves_raw_unibyte_directory_bytes() {
+    crate::test_utils::init_test_tracing();
+    let dir = raw_temp_path(b"neovm-file-truename-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("alpha.txt"), b"alpha").unwrap();
+
+    let mut eval = Context::new();
+    let mut default_dir_bytes = dir.as_os_str().as_bytes().to_vec();
+    default_dir_bytes.push(b'/');
+    eval.set_variable(
+        "default-directory",
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(
+            default_dir_bytes.clone(),
+        )),
+    );
+
+    let value = builtin_file_truename(
+        &mut eval,
+        vec![Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(b"alpha.txt".to_vec()),
+        )],
+    )
+    .expect("file-truename should preserve raw directory bytes");
+
+    let mut expected = dir.as_os_str().as_bytes().to_vec();
+    expected.extend_from_slice(b"/alpha.txt");
+    assert_unibyte_string_bytes(value, &expected);
+
+    let _ = fs::remove_file(dir.join("alpha.txt"));
+    let _ = fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -336,6 +383,66 @@ fn test_file_symlink_p() {
     crate::test_utils::init_test_tracing();
     // /tmp itself typically isn't a symlink
     assert!(!file_symlink_p("/nonexistent_path_12345"));
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_file_symlink_p_preserves_raw_unibyte_target_bytes() {
+    crate::test_utils::init_test_tracing();
+    let base = std::env::temp_dir().join(format!("neovm-raw-symlink-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let target_name = b"target-\xFF.txt";
+    let target_path = base.join(std::ffi::OsStr::from_bytes(target_name));
+    fs::write(&target_path, b"x").unwrap();
+
+    let link_path = base.join("link.txt");
+    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(target_name), &link_path).unwrap();
+
+    let value = call_fileio_builtin!(
+        builtin_file_symlink_p,
+        vec![Value::string(link_path.to_string_lossy().as_ref())]
+    )
+    .expect("file-symlink-p should preserve raw target bytes");
+    assert_unibyte_string_bytes(value, target_name);
+
+    let _ = fs::remove_file(&link_path);
+    let _ = fs::remove_file(&target_path);
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_file_truename_chases_raw_unibyte_symlink_targets() {
+    crate::test_utils::init_test_tracing();
+    let base = std::env::temp_dir().join(format!("neovm-raw-truename-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let target_name = b"target-\xFF.txt";
+    let target_path = base.join(std::ffi::OsStr::from_bytes(target_name));
+    fs::write(&target_path, b"x").unwrap();
+    let link_path = base.join("link.txt");
+    std::os::unix::fs::symlink(std::ffi::OsStr::from_bytes(target_name), &link_path).unwrap();
+
+    let mut eval = Context::new();
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
+
+    let value = builtin_file_truename(&mut eval, vec![Value::string("link.txt")])
+        .expect("file-truename should chase raw-byte symlink targets");
+
+    let mut expected = base.as_os_str().as_bytes().to_vec();
+    expected.push(b'/');
+    expected.extend_from_slice(target_name);
+    assert_unibyte_string_bytes(value, &expected);
+
+    let _ = fs::remove_file(&link_path);
+    let _ = fs::remove_file(&target_path);
+    let _ = fs::remove_dir_all(&base);
 }
 
 // -----------------------------------------------------------------------
