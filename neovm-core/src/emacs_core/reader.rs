@@ -450,7 +450,7 @@ fn read_from_string_impl_inner(
     };
 
     let substring = read_source.storage_slice_range(start_byte, end_byte);
-    if starts_with_hash_skip_dispatch(substring) {
+    if starts_with_hash_skip_dispatch(&substring) {
         return Err(signal(
             "end-of-file",
             vec![Value::string("End of file during parsing")],

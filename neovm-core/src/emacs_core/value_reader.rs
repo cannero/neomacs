@@ -118,15 +118,11 @@ pub fn read_one_with_locate_syms(
 /// can work in logical Emacs-byte offsets instead of storage-string byte math.
 pub struct LispReadSource<'a> {
     input: &'a crate::heap_types::LispString,
-    storage: String,
 }
 
 impl<'a> LispReadSource<'a> {
     pub fn new(input: &'a crate::heap_types::LispString) -> Self {
-        Self {
-            input,
-            storage: crate::emacs_core::builtins::runtime_string_from_lisp_string(input),
-        }
+        Self { input }
     }
 
     pub fn is_multibyte(&self) -> bool {
@@ -137,22 +133,18 @@ impl<'a> LispReadSource<'a> {
         self.input.sbytes()
     }
 
-    pub fn storage_slice_range(&self, start: usize, end: usize) -> &str {
+    pub fn storage_slice_range(&self, start: usize, end: usize) -> String {
         assert!(start <= end, "invalid LispReadSource range: {start}..{end}");
         assert!(
             end <= self.logical_len(),
             "LispReadSource end {end} exceeds logical length {}",
             self.logical_len()
         );
-        let start_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-            &self.storage,
-            start,
-        );
-        let end_storage = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-            &self.storage,
-            end,
-        );
-        &self.storage[start_storage..end_storage]
+        let slice = self
+            .input
+            .slice(start, end)
+            .expect("LispReadSource range should stay within source");
+        crate::emacs_core::builtins::runtime_string_from_lisp_string(&slice)
     }
 
     pub fn read_one(&self, start: usize) -> Result<Option<(Value, usize)>, ReadError> {
@@ -165,12 +157,12 @@ impl<'a> LispReadSource<'a> {
         end: usize,
     ) -> Result<Option<(Value, usize)>, ReadError> {
         let substring = self.storage_slice_range(start, end);
-        match read_one_with_source_multibyte(substring, self.is_multibyte(), 0) {
+        match read_one_with_source_multibyte(&substring, self.is_multibyte(), 0) {
             Ok(Some((value, end_pos))) => Ok(Some((
                 value,
                 start
                     + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        substring, end_pos,
+                        &substring, end_pos,
                     ),
             ))),
             Ok(None) => Ok(None),
@@ -178,7 +170,7 @@ impl<'a> LispReadSource<'a> {
                 message: err.message,
                 position: start
                     + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        substring,
+                        &substring,
                         err.position,
                     ),
             }),
@@ -200,12 +192,12 @@ impl<'a> LispReadSource<'a> {
         locate_syms: bool,
     ) -> Result<Option<(Value, usize)>, ReadError> {
         let substring = self.storage_slice_range(start, end);
-        match read_one_with_locate_syms(substring, self.is_multibyte(), 0, locate_syms) {
+        match read_one_with_locate_syms(&substring, self.is_multibyte(), 0, locate_syms) {
             Ok(Some((value, end_pos))) => Ok(Some((
                 value,
                 start
                     + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        substring, end_pos,
+                        &substring, end_pos,
                     ),
             ))),
             Ok(None) => Ok(None),
@@ -213,7 +205,7 @@ impl<'a> LispReadSource<'a> {
                 message: err.message,
                 position: start
                     + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        substring,
+                        &substring,
                         err.position,
                     ),
             }),

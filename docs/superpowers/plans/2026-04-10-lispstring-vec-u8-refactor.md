@@ -37,6 +37,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `eval-buffer` now mirrors GNU `lread.c` more closely at the lexical-cookie/load boundary: lexical-binding cookies for Lisp-string sources are parsed directly from raw source bytes, and the `load-in-progress` buffer-eval path now hands both source text and filenames to `load.rs` as Lisp strings instead of first rebuilding Rust runtime strings.
 - `locate-file` / `locate-file-internal` now keep filename, path, and suffix candidates on Lisp-string bytes through `expand-file-name` and the filesystem probe boundary, instead of reconstructing candidate paths through Rust `String` concatenation first.
 - `load-history` consumers used by bootstrap/loaddefs recovery now read stored file names back through the byte-preserving Lisp-string path boundary instead of decoding them through Rust `String`, so raw unibyte loaded source paths survive later replay and filtering steps intact.
+- `value_reader::LispReadSource` no longer materializes a whole runtime storage string for each Lisp source string up front; it now converts only the requested logical byte ranges on demand, narrowing the remaining runtime-string adapter surface in `read-from-string`, buffer reads, and load/eval streaming paths.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -64,7 +65,7 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc/locate-file work, especially the remaining shell-command helpers plus the deeper `value_reader` / `lread` / `load` paths that still rely on runtime-string storage adapters internally.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc/locate-file work, especially the remaining shell-command helpers plus the still-deeper `value_reader` / `lread` / `load` paths where per-range runtime-string adapters remain inside the reader implementation.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---
