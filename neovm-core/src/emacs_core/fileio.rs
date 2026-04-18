@@ -787,6 +787,27 @@ pub fn file_newer_than_file_p(file1: &str, file2: &str) -> bool {
     mtime1 > mtime2
 }
 
+fn file_newer_than_file_path(file1: &Path, file2: &Path) -> bool {
+    let meta1 = match fs::metadata(file1) {
+        Ok(meta) => meta,
+        Err(_) => return false,
+    };
+    let meta2 = match fs::metadata(file2) {
+        Ok(meta) => meta,
+        Err(_) => return true,
+    };
+
+    let mtime1 = match meta1.modified() {
+        Ok(time) => time,
+        Err(_) => return false,
+    };
+    let mtime2 = match meta2.modified() {
+        Ok(time) => time,
+        Err(_) => return true,
+    };
+    mtime1 > mtime2
+}
+
 // ===========================================================================
 // File I/O operations
 // ===========================================================================
@@ -1308,6 +1329,18 @@ fn expand_cp_target_lisp_for_eval(
         expand_file_name_lisp(&lisp_file_name_nondirectory(file), Some(&resolved_dir))
     } else {
         resolve_filename_lisp_for_eval(eval, newname)
+    }
+}
+
+fn expand_and_dir_to_file_lisp_for_eval(
+    eval: &Context,
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    let absname = resolve_filename_lisp_for_eval(eval, filename);
+    if absname.sbytes() > 1 && lisp_directory_name_p(&absname) {
+        lisp_directory_file_name(&absname)
+    } else {
+        absname
     }
 }
 
@@ -2278,6 +2311,58 @@ fn set_file_times_compat(
     }
 }
 
+fn set_file_times_path(
+    path: &Path,
+    timestamp: Option<(i64, i64)>,
+    nofollow: bool,
+) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let c_path = path_to_cstring(path)
+            .map_err(|_| std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name"))?;
+
+        let mut ts = [
+            libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+        ];
+        if let Some((secs, nanos)) = timestamp {
+            ts[0].tv_sec = secs as libc::time_t;
+            ts[1].tv_sec = secs as libc::time_t;
+            ts[0].tv_nsec = nanos as libc::c_long;
+            ts[1].tv_nsec = nanos as libc::c_long;
+        } else {
+            ts[0].tv_nsec = libc::UTIME_NOW as libc::c_long;
+            ts[1].tv_nsec = libc::UTIME_NOW as libc::c_long;
+        }
+        let flags = if nofollow {
+            libc::AT_SYMLINK_NOFOLLOW
+        } else {
+            0
+        };
+        let result =
+            unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), ts.as_ptr(), flags) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, timestamp, nofollow);
+        Err(std::io::Error::new(
+            ErrorKind::Unsupported,
+            "set-file-times is unsupported on this platform",
+        ))
+    }
+}
+
 fn delete_file_compat(filename: &str) -> Result<(), Flow> {
     match delete_file(filename) {
         Ok(()) => Ok(()),
@@ -2523,15 +2608,22 @@ pub(crate) fn builtin_file_name_case_insensitive_p(
 
 /// `(file-newer-than-file-p FILE1 FILE2)`
 pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "file-newer-than-file-p", &args)? {
+    expect_args("file-newer-than-file-p", &args, 2)?;
+    let file1 = expand_and_dir_to_file_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let file2 = expand_and_dir_to_file_lisp_for_eval(eval, &expect_lisp_string_strict(&args[1])?);
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "file-newer-than-file-p",
+        Some(&file1),
+        Some(&file2),
+        vec![Value::heap_string(file1.clone()), Value::heap_string(file2.clone())],
+    )? {
         return Ok(result);
     }
-    expect_args("file-newer-than-file-p", &args, 2)?;
-    let file1 = expect_string_strict(&args[0])?;
-    let file2 = expect_string_strict(&args[1])?;
-    let file1 = resolve_filename_for_eval(eval, &file1);
-    let file2 = resolve_filename_for_eval(eval, &file2);
-    Ok(Value::bool_val(file_newer_than_file_p(&file1, &file2)))
+    Ok(Value::bool_val(file_newer_than_file_path(
+        &lisp_file_name_to_path_buf(&file1),
+        &lisp_file_name_to_path_buf(&file2),
+    )))
 }
 
 /// `(file-modes FILENAME &optional FLAG)` — returns the file's
@@ -2590,9 +2682,6 @@ pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> Ev
 
 /// `(set-file-times FILENAME &optional TIME FLAG)`
 pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "set-file-times", &args)? {
-        return Ok(result);
-    }
     expect_min_args("set-file-times", &args, 1)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2603,15 +2692,34 @@ pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> Ev
             ],
         ));
     }
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(filename.clone()));
+    handler_args.extend_from_slice(&args[1..]);
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "set-file-times",
+        Some(&filename),
+        None,
+        handler_args,
+    )? {
+        return Ok(result);
+    }
     let timestamp = if args.len() > 1 && !args[1].is_nil() {
         Some(parse_timestamp_arg(&args[1])?)
     } else {
         None
     };
     let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
-    set_file_times_compat(&filename, timestamp, nofollow)?;
+    set_file_times_path(&lisp_file_name_to_path_buf(&filename), timestamp, nofollow).map_err(
+        |err| {
+            signal_file_action_error_value(
+                err,
+                "Setting file times",
+                Value::heap_string(filename),
+            )
+        },
+    )?;
     Ok(Value::T)
 }
 

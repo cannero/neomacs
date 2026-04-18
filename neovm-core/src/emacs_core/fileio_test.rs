@@ -2735,6 +2735,29 @@ fn test_file_newer_than_file_p_eval_respects_default_directory() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_file_newer_than_file_p_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let dir = raw_temp_path(b"neovm-file-newer-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create raw test dir");
+
+    let old = dir.join(std::ffi::OsStr::from_bytes(b"old-\xFE"));
+    let new = dir.join(std::ffi::OsStr::from_bytes(b"new-\xFD"));
+    fs::write(&old, b"old").expect("write old raw file");
+    std::thread::sleep(std::time::Duration::from_millis(1200));
+    fs::write(&new, b"new").expect("write new raw file");
+
+    assert_eq!(
+        builtin_file_newer_than_file_p(&mut Context::new(), vec![raw_path_value(&new), raw_path_value(&old)])
+            .expect("raw file-newer-than-file-p"),
+        Value::T
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn test_builtin_set_file_times_semantics() {
     crate::test_utils::init_test_tracing();
@@ -2774,6 +2797,38 @@ fn test_builtin_set_file_times_semantics() {
         .expect("newer-than"),
         Value::T
     );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_set_file_times_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let dir = raw_temp_path(b"neovm-set-file-times-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create raw set-file-times dir");
+
+    let file = dir.join(std::ffi::OsStr::from_bytes(b"alpha-\xFE"));
+    fs::write(&file, b"alpha").expect("write raw file");
+
+    assert_eq!(
+        builtin_set_file_times(
+            &mut Context::new(),
+            vec![raw_path_value(&file), Value::fixnum(0)],
+        )
+        .expect("raw set-file-times"),
+        Value::T
+    );
+
+    let mtime = fs::metadata(&file)
+        .expect("metadata")
+        .modified()
+        .expect("modified")
+        .duration_since(UNIX_EPOCH)
+        .expect("epoch")
+        .as_secs();
+    assert_eq!(mtime, 0);
 
     let _ = fs::remove_dir_all(&dir);
 }
