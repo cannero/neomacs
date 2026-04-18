@@ -349,6 +349,9 @@ impl LoadDecoder {
                 position: marker.position,
                 insertion_type: marker.insertion_type,
                 marker_id: marker.marker_id,
+                bytepos: 0,
+                charpos: 0,
+                next_marker: std::ptr::null_mut(),
             }),
             DumpHeapObject::Overlay(overlay) => {
                 Value::make_overlay(crate::heap_types::OverlayData {

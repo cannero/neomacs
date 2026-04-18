@@ -83,6 +83,9 @@ pub(crate) fn make_marker_value_with_id(
         position,
         insertion_type,
         marker_id,
+        bytepos: 0,
+        charpos: 0,
+        next_marker: std::ptr::null_mut(),
     })
 }
 

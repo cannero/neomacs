@@ -288,4 +288,16 @@ pub struct MarkerData {
     pub position: Option<i64>,
     pub insertion_type: bool,
     pub marker_id: Option<u64>,
+    /// Byte offset in buffer (authoritative after T6; unused before).
+    pub bytepos: usize,
+    /// Char offset in buffer (authoritative after T6; unused before).
+    pub charpos: usize,
+    /// Intrusive link to next marker in the owning buffer's chain.
+    /// `null` if not on a chain. GC sweep order: `unchain_dead_markers`
+    /// walks these BEFORE `sweep_objects` frees unmarked markers.
+    pub next_marker: *mut crate::tagged::header::MarkerObj,
 }
+
+#[cfg(test)]
+#[path = "heap_types_marker_test.rs"]
+mod marker_test;
