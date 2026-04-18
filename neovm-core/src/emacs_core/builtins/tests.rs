@@ -10348,8 +10348,26 @@ fn format_message_and_message_signal_strict_format_errors() {
         )
         .expect("builtin should resolve")
         .expect("builtin should evaluate");
-        let text = rendered.as_utf8_str().expect("builtin should return a string");
-        assert_eq!(decode_storage_char_codes(text), vec![value as u32]);
+        // GNU-aligned read: `LispString.data` is Emacs internal
+        // encoding (UTF-8 superset, character.h:227). For nonunicode
+        // chars the bytes are the 5-byte extended form, not valid
+        // UTF-8, so `as_utf8_str` would return None. Decode via
+        // `emacs_char::string_char` matching GNU's `STRING_CHAR` macro.
+        let bytes = rendered
+            .as_lisp_string()
+            .expect("builtin should return a string")
+            .as_bytes();
+        let mut codes = Vec::new();
+        let mut i = 0;
+        while i < bytes.len() {
+            let (code, n) = crate::emacs_core::emacs_char::string_char(&bytes[i..]);
+            if n == 0 {
+                break;
+            }
+            codes.push(code);
+            i += n;
+        }
+        assert_eq!(codes, vec![value as u32]);
     }
 }
 

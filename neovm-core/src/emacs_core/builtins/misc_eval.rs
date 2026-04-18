@@ -1555,14 +1555,23 @@ pub(super) fn write_char_rendered_text(char_code: i64) -> Option<String> {
         return None;
     }
     let code = char_code as u32;
-    if let Some(ch) = char::from_u32(code) {
-        Some(ch.to_string())
-    } else {
-        // Non-Unicode Emacs char: encode to Emacs bytes, then lossy UTF-8 for display
-        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-        let len = emacs_char::char_string(code, &mut buf);
-        Some(emacs_char::to_utf8_lossy(&buf[..len]))
-    }
+    // Emit the storage representation so the caller's Rust String
+    // intermediate round-trips through `decode_storage_char_codes`
+    // back to the original `code`. GNU preserves nonunicode chars
+    // (0x110000..=0x3FFFFF) and raw bytes via overlong / extended
+    // multibyte encodings (character.h:227 `CHAR_STRING`); neomacs'
+    // storage form mirrors this with PUA sentinels (U+E080..U+E0FF
+    // for raw bytes, U+E100 prefix + length + byte chars for 4-5
+    // byte extended sequences). Going through
+    // `encode_char_code_for_string_storage` keeps the full code
+    // round-trippable when the format output later becomes a
+    // `LispString` via `runtime_string_to_lisp_string`.
+    //
+    // The old `to_utf8_lossy` path replaced those codes with U+FFFD,
+    // losing the original char code — `(format "%c" #x200000)`
+    // produced the replacement character instead of the requested
+    // nonunicode char.
+    crate::emacs_core::string_escape::encode_char_code_for_string_storage(code, true)
 }
 
 pub(crate) fn builtin_write_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
