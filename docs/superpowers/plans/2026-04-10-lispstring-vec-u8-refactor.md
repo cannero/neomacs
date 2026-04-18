@@ -36,6 +36,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - Reader-side invalid-read-syntax reporting for Lisp string sources now computes line/column directly from `LispString` bytes, so unibyte raw bytes keep GNU-shaped byte columns while multibyte strings count characters rather than UTF-8 storage bytes.
 - `eval-buffer` now mirrors GNU `lread.c` more closely at the lexical-cookie/load boundary: lexical-binding cookies for Lisp-string sources are parsed directly from raw source bytes, and the `load-in-progress` buffer-eval path now hands both source text and filenames to `load.rs` as Lisp strings instead of first rebuilding Rust runtime strings.
 - `locate-file` / `locate-file-internal` now keep filename, path, and suffix candidates on Lisp-string bytes through `expand-file-name` and the filesystem probe boundary, instead of reconstructing candidate paths through Rust `String` concatenation first.
+- `load-history` consumers used by bootstrap/loaddefs recovery now read stored file names back through the byte-preserving Lisp-string path boundary instead of decoding them through Rust `String`, so raw unibyte loaded source paths survive later replay and filtering steps intact.
 
 ## GNU Alignment Notes (Local Source Audit)
 

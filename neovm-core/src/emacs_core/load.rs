@@ -2734,14 +2734,10 @@ fn loaded_source_paths(eval: &mut super::eval::Context) -> Vec<PathBuf> {
             if !entry.is_cons() {
                 continue;
             };
-            let Some(path) = entry
-                .cons_car()
-                .is_string()
-                .then(|| load_string_text(&entry.cons_car()).expect("checked string"))
-            else {
+            let Some(path) = entry.cons_car().as_lisp_string() else {
                 continue;
             };
-            let path = PathBuf::from(path);
+            let path = load_path_buf(path);
             if path.extension().is_some_and(|ext| ext == "el") {
                 paths.insert(path);
             }

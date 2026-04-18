@@ -79,6 +79,9 @@ fn loaded_source_paths_accepts_raw_unibyte_load_history_entries() {
 
     let paths = loaded_source_paths(&mut eval);
     assert_eq!(paths.len(), 1);
+    #[cfg(unix)]
+    assert_eq!(paths[0].as_os_str().as_bytes(), b"/tmp/\xFF.el");
+    #[cfg(not(unix))]
     assert_eq!(
         paths[0].to_string_lossy(),
         crate::emacs_core::builtins::lisp_string_to_runtime_string(raw_path)
