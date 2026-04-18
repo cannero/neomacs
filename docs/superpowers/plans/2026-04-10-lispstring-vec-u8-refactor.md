@@ -24,6 +24,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `expand-file-name`, `file-name-directory`, `file-name-nondirectory`, `file-name-as-directory`, `directory-file-name`, and `unhandled-file-name-directory` now preserve GNU-style unibyte/multibyte results for raw-byte-sensitive file names instead of rebuilding through `Value::string`.
 - `file-truename` now follows a GNU-shaped Lisp-level symlink chase in Neomacs, and `file-symlink-p` now hits the Unix filesystem through `LispString`/`PathBuf` byte-preserving helpers so raw unibyte file names and link targets survive intact.
 - The `check_file_access` family in `src/fileio.c` is now mirrored more closely: `access-file`, `file-exists-p`, `file-readable-p`, `file-writable-p`, `file-accessible-directory-p`, `file-executable-p`, `file-directory-p`, `file-regular-p`, `file-modes`, and `set-file-modes` now reach the OS through byte-preserving `LispString`/`PathBuf` helpers instead of first decoding to a runtime `String`.
+- `make-directory-internal`, `delete-file`, `delete-file-internal`, `delete-directory`, and `delete-directory-internal` now also resolve and hit the filesystem through the byte-preserving file-name path, including raw unibyte file names in error payloads where Neomacs now has the resolved Lisp filename available.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -37,12 +38,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `src/fileio.c`: `find-file-name-handler` matches regexps against the incoming Lisp filename directly, while `file-name-directory`, `file-name-nondirectory`, `file-name-as-directory`, `directory-file-name`, and `expand-file-name` return strings with the same or reconciled multibyteness instead of normalizing through a UTF-8-only constructor.
 - `lisp/files.el`: GNU `file-truename` is not a thin syscall wrapper; it iteratively resolves parent directories and symlink targets in Lisp, splicing relative link targets back onto the resolved directory without re-running `expand-file-name` on the target. The Neomacs `file-truename` path should keep moving toward that structure.
 - `src/fileio.c`: `file-exists-p`, `file-readable-p`, `file-executable-p`, `file-writable-p`, `file-accessible-directory-p`, `file-directory-p`, `file-regular-p`, `file-modes`, and `set-file-modes` all expand to a Lisp filename, dispatch handlers, then call the OS through `ENCODE_FILE`. Neomacs should keep removing pre-OS runtime-string conversions from the rest of this surface.
+- `src/fileio.c`: file-mutating primitives like `make-directory-internal`, `delete-file-internal`, and `delete-directory-internal` similarly expand to Lisp filenames and call the OS through `ENCODE_FILE`; the remaining Neomacs mutation builtins should converge on the same boundary handling.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the new predicate/access/mode work, especially delete/rename/copy/link/process-facing entry points and the remaining helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the new predicate/access/mode/create-delete work, especially rename/copy/hardlink/symlink/process-facing entry points and the remaining helpers that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---

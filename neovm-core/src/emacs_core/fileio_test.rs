@@ -564,6 +564,22 @@ fn test_builtin_delete_file_accepts_optional_trash_arg() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_delete_file_internal_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let path = raw_temp_path(b"neovm-delete-file-\xFF");
+    let _ = fs::remove_file(&path);
+    fs::write(&path, b"x").unwrap();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ));
+
+    call_fileio_builtin!(builtin_delete_file_internal, vec![value])
+        .expect("delete-file-internal should handle raw-byte paths");
+    assert!(!path.exists());
+}
+
 #[test]
 fn test_builtin_delete_directory_basic_and_recursive() {
     crate::test_utils::init_test_tracing();
@@ -622,6 +638,39 @@ fn test_builtin_delete_directory_eval_resolves_default_directory() {
     assert!(!child.exists());
 
     let _ = fs::remove_dir_all(base);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_delete_directory_internal_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let path = raw_temp_path(b"neovm-delete-dir-\xFF");
+    let _ = fs::remove_dir_all(&path);
+    fs::create_dir_all(&path).unwrap();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ));
+
+    call_fileio_builtin!(builtin_delete_directory_internal, vec![value])
+        .expect("delete-directory-internal should handle raw-byte paths");
+    assert!(!path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_make_directory_internal_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let path = raw_temp_path(b"neovm-mkdir-\xFF");
+    let _ = fs::remove_dir_all(&path);
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ));
+
+    call_fileio_builtin!(builtin_make_directory_internal, vec![value])
+        .expect("make-directory-internal should handle raw-byte paths");
+    assert!(path.exists());
+
+    let _ = fs::remove_dir_all(&path);
 }
 
 #[cfg(unix)]

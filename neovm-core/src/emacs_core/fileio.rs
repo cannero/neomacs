@@ -2201,6 +2201,14 @@ fn delete_file_compat(filename: &str) -> Result<(), Flow> {
     }
 }
 
+fn delete_file_compat_path(path: &Path, path_value: Value) -> Result<(), Flow> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(signal_file_action_error_value(err, "Deleting", path_value)),
+    }
+}
+
 /// `(access-file FILENAME STRING)`
 pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
     if let Some(result) = dispatch_file_handler(eval, "access-file", &args)? {
@@ -2651,9 +2659,12 @@ pub(crate) fn builtin_delete_file(eval: &mut Context, args: Vec<Value>) -> EvalR
             ],
         ));
     }
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    delete_file_compat(&filename)?;
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &filename);
+    delete_file_compat_path(
+        &lisp_file_name_to_path_buf(&resolved),
+        Value::heap_string(resolved),
+    )?;
     Ok(Value::NIL)
 }
 
@@ -2664,9 +2675,12 @@ pub(crate) fn builtin_delete_file_internal(eval: &mut Context, args: Vec<Value>)
         return Ok(result);
     }
     expect_args("delete-file-internal", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    delete_file_compat(&filename)?;
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &filename);
+    delete_file_compat_path(
+        &lisp_file_name_to_path_buf(&resolved),
+        Value::heap_string(resolved),
+    )?;
     Ok(Value::NIL)
 }
 
@@ -2676,10 +2690,10 @@ pub(crate) fn builtin_delete_directory_internal(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("delete-directory-internal", &args, 1)?;
-    let directory = expect_string_strict(&args[0])?;
-    let directory = resolve_filename_for_eval(eval, &directory);
-    fs::remove_dir(&directory)
-        .map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
+    let directory = expect_lisp_string_strict(&args[0])?;
+    let resolved = lisp_directory_file_name(&resolve_filename_lisp_for_eval(eval, &directory));
+    fs::remove_dir(lisp_file_name_to_path_buf(&resolved))
+        .map_err(|err| signal_file_action_error_value(err, "Removing directory", Value::heap_string(resolved)))?;
     Ok(Value::NIL)
 }
 
@@ -2699,15 +2713,17 @@ pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> 
             ],
         ));
     }
-    let directory = expect_string_strict(&args[0])?;
-    let directory = resolve_filename_for_eval(eval, &directory);
+    let directory = expect_lisp_string_strict(&args[0])?;
+    let directory = lisp_directory_file_name(&resolve_filename_lisp_for_eval(eval, &directory));
     let recursive = args.get(1).is_some_and(|value| value.is_truthy());
     let result = if recursive {
-        fs::remove_dir_all(&directory)
+        fs::remove_dir_all(lisp_file_name_to_path_buf(&directory))
     } else {
-        fs::remove_dir(&directory)
+        fs::remove_dir(lisp_file_name_to_path_buf(&directory))
     };
-    result.map_err(|err| signal_file_io_path(err, "Removing directory", &directory))?;
+    result.map_err(|err| {
+        signal_file_action_error_value(err, "Removing directory", Value::heap_string(directory))
+    })?;
     Ok(Value::NIL)
 }
 
@@ -2857,9 +2873,11 @@ pub(crate) fn builtin_make_directory_internal(eval: &mut Context, args: Vec<Valu
         return Ok(result);
     }
     expect_args("make-directory-internal", &args, 1)?;
-    let dir = expect_string_strict(&args[0])?;
-    let dir = resolve_filename_for_eval(eval, &dir);
-    make_directory(&dir, false).map_err(|e| signal_file_io_path(e, "Creating directory", &dir))?;
+    let dir = expect_lisp_string_strict(&args[0])?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &dir);
+    fs::create_dir(lisp_file_name_to_path_buf(&resolved)).map_err(|e| {
+        signal_file_action_error_value(e, "Creating directory", Value::heap_string(resolved))
+    })?;
     Ok(Value::NIL)
 }
 
