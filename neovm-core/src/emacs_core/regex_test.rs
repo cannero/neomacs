@@ -709,10 +709,10 @@ fn posix_word_class_extends_via_buffer_syntax_table_override() {
     use crate::emacs_core::syntax::{SyntaxClass, SyntaxEntry};
 
     let mut buf = make_test_buffer("foo_bar baz");
-    // GNU `copy-syntax-table` first so we don't mutate the shared
-    // standard chartable (and leak into other tests / buffers).
-    buf.syntax_table = buf.syntax_table.copy_syntax_table();
-    buf.syntax_table
+    // GNU-parity isolation: give this buffer its own copy of the
+    // standard chartable so the mutation doesn't leak into other
+    // buffers / tests.
+    crate::emacs_core::syntax::SyntaxTable::isolate_for_buffer(&mut buf)
         .modify_syntax_entry('_', SyntaxEntry::simple(SyntaxClass::Word));
     buf.goto_byte(0);
 

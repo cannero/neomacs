@@ -416,7 +416,7 @@ pub fn syntax_entry_to_value(entry: &SyntaxEntry) -> Value {
 /// In both cases `char_syntax()` falls back to GNU's default (Word for
 /// >= U+0080, Whitespace for < U+0080), matching `SYNTAX_ENTRY`'s nil
 /// handling.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct SyntaxTable {
     chartable: Value,
 }
@@ -453,6 +453,37 @@ impl SyntaxTable {
         Self { chartable }
     }
 
+    /// Build a `SyntaxTable` that reads directly from `buf`'s
+    /// syntax-table slot. Mirrors GNU `BVAR (buf, syntax_table)`.
+    /// Falls back to a nil-backed placeholder (GNU defaults) if the
+    /// slot hasn't been seeded yet.
+    pub fn for_buffer(buf: &crate::buffer::buffer::Buffer) -> Self {
+        Self {
+            chartable: buf.syntax_chartable(),
+        }
+    }
+
+    /// Install an isolated copy of the standard chartable on `buf` so
+    /// subsequent `modify_syntax_entry` calls don't leak into the
+    /// shared standard. Returns the new `SyntaxTable`. Mirrors the
+    /// GNU idiom `(set-syntax-table (copy-syntax-table))`.
+    pub fn isolate_for_buffer(buf: &mut crate::buffer::buffer::Buffer) -> Self {
+        use crate::buffer::buffer::BUFFER_SLOT_SYNTAX_TABLE;
+        let slot = buf.slots[BUFFER_SLOT_SYNTAX_TABLE];
+        let source = if slot.is_nil() {
+            ensure_standard_syntax_table_object().unwrap_or(Value::NIL)
+        } else {
+            slot
+        };
+        let own = if source.is_nil() {
+            Value::NIL
+        } else {
+            builtin_copy_syntax_table(vec![source]).unwrap_or(source)
+        };
+        buf.slots[BUFFER_SLOT_SYNTAX_TABLE] = own;
+        Self { chartable: own }
+    }
+
     /// Deep-copy the backing chartable, matching GNU `copy-syntax-table`
     /// (`syntax.c:265-282`). The copy is independent: mutations to
     /// either table do not affect the other.
@@ -475,23 +506,14 @@ impl SyntaxTable {
     // -- Queries -------------------------------------------------------------
 
     /// Return the syntax entry for `ch`, matching GNU
-    /// `SYNTAX_ENTRY(c)`. Returns `None` when the chartable has no
-    /// entry — callers fall back to the built-in default.
+    /// `SYNTAX_ENTRY(c)`. Falls back to the standard chartable when
+    /// the wrapper is nil-backed (handled by `syntax_entry_at_char`).
     pub fn get_entry(&self, ch: char) -> Option<SyntaxEntry> {
-        if self.chartable.is_nil() {
-            return None;
-        }
         syntax_entry_at_char(&self.chartable, ch)
     }
 
     /// Return the syntax class for `ch` — GNU `SYNTAX(c)`.
     pub fn char_syntax(&self, ch: char) -> SyntaxClass {
-        if self.chartable.is_nil() {
-            if u32::from(ch) >= 0x80 {
-                return SyntaxClass::Word;
-            }
-            return SyntaxClass::Whitespace;
-        }
         syntax_class_at_char(&self.chartable, ch)
     }
 
@@ -1365,20 +1387,12 @@ fn current_buffer_syntax_table_object(eval: &mut super::eval::Context) -> Result
 pub(crate) fn sync_current_buffer_syntax_table_state(
     ctx: &mut super::eval::Context,
 ) -> Result<(), Flow> {
-    let table = current_buffer_syntax_table_object_in_buffers(&mut ctx.buffers)?;
-    let current_id = ctx
-        .buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // No compilation work: `SyntaxTable` is a thin wrapper around the
-    // chartable Value. Just re-point the buffer's cached wrapper at
-    // whatever chartable the slot now holds. Cheap; matches GNU where
-    // `set_buffer_internal` is a pointer assignment.
-    let buf = ctx
-        .buffers
-        .get_mut(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.syntax_table = SyntaxTable::from_chartable(table);
+    // Just ensure the slot is seeded with the standard chartable if
+    // it was left `Value::NIL`. No compilation, no cache rebuild —
+    // motion/parse code reads `buf.slots[BUFFER_SLOT_SYNTAX_TABLE]`
+    // directly via `SyntaxTable::for_buffer`. Matches GNU
+    // `set_buffer_internal`.
+    let _ = current_buffer_syntax_table_object_in_buffers(&mut ctx.buffers)?;
     Ok(())
 }
 
@@ -1418,12 +1432,22 @@ fn set_current_buffer_syntax_table_object(
 ///   char_table_ref (BVAR (current_buffer, syntax_table), c)
 /// ```
 ///
-/// Returns `None` when the chartable has no entry for `c` *and* no usable
-/// default — callers fall back to GNU's implicit default (Word for
-/// codepoints >= 0x80, Whitespace for ASCII control/other), matching
-/// `char_syntax()` on the old compiled `SyntaxTable`.
+/// When `table` is `Value::NIL` (an un-seeded buffer slot or a
+/// placeholder wrapper), falls back to the evaluator's
+/// standard-syntax-table chartable. This mirrors GNU `reset_buffer`,
+/// which copies `Vstandard_syntax_table` into every fresh
+/// `buffer->syntax_table` — so from the reader's point of view a
+/// "never-set" slot always behaves like the standard.
 pub(crate) fn syntax_entry_at_char(table: &Value, c: char) -> Option<SyntaxEntry> {
-    let entry = super::chartable::ct_lookup(table, c as i64).ok()?;
+    let effective = if table.is_nil() {
+        ensure_standard_syntax_table_object().unwrap_or(Value::NIL)
+    } else {
+        *table
+    };
+    if effective.is_nil() {
+        return None;
+    }
+    let entry = super::chartable::ct_lookup(&effective, c as i64).ok()?;
     syntax_entry_from_chartable_entry(&entry)
 }
 
@@ -1629,7 +1653,7 @@ pub(crate) fn builtin_matching_paren_in_buffers(
 
     // Look up in the current buffer's syntax table
     if let Some(buf) = buffers.current_buffer() {
-        let entry = buf.syntax_table.get_entry(ch);
+        let entry = SyntaxTable::for_buffer(buf).get_entry(ch);
         if let Some(e) = entry {
             if matches!(e.class, SyntaxClass::Open | SyntaxClass::Close) {
                 if let Some(m) = e.matching_char {
@@ -1748,17 +1772,9 @@ pub(crate) fn builtin_set_syntax_table_in_buffers(
         ));
     }
     let table = args[0];
+    // Matches GNU `Fset_syntax_table` — just bset_syntax_table on the
+    // slot. Motion code reads it live via `SyntaxTable::for_buffer`.
     set_current_buffer_syntax_table_object_in_buffers(buffers, table)?;
-    let current_id = buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    // `SyntaxTable` is a thin wrapper around the chartable Value —
-    // re-pointing is a single copy. Matches GNU `Fset_syntax_table`
-    // which just assigns `bset_syntax_table`.
-    let buf = buffers
-        .get_mut(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.syntax_table = SyntaxTable::from_chartable(table);
     Ok(table)
 }
 
@@ -1815,14 +1831,10 @@ pub(crate) fn modify_syntax_entry_in_buffers(
     if !update_current_buffer_table {
         return Ok(Value::NIL);
     }
-    let compiled = syntax_table_from_chartable(target_table)?;
-    let current_id = buffers
-        .current_buffer_id()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let buf = buffers
-        .get_mut(current_id)
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    buf.syntax_table = compiled;
+    // Current buffer's slot already points at `target_table` (it's the
+    // same chartable we just mutated above via set-char-table-range).
+    // No compiled form to refresh — motion reads the chartable live.
+    let _ = target_table;
     Ok(Value::NIL)
 }
 
@@ -1864,7 +1876,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let class = buf.syntax_table.char_syntax(ch);
+    let class = SyntaxTable::for_buffer(buf).char_syntax(ch);
     Ok(Value::char(class.to_char()))
 }
 
@@ -1916,7 +1928,7 @@ pub(crate) fn builtin_syntax_after_in_buffers(
     };
 
     let entry =
-        effective_syntax_entry_for_char_at_byte(buf, &buf.syntax_table, ch, byte_index, true);
+        effective_syntax_entry_for_char_at_byte(buf, &SyntaxTable::for_buffer(buf), ch, byte_index, true);
     Ok(syntax_entry_to_value(&entry))
 }
 
@@ -1995,7 +2007,7 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64, honor_properties: bool)
             };
             let entry = effective_syntax_entry_for_char_at_byte(
                 buf,
-                &buf.syntax_table,
+                &SyntaxTable::for_buffer(buf),
                 ch,
                 pt,
                 honor_properties,
@@ -2026,7 +2038,7 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64, honor_properties: bool)
         };
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             pt,
             honor_properties,
@@ -2065,7 +2077,7 @@ fn forward_comment_forward(buf: &mut Buffer, count: u64, honor_properties: bool)
                 if let Some(ch2) = buf.char_after(next_pos) {
                     let entry2 = effective_syntax_entry_for_char_at_byte(
                         buf,
-                        &buf.syntax_table,
+                        &SyntaxTable::for_buffer(buf),
                         ch2,
                         next_pos,
                         honor_properties,
@@ -2115,7 +2127,7 @@ fn scan_forward_comment_body(
         };
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             pt,
             honor_properties,
@@ -2154,7 +2166,7 @@ fn scan_forward_comment_body(
                     if let Some(ch2) = buf.char_after(next_pos) {
                         let entry2 = effective_syntax_entry_for_char_at_byte(
                             buf,
-                            &buf.syntax_table,
+                            &SyntaxTable::for_buffer(buf),
                             ch2,
                             next_pos,
                             honor_properties,
@@ -2203,7 +2215,7 @@ fn scan_forward_comment_body(
                 if let Some(ch2) = buf.char_after(next_pos) {
                     let entry2 = effective_syntax_entry_for_char_at_byte(
                         buf,
-                        &buf.syntax_table,
+                        &SyntaxTable::for_buffer(buf),
                         ch2,
                         next_pos,
                         honor_properties,
@@ -2240,7 +2252,7 @@ fn scan_forward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool 
         };
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             pt,
             honor_properties,
@@ -2292,7 +2304,7 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64, honor_properties: bool
             let ch_pos = pt - ch.len_utf8();
             let entry = effective_syntax_entry_for_char_at_byte(
                 buf,
-                &buf.syntax_table,
+                &SyntaxTable::for_buffer(buf),
                 ch,
                 ch_pos,
                 honor_properties,
@@ -2317,7 +2329,7 @@ fn forward_comment_backward(buf: &mut Buffer, count: u64, honor_properties: bool
                         let ch2_pos = prev_pos - ch2.len_utf8();
                         let entry2 = effective_syntax_entry_for_char_at_byte(
                             buf,
-                            &buf.syntax_table,
+                            &SyntaxTable::for_buffer(buf),
                             ch2,
                             ch2_pos,
                             honor_properties,
@@ -2429,7 +2441,7 @@ fn scan_backward_comment_body(
         let ch_pos = pt - ch.len_utf8();
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             ch_pos,
             honor_properties,
@@ -2465,7 +2477,7 @@ fn scan_backward_comment_body(
                     let ch2_pos = prev_pos - ch2.len_utf8();
                     let entry2 = effective_syntax_entry_for_char_at_byte(
                         buf,
-                        &buf.syntax_table,
+                        &SyntaxTable::for_buffer(buf),
                         ch2,
                         ch2_pos,
                         honor_properties,
@@ -2534,7 +2546,7 @@ fn scan_backward_comment_body(
                     let ch2_pos = prev_pos - ch2.len_utf8();
                     let entry2 = effective_syntax_entry_for_char_at_byte(
                         buf,
-                        &buf.syntax_table,
+                        &SyntaxTable::for_buffer(buf),
                         ch2,
                         ch2_pos,
                         honor_properties,
@@ -2590,7 +2602,7 @@ fn scan_backward_comment_fence(buf: &mut Buffer, honor_properties: bool) -> bool
         let ch_pos = pt - ch.len_utf8();
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             ch_pos,
             honor_properties,
@@ -2647,7 +2659,7 @@ pub(crate) fn builtin_backward_prefix_chars_in_buffers(
         let ch_pos = pt - ch.len_utf8();
         let entry = effective_syntax_entry_for_char_at_byte(
             buf,
-            &buf.syntax_table,
+            &SyntaxTable::for_buffer(buf),
             ch,
             ch_pos,
             honor_properties,
@@ -2686,7 +2698,7 @@ pub(crate) fn builtin_forward_word(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
     let new_pos = forward_word_with_options(buf, &table, count, honor_properties);
 
@@ -2721,7 +2733,7 @@ pub(crate) fn builtin_forward_word_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let new_pos = forward_word(buf, &table, count);
 
     let current_id = buffers
@@ -2754,7 +2766,7 @@ pub(crate) fn builtin_backward_word(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
     let new_pos = backward_word_with_options(buf, &table, count, honor_properties);
 
@@ -2790,7 +2802,7 @@ pub(crate) fn builtin_forward_sexp(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let from = buf.point();
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
     let new_pos = scan_sexps_with_options(buf, &table, from, count, honor_properties)
@@ -2828,7 +2840,7 @@ pub(crate) fn builtin_backward_sexp(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let from = buf.point();
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
     // backward-sexp with positive count => scan_sexps with negative count
@@ -2889,7 +2901,7 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
 
     let from_char = if from > 0 { from as usize - 1 } else { 0 };
     let from_byte = buf
@@ -2941,7 +2953,7 @@ pub(crate) fn builtin_scan_sexps(ctx: &mut super::eval::Context, args: Vec<Value
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
 
     let from_char = if from > 0 { from as usize - 1 } else { 0 };
     let from_byte = buf
@@ -3513,7 +3525,7 @@ pub(crate) fn builtin_parse_partial_sexp(
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let oldstate = args.get(4).filter(|v| !v.is_nil());
     let commentstop = parse_commentstop_mode(args.get(5));
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
@@ -3549,7 +3561,7 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
         .buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
 
     let pos = if args.is_empty() || args[0].is_nil() {
         buf.point_char() as i64 + 1
@@ -3645,7 +3657,7 @@ pub(crate) fn builtin_skip_syntax_forward_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos =
         skip_syntax_forward_with_options(buf, &table, &syntax_chars, limit, honor_properties);
@@ -3711,7 +3723,7 @@ pub(crate) fn builtin_skip_syntax_backward_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = buf.syntax_table.clone();
+    let table = SyntaxTable::for_buffer(buf);
     let limit = limit.map(|raw| lisp_pos_to_byte(buf, raw));
     let new_pos =
         skip_syntax_backward_with_options(buf, &table, &syntax_chars, limit, honor_properties);

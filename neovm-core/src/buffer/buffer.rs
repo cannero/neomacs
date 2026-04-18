@@ -22,7 +22,6 @@ use super::shared::SharedUndoState;
 use super::text_props::TextPropertyTable;
 use super::undo;
 use crate::emacs_core::intern::{SymId, intern};
-use crate::emacs_core::syntax::SyntaxTable;
 use crate::emacs_core::value::{RuntimeBindingValue, Value, ValueKind};
 use crate::gc_trace::GcTrace;
 use crate::tagged::gc::with_tagged_heap;
@@ -1440,12 +1439,21 @@ pub struct Buffer {
     pub local_flags: u64,
     /// Overlays attached to the buffer.
     pub overlays: OverlayList,
-    /// Compiled syntax table for character classification. Produced
-    /// from `slots[BUFFER_SLOT_SYNTAX_TABLE]` via
-    /// `syntax_table_from_chartable` whenever the slot changes.
-    pub syntax_table: SyntaxTable,
     /// Shared undo owner for this text.
     pub undo_state: SharedUndoState,
+}
+
+impl Buffer {
+    /// Return the chartable Value stored in this buffer's syntax-table
+    /// slot. Mirrors GNU `BVAR (buf, syntax_table)` — reading directly
+    /// from `buffer->syntax_table` without any compiled shadow form.
+    /// Falls back to `Value::NIL` for fresh buffers; callers that need
+    /// the standard defaults should go through
+    /// `current_buffer_syntax_table_object_in_buffers`, which seeds
+    /// the slot on first access.
+    pub fn syntax_chartable(&self) -> Value {
+        self.slots[BUFFER_SLOT_SYNTAX_TABLE]
+    }
 }
 
 impl Buffer {
@@ -1490,7 +1498,6 @@ impl Buffer {
             // `make-local-variable` flips the bit.
             local_flags: 0,
             overlays: OverlayList::new(),
-            syntax_table: SyntaxTable::new_standard(),
             undo_state: SharedUndoState::new(),
         }
     }

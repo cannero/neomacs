@@ -891,7 +891,8 @@ fn forward_comment_backward_single_line_comments() {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
         // Set up ; as comment start, \n as comment end
-        buf.syntax_table.modify_syntax_entry(
+        let mut tbl = super::SyntaxTable::isolate_for_buffer(buf);
+        tbl.modify_syntax_entry(
             ';',
             SyntaxEntry {
                 class: SyntaxClass::Comment,
@@ -899,7 +900,7 @@ fn forward_comment_backward_single_line_comments() {
                 flags: SyntaxFlags::empty(),
             },
         );
-        buf.syntax_table.modify_syntax_entry(
+        tbl.modify_syntax_entry(
             '\n',
             SyntaxEntry {
                 class: SyntaxClass::EndComment,
@@ -975,7 +976,8 @@ fn forward_comment_backward_stops_at_non_comment() {
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.delete_region(buf.point_min(), buf.point_max());
-        buf.syntax_table.modify_syntax_entry(
+        let mut tbl = super::SyntaxTable::isolate_for_buffer(buf);
+        tbl.modify_syntax_entry(
             ';',
             SyntaxEntry {
                 class: SyntaxClass::Comment,
@@ -983,7 +985,7 @@ fn forward_comment_backward_stops_at_non_comment() {
                 flags: SyntaxFlags::empty(),
             },
         );
-        buf.syntax_table.modify_syntax_entry(
+        tbl.modify_syntax_entry(
             '\n',
             SyntaxEntry {
                 class: SyntaxClass::EndComment,
@@ -1047,7 +1049,7 @@ fn backward_prefix_chars_moves_over_prefix_flag_chars() {
         buf.insert("''foo");
         buf.goto_char(buf.point_min());
         let entry = string_to_syntax(". p").unwrap();
-        buf.syntax_table.modify_syntax_entry('\'', entry);
+        super::SyntaxTable::isolate_for_buffer(buf).modify_syntax_entry('\'', entry);
         buf.goto_char(buf.text.char_to_byte(2));
     }
 
@@ -1286,10 +1288,9 @@ fn parse_partial_sexp_enters_single_char_line_comment_state() {
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
-        buf.syntax_table
-            .modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
-        buf.syntax_table
-            .modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
+        let mut tbl = super::SyntaxTable::isolate_for_buffer(buf);
+        tbl.modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
+        tbl.modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
         buf.delete_region(buf.point_min(), buf.point_max());
         buf.insert(";; x\n");
     }
@@ -1349,10 +1350,9 @@ fn parse_partial_sexp_commentstop_syntax_table_moves_point_across_comment() {
     let mut eval = crate::emacs_core::eval::Context::new();
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
-        buf.syntax_table
-            .modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
-        buf.syntax_table
-            .modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
+        let mut tbl = super::SyntaxTable::isolate_for_buffer(buf);
+        tbl.modify_syntax_entry(';', SyntaxEntry::simple(SyntaxClass::Comment));
+        tbl.modify_syntax_entry('\n', SyntaxEntry::simple(SyntaxClass::EndComment));
         buf.delete_region(buf.point_min(), buf.point_max());
         buf.insert(";; x\nfoo");
         buf.goto_char(buf.point_min());

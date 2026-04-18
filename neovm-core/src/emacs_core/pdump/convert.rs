@@ -1180,7 +1180,14 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
             dump_text_property_table(encoder, &TextPropertyTable::new())
         },
         overlays: dump_overlay_list(encoder, &buf.overlays),
-        syntax_table: dump_syntax_table(&buf.syntax_table),
+        // Syntax table lives in `buf.slots[BUFFER_SLOT_SYNTAX_TABLE]`
+        // (serialized via the slots Vec below). No compiled form to
+        // dump. An empty `DumpSyntaxTable` is emitted to preserve the
+        // bincode field layout until T4 v25 removes the field.
+        syntax_table: DumpSyntaxTable {
+            entries: Vec::new(),
+            parent: None,
+        },
         undo_list: None,
         // Phase 11.1: round-trip the BUFFER_OBJFWD slot table.
         // Previously blocked on the BLV GC trace bug (5699c3569);
@@ -2843,7 +2850,6 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                 })
                 .collect(),
         ),
-        syntax_table: load_syntax_table(&db.syntax_table),
         undo_state: SharedUndoState::from_parts(undo_list, false, false),
     }
 }

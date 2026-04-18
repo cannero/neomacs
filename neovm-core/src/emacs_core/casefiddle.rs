@@ -547,7 +547,7 @@ fn casify_word_in_state(
         let buf = buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let table = buf.syntax_table.clone();
+        let table = crate::emacs_core::syntax::SyntaxTable::for_buffer(buf);
         let pt = buf.point();
         let target = forward_word(buf, &table, n);
         let (beg, end) = if target >= pt {

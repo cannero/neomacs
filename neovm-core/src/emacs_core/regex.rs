@@ -1446,7 +1446,7 @@ pub fn re_search_forward_with_posix(
         }
         CompiledSearchPattern::Emacs(cp) => {
             let syn = BufferSyntaxLookup {
-                syntax_table: &buf.syntax_table,
+                syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
             };
             let range = (limit_rel - start_rel) as isize;
             regex_emacs::re_search(&cp, &text[..limit_rel], start_rel, range, &syn, start_rel).map(
@@ -1536,7 +1536,7 @@ pub fn re_search_backward_with_posix(
         }
         CompiledSearchPattern::Emacs(cp) => {
             let syn = BufferSyntaxLookup {
-                syntax_table: &buf.syntax_table,
+                syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
             };
             // Backward search: negative range means search backward
             let range = -((start_rel - limit_rel) as isize);
@@ -1587,7 +1587,7 @@ pub(crate) fn re_search_forward_lisp_with_posix(
     let limit_rel = limit - region_start;
     let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
     let syn = BufferSyntaxLookup {
-        syntax_table: &buf.syntax_table,
+        syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
     };
     let text_bytes = text.as_bytes();
 
@@ -1637,7 +1637,7 @@ pub(crate) fn re_search_backward_lisp_with_posix(
     let limit_rel = limit - region_start;
     let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
     let syn = BufferSyntaxLookup {
-        syntax_table: &buf.syntax_table,
+        syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
     };
     let text_bytes = text.as_bytes();
 
@@ -1717,7 +1717,7 @@ pub fn looking_at_with_posix(
         }
         CompiledSearchPattern::Emacs(cp) => {
             let syn = BufferSyntaxLookup {
-                syntax_table: &buf.syntax_table,
+                syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
             };
             if let Some((_end, regs)) =
                 regex_emacs::re_match(&cp, &text, start_rel, text.len(), &syn, start_rel)
@@ -1759,7 +1759,7 @@ pub(crate) fn looking_at_lisp_with_posix(
     let start_rel = start - region_start;
     let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
     let syn = BufferSyntaxLookup {
-        syntax_table: &buf.syntax_table,
+        syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
     };
 
     if let Some((_end, regs)) = regex_emacs::re_match(
@@ -2094,6 +2094,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         &buf.buffer_substring_bytes(0, buf.total_bytes()),
         buf.get_multibyte(),
     );
+    let buf_syntax = crate::emacs_core::syntax::SyntaxTable::for_buffer(buf);
     let (_, _, replacement) = compute_replacement_with_syntax(
         newtext,
         fixedcase,
@@ -2101,7 +2102,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         subexp,
         match_data,
         &source,
-        Some(&buf.syntax_table),
+        Some(&buf_syntax),
         case_symbols_as_words,
     )?;
     let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(

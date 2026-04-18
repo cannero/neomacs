@@ -1854,8 +1854,8 @@ pub(crate) struct DefaultSyntaxLookup;
 
 /// Syntax lookup backed by a buffer's actual syntax table.
 /// Used when regex searching within a buffer context.
-pub(crate) struct BufferSyntaxLookup<'a> {
-    pub syntax_table: &'a crate::emacs_core::syntax::SyntaxTable,
+pub(crate) struct BufferSyntaxLookup {
+    pub syntax_table: crate::emacs_core::syntax::SyntaxTable,
 }
 
 impl SyntaxLookup for DefaultSyntaxLookup {
@@ -1882,7 +1882,7 @@ impl SyntaxLookup for DefaultSyntaxLookup {
     }
 }
 
-impl<'a> SyntaxLookup for BufferSyntaxLookup<'a> {
+impl SyntaxLookup for BufferSyntaxLookup {
     fn char_syntax(&self, c: char) -> SyntaxClass {
         self.syntax_table.char_syntax(c)
     }
