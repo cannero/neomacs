@@ -469,25 +469,6 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
     s.len()
 }
 
-/// Return the logical Emacs byte at `byte_pos`.
-pub(crate) fn storage_logical_byte_at(s: &str, byte_pos: usize) -> Option<u8> {
-    if !storage_has_special_units(s) {
-        return s.as_bytes().get(byte_pos).copied();
-    }
-
-    let units = scan_storage_units(s);
-    let mut logical = 0usize;
-    for unit in &units {
-        let next = logical + unit.logical_byte_len;
-        if byte_pos < next {
-            let bytes = storage_unit_logical_bytes(unit);
-            return bytes.get(byte_pos - logical).copied();
-        }
-        logical = next;
-    }
-    None
-}
-
 /// Append the logical Emacs-byte range `[start, end)` from NeoVM string
 /// storage into `out`.
 pub(crate) fn append_storage_logical_byte_range_as_emacs_bytes(
@@ -533,36 +514,6 @@ pub(crate) fn append_storage_logical_byte_range_as_emacs_bytes(
         out.extend_from_slice(&bytes[slice_start..slice_end]);
         logical = next;
     }
-}
-
-/// Advance `byte_pos` to the next logical character boundary.
-pub(crate) fn advance_logical_byte_to_char_boundary(s: &str, byte_pos: usize) -> usize {
-    if !storage_has_special_units(s) {
-        let clamped = byte_pos.min(s.len());
-        if s.is_ascii() {
-            return clamped;
-        }
-        for (idx, _) in s.char_indices() {
-            if idx >= clamped {
-                return idx;
-            }
-        }
-        return s.len();
-    }
-
-    let units = scan_storage_units(s);
-    let mut logical = 0usize;
-    for unit in &units {
-        if byte_pos <= logical {
-            return logical;
-        }
-        let next = logical + unit.logical_byte_len;
-        if byte_pos < next {
-            return next;
-        }
-        logical = next;
-    }
-    logical
 }
 
 pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
