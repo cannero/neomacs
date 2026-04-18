@@ -2966,15 +2966,16 @@ pub(crate) fn builtin_internal_default_process_filter(
     }
 
     // Insert text at point (which is now at the mark position).
-    let text_byte_len = crate::emacs_core::string_escape::storage_byte_len(&text);
     eval.buffers.insert_into_buffer(buf_id, &text);
 
     // The new mark is at point after insertion (insert advances point).
+    // If the buffer vanished out from under us the fallback uses text.len()
+    // as an approximation — exact byte count comes from buf.pt_byte.
     let new_mark = eval
         .buffers
         .get(buf_id)
         .map(|b| b.pt_byte)
-        .unwrap_or(insert_pos + text_byte_len);
+        .unwrap_or(insert_pos + text.len());
 
     // Restore read-only flag.
     if let (Some(buf), Some(ro)) = (eval.buffers.get_mut(buf_id), old_read_only) {
@@ -2982,6 +2983,7 @@ pub(crate) fn builtin_internal_default_process_filter(
     }
 
     // Restore original point, adjusted for the insertion.
+    let text_byte_len = new_mark.saturating_sub(insert_pos);
     if let (Some(buf), Some(old_pt)) = (eval.buffers.get_mut(buf_id), saved_pt) {
         let adjusted_pt = if old_pt >= insert_pos {
             old_pt + text_byte_len
