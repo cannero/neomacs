@@ -1299,23 +1299,38 @@ fn apply_format_prop_spans(result: Value, args: &[Value], spans: &[FormatPropSpa
     }
 }
 
-/// Apply `text-quoting-style` translation to a string.
+/// Apply `text-quoting-style` translation to an Emacs-encoded byte sequence.
 ///
-/// When the style is `curve` (the modern default), grave accent (U+0060)
-/// is replaced with LEFT SINGLE QUOTATION MARK (U+2018) and apostrophe
-/// (U+0027) is replaced with RIGHT SINGLE QUOTATION MARK (U+2019).
-/// This mirrors GNU Emacs's `styled_format` with `message = true`.
-fn apply_text_quoting(s: &str) -> String {
-    // text-quoting-style is always `curve` in NeoVM (see coding.rs).
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '`' => out.push('\u{2018}'),
-            '\'' => out.push('\u{2019}'),
-            _ => out.push(ch),
+/// When the style is `curve` (the modern default), grave accent (U+0060,
+/// ASCII 0x60) is replaced with LEFT SINGLE QUOTATION MARK (U+2018, bytes
+/// [0xE2, 0x80, 0x98]) and apostrophe (U+0027, ASCII 0x27) is replaced
+/// with RIGHT SINGLE QUOTATION MARK (U+2019, bytes [0xE2, 0x80, 0x99]).
+/// Mirrors GNU `styled_format` with `message = true`.
+///
+/// Byte-level scanning is safe: `0x60` and `0x27` are both ASCII (< 0x80)
+/// and therefore cannot appear as continuation bytes in Emacs internal
+/// encoding, nor as overlong-C0/C1 leading bytes (those start at 0xC0).
+///
+/// Returns `(quoted_bytes, substituted)` where `substituted` is true iff
+/// at least one backtick or apostrophe was replaced — the caller uses
+/// this to decide whether a unibyte input must be promoted to multibyte.
+fn apply_text_quoting_bytes(bytes: &[u8]) -> (Vec<u8>, bool) {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut substituted = false;
+    for &b in bytes {
+        match b {
+            b'`' => {
+                out.extend_from_slice(&[0xE2, 0x80, 0x98]);
+                substituted = true;
+            }
+            b'\'' => {
+                out.extend_from_slice(&[0xE2, 0x80, 0x99]);
+                substituted = true;
+            }
+            _ => out.push(b),
         }
     }
-    out
+    (out, substituted)
 }
 
 pub(crate) fn builtin_format_message(
@@ -1327,12 +1342,17 @@ pub(crate) fn builtin_format_message(
     match formatted.kind() {
         ValueKind::String => {
             let string = formatted.as_lisp_string().expect("string");
-            let rendered = super::runtime_string_from_lisp_string(string);
-            let quoted = apply_text_quoting(&rendered);
-            Ok(Value::heap_string(super::runtime_string_to_lisp_string(
-                &quoted,
-                runtime_string_result_multibyte(string.is_multibyte(), &quoted),
-            )))
+            let (quoted_bytes, substituted) = apply_text_quoting_bytes(string.as_bytes());
+            // Quote substitution emits U+2018/U+2019 (3-byte UTF-8), so a
+            // unibyte input with actual substitutions must be promoted to
+            // multibyte. Without substitutions, preserve the input's flag
+            // (raw 0xFF in a unibyte string stays unibyte).
+            let result = if string.is_multibyte() || substituted {
+                crate::heap_types::LispString::from_emacs_bytes(quoted_bytes)
+            } else {
+                crate::heap_types::LispString::from_unibyte(quoted_bytes)
+            };
+            Ok(Value::heap_string(result))
         }
         _other => Ok(formatted),
     }
