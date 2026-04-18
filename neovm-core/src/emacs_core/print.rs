@@ -7,8 +7,7 @@ use std::fmt::Write as _;
 use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::intern::{SymId, lookup_interned_lisp_string, resolve_sym, resolve_sym_lisp_string};
 use super::string_escape::{
-    format_lisp_string, format_lisp_string_bytes, format_lisp_string_bytes_emacs,
-    format_lisp_string_bytes_inner, format_lisp_string_emacs, format_lisp_string_with_options,
+    format_lisp_string_bytes_emacs, format_lisp_string_emacs, format_lisp_string_with_options,
 };
 use super::value::{
     HashTableTest, StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
