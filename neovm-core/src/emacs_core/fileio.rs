@@ -2403,8 +2403,6 @@ pub(crate) fn find_file_name_handler_lisp(
         Some(v) if v.is_cons() => *v,
         _ => return Value::NIL,
     };
-    let filename_runtime = super::builtins::runtime_string_from_lisp_string(filename);
-
     // Compute the inhibit list lazily — only consulted when operation
     // matches inhibit-file-name-operation.
     let mut inhibited: Option<Value> = None;
@@ -2427,7 +2425,7 @@ pub(crate) fn find_file_name_handler_lisp(
         }
         let regexp_val = entry.cons_car();
         let handler = entry.cons_cdr();
-        let Some(regexp) = regexp_val.as_utf8_str() else {
+        let Some(regexp) = regexp_val.as_lisp_string() else {
             continue;
         };
 
@@ -2457,11 +2455,18 @@ pub(crate) fn find_file_name_handler_lisp(
 
         // Match the regexp against the filename.
         let mut match_data: Option<crate::emacs_core::regex::MatchData> = None;
-        let match_pos =
-            match super::regex::string_match_full(regexp, &filename_runtime, 0, &mut match_data) {
-                Ok(Some(pos)) => pos as i64,
-                _ => continue,
-            };
+        let match_pos = match super::regex::string_match_full_with_case_fold_source_lisp_pattern_posix(
+            regexp,
+            filename,
+            crate::emacs_core::regex::SearchedString::Owned(filename.clone()),
+            0,
+            false,
+            false,
+            &mut match_data,
+        ) {
+            Ok(Some(pos)) => pos as i64,
+            _ => continue,
+        };
 
         if match_pos > best_pos {
             // Skip if this handler is inhibited for the current operation.

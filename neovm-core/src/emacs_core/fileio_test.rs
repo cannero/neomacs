@@ -66,6 +66,23 @@ fn temporary_file_directory_for_eval_accepts_raw_unibyte_string() {
 }
 
 #[test]
+fn find_file_name_handler_matches_raw_unibyte_filename_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let handler = Value::symbol("vm-raw-file-handler");
+    eval.obarray.set_symbol_value(
+        "file-name-handler-alist",
+        Value::list(vec![Value::cons(Value::string("\\`/fake:"), handler)]),
+    );
+
+    let raw_filename = crate::heap_types::LispString::from_unibyte(b"/fake:\xFF".to_vec());
+    assert_eq!(
+        find_file_name_handler_lisp(&eval.obarray, &raw_filename, Value::symbol("file-exists-p")),
+        handler
+    );
+}
+
+#[test]
 fn make_auto_save_file_name_accepts_raw_unibyte_prefix_directory() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
