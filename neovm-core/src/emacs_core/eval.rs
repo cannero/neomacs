@@ -6646,15 +6646,27 @@ impl Context {
         // (eval.c:2631-2640) and CLOSUREP → apply_lambda
         // (eval.c:2715, 3292-3300) which both mutate the outer
         // record_in_backtrace entry via `set_backtrace_args`.
+        //
+        // Each evaluated arg is rooted on the specpdl via
+        // `push_specpdl_root` immediately. GNU relies on conservative
+        // stack scanning of its `SAFE_ALLOCA_LISP (vals, numargs)`
+        // array; neomacs uses exact GC, so a local `Vec<Value>` is
+        // invisible to the tracer. If a later arg evaluator triggers
+        // GC, an unrooted earlier arg would be collected. The roots
+        // are unwound once `set_backtrace_args_evalled` transfers
+        // ownership to the outer frame, which is itself GC-traced.
         let mut args = Vec::new();
+        let roots_base = self.specpdl.len();
         let mut cursor = original_args;
         while cursor.is_cons() {
             let arg_form = cursor.cons_car();
             let arg_val = self.eval_sub(arg_form)?;
+            self.push_specpdl_root(arg_val);
             args.push(arg_val);
             cursor = cursor.cons_cdr();
         }
         self.set_backtrace_args_evalled(outer_bt_count, &args);
+        self.unbind_to(roots_base);
 
         self.maybe_gc_and_quit()?;
         self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
@@ -8022,19 +8034,42 @@ impl Context {
         self.sf_unwind_protect_value_named("unwind-protect", tail)
     }
 
-    fn sf_unwind_protect_value_named(&mut self, _call_name: &str, tail: Value) -> EvalResult {
-        if tail.is_nil() {
-            return Ok(Value::NIL);
+    fn sf_unwind_protect_value_named(&mut self, call_name: &str, tail: Value) -> EvalResult {
+        // GNU eval.c:1461 declares `unwind-protect` with min_args=1.
+        // The generic arity check in GNU `eval_sub` (eval.c:2612) runs
+        // for every SUBRP including UNEVALLED. Neomacs skips that check
+        // for special forms (dispatch_kind != SpecialForm at
+        // eval.rs:6599) so each special form validates itself -- see
+        // `sf_condition_case_value_named`.
+        let nargs = self.value_list_len_or_error(tail)?;
+        if nargs < 1 {
+            return Err(signal(
+                "wrong-number-of-arguments",
+                vec![Value::symbol(call_name), Value::fixnum(nargs as i64)],
+            ));
         }
         let body = tail.cons_car();
         let cleanup_forms = tail.cons_cdr();
-        let count = self.specpdl.len();
+        // Pre-allocate a `GcRoot` slot BELOW the `UnwindProtect` so
+        // the body result is GC-rooted during cleanup. `unbind_to`
+        // pops top-down, so when the `UnwindProtect` entry runs
+        // cleanup the `GcRoot` slot beneath it is still on the stack
+        // and visible to the tracer. GNU relies on conservative stack
+        // scanning of a C local `val`; neomacs uses exact GC and
+        // needs the value on specpdl.
+        let root_slot = self.specpdl.len();
+        self.specpdl.push(SpecBinding::GcRoot { value: Value::NIL });
         self.specpdl.push(SpecBinding::UnwindProtect {
             forms: cleanup_forms,
             lexenv: self.lexenv,
         });
         let result = self.eval_sub(body);
-        self.unbind_to(count);
+        if let Ok(v) = result {
+            if let Some(SpecBinding::GcRoot { value }) = self.specpdl.get_mut(root_slot) {
+                *value = v;
+            }
+        }
+        self.unbind_to(root_slot);
         result
     }
 
