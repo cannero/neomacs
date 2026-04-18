@@ -466,6 +466,30 @@ impl BufferText {
         storage.gap = GapBuffer::from_emacs_bytes(text.as_bytes(), text.is_multibyte());
         storage.layout = Self::layout_from_gap(&storage.gap);
         storage.text_props = text_props;
+        // Chain-side drift fix: the caller (set-buffer-multibyte) remapped
+        // the MarkerEntry Vec wholesale; the chain's MarkerData positions
+        // still hold pre-remap values. Mirror the Vec's new (byte, char)
+        // into each chain node by matching on marker_id. Pre-T6 the chain
+        // is not read, but T6 flips readers so the drift must be
+        // eliminated now.
+        //
+        // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
+        // `markers_head` until null. Each non-null node was spliced in via
+        // `chain_splice_at_head`, so its `data.next_marker` is a valid
+        // chain link or null.
+        let mut curr = storage.markers_head;
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                if let Some(id) = data.marker_id {
+                    if let Some(entry) = markers.iter().find(|m| m.id == id) {
+                        data.bytepos = entry.byte_pos;
+                        data.charpos = entry.char_pos;
+                    }
+                }
+                curr = data.next_marker;
+            }
+        }
         storage.markers = markers;
         // Wholesale content replacement: invalidate position caches. If the new
         // content happens to have the same (total_chars, total_bytes) as the old,
@@ -684,6 +708,30 @@ impl BufferText {
         if byte_len == 0 {
             return;
         }
+        // Chain-side update. MarkerData bytepos/charpos become authoritative in T6.
+        {
+            let storage = self.storage.borrow();
+            let mut curr = storage.markers_head;
+            // SAFETY: `curr` walks live chain-owned MarkerObj pointers from
+            // `markers_head` until null. Each non-null node was spliced in via
+            // `chain_splice_at_head`, so its `data.next_marker` is a valid
+            // chain link or null.
+            unsafe {
+                while !curr.is_null() {
+                    let data = &mut (*curr).data;
+                    if data.bytepos > insert_pos {
+                        data.bytepos += byte_len;
+                        data.charpos += char_len;
+                    } else if data.bytepos == insert_pos && data.insertion_type {
+                        // insertion_type == true means "after" in GNU terms.
+                        data.bytepos += byte_len;
+                        data.charpos += char_len;
+                    }
+                    curr = data.next_marker;
+                }
+            }
+        }
+        // Legacy Vec side (deleted in T7).
         for marker in &mut self.storage.borrow_mut().markers {
             if marker.byte_pos > insert_pos {
                 marker.byte_pos += byte_len;
@@ -708,6 +756,26 @@ impl BufferText {
         }
         let byte_len = end - start;
         let char_len = end_char - start_char;
+        // Chain-side update.
+        {
+            let storage = self.storage.borrow();
+            let mut curr = storage.markers_head;
+            // SAFETY: same invariant as adjust_markers_for_insert.
+            unsafe {
+                while !curr.is_null() {
+                    let data = &mut (*curr).data;
+                    if data.bytepos >= end {
+                        data.bytepos -= byte_len;
+                        data.charpos -= char_len;
+                    } else if data.bytepos > start {
+                        data.bytepos = start;
+                        data.charpos = start_char;
+                    }
+                    curr = data.next_marker;
+                }
+            }
+        }
+        // Legacy Vec side.
         for marker in &mut self.storage.borrow_mut().markers {
             if marker.byte_pos >= end {
                 marker.byte_pos -= byte_len;
@@ -723,6 +791,23 @@ impl BufferText {
         if byte_len == 0 {
             return;
         }
+        // Chain-side update.
+        {
+            let storage = self.storage.borrow();
+            let mut curr = storage.markers_head;
+            // SAFETY: same invariant as adjust_markers_for_insert.
+            unsafe {
+                while !curr.is_null() {
+                    let data = &mut (*curr).data;
+                    if data.bytepos == pos {
+                        data.bytepos += byte_len;
+                        data.charpos += char_len;
+                    }
+                    curr = data.next_marker;
+                }
+            }
+        }
+        // Legacy Vec side.
         for marker in &mut self.storage.borrow_mut().markers {
             if marker.byte_pos == pos {
                 marker.byte_pos += byte_len;
