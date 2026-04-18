@@ -1482,6 +1482,31 @@ fn test_builtin_access_file_semantics() {
     }
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_access_file_preserves_raw_unibyte_filename_in_errors() {
+    crate::test_utils::init_test_tracing();
+    let raw_missing = raw_temp_path(b"neovm-access-missing-\xFF");
+    let _ = fs::remove_file(&raw_missing);
+    let raw_value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        raw_missing.as_os_str().as_bytes().to_vec(),
+    ));
+
+    let err = call_fileio_builtin!(builtin_access_file, vec![raw_value, Value::string("read")])
+        .expect_err("missing raw-byte file should signal");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "file-missing");
+            assert_eq!(sig.data.first(), Some(&Value::string("read")));
+            let path = sig.data.last().expect("raw filename in signal data");
+            let string = path.as_lisp_string().expect("raw filename string");
+            assert!(!string.is_multibyte(), "expected unibyte filename");
+            assert_eq!(string.as_bytes(), raw_missing.as_os_str().as_bytes());
+        }
+        other => panic!("expected file-missing signal, got {:?}", other),
+    }
+}
+
 #[test]
 fn test_builtin_file_modes_semantics() {
     crate::test_utils::init_test_tracing();
@@ -1506,6 +1531,81 @@ fn test_builtin_file_modes_semantics() {
         call_fileio_builtin!(builtin_file_modes, vec![Value::string(&path_str), Value::T]).unwrap();
     assert!(with_flag.is_fixnum());
     delete_file(&path_str).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_file_modes_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let path = raw_temp_path(b"neovm-file-modes-\xFF");
+    let _ = fs::remove_file(&path);
+    fs::write(&path, b"x").unwrap();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ));
+
+    let mode = call_fileio_builtin!(builtin_file_modes, vec![value]).unwrap();
+    assert!(mode.is_fixnum());
+
+    let _ = fs::remove_file(&path);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_file_predicates_handle_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let base = raw_temp_path(b"neovm-preds-\xFF");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let file = base.join(std::ffi::OsStr::from_bytes(b"file-\xFF"));
+    fs::write(&file, b"x").unwrap();
+    let file_value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        file.as_os_str().as_bytes().to_vec(),
+    ));
+    let dir_value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        base.as_os_str().as_bytes().to_vec(),
+    ));
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&file).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&file, perms).unwrap();
+    }
+
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_exists_p, vec![file_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_readable_p, vec![file_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_writable_p, vec![file_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_regular_p, vec![file_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_executable_p, vec![file_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_directory_p, vec![dir_value]).unwrap(),
+        Value::T
+    );
+    assert_eq!(
+        call_fileio_builtin!(builtin_file_accessible_directory_p, vec![dir_value]).unwrap(),
+        Value::T
+    );
+
+    let _ = fs::remove_file(&file);
+    let _ = fs::remove_dir_all(&base);
 }
 
 #[test]
@@ -1562,6 +1662,48 @@ fn test_builtin_set_file_modes_semantics() {
     );
 
     delete_file(&path_str).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_set_file_modes_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let path = raw_temp_path(b"neovm-set-file-modes-\xFF");
+    let _ = fs::remove_file(&path);
+    fs::write(&path, b"x").unwrap();
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ));
+
+    call_fileio_builtin!(builtin_set_file_modes, vec![value, Value::fixnum(0o600)])
+        .expect("set-file-modes should handle raw-byte paths");
+    let mode = call_fileio_builtin!(builtin_file_modes, vec![value]).unwrap();
+    assert_eq!(mode.as_int(), Some(0o600));
+
+    let _ = fs::remove_file(&path);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_set_file_modes_preserves_raw_unibyte_filename_in_errors() {
+    crate::test_utils::init_test_tracing();
+    let missing = raw_temp_path(b"neovm-set-file-modes-missing-\xFF");
+    let _ = fs::remove_file(&missing);
+    let value = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        missing.as_os_str().as_bytes().to_vec(),
+    ));
+
+    let err = call_fileio_builtin!(builtin_set_file_modes, vec![value, Value::fixnum(0o600)])
+        .expect_err("missing raw-byte file should signal");
+    match err {
+        Flow::Signal(sig) => {
+            let path = sig.data.last().expect("raw filename in chmod signal");
+            let string = path.as_lisp_string().expect("raw filename string");
+            assert!(!string.is_multibyte(), "expected unibyte filename");
+            assert_eq!(string.as_bytes(), missing.as_os_str().as_bytes());
+        }
+        other => panic!("expected signal, got {:?}", other),
+    }
 }
 
 #[test]

@@ -1909,6 +1909,223 @@ fn signal_file_action_error(err: std::io::Error, action: &str, path: &str) -> Fl
     )
 }
 
+fn signal_file_action_error_value(err: std::io::Error, action: &str, path: Value) -> Flow {
+    signal(
+        file_error_symbol(err.kind()),
+        vec![Value::string(action), Value::string(err.to_string()), path],
+    )
+}
+
+#[cfg(unix)]
+fn path_to_cstring(path: &Path) -> Result<CString, std::ffi::NulError> {
+    CString::new(path.as_os_str().as_bytes())
+}
+
+fn file_exists_path(path: &Path) -> bool {
+    path.exists()
+}
+
+fn file_readable_path(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(c_path) = path_to_cstring(path) else {
+            return false;
+        };
+        unsafe { libc::access(c_path.as_ptr(), libc::R_OK) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::File::open(path).is_ok()
+    }
+}
+
+fn file_writable_path(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(c_path) = path_to_cstring(path) else {
+            return false;
+        };
+        if unsafe { libc::access(c_path.as_ptr(), libc::W_OK) == 0 } {
+            return true;
+        }
+        if std::io::Error::last_os_error().kind() != ErrorKind::NotFound {
+            return false;
+        }
+        let Some(parent) = path.parent() else {
+            return false;
+        };
+        let Ok(c_parent) = path_to_cstring(parent) else {
+            return false;
+        };
+        let mode = libc::W_OK | libc::X_OK;
+        unsafe { libc::access(c_parent.as_ptr(), mode) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    {
+        if path.exists() {
+            fs::OpenOptions::new().write(true).open(path).is_ok()
+        } else {
+            match path.parent() {
+                Some(parent) if parent.exists() => {
+                    let test_path = parent.join(".neovm_write_test");
+                    match fs::File::create(&test_path) {
+                        Ok(_) => {
+                            let _ = fs::remove_file(&test_path);
+                            true
+                        }
+                        Err(_) => false,
+                    }
+                }
+                _ => false,
+            }
+        }
+    }
+}
+
+fn file_accessible_directory_path(path: &Path) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        let Ok(c_path) = path_to_cstring(path) else {
+            return false;
+        };
+        let mode = libc::R_OK | libc::X_OK;
+        unsafe { libc::access(c_path.as_ptr(), mode) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::read_dir(path).is_ok()
+    }
+}
+
+fn file_executable_path(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        let Ok(c_path) = path_to_cstring(path) else {
+            return false;
+        };
+        unsafe { libc::access(c_path.as_ptr(), libc::X_OK) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    {
+        path.exists()
+    }
+}
+
+fn access_file_path(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let c_path = path_to_cstring(path).map_err(|err| {
+            std::io::Error::new(
+                ErrorKind::InvalidInput,
+                format!("embedded NUL in file name: {err}"),
+            )
+        })?;
+        if unsafe { libc::access(c_path.as_ptr(), libc::R_OK) == 0 } {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        fs::File::open(path).map(|_| ())
+    }
+}
+
+fn file_directory_path(path: &Path) -> bool {
+    path.is_dir()
+}
+
+fn file_regular_path(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn file_name_case_insensitive_path(path: &Path) -> bool {
+    let mut probe = path.to_path_buf();
+    while !probe.exists() {
+        if !probe.pop() || probe.as_os_str().is_empty() {
+            return false;
+        }
+    }
+    #[cfg(windows)]
+    {
+        true
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+fn file_modes_path(path: &Path, nofollow: bool) -> Option<u32> {
+    let meta = if nofollow {
+        fs::symlink_metadata(path).ok()?
+    } else {
+        fs::metadata(path).ok()?
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Some(meta.permissions().mode() & 0o7777)
+    }
+    #[cfg(not(unix))]
+    {
+        Some(if meta.permissions().readonly() {
+            0o444
+        } else {
+            0o644
+        })
+    }
+}
+
+fn set_file_modes_path(path: &Path, mode: i64, nofollow: bool) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if nofollow {
+            let c_path = path_to_cstring(path).map_err(|err| {
+                std::io::Error::new(
+                    ErrorKind::InvalidInput,
+                    format!("embedded NUL in file name: {err}"),
+                )
+            })?;
+            let result = unsafe {
+                libc::fchmodat(
+                    libc::AT_FDCWD,
+                    c_path.as_ptr(),
+                    (mode as libc::mode_t) & 0o7777,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            if result == 0 {
+                Ok(())
+            } else {
+                Err(std::io::Error::last_os_error())
+            }
+        } else {
+            fs::set_permissions(path, fs::Permissions::from_mode((mode as u32) & 0o7777))
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = nofollow;
+        let mut perms = fs::metadata(path)?.permissions();
+        let writable = (mode & 0o222) != 0;
+        perms.set_readonly(!writable);
+        fs::set_permissions(path, perms)
+    }
+}
+
 fn set_file_times_compat(
     filename: &str,
     timestamp: Option<(i64, i64)>,
@@ -1990,11 +2207,17 @@ pub(crate) fn builtin_access_file(eval: &mut Context, args: Vec<Value>) -> EvalR
         return Ok(result);
     }
     expect_args("access-file", &args, 2)?;
-    let filename = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &filename);
+    let path = lisp_file_name_to_path_buf(&resolved);
     let operation = expect_string_strict(&args[1])?;
-    match fs::metadata(&filename) {
+    match access_file_path(&path) {
         Ok(_) => Ok(Value::NIL),
-        Err(err) => Err(signal_file_action_error(err, &operation, &filename)),
+        Err(err) => Err(signal_file_action_error_value(
+            err,
+            &operation,
+            Value::heap_string(filename),
+        )),
     }
 }
 
@@ -2005,9 +2228,11 @@ pub(crate) fn builtin_file_exists_p(eval: &mut Context, args: Vec<Value>) -> Eva
         return Ok(result);
     }
     expect_args("file-exists-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_exists_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_exists_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-readable-p FILENAME)` — resolves FILENAME against
@@ -2017,9 +2242,11 @@ pub(crate) fn builtin_file_readable_p(eval: &mut Context, args: Vec<Value>) -> E
         return Ok(result);
     }
     expect_args("file-readable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_readable_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_readable_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-writable-p FILENAME)`
@@ -2028,9 +2255,11 @@ pub(crate) fn builtin_file_writable_p(eval: &mut Context, args: Vec<Value>) -> E
         return Ok(result);
     }
     expect_args("file-writable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_writable_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_writable_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-accessible-directory-p FILENAME)`
@@ -2042,9 +2271,11 @@ pub(crate) fn builtin_file_accessible_directory_p(
         return Ok(result);
     }
     expect_args("file-accessible-directory-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_accessible_directory_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_accessible_directory_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-executable-p FILENAME)`
@@ -2053,9 +2284,11 @@ pub(crate) fn builtin_file_executable_p(eval: &mut Context, args: Vec<Value>) ->
         return Ok(result);
     }
     expect_args("file-executable-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_executable_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_executable_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-acl FILENAME)` — stub returning nil. Native ACL support
@@ -2137,9 +2370,11 @@ pub(crate) fn builtin_file_directory_p(eval: &mut Context, args: Vec<Value>) -> 
         return Ok(result);
     }
     expect_args("file-directory-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_directory_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_directory_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// Context-aware variant of `file-regular-p` that resolves relative paths
@@ -2150,9 +2385,11 @@ pub(crate) fn builtin_file_regular_p(eval: &mut Context, args: Vec<Value>) -> Ev
         return Ok(result);
     }
     expect_args("file-regular-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_regular_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_regular_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-symlink-p FILENAME)`
@@ -2184,9 +2421,11 @@ pub(crate) fn builtin_file_name_case_insensitive_p(
         return Ok(result);
     }
     expect_args("file-name-case-insensitive-p", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    Ok(Value::bool_val(file_name_case_insensitive_p(&filename)))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    Ok(Value::bool_val(file_name_case_insensitive_path(
+        &lisp_file_name_to_path_buf(&filename),
+    )))
 }
 
 /// `(file-newer-than-file-p FILE1 FILE2)`
@@ -2218,9 +2457,12 @@ pub(crate) fn builtin_file_modes(eval: &mut Context, args: Vec<Value>) -> EvalRe
             ],
         ));
     }
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    match file_modes(&filename) {
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    let nofollow = args
+        .get(1)
+        .is_some_and(|flag| flag.as_symbol_name() == Some("nofollow"));
+    match file_modes_path(&lisp_file_name_to_path_buf(&filename), nofollow) {
         Some(mode) => Ok(Value::fixnum(mode as i64)),
         None => Ok(Value::NIL),
     }
@@ -2241,26 +2483,15 @@ pub(crate) fn builtin_set_file_modes(eval: &mut Context, args: Vec<Value>) -> Ev
             ],
         ));
     }
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &filename);
     let mode = expect_fixnum(&args[1])?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let perms = fs::Permissions::from_mode(mode as u32);
-        fs::set_permissions(&filename, perms)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
-    }
-    #[cfg(not(unix))]
-    {
-        let mut perms = fs::metadata(&filename)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?
-            .permissions();
-        let writable = (mode & 0o222) != 0;
-        perms.set_readonly(!writable);
-        fs::set_permissions(&filename, perms)
-            .map_err(|err| signal_file_action_error(err, "Doing chmod", &filename))?;
-    }
+    let nofollow = args
+        .get(2)
+        .is_some_and(|flag| flag.as_symbol_name() == Some("nofollow"));
+    set_file_modes_path(&lisp_file_name_to_path_buf(&resolved), mode, nofollow).map_err(|err| {
+        signal_file_action_error_value(err, "Doing chmod", Value::heap_string(resolved))
+    })?;
     Ok(Value::NIL)
 }
 
