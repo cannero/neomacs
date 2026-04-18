@@ -2,94 +2,104 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Funnel every Lisp call through one `eval_sub` analog that pushes exactly one mutable backtrace frame per call, mirroring GNU eval.c:2585. Delete the ~8 opportunistic dispatch-site pushes (`push_backtrace_frame` / `push_backtrace_arg`) that currently approximate GNU behavior but leave coverage gaps every time a new dispatcher is added.
+**Goal:** Make neomacs's backtrace model match GNU eval.c's invariant that **every `eval_sub` call pushes exactly one mutable backtrace frame**, phase-transitioned from UNEVALLED to EVALD via in-place mutation. Close the three specific drifts from GNU after commit `34036a7e8`.
 
 **Tech stack:** Rust (neovm-core crate).
 
-**Context / reference implementation:** `/home/exec/Projects/github.com/emacs-mirror/emacs/src/eval.c` — specifically `eval_sub` (eval.c:2568-2760), `record_in_backtrace` + `set_backtrace_args` (eval.c:121-156, 2638, 2660, 3299), `Ffuncall` (eval.c:3155-3300), and `backtrace_frame_apply` (eval.c:3984-4000).
+**Reference implementation:** `/home/exec/Projects/github.com/emacs-mirror/emacs/src/eval.c` — `eval_sub` (eval.c:2567-2760), `record_in_backtrace` + `set_backtrace_args` (eval.c:121-156, 2638, 2660, 3299), `Ffuncall` (eval.c:3152-3185), `backtrace_frame_apply` (eval.c:3984-4000), `apply_lambda` (eval.c:3281-3300).
 
 ---
 
-## Motivation
+## Correcting my earlier audit
 
-The surgical fix in `34036a7e8` closed the user-visible special-form gap (UNEVALLED frames now appear) but preserved three structural drifts from GNU:
+An earlier draft of this plan claimed "8 scattered push sites, each deciding independently to push." That was inaccurate. Actual neomacs architecture:
 
-1. **Coverage is opportunistic, not universal.** 8 separate `push_backtrace_frame` call sites (eval.rs:6532, 6544, 6613, 8959, 8999, 9014, 9406, 9427; bytecode/vm.rs:3443) each decide independently to push. Any new dispatcher added later silently omits the frame.
-2. **Frames are immutable post-push.** GNU pushes once with UNEVALLED shape and calls `set_backtrace_args(count, argvals, numargs)` to mutate the SAME slot to EVALD after arg evaluation. Neomacs pushes the EVALD shape at dispatch time, producing the same observable stack but losing the phase-transition invariant.
-3. **`Ffuncall` has no analog.** GNU's `Ffuncall` (eval.c:3171) pushes its own frame — that's what shows in bytecode `call` opcode traces and `apply`/`funcall` builtins. Neomacs scatters this across `funcall_general`, `apply_named_callable_by_id`, and the bytecode `call` opcode. Each must remember to push.
+| GNU site | Neomacs counterpart | Status |
+|---|---|---|
+| `Ffuncall` pushes one EVALD frame (eval.c:3171) | `funcall_general` pushes via `push_backtrace_frame` (eval.rs:9048-9054) | Architecturally equivalent |
+| Bytecode `call` opcode → Ffuncall → one frame | `bytecode::Vm` pushes at vm.rs:3443 | Architecturally equivalent |
+| `apply_lambda` mutates outer eval_sub frame (eval.c:3299) | `apply_internal` pushes its own frame (eval.rs:8987) | **Divergent — extra push** |
+| `eval_sub` pushes UNEVALLED at entry (eval.c:2585) | `eval_sub_cons` has no outer push for non-special-form paths | **Divergent — missing push** |
+| Macro path: outer eval_sub + inner apply1 → two frames | Macro path: inner push only (eval.rs:6548, 6560) | **Divergent — missing outer** |
 
-A single universal entry point would also simplify: the forthcoming advice integration, `debug_on_next_call`, `running-in-debugger` variable semantics, and any profiler hooks that need to observe call entry/exit.
+The `apply`/`apply_with_frame_function`/`funcall_general`/named-callable pair of variants at eval.rs:8987, 9028, 9048, 9441, 9463 are not independent designs — they all funnel to `funcall_general_untraced`. Consolidating them is housekeeping, not an architectural fix.
+
+---
+
+## What actually diverges
+
+1. **Missing outer eval_sub frame for every non-special-form call.** GNU pushes an UNEVALLED frame at eval_sub entry (eval.c:2583-2585) for every form, including `(car x)` and `(foo (bar) (baz))`. Neomacs only pushes for special forms (post-`34036a7e8`). During arg evaluation, GNU's stack shows `foo` while `bar` runs; neomacs's shows nothing.
+2. **No in-place phase transition.** GNU's `set_backtrace_args` (eval.c:144-156) mutates the specpdl slot from UNEVALLED→EVALD at three sites: SUBRP MANY (eval.c:2638), SUBRP fixed-arity (eval.c:2660), apply_lambda (eval.c:3299). Neomacs has no mutation helper; its macro and apply paths push a *new* EVALD frame, so macro calls get two frames (outer missing + inner pushed) while GNU's macro path gets two frames (outer UNEVALLED + inner Ffuncall-EVALD).
+3. **Macro path labels the outer-equivalent frame EVALD.** Neomacs at eval.rs:6548 pushes `original_fun` with `arg_values` — carrying the macro symbol name but the EVALD shape. GNU would have an outer UNEVALLED frame with the original-args cons PLUS the inner apply1/Ffuncall frame for the macro function.
+
+The user-visible consequence: any elisp that walks the backtrace during arg evaluation (edebug, `trace-function`, a debugger hook inside `(bar)` in the example above) sees a different stack than GNU.
+
+## Observable behaviors that must be preserved
+
+- `backtrace-frame--internal` output for every existing assertion in `misc_test.rs` and elisp callers in `subr.el`.
+- `condition-case` handler invocation ordering (specpdl unwinds in LIFO order, unchanged).
+- `unwind-protect` CLEANUP clause runs even when BODY signals — `quit_regression_test.rs::unbind_to_suppresses_quit_during_unwind_protect_cleanup`.
+- `mapbacktrace` frame ordering (newest first, eval.c:4031-4041).
+- Bytecode `condition-case-debug` marker semantics — `vm_test.rs::vm_condition_case_debug_marker_calls_debugger_before_handler`.
+- The three new UNEVALLED regression tests from `34036a7e8`.
 
 ---
 
 ## Phased approach
 
-### Phase 1: Introduce the single entry point (additive, no deletions)
+### Phase 1: Add `set_backtrace_args_evalled` mutation helper (additive)
 
-- [ ] Add `Context::eval_sub_with_frame(form: Value) -> EvalResult` that does today's `eval_sub` work **plus** pushes an UNEVALLED backtrace frame at entry and pops with `unbind_to(bt_count)` at exit. Model on GNU eval.c:2583-2586.
-- [ ] Add `Context::funcall_with_frame(function, args) -> EvalResult` as the `Ffuncall` analog: pushes an EVALD frame at entry, pops at exit. Model on GNU eval.c:3169-3173.
-- [ ] Add `Context::set_backtrace_args_evalled(count: usize, args: &[Value])` that mutates the topmost `SpecBinding::Backtrace` at `specpdl[count - 1]` in place: clears `unevalled`, replaces `args` vec with the evaluated slice. Model on GNU `set_backtrace_args` (eval.c:144-156).
-- [ ] **Do not** remove existing pushes yet. New entry points coexist with old ones.
+- [ ] Implement `Context::set_backtrace_args_evalled(count: usize, args: &[Value])` that locates `specpdl[count - 1]`, asserts it is a `SpecBinding::Backtrace { unevalled: true, .. }`, and mutates it in place: clears `unevalled`, replaces `args` with a fresh `LispArgVec` populated from the evaluated slice. Model on GNU `set_backtrace_args` (eval.c:144-156). Panic on shape mismatch — this is an internal invariant, not user input.
+- [ ] Unit test: push an UNEVALLED frame, call the mutator, walk the specpdl, confirm the slot now reads as EVALD with the expected args.
 
-### Phase 2: Migrate `eval_sub_cons` to the universal pattern
+### Phase 2: Introduce outer UNEVALLED push in `eval_sub_cons`
 
-- [ ] In `eval_sub_cons`, push the UNEVALLED frame **once** at the very top (before fast-path fastmatches, before function resolution).
-- [ ] After arg evaluation (macro path, subr MANY path, lambda path), call `set_backtrace_args_evalled` to promote in place.
-- [ ] Remove the now-redundant `push_backtrace_frame` calls at eval.rs:6532 (macro), 6544 (cons-cell macro), 6613 (inner apply). These become property of the outer frame.
-- [ ] Remove the new `push_unevalled_backtrace_frame` call added in `34036a7e8` at eval.rs:6522 — the outer push subsumes it.
-- [ ] Extend the probe test added in `34036a7e8` to observe both the UNEVALLED phase (during arg evaluation of a subr body) and the EVALD phase (during the body of a non-special-form function) from the SAME frame.
+- [ ] At the top of `eval_sub_cons` (eval.rs:6442), before the literal-form fast path, capture `bt_count = self.specpdl.len()` and push an UNEVALLED frame with `(original_fun, original_args)`.
+- [ ] At every exit path from `eval_sub_cons`, emit `self.unbind_to(bt_count)` to pop the outer frame.
+  - Early returns in the literal-form fast path (line 6468), the resolved-subr special-form branch (added in `34036a7e8`, line 6527), and the macro/apply paths all need this.
+- [ ] Remove the `push_unevalled_backtrace_frame` + `unbind_to` inserted in `34036a7e8` at eval.rs:6522-6533 — the new outer push subsumes it.
 
-### Phase 3: Migrate `funcall_general` and related
+### Phase 3: Promote the outer frame in place instead of pushing a new inner one
 
-- [ ] Move the `push_backtrace_frame` calls at eval.rs:8959, 8999, 9014 (the three `funcall_*` variants) to a single location inside `funcall_with_frame`. Change the existing callers to route through `funcall_with_frame` instead of calling `push_backtrace_frame` + dispatch.
-- [ ] Do the same for eval.rs:9406, 9427 (`apply_named_callable_by_id_*`).
-- [ ] After migration, all non-bytecode call paths push exactly one frame via `funcall_with_frame`, matching GNU Ffuncall.
-- [ ] Audit `push_backtrace_arg` (eval.rs:8869) — in GNU, incremental arg-by-arg updates go through `set_backtrace_args` at the MANY dispatch (eval.c:2638). Decide: keep as-is (incremental visibility during stepping debuggers) or drop (GNU only updates after full arg eval).
+- [ ] Macro path (eval.rs:6548): replace `push_backtrace_frame(original_fun, &arg_values) + unbind_to` with `set_backtrace_args_evalled(bt_count, &arg_values)`. The outer frame transitions UNEVALLED→EVALD with the evaluated macro args. This matches GNU's behavior closest to eval.c:2752-2754 — except GNU's `apply1` subsequently calls Ffuncall which pushes its OWN inner frame on top. To fully match that, call `funcall_general` (which pushes) rather than `apply_lambda` directly, so a second EVALD frame for the macro function appears. Verify against GNU by diffing live backtraces.
+- [ ] Cons-cell macro path (eval.rs:6560): same treatment.
+- [ ] SUBRP / lambda / bytecode dispatch (the paths that currently go through `apply` from eval_sub_cons): replace the `apply`-call-which-pushes with `apply_untraced`-call-wrapped-by-`set_backtrace_args_evalled`. The outer frame becomes the single frame for this call, matching GNU's eval.c:2638/2660/3299 pattern.
 
-### Phase 4: Migrate bytecode VM
+### Phase 4: Audit `Ffuncall`-entry paths
 
-- [ ] In `bytecode/vm.rs`, replace `self.ctx.push_backtrace_frame(func_val, &args)` at vm.rs:3443 with `self.ctx.funcall_with_frame(func_val, args)`. This centralizes the bytecode `call` opcode's backtrace emission.
-- [ ] Verify that `condition-case`, `unwind-protect`, and `catch` handlers see the same frames they do today — these are tested in `bytecode/vm_test.rs::vm_condition_case_*` and `vm_compiled_unwind_protect_*`.
+These are already close to GNU — they just need to not push a second frame when called from inside `eval_sub_cons` (which now owns the outer frame).
 
-### Phase 5: Delete the legacy API
+- [ ] `funcall_general` (eval.rs:9048-9054): keep the push. This is the Ffuncall entry used by bytecode, `apply`/`funcall` builtins, and any external caller. It runs on its own; no outer frame exists.
+- [ ] `apply_internal` (eval.rs:8987): audit whether its two callers (`apply` and `apply_untraced`) are ever called from inside `eval_sub_cons`. If yes, the outer + inner stacking gives two frames per call — acceptable because GNU does the same when eval_sub invokes Ffuncall-using primitives (`apply`, `funcall`).
+- [ ] `apply_with_frame_function` (eval.rs:9028): consolidate into `apply` with an optional frame-label parameter, or keep separate — housekeeping, not parity-affecting.
+- [ ] Bytecode `call` opcode (vm.rs:3443): keep the push. Matches GNU bytecode → Ffuncall → one frame.
 
-- [ ] Once Phases 2-4 leave `push_backtrace_frame` with zero callers outside `eval_sub_with_frame` and `funcall_with_frame`, make both `push_backtrace_frame` and `push_unevalled_backtrace_frame` private to the eval module (or inline them into the new entry points).
-- [ ] Keep `push_unevalled_backtrace_frame` exposed only to the eval.rs internals; remove the `pub(crate)` visibility.
-- [ ] Update the probe-based regression test in `misc_test.rs` to use only the public entry points.
+### Phase 5: Validation
 
-### Phase 6: Validation
-
-- [ ] Run the three pre-existing failing tests that predate this plan (`vm_byte_position_and_get_byte_use_shared_runtime_state`, `vm_compiled_load_signals_after_gnu_recursive_load_limit`, `vm_composition_and_compute_motion_builtins_use_direct_dispatch`) — this refactor must not regress them further.
-- [ ] Run the full `cargo nextest run -p neovm-core` sweep, routing output to a file per memory `feedback_cargo_nextest_workflow`.
-- [ ] Run `cargo xtask fresh-build` end-to-end and confirm no `.elc` regressions or pdump crashes.
-- [ ] Manual parity check: load the same `.el` file in both neomacs and `src/emacs`, trigger a backtrace (via `(debug)` or uncaught signal), compare frame shapes frame-by-frame.
-
----
-
-## Observable behaviors that MUST be preserved
-
-- `backtrace-frame--internal` output for every existing test in `misc_test.rs` and `subr.el` callers.
-- `condition-case` handler invocation ordering (specpdl unwinds must still pop in LIFO order).
-- `unwind-protect` CLEANUP clause runs even when BODY signals — see `quit_regression_test.rs::unbind_to_suppresses_quit_during_unwind_protect_cleanup`.
-- `mapbacktrace` frame ordering (newest first, per GNU eval.c:4031-4041).
-- Bytecode `condition-case-debug` marker semantics (see `vm_test.rs::vm_condition_case_debug_marker_calls_debugger_before_handler`).
+- [ ] Re-run the three UNEVALLED regression tests from `34036a7e8` (`backtrace_frame_internal_surfaces_unevalled_frame`, `backtrace_frame_internal_surfaces_live_frame`, `eval_sub_cons_pushes_unevalled_frame_for_special_forms`). They should still pass, since the UNEVALLED frame now comes from the outer push.
+- [ ] Add a new probe-based test: `eval_sub_cons_pushes_unevalled_frame_for_every_form` — register a Rust `Subr` probe, evaluate `(foo (probe) (probe))` where `foo` is user-defined, assert probe sees an UNEVALLED `foo` frame during each arg eval.
+- [ ] Run the broader sweep: `cargo nextest run -p neovm-core` (redirect to file per `feedback_cargo_nextest_workflow`).
+- [ ] Manual GNU parity diff: load a file in both `src/emacs -nw -Q` and `neomacs`; trigger `(debug)` inside a macro call; compare frame-by-frame.
+- [ ] Run `cargo xtask fresh-build` end-to-end.
 
 ## Non-goals
 
-- **No new language-visible features.** This is a refactor to match GNU's invariants, not a feature addition.
-- **No changes to `SpecBinding` variants other than `Backtrace`.** `UnwindProtect`, `SaveExcursion`, etc. stay as-is.
-- **No performance work.** If the refactor causes a measurable regression in hot eval paths, that's acceptable for this plan — optimize only if benchmarks show >5% slowdown in real workloads (`fresh-build`, `tui-tests`).
-- **No changes to the `debug_on_next_call` / `Vdebug_on_signal` variables.** These stay wherever they live today.
+- **No consolidation of the `apply`/`apply_with_frame_function`/`funcall_general` variant quartet.** They already funnel to `funcall_general_untraced`; tidying is out of scope for a parity refactor.
+- **No performance work.** Adding one push + unbind_to per `eval_sub_cons` call will measurably slow interpreted code. Accept unless `fresh-build` wall-clock regresses >5%. Bytecode is unchanged by this refactor.
+- **No changes to `SpecBinding` variants other than `Backtrace`.**
+- **No changes to `debug_on_next_call` / `Vdebug_on_signal` plumbing.** Those are orthogonal.
+- **No attempt to unify `eval_sub_cons` with `eval_sub` atoms path.** GNU's eval_sub pushes the frame for the cons-form case only (lines 2564-2565 return early for non-cons); neomacs can keep its split.
 
 ## Risks
 
-- **Frame ordering drift.** If any test asserts an exact backtrace sequence and the refactor shifts frame boundaries (e.g., one outer UNEVALLED frame instead of three scattered EVALD frames), tests will flag it. Fix at root (correct shape) not by adjusting assertions.
-- **Bytecode perf.** `funcall_with_frame` on every bytecode `call` opcode adds one push + one unbind_to per call. GNU measures this cost as negligible; verify on the `vm_bytecode_while_polls_quit_flag` tight-loop case.
-- **Advice / `around` wrappers.** GNU's Ffuncall pushes the frame before the advice layer; any advice-bypass optimizations in `81a116c3a` must still see consistent frames. Re-read that commit before touching `funcall_general`.
+- **Interpreter slowdown.** Outer push + unbind_to on every non-literal form evaluation. GNU accepts this cost; expect the same but verify on bytecomp.el workloads.
+- **Frame ordering assertions.** Any test that counts specpdl entries during a special-form dispatch will see exactly one UNEVALLED frame (same as post-`34036a7e8`). Tests that counted during non-special-form calls will see one new frame where they used to see zero. Fix at the test layer — don't adjust assertions to paper over incorrect-before shapes.
+- **`set_backtrace_args_evalled` shape mismatch panic.** If a refactor leaves a code path that tries to promote a non-UNEVALLED frame, the assertion will fire loudly. That's a feature — better than silent shape corruption.
+- **Macro two-frame behavior.** Phase 3 calls for calling `funcall_general` inside the macro path so a second EVALD frame appears (matching GNU eval.c:2752 apply1). Must verify that the macro expansion still terminates correctly with two frames on the stack.
 
 ## References
 
 - GNU Emacs source: `/home/exec/Projects/github.com/emacs-mirror/emacs/src/eval.c`
-- GNU Emacs binary (31.0.50): `src/emacs` — use for live parity checks
+- GNU Emacs binary (31.0.50): `src/emacs`
 - Surgical fix this plan extends: commit `34036a7e8` (eval/backtrace: record UNEVALLED frames for special-form dispatch)
-- Related quit-architecture refactor: `bf201f48a` (quit: wire bytecode VM + unbind_to + cross-thread C-g signal), `81a116c3a` (quit/advice: regex matcher polling and inline-opcode advice bypass)
+- Related: `bf201f48a`, `81a116c3a` (quit/advice architecture with similar "dispatch-site opportunistic" shape)
