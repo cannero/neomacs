@@ -462,18 +462,6 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
     s.len()
 }
 
-/// Append the logical Emacs-byte range `[start, end)` from NeoVM string
-/// storage into `out`.
-
-pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
-    if !storage_has_special_units(s) {
-        return s.chars().any(|ch| ch as u32 == code);
-    }
-    scan_storage_units(s)
-        .into_iter()
-        .any(|unit| unit.code == code)
-}
-
 fn storage_unit_logical_bytes(unit: &StorageUnit) -> Vec<u8> {
     if unit.logical_byte_len == 1 && unit.code <= 0xFF {
         return vec![unit.code as u8];

@@ -393,8 +393,31 @@ impl BufferText {
         if start >= end {
             return false;
         }
-        let text = self.storage.borrow().gap.text_range(start, end);
-        crate::emacs_core::string_escape::storage_contains_char_code(&text, code)
+        // Walk buffer bytes directly, avoiding the storage-form conversion
+        // previously done through text_range(). For multibyte buffers each
+        // Emacs char is decoded via emacs_char::string_char; for unibyte
+        // buffers each byte is one "character" in the range 0..=0xFF.
+        let mut bytes = Vec::with_capacity(end - start);
+        self.storage
+            .borrow()
+            .gap
+            .copy_bytes_to(start, end, &mut bytes);
+        if self.is_multibyte() {
+            let mut pos = 0;
+            while pos < bytes.len() {
+                let (c, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+                if c == code {
+                    return true;
+                }
+                pos += len.max(1);
+            }
+            false
+        } else {
+            if code > 0xFF {
+                return false;
+            }
+            bytes.iter().any(|&b| b as u32 == code)
+        }
     }
 
     pub fn replace_char_code_same_len_range(
