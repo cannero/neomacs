@@ -27,6 +27,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `make-directory-internal`, `delete-file`, `delete-file-internal`, `delete-directory`, and `delete-directory-internal` now also resolve and hit the filesystem through the byte-preserving file-name path, including raw unibyte file names in error payloads where Neomacs now has the resolved Lisp filename available.
 - `copy-file`, `rename-file`, `add-name-to-file`, and `make-symbolic-link` now follow GNU's `expand_cp_target` shape more closely: handler dispatch happens after GNU-style filename expansion, directory targets pick up the source basename, raw unibyte file names reach the OS through `LispString`/`PathBuf`, and `make-symbolic-link` preserves the link target bytes instead of resolving them through `default-directory`.
 - `file-newer-than-file-p` now mirrors GNU's `expand_and_dir_to_file` flow before handler dispatch and stat, and `set-file-times` now expands to a Lisp filename before handler dispatch and uses the byte-preserving path boundary instead of rebuilding the path through a runtime `String`.
+- `insert-file-contents` and `write-region` now expand the Lisp filename before handler dispatch, return/store resolved Lisp filename values without rebuilding them through `Value::string`, and reach the Unix filesystem through the byte-preserving `LispString`/`PathBuf` boundary for raw unibyte file names.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -43,12 +44,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `src/fileio.c`: file-mutating primitives like `make-directory-internal`, `delete-file-internal`, and `delete-directory-internal` similarly expand to Lisp filenames and call the OS through `ENCODE_FILE`; the remaining Neomacs mutation builtins should converge on the same boundary handling.
 - `src/fileio.c`: two-path file operations (`copy-file`, `rename-file`, `add-name-to-file`, `make-symbolic-link`) do not dispatch handlers on the raw argv pair. They first expand the source and destination Lisp filenames, apply `expand_cp_target` for directory targets, and only then dispatch handlers / cross the `ENCODE_FILE` boundary. `make-symbolic-link` also leaves the target text alone except for the interactive `~` and `/:` adjustments.
 - `src/fileio.c`: `file-newer-than-file-p` uses `expand_and_dir_to_file` on both inputs before handler dispatch and stat, and `set-file-times` similarly expands to a Lisp filename before both handler lookup and `ENCODE_FILE`. The remaining Neomacs path audit should keep matching that "expand first, then dispatch / I/O" boundary.
+- `src/fileio.c`: `insert-file-contents` and `write-region` both expand the file name before handler dispatch; `write-region` also passes the expanded output filename into the handler call while tracking the visit name separately. The remaining Neomacs audit should keep matching that filename/visit split instead of dispatching on raw UTF-8-only strings.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime work, especially `insert-file-contents`, `write-region`, `file-system-info`, and the remaining process-facing helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write work, especially `file-system-info`, `find-file-noselect`, and the remaining process-facing helpers that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---

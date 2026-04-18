@@ -3031,6 +3031,33 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_insert_file_contents_handles_raw_unibyte_filename() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = raw_temp_path(b"neovm-insert-file-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join(std::ffi::OsStr::from_bytes(b"visit-\xFE"));
+    fs::write(&path, b"raw file").unwrap();
+
+    let mut eval = Context::new();
+    let result = builtin_insert_file_contents(&mut eval, vec![raw_path_value(&path), Value::T])
+        .expect("insert-file-contents should accept raw-byte filenames");
+    let parts = list_to_vec(&result).expect("insert-file-contents should return list");
+    assert_unibyte_string_bytes(parts[0], path.as_os_str().as_bytes());
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "raw file");
+    assert_unibyte_string_bytes(buf.file_name_value(), path.as_os_str().as_bytes());
+    assert!(!buf.is_modified());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn test_insert_file_contents_visit_rejects_partial_and_nonempty_visits() {
     crate::test_utils::init_test_tracing();
@@ -3618,6 +3645,46 @@ fn test_write_region_preserves_unibyte_raw_bytes() {
     )
     .expect("write-region string payload should preserve raw bytes");
     assert_eq!(fs::read(&out2_path).unwrap(), vec![0xFE, 0xFF]);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_write_region_handles_raw_unibyte_filename_and_visit() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = raw_temp_path(b"neovm-write-region-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let out_path = dir.join(std::ffi::OsStr::from_bytes(b"buffer-\xFE"));
+
+    let mut eval = Context::new();
+    eval.set_variable("make-backup-files", Value::NIL);
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A']));
+    }
+
+    builtin_write_region(
+        &mut eval,
+        vec![
+            Value::NIL,
+            Value::NIL,
+            raw_path_value(&out_path),
+            Value::NIL,
+            Value::T,
+        ],
+    )
+    .expect("write-region should accept raw-byte filenames");
+
+    assert_eq!(fs::read(&out_path).unwrap(), vec![0xFF, b'A']);
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_unibyte_string_bytes(buf.file_name_value(), out_path.as_os_str().as_bytes());
+    assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
 }

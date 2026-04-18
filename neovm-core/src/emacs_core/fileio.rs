@@ -824,7 +824,7 @@ pub fn write_string_to_file(content: &str, filename: &str, append: bool) -> std:
     } else {
         FileWriteMode::Truncate
     };
-    let file = write_bytes_to_file_with_mode(content.as_bytes(), filename, mode)?;
+    let file = write_bytes_to_file_with_mode(content.as_bytes(), Path::new(filename), mode)?;
     drop(file);
     Ok(())
 }
@@ -839,7 +839,7 @@ enum FileWriteMode {
 /// can optionally `sync_all()` before the handle is dropped.
 fn write_bytes_to_file_with_mode(
     content: &[u8],
-    filename: &str,
+    filename: &Path,
     mode: FileWriteMode,
 ) -> std::io::Result<fs::File> {
     let mut options = fs::OpenOptions::new();
@@ -3759,9 +3759,6 @@ pub(crate) fn builtin_insert_file_contents(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    if let Some(result) = dispatch_file_handler(eval, "insert-file-contents", &args)? {
-        return Ok(result);
-    }
     expect_min_args("insert-file-contents", &args, 1)?;
     expect_max_args("insert-file-contents", &args, 5)?;
 
@@ -3776,8 +3773,19 @@ pub(crate) fn builtin_insert_file_contents(
         .visible_variable_value_or_nil("set-auto-coding-for-load")
         .is_truthy();
 
-    let filename = expect_string_strict(&args[0])?;
-    let resolved = resolve_filename_for_eval(eval, &filename);
+    let resolved = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(resolved.clone()));
+    handler_args.extend_from_slice(&args[1..]);
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "insert-file-contents",
+        Some(&resolved),
+        None,
+        handler_args,
+    )? {
+        return Ok(result);
+    }
     let visit = args.get(1).is_some_and(|v| v.is_truthy());
     let replace_requested = args.get(4).is_some_and(|v| !v.is_nil());
 
@@ -3835,8 +3843,13 @@ pub(crate) fn builtin_insert_file_contents(
         }
     }
 
-    let contents_bytes =
-        fs::read(&resolved).map_err(|e| signal_file_io_path(e, "Opening input file", &resolved))?;
+    let contents_bytes = fs::read(lisp_file_name_to_path_buf(&resolved)).map_err(|err| {
+        signal_file_action_error_value(
+            err,
+            "Opening input file",
+            Value::heap_string(resolved.clone()),
+        )
+    })?;
     let file_len = contents_bytes.len() as i64;
 
     let begin = if args.get(2).is_some_and(|v| !v.is_nil()) {
@@ -3856,7 +3869,7 @@ pub(crate) fn builtin_insert_file_contents(
             vec![
                 Value::string("Read error"),
                 Value::string("Bad address"),
-                Value::string(resolved),
+                Value::heap_string(resolved.clone()),
             ],
         ));
     }
@@ -3899,12 +3912,12 @@ pub(crate) fn builtin_insert_file_contents(
     if visit {
         let _ = eval
             .buffers
-            .set_buffer_file_name(current_id, Value::string(resolved.clone()));
+            .set_buffer_file_name(current_id, Value::heap_string(resolved.clone()));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
     let value = Value::list(vec![
-        Value::string(resolved),
+        Value::heap_string(resolved),
         Value::fixnum(inserted_char_count),
     ]);
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
@@ -4137,26 +4150,40 @@ pub(crate) fn builtin_write_region(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    // The filename is at args[2], not args[0]. Mirrors GNU
-    // `Fwrite_region`'s `Ffind_file_name_handler (filename, Qwrite_region)`
-    // dispatch.
-    if let Some(filename_val) = args.get(2) {
-        if let Some(filename) = filename_val.as_utf8_str() {
-            let op = Value::symbol("write-region");
-            let handler = find_file_name_handler(&eval.obarray, filename, op);
-            if !handler.is_nil() {
+    expect_min_args("write-region", &args, 3)?;
+    expect_max_args("write-region", &args, 7)?;
+    let resolved = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[2])?);
+    let visit_file = match args.get(4) {
+        Some(v) if v.is_t() => Some(resolved.clone()),
+        Some(v) if v.is_string() => {
+            Some(resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(v)?))
+        }
+        _ => None,
+    };
+
+    let op = Value::symbol("write-region");
+    let handler = find_file_name_handler_lisp(&eval.obarray, &resolved, op);
+    if !handler.is_nil() {
+        let mut call_args = Vec::with_capacity(args.len() + 1);
+        call_args.push(op);
+        call_args.extend_from_slice(&args);
+        call_args[3] = Value::heap_string(resolved.clone());
+        return eval.funcall_general(handler, call_args);
+    }
+    if handler.is_nil() {
+        if let Some(visit_arg) = args.get(4).and_then(|value| value.as_lisp_string()) {
+            let visit_handler = find_file_name_handler_lisp(&eval.obarray, visit_arg, op);
+            if !visit_handler.is_nil() {
                 let mut call_args = Vec::with_capacity(args.len() + 1);
                 call_args.push(op);
                 call_args.extend_from_slice(&args);
-                return eval.funcall_general(handler, call_args);
+                call_args[3] = Value::heap_string(resolved.clone());
+                return eval.funcall_general(visit_handler, call_args);
             }
         }
     }
 
-    expect_min_args("write-region", &args, 3)?;
-    expect_max_args("write-region", &args, 7)?;
-    let filename = expect_string_strict(&args[2])?;
-    let resolved = resolve_filename_for_eval(eval, &filename);
+    let resolved_path = lisp_file_name_to_path_buf(&resolved);
     let append_mode = match args.get(3) {
         Some(value) if value.is_fixnum() || value.is_char() => {
             FileWriteMode::Seek(expect_file_offset(value)? as u64)
@@ -4164,16 +4191,9 @@ pub(crate) fn builtin_write_region(
         Some(value) if value.is_truthy() => FileWriteMode::Append,
         _ => FileWriteMode::Truncate,
     };
-    let visit_path = match args.get(4) {
-        Some(v) if v.is_t() => Some(resolved.clone()),
-        Some(v) if v.is_string() => {
-            Some(resolve_filename_for_eval(eval, &expect_string_strict(v)?))
-        }
-        _ => None,
-    };
     let current_id = current_buffer_id_or_error(&eval.buffers)?;
 
-    if visit_path.is_some() {
+    if visit_file.is_some() {
         let buf = eval
             .buffers
             .get(current_id)
@@ -4191,7 +4211,12 @@ pub(crate) fn builtin_write_region(
     // --- Backup before save ---
     // Only for truncate mode (not append/seek) when visiting the file.
     if matches!(append_mode, FileWriteMode::Truncate) {
-        backup_file_before_save(&eval.obarray, &mut eval.buffers, current_id, &resolved);
+        backup_file_before_save(
+            &eval.obarray,
+            &mut eval.buffers,
+            current_id,
+            &crate::emacs_core::builtins::runtime_string_from_lisp_string(&resolved),
+        );
     }
 
     let content = write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
@@ -4202,8 +4227,9 @@ pub(crate) fn builtin_write_region(
     let encoded_bytes = crate::encoding::encode_lisp_string(&content, &coding_system);
 
     // --- Write encoded bytes and handle fsync ---
-    let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved, append_mode)
-        .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+    let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved_path, append_mode).map_err(
+        |err| signal_file_action_error_value(err, "Writing to", Value::heap_string(resolved.clone())),
+    )?;
 
     // fsync after write unless write-region-inhibit-fsync is non-nil.
     let inhibit_fsync = eval
@@ -4211,15 +4237,16 @@ pub(crate) fn builtin_write_region(
         .symbol_value("write-region-inhibit-fsync")
         .is_some_and(|v| v.is_truthy());
     if !inhibit_fsync {
-        file.sync_all()
-            .map_err(|e| signal_file_io_path(e, "Writing to", &resolved))?;
+        file.sync_all().map_err(|err| {
+            signal_file_action_error_value(err, "Writing to", Value::heap_string(resolved.clone()))
+        })?;
     }
     drop(file);
 
-    if let Some(visit_path) = visit_path {
+    if let Some(visit_path) = visit_file {
         let _ = eval
             .buffers
-            .set_buffer_file_name(current_id, Value::string(visit_path));
+            .set_buffer_file_name(current_id, Value::heap_string(visit_path));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
     }
 
