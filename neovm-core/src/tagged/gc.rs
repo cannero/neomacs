@@ -1313,6 +1313,17 @@ impl TaggedHeap {
 
     /// Sweep non-cons objects: walk intrusive list, free unmarked, rebuild list.
     fn sweep_objects(&mut self) -> usize {
+        // Prune marker_ptrs BEFORE the free walk. The retain closure reads
+        // `header.gc.marked` on each marker, and that bit is only valid
+        // while the allocation is live. Once the free walk below drops an
+        // unmarked MarkerObj, reading its header is a use-after-free.
+        // Mirrors GNU Emacs where markers are unlinked from the buffer's
+        // marker chain before being freed (buffer.c unchain_marker).
+        self.marker_ptrs.retain(|ptr| unsafe {
+            let header = &(*(*ptr)).header;
+            header.gc.marked
+        });
+
         let mut prev: *mut *mut GcHeader = &mut self.all_objects;
         let mut current = self.all_objects;
         let mut live_bytes = 0usize;
@@ -1333,16 +1344,6 @@ impl TaggedHeap {
                 }
             }
         }
-
-        // Prune marker_ptrs: remove dangling pointers to freed MarkerObj
-        // allocations. Without this, clear_markers_for_buffers() would
-        // write to freed memory, corrupting the heap. Mirrors GNU Emacs
-        // where markers are unlinked from the buffer's marker chain
-        // before being freed (buffer.c unchain_marker).
-        self.marker_ptrs.retain(|ptr| unsafe {
-            let header = &(*(*ptr)).header;
-            header.gc.marked
-        });
 
         live_bytes
     }

@@ -120,7 +120,14 @@ pub(crate) fn reset_runtime_for_new_heap(mode: HeapResetMode) {
             // Tests can preconfigure terminal runtime before Context creation.
             crate::emacs_core::terminal::pure::reset_terminal_handle();
         }
-        HeapResetMode::PdumpRestore => {}
+        HeapResetMode::PdumpRestore => {
+            // Terminal handles are Values allocated from the prior
+            // TaggedHeap; that heap has been dropped before this call,
+            // so the cached handles now point at freed memory. Rebuild
+            // them against the new heap to avoid UAF during the next
+            // GC root walk (collect_terminal_gc_roots).
+            crate::emacs_core::terminal::pure::reset_terminal_handle();
+        }
     }
 
     clear_loaded_dump_stats();
