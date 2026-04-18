@@ -3179,14 +3179,14 @@ pub(crate) fn builtin_subst_char_in_region(
         .get(current_id)
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
         .get_multibyte();
-    let from_storage = encode_char_code_for_buffer_storage(from_code as u32, target_multibyte)
+    let from_bytes = encode_char_code_for_buffer_bytes(from_code as u32, target_multibyte)
         .ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), args[2]],
             )
         })?;
-    let to_storage = encode_char_code_for_buffer_storage(to_code as u32, target_multibyte)
+    let to_bytes = encode_char_code_for_buffer_bytes(to_code as u32, target_multibyte)
         .ok_or_else(|| {
             signal(
                 "wrong-type-argument",
@@ -3194,7 +3194,11 @@ pub(crate) fn builtin_subst_char_in_region(
             )
         })?;
 
-    if from_storage.len() != to_storage.len() {
+    // GNU editfns.c:3051+ uses CHAR_BYTES (Emacs internal encoding length)
+    // for this check, not storage-form length. The two agree for standard
+    // Unicode but diverge for raw bytes (C0/C1 overlong vs PUA sentinel)
+    // and nonunicode codepoints.
+    if from_bytes.len() != to_bytes.len() {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -3202,6 +3206,11 @@ pub(crate) fn builtin_subst_char_in_region(
             )],
         ));
     }
+
+    // Buffer internals still speak storage form; reconstruct for the
+    // replacement call (to be migrated separately).
+    let to_storage = encode_char_code_for_buffer_storage(to_code as u32, target_multibyte)
+        .expect("validated above via from_bytes/to_bytes lengths");
 
     let (byte_start, byte_end, needs_change) = {
         let buf = &mut eval
