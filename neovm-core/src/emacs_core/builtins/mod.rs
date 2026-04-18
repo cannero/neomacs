@@ -100,6 +100,27 @@ pub(crate) fn lisp_string_char_codes(string: &crate::heap_types::LispString) -> 
     out
 }
 
+/// Return the character code at character index `idx` in `string`, or
+/// `None` if `idx` is out of range. Unlike `lisp_string_char_codes`, this
+/// does not allocate a `Vec<u32>` — it walks bytes only as far as needed.
+/// Mirrors the byte-level access pattern used by GNU's `Faref` on strings
+/// (fns.c:3108-3123).
+pub(crate) fn lisp_string_char_at(
+    string: &crate::heap_types::LispString,
+    idx: usize,
+) -> Option<u32> {
+    let bytes = string.as_bytes();
+    if !string.is_multibyte() {
+        return bytes.get(idx).map(|&b| b as u32);
+    }
+    if idx >= string.schars() {
+        return None;
+    }
+    let byte_pos = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, idx);
+    let (cp, _) = crate::emacs_core::emacs_char::string_char(&bytes[byte_pos..]);
+    Some(translate_sentinel(cp).unwrap_or(cp))
+}
+
 /// Iterate character codes via a closure (avoids allocation when possible).
 pub(crate) fn for_each_lisp_string_char(
     string: &crate::heap_types::LispString,
