@@ -294,20 +294,6 @@ fn plain_utf8_char_to_byte(s: &str, char_idx: usize) -> usize {
         .unwrap_or(s.len())
 }
 
-/// Losslessly encode potentially non-UTF-8 bytes into internal string storage.
-pub(crate) fn bytes_to_storage_string(bytes: &[u8]) -> String {
-    if let Ok(utf8) = String::from_utf8(bytes.to_vec()) {
-        return utf8;
-    }
-
-    let mut out = String::new();
-    let max_chunk = EXT_SEQ_MAX_LEN as usize;
-    for chunk in bytes.chunks(max_chunk) {
-        out.push_str(&encode_extended_sequence_for_storage(chunk));
-    }
-    out
-}
-
 /// Encode raw byte values as a unibyte storage string.
 ///
 /// This keeps byte-oriented Elisp semantics for operations like `aref`,
@@ -430,39 +416,6 @@ pub(crate) fn storage_byte_len(s: &str) -> usize {
         .into_iter()
         .map(|unit| unit.logical_byte_len)
         .sum()
-}
-
-/// Convert a 0-based Emacs character index to a logical Emacs byte offset.
-pub(crate) fn storage_char_to_logical_byte(s: &str, char_idx: usize) -> usize {
-    if !storage_has_special_units(s) {
-        return plain_utf8_char_to_byte(s, char_idx);
-    }
-    let units = scan_storage_units(s);
-    units
-        .iter()
-        .take(char_idx.min(units.len()))
-        .map(|unit| unit.logical_byte_len)
-        .sum()
-}
-
-/// Convert a logical Emacs byte offset to a 0-based Emacs character index.
-///
-/// Interior multibyte offsets map to the containing character, matching GNU
-/// `byte-to-position`.
-pub(crate) fn storage_logical_byte_to_char(s: &str, byte_pos: usize) -> usize {
-    if !storage_has_special_units(s) {
-        return storage_byte_to_char(s, byte_pos);
-    }
-
-    let units = scan_storage_units(s);
-    let mut logical = 0usize;
-    for (idx, unit) in units.iter().enumerate() {
-        if byte_pos < logical + unit.logical_byte_len {
-            return idx;
-        }
-        logical += unit.logical_byte_len;
-    }
-    units.len()
 }
 
 /// Convert a storage-byte boundary to the corresponding logical Emacs byte offset.
@@ -612,79 +565,6 @@ pub(crate) fn advance_logical_byte_to_char_boundary(s: &str, byte_pos: usize) ->
     logical
 }
 
-/// Convert a 0-based Emacs character index to a byte offset in NeoVM string storage.
-/// Clamps to the string length if the index is out of bounds.
-pub(crate) fn storage_char_to_byte(s: &str, char_idx: usize) -> usize {
-    if !storage_has_special_units(s) {
-        return plain_utf8_char_to_byte(s, char_idx);
-    }
-    let units = scan_storage_units(s);
-    if char_idx >= units.len() {
-        s.len()
-    } else {
-        units[char_idx].storage_start
-    }
-}
-
-/// Convert a byte offset in NeoVM string storage to a 0-based Emacs character index.
-pub(crate) fn storage_byte_to_char(s: &str, byte_pos: usize) -> usize {
-    if !storage_has_special_units(s) {
-        let clamped = byte_pos.min(s.len());
-        if s.is_ascii() {
-            return clamped;
-        }
-        return s
-            .char_indices()
-            .take_while(|(idx, _)| *idx < clamped)
-            .count();
-    }
-    let units = scan_storage_units(s);
-    for (i, unit) in units.iter().enumerate() {
-        if byte_pos < unit.storage_end {
-            return i;
-        }
-    }
-    units.len()
-}
-
-/// Compute byte bounds for a logical Emacs character slice.
-pub(crate) fn storage_substring_bounds(s: &str, from: usize, to: usize) -> Option<(usize, usize)> {
-    if from > to {
-        return None;
-    }
-
-    if !storage_has_special_units(s) {
-        let char_len = if s.is_ascii() {
-            s.len()
-        } else {
-            s.chars().count()
-        };
-        if to > char_len {
-            return None;
-        }
-        let start_byte = plain_utf8_char_to_byte(s, from);
-        let end_byte = plain_utf8_char_to_byte(s, to);
-        return Some((start_byte, end_byte));
-    }
-
-    let units = scan_storage_units(s);
-    if to > units.len() {
-        return None;
-    }
-
-    let start_byte = if from == units.len() {
-        s.len()
-    } else {
-        units[from].storage_start
-    };
-    let end_byte = if to == units.len() {
-        s.len()
-    } else {
-        units[to].storage_start
-    };
-    Some((start_byte, end_byte))
-}
-
 pub(crate) fn storage_contains_char_code(s: &str, code: u32) -> bool {
     if !storage_has_special_units(s) {
         return s.chars().any(|ch| ch as u32 == code);
@@ -755,12 +635,6 @@ pub(crate) fn replace_storage_char_code_same_len(
         }
     }
     changed.then_some(out)
-}
-
-/// Slice NeoVM string storage by logical Emacs character index.
-pub(crate) fn storage_substring(s: &str, from: usize, to: usize) -> Option<String> {
-    let (start_byte, end_byte) = storage_substring_bounds(s, from, to)?;
-    Some(s[start_byte..end_byte].to_string())
 }
 
 fn decode_extended_sequence(chars: &mut Peekable<Chars<'_>>) -> Option<Vec<u8>> {

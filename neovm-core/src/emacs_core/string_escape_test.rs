@@ -46,17 +46,6 @@ fn encode_nonunicode_char_uses_five_byte_sequence() {
 }
 
 #[test]
-fn bytes_to_storage_round_trips_non_utf8() {
-    crate::test_utils::init_test_tracing();
-    let raw = vec![0xF4, 0x90, 0x80, 0x80, 0x41];
-    let encoded = bytes_to_storage_string(&raw);
-    assert_eq!(
-        format_lisp_string_bytes(&encoded),
-        vec![b'"', 0xF4, 0x90, 0x80, 0x80, b'A', b'"']
-    );
-}
-
-#[test]
 fn decode_storage_char_codes_handles_nonunicode_and_raw_byte() {
     crate::test_utils::init_test_tracing();
     let encoded = format!(
@@ -72,23 +61,20 @@ fn decode_storage_char_codes_handles_nonunicode_and_raw_byte() {
 }
 
 #[test]
-fn storage_char_len_and_substring_for_nonunicode() {
+fn storage_char_len_for_nonunicode() {
     crate::test_utils::init_test_tracing();
     let ext = encode_nonunicode_char_for_storage(0x110000).expect("should encode");
     let raw = encode_nonunicode_char_for_storage(0x3FFFFF).expect("should encode");
     let s = format!("{ext}A{raw}");
 
     assert_eq!(storage_char_len(&s), 3);
-    assert_eq!(storage_substring(&s, 0, 1), Some(ext));
-    assert_eq!(storage_substring(&s, 1, 2), Some("A".to_string()));
-    assert_eq!(storage_substring(&s, 2, 3), Some(raw));
 }
 
 #[test]
 fn decode_storage_handles_overlong_raw_byte_encoding() {
     crate::test_utils::init_test_tracing();
-    let encoded = bytes_to_storage_string(&[0xC1, 0xBF]);
-    assert_eq!(decode_storage_char_codes(&encoded), vec![255]);
+    let encoded = emacs_bytes_to_storage_string(&[0xC1, 0xBF], true);
+    assert_eq!(decode_storage_char_codes(&encoded), vec![0x3FFFFF]);
 }
 
 #[test]
