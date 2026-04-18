@@ -216,9 +216,15 @@ fn base64_decode(input: &str, table: &[u8; 256]) -> Result<Vec<u8>, ()> {
 /// (base64-encode-string STRING &optional NO-LINE-BREAK)
 pub(crate) fn builtin_base64_encode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64-encode-string", &args, 1, 2)?;
-    let s = require_string("base64-encode-string", &args[0])?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
+    // GNU Fbase64_encode_string (fns.c) rejects non-ASCII multibyte strings.
+    // Encode directly from Emacs-internal bytes so unibyte strings containing
+    // raw bytes 0x80..0xFF base64-encode as the original byte values rather
+    // than via the storage-sentinel intermediate.
     let no_line_break = args.get(1).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(s.as_bytes(), B64_STD, true, !no_line_break);
+    let encoded = base64_encode(ls.as_bytes(), B64_STD, true, !no_line_break);
     Ok(Value::string(encoded))
 }
 
@@ -244,9 +250,11 @@ pub(crate) fn builtin_base64_decode_string(args: Vec<Value>) -> EvalResult {
 /// (base64url-encode-string STRING &optional NO-PAD)
 pub(crate) fn builtin_base64url_encode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64url-encode-string", &args, 1, 2)?;
-    let s = require_string("base64url-encode-string", &args[0])?;
+    let ls = args[0].as_lisp_string().ok_or_else(|| {
+        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+    })?;
     let no_pad = args.get(1).is_some_and(|v| v.is_truthy());
-    let encoded = base64_encode(s.as_bytes(), B64_URL, !no_pad, false);
+    let encoded = base64_encode(ls.as_bytes(), B64_URL, !no_pad, false);
     Ok(Value::string(encoded))
 }
 
