@@ -520,18 +520,6 @@ impl GapBuffer {
         }
     }
 
-    /// Overwrite the logical byte range `[start, end)` with `replacement`.
-    ///
-    /// `replacement` must have the exact same Emacs-byte length as the replaced
-    /// region, and both boundaries must lie on Emacs character boundaries.
-    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
-        let replacement_bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(
-            replacement,
-            self.multibyte,
-        );
-        self.replace_same_len_emacs_bytes(start, end, &replacement_bytes);
-    }
-
     // -----------------------------------------------------------------------
     // Gap management
     // -----------------------------------------------------------------------

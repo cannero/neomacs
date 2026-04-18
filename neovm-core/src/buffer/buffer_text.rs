@@ -275,15 +275,6 @@ impl BufferText {
         storage.layout = Self::layout_from_gap(&storage.gap);
     }
 
-    pub fn replace_same_len_range(&mut self, start: usize, end: usize, replacement: &str) {
-        if start >= end {
-            return;
-        }
-        let mut storage = self.storage.borrow_mut();
-        storage.gap.replace_same_len_range(start, end, replacement);
-        storage.layout = Self::layout_from_gap(&storage.gap);
-    }
-
     pub fn replace_same_len_emacs_bytes(&mut self, start: usize, end: usize, replacement: &[u8]) {
         if start >= end {
             return;
@@ -418,31 +409,6 @@ impl BufferText {
             }
             bytes.iter().any(|&b| b as u32 == code)
         }
-    }
-
-    pub fn replace_char_code_same_len_range(
-        &mut self,
-        start: usize,
-        end: usize,
-        from_code: u32,
-        to_storage: &str,
-    ) -> bool {
-        if start >= end {
-            return false;
-        }
-        let original = self.storage.borrow().gap.text_range(start, end);
-        let Some(replacement) =
-            crate::emacs_core::string_escape::replace_storage_char_code_same_len(
-                &original, from_code, to_storage,
-            )
-        else {
-            return false;
-        };
-        debug_assert_eq!(replacement.len(), original.len());
-        let mut storage = self.storage.borrow_mut();
-        storage.gap.replace_same_len_range(start, end, &replacement);
-        storage.layout = Self::layout_from_gap(&storage.gap);
-        true
     }
 
     pub fn text_props_is_empty(&self) -> bool {
