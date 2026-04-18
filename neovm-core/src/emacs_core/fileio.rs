@@ -1282,6 +1282,35 @@ fn lisp_file_name_is_ascii_text(filename: &crate::heap_types::LispString, text: 
     filename.as_bytes() == text
 }
 
+fn lisp_directory_name_p(filename: &crate::heap_types::LispString) -> bool {
+    filename.as_bytes().last() == Some(&b'/')
+}
+
+fn lisp_string_strip_ascii_prefix(
+    value: &crate::heap_types::LispString,
+    prefix: &[u8],
+) -> Option<crate::heap_types::LispString> {
+    let rest = value.as_bytes().strip_prefix(prefix)?;
+    Some(if value.is_multibyte() {
+        crate::heap_types::LispString::from_emacs_bytes(rest.to_vec())
+    } else {
+        crate::heap_types::LispString::from_unibyte(rest.to_vec())
+    })
+}
+
+fn expand_cp_target_lisp_for_eval(
+    eval: &Context,
+    file: &crate::heap_types::LispString,
+    newname: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
+    if lisp_directory_name_p(newname) {
+        let resolved_dir = resolve_filename_lisp_for_eval(eval, newname);
+        expand_file_name_lisp(&lisp_file_name_nondirectory(file), Some(&resolved_dir))
+    } else {
+        resolve_filename_lisp_for_eval(eval, newname)
+    }
+}
+
 fn lisp_files_splice_dirname_file(
     dirname: &crate::heap_types::LispString,
     file: &crate::heap_types::LispString,
@@ -1914,6 +1943,62 @@ fn signal_file_action_error_value(err: std::io::Error, action: &str, path: Value
         file_error_symbol(err.kind()),
         vec![Value::string(action), Value::string(err.to_string()), path],
     )
+}
+
+fn signal_file_action_error_pair_values(
+    err: std::io::Error,
+    action: &str,
+    left: Value,
+    right: Value,
+) -> Flow {
+    signal(
+        file_error_symbol(err.kind()),
+        vec![
+            Value::string(action),
+            Value::string(err.to_string()),
+            left,
+            right,
+        ],
+    )
+}
+
+fn signal_existing_path_value(path: &Path, value: Value) -> Flow {
+    if fs::symlink_metadata(path)
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+    {
+        signal("file-error", vec![Value::string("File is a directory"), value])
+    } else {
+        signal(
+            "file-already-exists",
+            vec![Value::string("File already exists"), value],
+        )
+    }
+}
+
+fn maybe_dispatch_resolved_file_handler(
+    eval: &mut Context,
+    operation_name: &str,
+    first_lookup: Option<&crate::heap_types::LispString>,
+    second_lookup: Option<&crate::heap_types::LispString>,
+    mut call_args: Vec<Value>,
+) -> Result<Option<Value>, Flow> {
+    let operation_sym = Value::symbol(operation_name);
+    if let Some(first) = first_lookup {
+        let handler = find_file_name_handler_lisp(&eval.obarray, first, operation_sym);
+        if !handler.is_nil() {
+            call_args.insert(0, operation_sym);
+            return Ok(Some(eval.funcall_general(handler, call_args)?));
+        }
+    }
+    if let Some(second) = second_lookup {
+        let handler = find_file_name_handler_lisp(&eval.obarray, second, operation_sym);
+        if !handler.is_nil() {
+            call_args.insert(0, operation_sym);
+            return Ok(Some(eval.funcall_general(handler, call_args)?));
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(unix)]
@@ -2729,9 +2814,6 @@ pub(crate) fn builtin_delete_directory(eval: &mut Context, args: Vec<Value>) -> 
 
 /// `(make-symbolic-link TARGET LINKNAME &optional OK-IF-EXISTS)`
 pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "make-symbolic-link", &args)? {
-        return Ok(result);
-    }
     expect_min_args("make-symbolic-link", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2742,18 +2824,63 @@ pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -
             ],
         ));
     }
-    let target = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let linkname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let mut target = expect_lisp_string_strict(&args[0])?;
+    if matches!(args.get(2).map(|value| value.kind()), Some(ValueKind::Fixnum(_))) {
+        if lisp_file_name_is_ascii_text(&target, b"~") || target.as_bytes().starts_with(b"~/") {
+            target = expand_file_name_lisp(&target, None);
+        } else if let Some(stripped) = lisp_string_strip_ascii_prefix(&target, b"/:") {
+            target = stripped;
+        }
+    }
+    let linkname_arg = expect_lisp_string_strict(&args[1])?;
+    let linkname = expand_cp_target_lisp_for_eval(eval, &target, &linkname_arg);
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(target.clone()));
+    handler_args.push(Value::heap_string(linkname.clone()));
+    if let Some(extra) = args.get(2) {
+        handler_args.push(*extra);
+    }
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "make-symbolic-link",
+        None,
+        Some(&linkname),
+        handler_args,
+    )? {
+        return Ok(result);
+    }
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
+    let link_path = lisp_file_name_to_path_buf(&linkname);
 
     #[cfg(unix)]
     {
-        if ok_if_exists && fs::symlink_metadata(&linkname).is_ok() {
-            fs::remove_file(&linkname)
-                .map_err(|err| signal_file_io_path(err, "Removing old name", &linkname))?;
+        if fs::symlink_metadata(&link_path).is_ok() {
+            if !ok_if_exists {
+                return Err(signal_existing_path_value(
+                    &link_path,
+                    Value::heap_string(linkname.clone()),
+                ));
+            }
+            fs::remove_file(&link_path).map_err(|err| {
+                signal_file_action_error_value(
+                    err,
+                    "Removing old name",
+                    Value::heap_string(linkname.clone()),
+                )
+            })?;
         }
-        std::os::unix::fs::symlink(&target, &linkname)
-            .map_err(|err| signal_file_io_path(err, "Making symbolic link", &linkname))?;
+        std::os::unix::fs::symlink(
+            lisp_file_name_to_path_buf(&target),
+            &link_path,
+        )
+        .map_err(|err| {
+            signal_file_action_error_pair_values(
+                err,
+                "Making symbolic link",
+                Value::heap_string(target),
+                Value::heap_string(linkname),
+            )
+        })?;
         Ok(Value::NIL)
     }
 
@@ -2771,9 +2898,6 @@ pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -
 
 /// `(rename-file FROM TO &optional OK-IF-EXISTS)`
 pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "rename-file", &args)? {
-        return Ok(result);
-    }
     expect_min_args("rename-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2784,33 +2908,48 @@ pub(crate) fn builtin_rename_file(eval: &mut Context, args: Vec<Value>) -> EvalR
             ],
         ));
     }
-    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if fs::symlink_metadata(&to).is_ok() {
-        if ok_if_exists {
-            fs::remove_file(&to).map_err(|e| signal_file_io_path(e, "Removing old name", &to))?;
-        } else {
-            return Err(signal(
-                "file-already-exists",
-                vec![
-                    Value::string("Renaming"),
-                    Value::string(format!("File exists: {to}")),
-                    Value::string(&from),
-                    Value::string(&to),
-                ],
-            ));
-        }
+    let from = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let to = expand_cp_target_lisp_for_eval(
+        eval,
+        &lisp_directory_file_name(&from),
+        &expect_lisp_string_strict(&args[1])?,
+    );
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(from.clone()));
+    handler_args.push(Value::heap_string(to.clone()));
+    if let Some(extra) = args.get(2) {
+        handler_args.push(*extra);
     }
-    rename_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Renaming", &from, &to))?;
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "rename-file",
+        Some(&from),
+        Some(&to),
+        handler_args,
+    )? {
+        return Ok(result);
+    }
+    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
+    let to_path = lisp_file_name_to_path_buf(&to);
+    if fs::symlink_metadata(&to_path).is_ok() && !ok_if_exists {
+        return Err(signal_existing_path_value(
+            &to_path,
+            Value::heap_string(to.clone()),
+        ));
+    }
+    fs::rename(lisp_file_name_to_path_buf(&from), &to_path).map_err(|err| {
+        signal_file_action_error_pair_values(
+            err,
+            "Renaming",
+            Value::heap_string(from),
+            Value::heap_string(to),
+        )
+    })?;
     Ok(Value::NIL)
 }
 
 /// `(copy-file FROM TO &optional OK-IF-EXISTS KEEP-TIME PRESERVE-UID-GID PRESERVE-PERMISSIONS)`
 pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "copy-file", &args)? {
-        return Ok(result);
-    }
     expect_min_args("copy-file", &args, 2)?;
     if args.len() > 6 {
         return Err(signal(
@@ -2818,29 +2957,38 @@ pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalRes
             vec![Value::symbol("copy-file"), Value::fixnum(args.len() as i64)],
         ));
     }
-    let from = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let to = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
+    let from = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let to = expand_cp_target_lisp_for_eval(eval, &from, &expect_lisp_string_strict(&args[1])?);
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(from.clone()));
+    handler_args.push(Value::heap_string(to.clone()));
+    handler_args.extend_from_slice(&args[2..]);
+    if let Some(result) =
+        maybe_dispatch_resolved_file_handler(eval, "copy-file", Some(&from), Some(&to), handler_args)?
+    {
+        return Ok(result);
+    }
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if fs::symlink_metadata(&to).is_ok() && !ok_if_exists {
-        return Err(signal(
-            "file-already-exists",
-            vec![
-                Value::string("Copying"),
-                Value::string(format!("File exists: {to}")),
-                Value::string(&from),
-                Value::string(&to),
-            ],
+    let to_path = lisp_file_name_to_path_buf(&to);
+    if fs::symlink_metadata(&to_path).is_ok() && !ok_if_exists {
+        return Err(signal_existing_path_value(
+            &to_path,
+            Value::heap_string(to.clone()),
         ));
     }
-    copy_file(&from, &to).map_err(|e| signal_file_io_paths(e, "Copying", &from, &to))?;
+    fs::copy(lisp_file_name_to_path_buf(&from), &to_path).map_err(|err| {
+        signal_file_action_error_pair_values(
+            err,
+            "Copying",
+            Value::heap_string(from),
+            Value::heap_string(to),
+        )
+    })?;
     Ok(Value::NIL)
 }
 
 /// `(add-name-to-file OLDNAME NEWNAME &optional OK-IF-EXISTS)`
 pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> EvalResult {
-    if let Some(result) = dispatch_file_handler_two_arg(eval, "add-name-to-file", &args)? {
-        return Ok(result);
-    }
     expect_min_args("add-name-to-file", &args, 2)?;
     if args.len() > 3 {
         return Err(signal(
@@ -2851,15 +2999,49 @@ pub(crate) fn builtin_add_name_to_file(eval: &mut Context, args: Vec<Value>) -> 
             ],
         ));
     }
-    let oldname = resolve_filename_for_eval(eval, &expect_string_strict(&args[0])?);
-    let newname = resolve_filename_for_eval(eval, &expect_string_strict(&args[1])?);
-    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
-    if ok_if_exists && fs::symlink_metadata(&newname).is_ok() {
-        fs::remove_file(&newname)
-            .map_err(|err| signal_file_io_path(err, "Removing old name", &newname))?;
+    let oldname = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
+    let newname =
+        expand_cp_target_lisp_for_eval(eval, &oldname, &expect_lisp_string_strict(&args[1])?);
+    let mut handler_args = Vec::with_capacity(args.len());
+    handler_args.push(Value::heap_string(oldname.clone()));
+    handler_args.push(Value::heap_string(newname.clone()));
+    if let Some(extra) = args.get(2) {
+        handler_args.push(*extra);
     }
-    add_name_to_file(&oldname, &newname)
-        .map_err(|err| signal_file_io_paths(err, "Adding new name", &oldname, &newname))?;
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "add-name-to-file",
+        Some(&oldname),
+        Some(&newname),
+        handler_args,
+    )? {
+        return Ok(result);
+    }
+    let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
+    let newname_path = lisp_file_name_to_path_buf(&newname);
+    if fs::symlink_metadata(&newname_path).is_ok() {
+        if !ok_if_exists {
+            return Err(signal_existing_path_value(
+                &newname_path,
+                Value::heap_string(newname.clone()),
+            ));
+        }
+        fs::remove_file(&newname_path).map_err(|err| {
+            signal_file_action_error_value(
+                err,
+                "Removing old name",
+                Value::heap_string(newname.clone()),
+            )
+        })?;
+    }
+    fs::hard_link(lisp_file_name_to_path_buf(&oldname), &newname_path).map_err(|err| {
+        signal_file_action_error_pair_values(
+            err,
+            "Adding new name",
+            Value::heap_string(oldname),
+            Value::heap_string(newname),
+        )
+    })?;
     Ok(Value::NIL)
 }
 

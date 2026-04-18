@@ -49,6 +49,16 @@ fn assert_same_file_paths(path1: &str, path2: &str) {
     );
 }
 
+#[cfg(unix)]
+fn assert_same_file_path_bufs(path1: &std::path::Path, path2: &std::path::Path) {
+    use std::os::unix::fs::MetadataExt;
+
+    let meta1 = fs::metadata(path1).expect("metadata path1");
+    let meta2 = fs::metadata(path2).expect("metadata path2");
+    assert_eq!(meta1.dev(), meta2.dev());
+    assert_eq!(meta1.ino(), meta2.ino());
+}
+
 fn assert_unibyte_string_bytes(value: Value, expected: &[u8]) {
     let string = value
         .as_lisp_string()
@@ -65,6 +75,13 @@ fn raw_temp_path(component: &[u8]) -> std::path::PathBuf {
     }
     bytes.extend_from_slice(component);
     std::path::PathBuf::from(std::ffi::OsString::from_vec(bytes))
+}
+
+#[cfg(unix)]
+fn raw_path_value(path: &std::path::Path) -> Value {
+    Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        path.as_os_str().as_bytes().to_vec(),
+    ))
 }
 
 #[test]
@@ -750,6 +767,45 @@ fn test_builtin_make_symbolic_link_eval_uses_default_directory() {
     let _ = fs::remove_dir_all(base);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_make_symbolic_link_keeps_relative_raw_target_bytes() {
+    crate::test_utils::init_test_tracing();
+    let base = std::env::temp_dir().join("neovm-raw-relative-link");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let target = base.join(std::ffi::OsStr::from_bytes(b"target-\xFF"));
+    let link = base.join(std::ffi::OsStr::from_bytes(b"link-\xFE"));
+    fs::write(&target, b"x").unwrap();
+
+    let mut eval = Context::new();
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", base.to_string_lossy())),
+    );
+
+    builtin_make_symbolic_link(
+        &mut eval,
+        vec![
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(
+                b"target-\xFF".to_vec(),
+            )),
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(
+                b"link-\xFE".to_vec(),
+            )),
+        ],
+    )
+    .expect("make-symbolic-link should preserve target bytes");
+
+    let read_target = fs::read_link(&link).expect("symlink target");
+    assert_eq!(read_target.as_os_str().as_bytes(), b"target-\xFF");
+
+    let _ = fs::remove_file(&link);
+    let _ = fs::remove_file(&target);
+    let _ = fs::remove_dir_all(base);
+}
+
 // -----------------------------------------------------------------------
 // Directory operations
 // -----------------------------------------------------------------------
@@ -963,6 +1019,52 @@ fn test_builtin_copy_file_optional_arg_semantics() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_copy_file_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let base = raw_temp_path(b"neovm-copy-\xFF");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let src = base.join(std::ffi::OsStr::from_bytes(b"src-\xFE"));
+    let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
+    fs::write(&src, b"copy me").unwrap();
+
+    builtin_copy_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
+        .expect("copy-file should handle raw-byte paths");
+    assert_eq!(fs::read(&dst).unwrap(), b"copy me");
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn builtin_copy_file_directory_target_uses_source_basename() {
+    crate::test_utils::init_test_tracing();
+    let dir = std::env::temp_dir().join("neovm_copy_dir_target");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let src = dir.join("source.txt");
+    let dst_dir = dir.join("dest");
+    fs::create_dir_all(&dst_dir).unwrap();
+    fs::write(&src, b"copied").unwrap();
+
+    let dst_dir_arg = format!("{}/", dst_dir.to_string_lossy());
+    builtin_copy_file(
+        &mut Context::new(),
+        vec![
+            Value::string(src.to_string_lossy().as_ref()),
+            Value::string(&dst_dir_arg),
+        ],
+    )
+    .expect("copy-file should target basename within directory");
+
+    assert_eq!(fs::read(dst_dir.join("source.txt")).unwrap(), b"copied");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn test_builtin_add_name_to_file_semantics() {
     crate::test_utils::init_test_tracing();
@@ -1019,6 +1121,136 @@ fn test_builtin_add_name_to_file_semantics() {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "file-missing"),
         other => panic!("expected signal, got {:?}", other),
     }
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_rename_file_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let base = raw_temp_path(b"neovm-rename-\xFF");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let src = base.join(std::ffi::OsStr::from_bytes(b"src-\xFE"));
+    let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
+    fs::write(&src, b"rename me").unwrap();
+
+    builtin_rename_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
+        .expect("rename-file should handle raw-byte paths");
+    assert!(!src.exists());
+    assert_eq!(fs::read(&dst).unwrap(), b"rename me");
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn builtin_rename_file_directory_target_uses_source_basename() {
+    crate::test_utils::init_test_tracing();
+    let dir = std::env::temp_dir().join("neovm_rename_dir_target");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let src = dir.join("source.txt");
+    let dst_dir = dir.join("dest");
+    fs::create_dir_all(&dst_dir).unwrap();
+    fs::write(&src, b"renamed").unwrap();
+
+    let dst_dir_arg = format!("{}/", dst_dir.to_string_lossy());
+    builtin_rename_file(
+        &mut Context::new(),
+        vec![
+            Value::string(src.to_string_lossy().as_ref()),
+            Value::string(&dst_dir_arg),
+        ],
+    )
+    .expect("rename-file should target basename within directory");
+
+    assert!(!src.exists());
+    assert_eq!(fs::read(dst_dir.join("source.txt")).unwrap(), b"renamed");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_add_name_to_file_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let base = raw_temp_path(b"neovm-add-name-\xFF");
+    let _ = fs::remove_dir_all(&base);
+    fs::create_dir_all(&base).unwrap();
+
+    let src = base.join(std::ffi::OsStr::from_bytes(b"src-\xFE"));
+    let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
+    fs::write(&src, b"link me").unwrap();
+
+    builtin_add_name_to_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
+        .expect("add-name-to-file should handle raw-byte paths");
+    assert_same_file_path_bufs(&src, &dst);
+
+    let _ = fs::remove_dir_all(&base);
+}
+
+#[test]
+fn builtin_add_name_to_file_directory_target_uses_source_basename() {
+    crate::test_utils::init_test_tracing();
+    let dir = std::env::temp_dir().join("neovm_add_name_dir_target");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let src = dir.join("source.txt");
+    let dst_dir = dir.join("dest");
+    fs::create_dir_all(&dst_dir).unwrap();
+    fs::write(&src, b"linked").unwrap();
+
+    let dst_dir_arg = format!("{}/", dst_dir.to_string_lossy());
+    builtin_add_name_to_file(
+        &mut Context::new(),
+        vec![
+            Value::string(src.to_string_lossy().as_ref()),
+            Value::string(&dst_dir_arg),
+        ],
+    )
+    .expect("add-name-to-file should target basename within directory");
+
+    assert_same_file_paths(
+        src.to_string_lossy().as_ref(),
+        dst_dir.join("source.txt").to_string_lossy().as_ref(),
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_make_symbolic_link_directory_target_uses_target_basename() {
+    crate::test_utils::init_test_tracing();
+    let dir = std::env::temp_dir().join("neovm_symlink_dir_target");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let target = dir.join("source.txt");
+    let dst_dir = dir.join("links");
+    fs::create_dir_all(&dst_dir).unwrap();
+    fs::write(&target, b"x").unwrap();
+
+    let dst_dir_arg = format!("{}/", dst_dir.to_string_lossy());
+    builtin_make_symbolic_link(
+        &mut Context::new(),
+        vec![
+            Value::string(target.to_string_lossy().as_ref()),
+            Value::string(&dst_dir_arg),
+        ],
+    )
+    .expect("make-symbolic-link should target basename within directory");
+
+    let link = dst_dir.join("source.txt");
+    assert!(link.exists());
+    assert_eq!(
+        fs::read_link(&link).unwrap().as_os_str().as_bytes(),
+        target.as_os_str().as_bytes()
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

@@ -25,6 +25,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `file-truename` now follows a GNU-shaped Lisp-level symlink chase in Neomacs, and `file-symlink-p` now hits the Unix filesystem through `LispString`/`PathBuf` byte-preserving helpers so raw unibyte file names and link targets survive intact.
 - The `check_file_access` family in `src/fileio.c` is now mirrored more closely: `access-file`, `file-exists-p`, `file-readable-p`, `file-writable-p`, `file-accessible-directory-p`, `file-executable-p`, `file-directory-p`, `file-regular-p`, `file-modes`, and `set-file-modes` now reach the OS through byte-preserving `LispString`/`PathBuf` helpers instead of first decoding to a runtime `String`.
 - `make-directory-internal`, `delete-file`, `delete-file-internal`, `delete-directory`, and `delete-directory-internal` now also resolve and hit the filesystem through the byte-preserving file-name path, including raw unibyte file names in error payloads where Neomacs now has the resolved Lisp filename available.
+- `copy-file`, `rename-file`, `add-name-to-file`, and `make-symbolic-link` now follow GNU's `expand_cp_target` shape more closely: handler dispatch happens after GNU-style filename expansion, directory targets pick up the source basename, raw unibyte file names reach the OS through `LispString`/`PathBuf`, and `make-symbolic-link` preserves the link target bytes instead of resolving them through `default-directory`.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -39,12 +40,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `lisp/files.el`: GNU `file-truename` is not a thin syscall wrapper; it iteratively resolves parent directories and symlink targets in Lisp, splicing relative link targets back onto the resolved directory without re-running `expand-file-name` on the target. The Neomacs `file-truename` path should keep moving toward that structure.
 - `src/fileio.c`: `file-exists-p`, `file-readable-p`, `file-executable-p`, `file-writable-p`, `file-accessible-directory-p`, `file-directory-p`, `file-regular-p`, `file-modes`, and `set-file-modes` all expand to a Lisp filename, dispatch handlers, then call the OS through `ENCODE_FILE`. Neomacs should keep removing pre-OS runtime-string conversions from the rest of this surface.
 - `src/fileio.c`: file-mutating primitives like `make-directory-internal`, `delete-file-internal`, and `delete-directory-internal` similarly expand to Lisp filenames and call the OS through `ENCODE_FILE`; the remaining Neomacs mutation builtins should converge on the same boundary handling.
+- `src/fileio.c`: two-path file operations (`copy-file`, `rename-file`, `add-name-to-file`, `make-symbolic-link`) do not dispatch handlers on the raw argv pair. They first expand the source and destination Lisp filenames, apply `expand_cp_target` for directory targets, and only then dispatch handlers / cross the `ENCODE_FILE` boundary. `make-symbolic-link` also leaves the target text alone except for the interactive `~` and `/:` adjustments.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the new predicate/access/mode/create-delete work, especially rename/copy/hardlink/symlink/process-facing entry points and the remaining helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path work, especially `file-newer-than-file-p`, `set-file-times`, `insert-file-contents`, `write-region`, and the remaining process-facing helpers that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---
