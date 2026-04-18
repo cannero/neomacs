@@ -24,9 +24,6 @@ pub(super) use super::keyboard::pure::{
     KEY_CHAR_SUPER, basic_char_code, describe_single_key_value, event_modifier_bit,
     event_modifier_prefix, key_sequence_values, resolve_control_code, symbol_has_modifier_prefix,
 };
-pub(super) use super::string_escape::{
-    bytes_to_unibyte_storage_string, encode_nonunicode_char_for_storage,
-};
 pub(super) use super::value::*;
 pub(super) use ::regex::Regex;
 pub(crate) use buffers::lisp_string_from_buffer_bytes;
