@@ -1324,12 +1324,14 @@ git commit -m "marker: final cleanup post-GNU-parity refactor" || echo "no clean
 
 ## Post-plan summary checklist
 
-- [ ] `TaggedHeap.marker_ptrs` field does not exist.
-- [ ] `MarkerEntry` struct does not exist.
-- [ ] `BufferTextStorage` has exactly one marker field: `markers_head: *mut MarkerObj`.
-- [ ] `MarkerData` carries `bytepos`, `charpos`, `next_marker`, `marker_id`, `buffer`, `insertion_type`; `position: Option<i64>` is gone if any readers still used it — if any remain, leave it for a follow-up and document in commit message.
-- [ ] `complete_collection` runs `mark_all` → `unchain_dead_markers` → `sweep_cons` → `sweep_objects`.
-- [ ] `kill-buffer` walks the buffer's chain once to detach markers.
-- [ ] pdump format version bumped; `DumpMarker` carries bytepos/charpos; `DumpMarkerEntry` is gone.
-- [ ] All existing marker tests pass.
-- [ ] ASAN on bootstrap test is clean.
+- [x] `TaggedHeap.marker_ptrs` field does not exist.
+- [x] `MarkerEntry` struct does not exist.
+- [x] `BufferTextStorage` has exactly one marker field: `markers_head: *mut MarkerObj`.
+- [x] `MarkerData` carries `bytepos`, `charpos`, `next_marker`, `marker_id`, `buffer`, `insertion_type`; `position` is gone (T7).
+- [x] `complete_collection` runs `mark_all` → `unchain_dead_markers` → `sweep_cons` → `sweep_objects`.
+- [x] `kill-buffer` walks the buffer's chain once to detach markers.
+- [x] pdump format version bumped (v25 → v26); `DumpMarker` carries bytepos/charpos; `DumpMarkerEntry` is gone.
+- [x] All existing marker tests pass (chain_test 3/3, heap_types::marker_test 1/1, emacs_core::marker 20/20, compat_marker_semantics 1/1, bootstrap reload 1/1).
+- [x] ASAN on bootstrap test is clean (exit=0, no `AddressSanitizer`/`SUMMARY:` lines).
+- [x] T11 follow-up: `find_marker_by_id_during_load` retired; pdump load uses O(1) `LoadDecoder.state.markers_by_id` HashMap built in `preload_tagged_heap`.
+- [x] T11 follow-up: `chain_find_by_id` doc comment notes pointer lifetime is bounded by chain stability.
