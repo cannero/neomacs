@@ -2643,6 +2643,48 @@ fn test_file_name_case_insensitive_eval_respects_default_directory() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn builtin_file_system_info_handles_raw_unibyte_paths() {
+    crate::test_utils::init_test_tracing();
+    let dir = raw_temp_path(b"neovm-file-system-info-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create raw dir");
+
+    let value = builtin_file_system_info(&mut Context::new(), vec![raw_path_value(&dir)])
+        .expect("file-system-info should accept raw-byte paths");
+    let parts = list_to_vec(&value).expect("file-system-info should return list");
+    assert_eq!(parts.len(), 3);
+    assert!(parts.iter().all(|value| value.is_fixnum()));
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_file_system_info_eval_respects_default_directory() {
+    crate::test_utils::init_test_tracing();
+    let dir = std::env::temp_dir().join("neovm-file-system-info-eval");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).expect("create test dir");
+
+    let absolute = builtin_file_system_info(
+        &mut Context::new(),
+        vec![Value::string(dir.to_string_lossy().as_ref())],
+    )
+    .expect("absolute file-system-info");
+
+    let mut eval = Context::new();
+    eval.set_variable(
+        "default-directory",
+        Value::string(format!("{}/", dir.to_string_lossy())),
+    );
+    let relative = builtin_file_system_info(&mut eval, vec![Value::string(".")])
+        .expect("relative file-system-info");
+    assert_eq!(relative, absolute);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn test_builtin_file_newer_than_file_p_semantics() {
     crate::test_utils::init_test_tracing();

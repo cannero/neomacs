@@ -639,7 +639,7 @@ pub fn file_locked_p(_filename: &str) -> bool {
 ///
 /// The tuple layout matches Emacs `file-system-info`:
 /// `(TOTAL-BYTES FREE-BYTES AVAILABLE-BYTES)`.
-fn file_system_info(path: &str) -> Result<(i64, i64, i64), Flow> {
+fn file_system_info_path(path: &Path) -> std::io::Result<(i64, i64, i64)> {
     #[cfg(unix)]
     {
         fn saturating_i64(v: u128) -> i64 {
@@ -650,23 +650,11 @@ fn file_system_info(path: &str) -> Result<(i64, i64, i64), Flow> {
             }
         }
 
-        let c_path = CString::new(path.as_bytes()).map_err(|_| {
-            signal(
-                "file-error",
-                vec![
-                    Value::string("Getting file system info"),
-                    Value::string("embedded NUL in file name"),
-                    Value::string(path),
-                ],
-            )
-        })?;
+        let c_path = path_to_cstring(path)
+            .map_err(|_| std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name"))?;
         let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats as *mut libc::statvfs) } != 0 {
-            return Err(signal_file_io_path(
-                std::io::Error::last_os_error(),
-                "Getting file system info",
-                path,
-            ));
+            return Err(std::io::Error::last_os_error());
         }
 
         let block_size = if stats.f_frsize > 0 {
@@ -2532,9 +2520,16 @@ pub(crate) fn builtin_file_system_info(eval: &mut Context, args: Vec<Value>) -> 
         return Ok(result);
     }
     expect_args("file-system-info", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    let filename = resolve_filename_for_eval(eval, &filename);
-    let (total, free, avail) = file_system_info(&filename)?;
+    let filename = expect_lisp_string_strict(&args[0])?;
+    let filename = resolve_filename_lisp_for_eval(eval, &filename);
+    let (total, free, avail) = file_system_info_path(&lisp_file_name_to_path_buf(&filename))
+        .map_err(|err| {
+            signal_file_action_error_value(
+                err,
+                "Getting file system info",
+                Value::heap_string(filename),
+            )
+        })?;
     Ok(Value::list(vec![
         Value::fixnum(total),
         Value::fixnum(free),
