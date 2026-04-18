@@ -819,34 +819,12 @@ impl BufferText {
         }
     }
 
-    /// Detach every marker currently spliced onto this buffer's chain.
-    /// Leaves each MarkerData's `buffer` field as `None` and clears
-    /// positions so subsequent reads report "unset". Used when a buffer
-    /// is killed.
-    pub fn clear_markers(&self) {
-        let mut storage = self.storage.borrow_mut();
-        let mut curr = storage.markers_head;
-        storage.markers_head = std::ptr::null_mut();
-        // SAFETY: chain walks live chain-owned MarkerObj pointers until
-        // null. We drop the head reference above so each node is no
-        // longer reachable via the chain, then clear its per-node fields.
-        unsafe {
-            while !curr.is_null() {
-                let data = &mut (*curr).data;
-                let next = data.next_marker;
-                data.next_marker = std::ptr::null_mut();
-                data.buffer = None;
-                data.bytepos = 0;
-                data.charpos = 0;
-                curr = next;
-            }
-        }
-    }
-
     /// Unlink every chain node whose `MarkerData.buffer` is in `killed`.
-    /// Used by `kill_buffer_collect` when an indirect (shared-text)
-    /// buffer is killed but the root survives: markers registered
-    /// against the dead buffer must be detached from the shared chain.
+    /// Sole entry point for kill-buffer marker cleanup: covers both the
+    /// kill-root case (killed_set contains the root and all its
+    /// indirects, so every marker on the shared chain matches) and the
+    /// kill-indirect case (killed_set is just the dying indirect; root
+    /// and sibling-indirect markers stay attached).
     pub fn remove_markers_for_buffers(&self, killed: &std::collections::HashSet<BufferId>) {
         let mut storage = self.storage.borrow_mut();
         let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =

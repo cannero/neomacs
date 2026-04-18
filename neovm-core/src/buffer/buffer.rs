@@ -2015,10 +2015,6 @@ impl Buffer {
         self.text.advance_markers_at(pos, byte_len, char_len);
     }
 
-    pub fn clear_marker_entries(&mut self) {
-        self.text.clear_markers();
-    }
-
     // -- Mark ----------------------------------------------------------------
 
     /// Set the mark to the byte position `pos`.
@@ -2993,26 +2989,22 @@ impl BufferManager {
     pub fn kill_buffer_collect(&mut self, id: BufferId) -> Option<Vec<BufferId>> {
         let killed_ids = self.collect_killed_buffer_ids(id)?;
         let killed_set: HashSet<BufferId> = killed_ids.iter().copied().collect();
-        let kill_root = self.buffers.get(&id)?.base_buffer.is_none();
 
         for killed_id in &killed_ids {
             self.replace_labeled_restrictions(*killed_id, None);
         }
 
-        // T8: `clear_markers_for_buffers` on the tagged heap is gone;
-        // detaching markers is now purely a chain-level operation.
-        // `clear_markers` on the root buffer or `remove_markers_for_buffers`
-        // on the shared chain walks the intrusive chain directly and
-        // resets each unlinked node's `buffer`/`bytepos`/`charpos`. T9
-        // will rewrite this path more holistically.
-        if kill_root {
-            self.buffers.get(&id)?.text.clear_markers();
-        } else {
-            self.buffers
-                .get(&id)?
-                .text
-                .remove_markers_for_buffers(&killed_set);
-        }
+        // Detach every marker that belongs to one of the dying buffers from
+        // the (possibly shared, in the indirect-buffer case) chain. A single
+        // chain walk filters by `MarkerData.buffer ∈ killed_set`, which is
+        // correct for both kill-root (killed_set = {root, indirects}) and
+        // kill-indirect (killed_set = {indirect}, root's markers untouched).
+        // Mirrors GNU `kill_buffer` calling `unchain_marker` on each entry of
+        // the dying buffer's marker list.
+        self.buffers
+            .get(&id)?
+            .text
+            .remove_markers_for_buffers(&killed_set);
 
         for killed_id in &killed_ids {
             let buf = self.buffers.remove(killed_id)?;
