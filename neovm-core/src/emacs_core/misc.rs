@@ -299,18 +299,65 @@ pub(crate) fn builtin_subst_char_in_string(args: Vec<Value>) -> EvalResult {
     expect_max_args("subst-char-in-string", &args, 4)?;
     let from_code = expect_character_code(&args[0])? as u32;
     let to_code = expect_character_code(&args[1])? as u32;
-    let s = expect_string(&args[2])?;
-    let replacement =
-        crate::emacs_core::string_escape::encode_char_code_for_string_storage(to_code, true)
-            .expect("valid Emacs character code must encode into storage string");
-    let result = crate::emacs_core::string_escape::replace_storage_char_code_same_len(
-        &s,
-        from_code,
-        &replacement,
-    )
-    .unwrap_or(s);
+    let src_ls = args[2].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[2]],
+        )
+    })?;
+
+    use crate::emacs_core::emacs_char;
+    let src_bytes = src_ls.as_bytes();
+
+    // Unibyte path: each byte is one character. If either FROM or TO
+    // doesn't fit in a single byte the substitution can't apply, so
+    // return the original string unchanged (mirroring GNU which only
+    // allows unibyte chars in unibyte contexts).
+    if !src_ls.is_multibyte() {
+        if from_code > 0xFF || to_code > 0xFF {
+            return Ok(args[2]);
+        }
+        let from_byte = from_code as u8;
+        if !src_bytes.contains(&from_byte) {
+            return Ok(args[2]);
+        }
+        let to_byte = to_code as u8;
+        let replaced: Vec<u8> = src_bytes
+            .iter()
+            .map(|&b| if b == from_byte { to_byte } else { b })
+            .collect();
+        return Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(replaced),
+        ));
+    }
+
+    // Multibyte path: walk FROM via emacs_char::string_char, emitting
+    // TO's Emacs encoding whenever the decoded char matches FROM.
+    // Unlike the old same-length-only helper, this handles FROM/TO pairs
+    // that encode to different byte counts (matching GNU fns.c:3196).
+    let mut to_buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+    let to_len = emacs_char::char_string(to_code, &mut to_buf);
+    let to_bytes = &to_buf[..to_len];
+
+    let mut out = Vec::with_capacity(src_bytes.len());
+    let mut changed = false;
+    let mut pos = 0;
+    while pos < src_bytes.len() {
+        let (code, len) = emacs_char::string_char(&src_bytes[pos..]);
+        let clen = len.max(1);
+        if code == from_code {
+            out.extend_from_slice(to_bytes);
+            changed = true;
+        } else {
+            out.extend_from_slice(&src_bytes[pos..pos + clen]);
+        }
+        pos += clen;
+    }
+    if !changed {
+        return Ok(args[2]);
+    }
     Ok(Value::heap_string(
-        crate::emacs_core::builtins::runtime_string_to_lisp_string(&result, true),
+        crate::heap_types::LispString::from_emacs_bytes(out),
     ))
 }
 
