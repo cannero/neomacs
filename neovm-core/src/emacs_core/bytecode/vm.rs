@@ -599,6 +599,10 @@ impl<'a> Vm<'a> {
                         );
                     }
                     stk_push!(result);
+                    // Mirrors GNU `bytecode.c:781`: poll quit after every
+                    // Bcall so a `C-g` that arrived while the callee was
+                    // running gets picked up before the next opcode.
+                    vm_try!(self.ctx.maybe_quit());
                 }
                 Op::Apply(n) => {
                     let n = *n as usize;
@@ -638,34 +642,62 @@ impl<'a> Vm<'a> {
                         }
                         stk_push!(result);
                     }
+                    // Match `Op::Call`'s post-call quit poll.
+                    vm_try!(self.ctx.maybe_quit());
                 }
 
                 // -- Control flow --
+                // Backward branches poll quit/input, mirroring GNU
+                // `bytecode.c:861-866` where the `quitcounter` fires
+                // `maybe_gc()` + `maybe_quit()` when the target is
+                // behind the current pc. Without this, `(while t)` in
+                // bytecode is uninterruptible: `C-g` never gets to run
+                // `maybe_quit` because control never leaves the VM.
                 Op::Goto(addr) => {
-                    *pc = *addr as usize;
+                    let target = *addr as usize;
+                    if target < *pc {
+                        vm_try!(self.ctx.maybe_quit());
+                    }
+                    *pc = target;
                 }
                 Op::GotoIfNil(addr) => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     if val.is_nil() {
-                        *pc = *addr as usize;
+                        let target = *addr as usize;
+                        if target < *pc {
+                            vm_try!(self.ctx.maybe_quit());
+                        }
+                        *pc = target;
                     }
                 }
                 Op::GotoIfNotNil(addr) => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     if val.is_truthy() {
-                        *pc = *addr as usize;
+                        let target = *addr as usize;
+                        if target < *pc {
+                            vm_try!(self.ctx.maybe_quit());
+                        }
+                        *pc = target;
                     }
                 }
                 Op::GotoIfNilElsePop(addr) => {
                     if stk!().last().is_none_or(|v| v.is_nil()) {
-                        *pc = *addr as usize;
+                        let target = *addr as usize;
+                        if target < *pc {
+                            vm_try!(self.ctx.maybe_quit());
+                        }
+                        *pc = target;
                     } else {
                         stk!().pop();
                     }
                 }
                 Op::GotoIfNotNilElsePop(addr) => {
                     if stk!().last().is_some_and(|v| v.is_truthy()) {
-                        *pc = *addr as usize;
+                        let target = *addr as usize;
+                        if target < *pc {
+                            vm_try!(self.ctx.maybe_quit());
+                        }
+                        *pc = target;
                     } else {
                         stk!().pop();
                     }
@@ -1651,6 +1683,7 @@ impl<'a> Vm<'a> {
                     };
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
+                    vm_try!(self.ctx.maybe_quit());
                 }
                 // Mirrors GNU bytecode.c inline dispatch of opcodes
                 // 0140-0177 etc. — the symbol name is encoded in the
@@ -1672,6 +1705,7 @@ impl<'a> Vm<'a> {
                     };
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
+                    vm_try!(self.ctx.maybe_quit());
                 }
             }
         }

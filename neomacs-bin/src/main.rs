@@ -1714,6 +1714,13 @@ pub fn run(mode: RuntimeMode) {
         let (input_tx, input_rx) = crossbeam_channel::unbounded();
         let display_input_rx = emacs_comms.input_rx;
         let primary_window_size_for_input = Arc::clone(&primary_window_size);
+        // Shared quit-request flag. When the bridge sees `C-g` it flips
+        // this so the evaluator's `maybe_quit` can observe it without
+        // waiting for `read_char` to drain the channel. Mirrors GNU's
+        // synchronous keystroke path (`keyboard.c:3812` sets Vquit_flag
+        // immediately); Rust can't longjmp into the evaluator, so we
+        // poll an atomic instead.
+        let quit_requested = Arc::clone(&evaluator.quit_requested);
         std::thread::Builder::new()
             .name("input-bridge".to_string())
             .spawn(move || {
@@ -1722,6 +1729,12 @@ pub fn run(mode: RuntimeMode) {
                     record_primary_window_resize(&primary_window_size_for_input, &event);
                     if let Some(kb_event) = input_bridge::convert_display_event(event) {
                         tracing::info!("input-bridge: converted to kb event");
+                        if let neovm_core::keyboard::InputEvent::KeyPress { key, .. } = &kb_event {
+                            if key.is_default_quit_char() {
+                                quit_requested
+                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
                         if input_tx.send(kb_event).is_err() {
                             break; // Context dropped
                         }

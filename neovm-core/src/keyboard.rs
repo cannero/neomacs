@@ -191,6 +191,22 @@ impl KeyEvent {
         crate::emacs_core::keymap::key_event_to_emacs_event(&event)
     }
 
+    /// True if this event is GNU Emacs's default `quit-char`: `C-g`.
+    ///
+    /// Used by the input-bridge thread to set `Context::quit_requested`
+    /// without a round-trip through the evaluator. The evaluator's own
+    /// `event_is_quit_char` is still consulted in `read_char` to honor
+    /// customized `quit-char` values; this helper only catches the
+    /// overwhelmingly common default so a blocked bytecode loop can be
+    /// interrupted.
+    pub fn is_default_quit_char(&self) -> bool {
+        if !matches!(self.key, Key::Char('g')) {
+            return false;
+        }
+        let m = self.modifiers;
+        m.ctrl && !m.meta && !m.super_ && !m.hyper
+    }
+
     /// Format as Emacs key description (e.g., "C-x", "M-f", "RET").
     pub fn to_description(&self) -> String {
         let emacs_event = self.to_emacs_event_value();

@@ -1367,6 +1367,17 @@ pub struct Context {
     /// `None` in batch mode.
     #[cfg(unix)]
     pub wakeup_fd: Option<std::os::unix::io::RawFd>,
+    /// Cross-thread quit signal. The input-bridge thread flips this to
+    /// `true` when it observes a `quit-char` keystroke; the evaluator
+    /// drains it from `maybe_quit` into `Vquit_flag` on its next poll.
+    ///
+    /// GNU handles this case with `sys_longjmp` from the signal or
+    /// keystroke handler straight into `read_char`'s `setjmp` target
+    /// (`keyboard.c:12738`, `keyboard.c:3812`). Rust can't do that
+    /// across owned borrows, so we use an atomic flag and rely on
+    /// `maybe_quit` polling from `eval_sub` / `Ffuncall` / the bytecode
+    /// VM to pick it up.
+    pub quit_requested: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Redisplay callback — called before blocking for input in `read_char()`.
     ///
     /// In GNU Emacs, `read_char()` calls `redisplay()` directly (keyboard.c
@@ -3993,6 +4004,9 @@ impl Context {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
+            quit_requested: std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ),
             redisplay_fn: None,
             display_host: None,
             coding_systems: CodingSystemManager::new(),
@@ -4139,6 +4153,9 @@ impl Context {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
+            quit_requested: std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false),
+            ),
             redisplay_fn: None,
             display_host: None,
             coding_systems,
@@ -5626,7 +5643,27 @@ impl Context {
 
     /// GNU `maybe_quit`: do nothing when `quit-flag` is nil or
     /// `inhibit-quit` is non-nil; otherwise process the quit request.
-    fn maybe_quit(&mut self) -> Result<(), Flow> {
+    pub(crate) fn maybe_quit(&mut self) -> Result<(), Flow> {
+        // Drain the cross-thread quit-request atomic into `Vquit_flag`.
+        // Set by the input-bridge thread when it observes a `quit-char`
+        // keystroke while the evaluator is busy (e.g. deep in bytecode
+        // and not reading from `input_rx`). See
+        // `Context::quit_requested` for the design rationale.
+        if self
+            .quit_requested
+            .swap(false, std::sync::atomic::Ordering::Relaxed)
+        {
+            if self
+                .obarray
+                .symbol_value_id(self.quit_flag_symbol)
+                .copied()
+                .unwrap_or(Value::NIL)
+                .is_nil()
+            {
+                self.obarray
+                    .set_symbol_value_id(self.quit_flag_symbol, Value::T);
+            }
+        }
         let quit_flag = self
             .obarray
             .symbol_value_id(self.quit_flag_symbol)
@@ -10167,6 +10204,16 @@ impl Context {
     /// Restore all specpdl bindings back to `count`.
     /// Matches GNU Emacs's unbind_to() in eval.c.
     pub(crate) fn unbind_to(&mut self, count: usize) {
+        // Mirrors GNU `unbind_to` in `eval.c:3907-3930`: suppress a
+        // pending quit during cleanup so `unwind-protect` cleanup forms
+        // run to completion, then restore the pending state on exit if
+        // no inner form replaced it. Without this an interactive `C-g`
+        // arriving during a long-running protected form would abort the
+        // CLEANUP clause mid-way, leaving resources in a bad state.
+        let quitf = self.quit_flag_value();
+        if !quitf.is_nil() {
+            self.set_quit_flag_value(Value::NIL);
+        }
         while self.specpdl.len() > count {
             let binding = self.specpdl.pop().unwrap();
             match binding {
@@ -10340,6 +10387,11 @@ impl Context {
                     self.buffers.restore_saved_restriction_state(state);
                 }
             }
+        }
+        // If cleanup forms didn't set their own quit, reinstate the
+        // pending state. Matches `eval.c:3927-3928`.
+        if self.quit_flag_value().is_nil() && !quitf.is_nil() {
+            self.set_quit_flag_value(quitf);
         }
     }
 }
