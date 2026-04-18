@@ -4751,6 +4751,15 @@ fn load_elc_gz_is_explicitly_unsupported() {
 /// Try loading the full loadup.el file sequence through the NeoVM
 /// evaluator.  This test runs by default.  Set
 /// NEOVM_LOADUP_TEST_SKIP=1 to skip it.
+///
+/// Probes test state directly via `(get SYM 'cl--class)` — which is
+/// exactly what compiled .elc code executes when it calls the
+/// `cl--find-class` macro. This avoids depending on whether `cl-macs`
+/// (a compile-time-only library) has been loaded at runtime: GNU's
+/// own bootstrap doesn't load it either, and raw calls to
+/// `(cl--find-class ...)` at the top level signal void-function unless
+/// user code has done `(require 'cl-macs)` first. See the
+/// contribution notes on test authoring re: macro dependencies.
 #[test]
 fn neovm_loadup_bootstrap() {
     crate::test_utils::init_test_tracing();
@@ -4764,7 +4773,7 @@ fn neovm_loadup_bootstrap() {
     let mut eval = create_bootstrap_evaluator().expect("loadup bootstrap should succeed");
     let result = eval
         .eval_str(
-            "(list (not (null (cl--find-class 'float))) (not (null (cl--find-class 'integer))))",
+            "(list (not (null (get 'float 'cl--class))) (not (null (get 'integer 'cl--class))))",
         )
         .expect("evaluate cl class probe");
     let items = crate::emacs_core::value::list_to_vec(&result).expect("result list");
@@ -6475,11 +6484,18 @@ fn expect_vector_ints(value: Value) -> Vec<i64> {
 fn cl_callf_updates_variable_place() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    // `cl-callf` is defined in cl-macs.el, which GNU's bootstrap does
+    // not preload (compiled .elc files have macro calls already
+    // expanded). Any runtime eval of uncompiled `(cl-callf ...)`
+    // requires a `(require 'cl-macs)` first, matching real-user
+    // usage at the top level.
     let result = eval
         .eval_str(
-            r#"(let ((a '(3 2 1)))
-           (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) a)
-           a)"#,
+            r#"(progn
+             (require 'cl-macs)
+             (let ((a '(3 2 1)))
+               (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) a)
+               a))"#,
         )
         .expect("evaluate cl-callf variable probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
@@ -7423,11 +7439,15 @@ too large if positive or too small if negative)."
 fn cl_callf_updates_generalized_place() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    // See cl_callf_updates_variable_place: `cl-callf` is a cl-macs macro
+    // not preloaded at bootstrap — require it explicitly.
     let result = eval
         .eval_str(
-            r#"(let ((box (list '(3 2 1))))
-           (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) (car box))
-           (car box))"#,
+            r#"(progn
+             (require 'cl-macs)
+             (let ((box (list '(3 2 1))))
+               (cl-callf (lambda (slots) (apply #'vector (nreverse slots))) (car box))
+               (car box)))"#,
         )
         .expect("evaluate cl-callf generalized place probe");
     assert_eq!(expect_vector_ints(result), vec![1, 2, 3]);
