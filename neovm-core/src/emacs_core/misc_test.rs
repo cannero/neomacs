@@ -523,79 +523,50 @@ fn recursion_depth_zero() {
     assert!(eq_value(&result, &Value::fixnum(0)));
 }
 
-#[test]
-fn backtrace_frame_basic_shape() {
-    crate::test_utils::init_test_tracing();
-    let mut eval = super::super::eval::Context::new();
-    let frame0 = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(0)]).unwrap();
-    let items0 = list_to_vec(&frame0).expect("frame0 should be a list");
-    assert_eq!(items0.first(), Some(&Value::T));
-    assert_eq!(items0.get(1), Some(&Value::symbol("backtrace-frame")));
-
-    let frame1 = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(1)]).unwrap();
-    let items1 = list_to_vec(&frame1).expect("frame1 should be a list");
-    assert_eq!(items1.first(), Some(&Value::T));
-    assert_eq!(items1.get(1), Some(&Value::symbol("eval")));
-
-    let frame2 = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(2)]).unwrap();
-    assert!(frame2.is_list());
-}
+// Regression tests for `backtrace-frame--internal` — the real
+// introspection primitive that walks the specpdl. GNU's
+// `backtrace_frame_apply` (eval.c:3984) reads each SPECPDL_BACKTRACE
+// entry and invokes the callback with (evald func args flags).
+// Neomacs's `runtime_backtrace_frames_from_base` + `apply_backtrace_callback`
+// do the same for `SpecBinding::Backtrace`. These tests exercise the
+// live path including a frame pushed by `push_backtrace_frame` (which
+// fires on every bytecode and interpreter call, see vm.rs:3443 and
+// eval.rs:8858).
 
 #[test]
-fn backtrace_frame_handles_base_and_depth() {
+fn backtrace_frame_internal_surfaces_live_frame() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
 
-    let with_nil_base =
-        builtin_backtrace_frame(&mut eval, vec![Value::fixnum(0), Value::NIL]).unwrap();
-    assert!(with_nil_base.is_list());
-    let items = list_to_vec(&with_nil_base).expect("list");
-    assert_eq!(items.last(), Some(&Value::NIL));
+    // Push a backtrace frame ourselves so the walker has something to
+    // surface without needing a full compile/call round-trip.
+    eval.push_backtrace_frame(
+        Value::symbol("my-func"),
+        &[Value::fixnum(1), Value::fixnum(2)],
+    );
 
-    let with_truthy_base =
-        builtin_backtrace_frame(&mut eval, vec![Value::fixnum(0), Value::T]).unwrap();
-    assert!(with_truthy_base.is_nil());
+    // Call backtrace-frame--internal with a callback that just
+    // returns its four args as a list.  base=nil walks from the top
+    // of the stack; nframes=0 grabs the newest frame.
+    let callback = eval
+        .eval_str("(lambda (evald func args flags) (list evald func args flags))")
+        .expect("build callback");
+    let result = super::builtin_backtrace_frame_internal(
+        &mut eval,
+        vec![callback, Value::fixnum(0), Value::NIL],
+    )
+    .expect("walk");
 
-    let deep = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(50)]).unwrap();
-    assert!(deep.is_nil());
-}
-
-#[test]
-fn backtrace_frame_validation() {
-    crate::test_utils::init_test_tracing();
-    let mut eval = super::super::eval::Context::new();
-
-    let missing = builtin_backtrace_frame(&mut eval, vec![]);
-    assert!(matches!(
-        missing,
-        Err(Flow::Signal(sig))
-            if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("backtrace-frame"), Value::fixnum(0)]
-    ));
-
-    let over = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(0), Value::NIL, Value::NIL]);
-    assert!(matches!(
-        over,
-        Err(Flow::Signal(sig))
-            if sig.symbol_name() == "wrong-number-of-arguments"
-                && sig.data == vec![Value::symbol("backtrace-frame"), Value::fixnum(3)]
-    ));
-
-    let bad_nil = builtin_backtrace_frame(&mut eval, vec![Value::NIL]);
-    assert!(matches!(
-        bad_nil,
-        Err(Flow::Signal(sig))
-            if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("wholenump"), Value::NIL]
-    ));
-
-    let bad_negative = builtin_backtrace_frame(&mut eval, vec![Value::fixnum(-1)]);
-    assert!(matches!(
-        bad_negative,
-        Err(Flow::Signal(sig))
-            if sig.symbol_name() == "wrong-type-argument"
-                && sig.data == vec![Value::symbol("wholenump"), Value::fixnum(-1)]
-    ));
+    let items = list_to_vec(&result).expect("four-element list");
+    assert_eq!(items.len(), 4);
+    assert_eq!(items[0], Value::T, "evald should be t");
+    assert_eq!(items[1], Value::symbol("my-func"), "func symbol");
+    assert_eq!(
+        items[2],
+        Value::list(vec![Value::fixnum(1), Value::fixnum(2)]),
+        "args list"
+    );
+    assert!(items[3].is_nil(), "no flags on this frame");
 }
 
 #[test]

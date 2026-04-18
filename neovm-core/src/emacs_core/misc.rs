@@ -499,48 +499,12 @@ pub(crate) fn builtin_display_line_numbers_update_width(args: Vec<Value>) -> Eva
 // Eval-dependent builtins
 // ===========================================================================
 
-/// `(backtrace-frame NFRAMES &optional BASE)` -- returns compatibility-formatted
-/// synthetic backtrace frames for supported NFRAMES values.
-pub(crate) fn builtin_backtrace_frame(
-    _eval: &mut super::eval::Context,
-    args: Vec<Value>,
-) -> EvalResult {
-    expect_min_args("backtrace-frame", &args, 1)?;
-    expect_max_args("backtrace-frame", &args, 2)?;
-    let nframes = expect_wholenump(&args[0])?;
-
-    if args.get(1).is_some_and(|v| v.is_truthy()) {
-        return Ok(Value::NIL);
-    }
-
-    match nframes {
-        0 => {
-            let mut frame = vec![
-                Value::T,
-                Value::symbol("backtrace-frame"),
-                Value::fixnum(nframes),
-            ];
-            if args.len() > 1 {
-                frame.push(args[1]);
-            }
-            Ok(Value::list(frame))
-        }
-        1 => {
-            let mut call = vec![Value::symbol("backtrace-frame"), Value::fixnum(nframes)];
-            if args.len() > nframes as usize {
-                call.push(args[nframes as usize]);
-            }
-            Ok(Value::list(vec![
-                Value::T,
-                Value::symbol("eval"),
-                Value::list(call),
-                Value::NIL,
-            ]))
-        }
-        2 | 3 => Ok(Value::list(vec![Value::NIL])),
-        _ => Ok(Value::NIL),
-    }
-}
+// `backtrace-frame` is implemented in elisp in `lisp/subr.el:6703-6718`,
+// delegating to `backtrace-frame--internal` (below). No Rust-level
+// `backtrace-frame` primitive exists; a previous stub returning
+// synthetic canned frames was removed because it never made it to the
+// defsubr registry (subr.el's defun wins at runtime) and its fixed
+// output did not match GNU semantics.
 
 fn expect_threadp(eval: &super::eval::Context, value: &Value) -> Result<(), Flow> {
     expect_threadp_in_state(&eval.threads, value)
