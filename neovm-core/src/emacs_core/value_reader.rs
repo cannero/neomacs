@@ -787,10 +787,15 @@ impl<'a> Reader<'a> {
                         // through to the "Normal Unicode" branch handles that.
                         let byte0 = cp as u8;
                         let decoded = if !self.source_multibyte && byte0 >= 0xC0 {
-                            let expected_len = if byte0 < 0xE0 { 2 }
-                                else if byte0 < 0xF0 { 3 }
-                                else if byte0 < 0xF8 { 4 }
-                                else { 0 };
+                            let expected_len = if byte0 < 0xE0 {
+                                2
+                            } else if byte0 < 0xF0 {
+                                3
+                            } else if byte0 < 0xF8 {
+                                4
+                            } else {
+                                0
+                            };
                             if expected_len >= 2 {
                                 let save_pos = self.pos;
                                 let mut utf8_bytes = vec![byte0];
@@ -801,7 +806,10 @@ impl<'a> Reader<'a> {
                                             utf8_bytes.push(c as u8);
                                             self.bump();
                                         }
-                                        _ => { ok = false; break; }
+                                        _ => {
+                                            ok = false;
+                                            break;
+                                        }
                                     }
                                 }
                                 if ok {

@@ -243,7 +243,10 @@ fn find_font_eval_requests_exact_registry_match_from_display_host() {
         .borrow()
         .clone()
         .expect("display host should capture find-font request");
-    assert_eq!(request.registry, Some(LispString::from_utf8("gb2312.1980-0")));
+    assert_eq!(
+        request.registry,
+        Some(LispString::from_utf8("gb2312.1980-0"))
+    );
     assert_eq!(request.family, None);
     assert_eq!(request.weight, Some(FontWeight::NORMAL));
 }
@@ -1385,7 +1388,9 @@ fn internal_set_lisp_face_attribute_eval_realizes_string_font_requests_for_live_
         .get(frame_id)
         .expect("selected frame after font change");
     assert_eq!(
-        frame.parameter("font").and_then(|value| value.as_utf8_str()),
+        frame
+            .parameter("font")
+            .and_then(|value| value.as_utf8_str()),
         Some("Noto Sans Mono-16")
     );
     let font_parameter = frame

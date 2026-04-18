@@ -444,9 +444,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 .unwrap_or_else(|| "nil".to_string());
             write!(out, "(macro {} {})", params, body).unwrap();
         }
-        ValueKind::Subr(id) => {
-            write!(out, "#<subr {}>", resolve_sym(id)).unwrap()
-        }
+        ValueKind::Subr(id) => write!(out, "#<subr {}>", resolve_sym(id)).unwrap(),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
             write!(out, "#<subr {}>", resolve_sym(id)).unwrap()

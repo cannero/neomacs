@@ -187,7 +187,9 @@ impl Default for SymbolVal {
     fn default() -> Self {
         // Plainval / UNBOUND is the correct initial state — matches GNU
         // where freshly-interned symbols have val.value == Qunbound.
-        Self { plain: Value::UNBOUND }
+        Self {
+            plain: Value::UNBOUND,
+        }
     }
 }
 
@@ -232,7 +234,6 @@ pub struct LispBufferLocalValue {
 // Legacy value-cell enum — to be removed in Phase 4-10
 // ===========================================================================
 
-
 // ===========================================================================
 // LispSymbol — per-symbol metadata stored in the obarray
 // ===========================================================================
@@ -265,7 +266,6 @@ pub struct LispSymbol {
     /// Whether `fmakunbound` explicitly masked the symbol's fallback function.
     function_unbound: bool,
 }
-
 
 /// Mirrors GNU `swap_in_symval_forwarding` (`src/data.c:1539-1571`).
 ///
@@ -367,7 +367,9 @@ impl LispSymbol {
         Self {
             name: symbol_name_id(id),
             flags,
-            val: SymbolVal { plain: Value::UNBOUND },
+            val: SymbolVal {
+                plain: Value::UNBOUND,
+            },
             function: Value::NIL,
             plist: Value::NIL,
             interned_global: false,
@@ -1298,7 +1300,8 @@ impl Obarray {
                         let cdr = blv.defcell.cons_cdr();
                         if cdr != Value::UNBOUND {
                             // Mutate the cdr of the defcell cons in the heap.
-                            let cons_ptr = blv.defcell.xcons_ptr() as *mut crate::tagged::header::ConsCell;
+                            let cons_ptr =
+                                blv.defcell.xcons_ptr() as *mut crate::tagged::header::ConsCell;
                             f(&mut (*cons_ptr).cdr_or_next.cdr);
                         }
                     }
@@ -1422,7 +1425,9 @@ impl Obarray {
                 // Plainval / UNBOUND is the "no value" state, matching
                 // GNU where makunbound sets val.value = Qunbound.
                 sym.flags.set_redirect(SymbolRedirect::Plainval);
-                sym.val = SymbolVal { plain: Value::UNBOUND };
+                sym.val = SymbolVal {
+                    plain: Value::UNBOUND,
+                };
             }
         }
     }
@@ -1454,9 +1459,9 @@ impl Obarray {
                 }
                 SymbolRedirect::Localized => {
                     // Bound if the BLV defcell has a non-UNBOUND default.
-                    return self.blv(current).is_some_and(|blv| {
-                        blv.defcell.cons_cdr() != Value::UNBOUND
-                    });
+                    return self
+                        .blv(current)
+                        .is_some_and(|blv| blv.defcell.cons_cdr() != Value::UNBOUND);
                 }
                 SymbolRedirect::Forwarded => {
                     // Phase 10D: BUFFER_OBJFWD slots are never unbound.
@@ -1512,14 +1517,16 @@ impl Obarray {
     ///
     /// Returns `Err(Flow)` if the existing plist is malformed (non-cons non-nil),
     /// matching GNU `Fput` / `Fplist_put` semantics.
-    pub fn put_property_id(&mut self, symbol: SymId, prop: SymId, value: Value) -> Result<(), Flow> {
+    pub fn put_property_id(
+        &mut self,
+        symbol: SymId,
+        prop: SymId,
+        value: Value,
+    ) -> Result<(), Flow> {
         self.ensure_global_member_if_canonical(symbol);
         let sym = self.ensure_symbol_id(symbol);
-        let (new_plist, _changed) = crate::emacs_core::plist::plist_put(
-            sym.plist,
-            Value::from_sym_id(prop),
-            value,
-        )?;
+        let (new_plist, _changed) =
+            crate::emacs_core::plist::plist_put(sym.plist, Value::from_sym_id(prop), value)?;
         sym.plist = new_plist;
         Ok(())
     }
@@ -1828,8 +1835,7 @@ impl Obarray {
                     use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
                     let fwd = unsafe { &*sym.val.fwd };
                     if matches!(fwd.ty, LispFwdType::BufferObj) {
-                        let buf_fwd =
-                            unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                        let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
                         return Some(&buf_fwd.default);
                     }
                     return None;

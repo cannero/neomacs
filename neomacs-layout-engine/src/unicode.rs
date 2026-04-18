@@ -92,9 +92,7 @@ pub(crate) fn is_cluster_extender(ch: char) -> bool {
         return true;
     }
     let cp = ch as u32;
-    cp == 0x200D
-        || cp == 0x20E3
-        || (0x1F3FB..=0x1F3FF).contains(&cp)
+    cp == 0x200D || cp == 0x20E3 || (0x1F3FB..=0x1F3FF).contains(&cp)
 }
 
 /// Check if a codepoint is a Regional Indicator Symbol.

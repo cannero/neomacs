@@ -571,7 +571,8 @@ impl GapBuffer {
 
         if bytepos < self.gap_start {
             let count = self.gap_start - bytepos;
-            self.buf.copy_within(bytepos..bytepos + count, bytepos + gap);
+            self.buf
+                .copy_within(bytepos..bytepos + count, bytepos + gap);
         } else {
             let count = bytepos - self.gap_start;
             let src_start = self.gap_end;

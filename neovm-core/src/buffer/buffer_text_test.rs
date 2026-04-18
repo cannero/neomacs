@@ -84,7 +84,16 @@ fn buf_charpos_to_bytepos_matches_oracle() {
     let mut bytes = Vec::new();
     text.copy_bytes_to(0, text.len(), &mut bytes);
 
-    for &cp in &[0usize, 1, 50, 500, 5000, 12345, text.char_count() - 1, text.char_count()] {
+    for &cp in &[
+        0usize,
+        1,
+        50,
+        500,
+        5000,
+        12345,
+        text.char_count() - 1,
+        text.char_count(),
+    ] {
         let got = text.buf_charpos_to_bytepos(cp);
         let expected = crate::emacs_core::emacs_char::char_to_byte_pos(&bytes, cp);
         assert_eq!(
@@ -111,7 +120,11 @@ fn buf_charpos_to_bytepos_invalidates_on_mutation() {
 fn buf_bytepos_to_charpos_matches_oracle() {
     let mut s = String::new();
     for i in 0..5000 {
-        if i % 2 == 0 { s.push_str("hello "); } else { s.push_str("日本語 "); }
+        if i % 2 == 0 {
+            s.push_str("hello ");
+        } else {
+            s.push_str("日本語 ");
+        }
     }
     let text = BufferText::from_str(&s);
 
@@ -176,7 +189,10 @@ fn replace_lisp_string_invalidates_position_cache() {
     // Sanity: the actual bytes at that position are the lead byte of '本'.
     // '本' is 0xE6 0x9C 0xAC. So buffer[6] should be 0xE6.
     let b = text.byte_at(6);
-    assert_eq!(b, 0xE6, "post-replace byte at position 6 should be 0xE6 (lead byte of 本)");
+    assert_eq!(
+        b, 0xE6,
+        "post-replace byte at position 6 should be 0xE6 (lead byte of 本)"
+    );
 }
 
 #[test]

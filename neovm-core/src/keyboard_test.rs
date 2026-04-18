@@ -223,7 +223,9 @@ fn interactive_spec_parsing() {
     assert!(
         matches!(&codes[0], InteractiveCode::StringArg(p) if p.as_utf8_str() == Some("Search for: "))
     );
-    assert!(matches!(&codes[1], InteractiveCode::NumberArg(p) if p.as_utf8_str() == Some("Count: ")));
+    assert!(
+        matches!(&codes[1], InteractiveCode::NumberArg(p) if p.as_utf8_str() == Some("Count: "))
+    );
 }
 
 #[test]

@@ -281,7 +281,6 @@ fn storage_has_special_units(s: &str) -> bool {
     })
 }
 
-
 /// Encode raw byte values as a unibyte storage string.
 ///
 /// This keeps byte-oriented Elisp semantics for operations like `aref`,

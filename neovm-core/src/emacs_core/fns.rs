@@ -221,7 +221,10 @@ fn base64_decode_bytes(input: &[u8], table: &[u8; 256]) -> Result<Vec<u8>, ()> {
 pub(crate) fn builtin_base64_encode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64-encode-string", &args, 1, 2)?;
     let ls = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     // GNU Fbase64_encode_string (fns.c) rejects non-ASCII multibyte strings.
     // Encode directly from Emacs-internal bytes so unibyte strings containing
@@ -236,7 +239,10 @@ pub(crate) fn builtin_base64_encode_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_base64_decode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64-decode-string", &args, 1, 2)?;
     let ls = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     let use_url = args.get(1).is_some_and(|v| v.is_truthy());
     let table = if use_url {
@@ -260,7 +266,10 @@ pub(crate) fn builtin_base64_decode_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_base64url_encode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64url-encode-string", &args, 1, 2)?;
     let ls = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     let no_pad = args.get(1).is_some_and(|v| v.is_truthy());
     let encoded = base64_encode(ls.as_bytes(), B64_URL, !no_pad, false);
@@ -272,7 +281,10 @@ pub(crate) fn builtin_base64url_encode_string(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_base64url_decode_string(args: Vec<Value>) -> EvalResult {
     expect_range_args("base64url-decode-string", &args, 1, 2)?;
     let ls = args[0].as_lisp_string().ok_or_else(|| {
-        signal("wrong-type-argument", vec![Value::symbol("stringp"), args[0]])
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
     })?;
     let table = build_decode_table(B64_URL);
     match base64_decode_bytes(ls.as_bytes(), &table) {

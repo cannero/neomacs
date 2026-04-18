@@ -3184,8 +3184,8 @@ pub(crate) fn builtin_subst_char_in_region(
                 vec![Value::symbol("characterp"), args[2]],
             )
         })?;
-    let to_bytes = encode_char_code_for_buffer_bytes(to_code as u32, target_multibyte)
-        .ok_or_else(|| {
+    let to_bytes =
+        encode_char_code_for_buffer_bytes(to_code as u32, target_multibyte).ok_or_else(|| {
             signal(
                 "wrong-type-argument",
                 vec![Value::symbol("characterp"), args[3]],

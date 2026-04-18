@@ -314,7 +314,10 @@ pub(crate) fn run_redisplay_window_change_hooks(eval: &mut super::eval::Context)
     // would otherwise re-enter here and infinitely recurse. The specpdl
     // entry is popped when we return, restoring the previous value.
     let specpdl_count = eval.specpdl.len();
-    eval.specbind(crate::emacs_core::intern::intern("inhibit-redisplay"), Value::T);
+    eval.specbind(
+        crate::emacs_core::intern::intern("inhibit-redisplay"),
+        Value::T,
+    );
 
     let result = run_redisplay_window_change_hooks_inner(eval);
 

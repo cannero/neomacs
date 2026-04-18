@@ -407,10 +407,7 @@ fn decode_pass1(
             }
             149 => {
                 // match-end
-                ops.push(RawOp::Resolved(Op::CallBuiltinSym(
-                    intern("match-end"),
-                    1,
-                )));
+                ops.push(RawOp::Resolved(Op::CallBuiltinSym(intern("match-end"), 1)));
             }
             150 => {
                 // upcase

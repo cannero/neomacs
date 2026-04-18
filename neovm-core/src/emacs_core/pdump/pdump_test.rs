@@ -56,13 +56,19 @@ fn test_dump_symbol_data_bincode_round_trip() {
     assert_eq!(decoded.redirect, 1, "redirect should round-trip");
     assert_eq!(decoded.trapped_write, 0, "trapped_write should round-trip");
     assert_eq!(decoded.interned, 1, "interned should round-trip");
-    assert!(decoded.declared_special, "declared_special should round-trip");
+    assert!(
+        decoded.declared_special,
+        "declared_special should round-trip"
+    );
     assert!(
         matches!(decoded.val, DumpSymbolVal::Alias(DumpSymId(7))),
         "val should round-trip as Alias(7)"
     );
     assert!(matches!(decoded.function, DumpValue::Int(9)));
-    assert!(matches!(decoded.plist, DumpValue::Nil), "empty plist should round-trip as Nil");
+    assert!(
+        matches!(decoded.plist, DumpValue::Nil),
+        "empty plist should round-trip as Nil"
+    );
 }
 
 #[test]

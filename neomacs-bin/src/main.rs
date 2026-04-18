@@ -33,7 +33,6 @@ use neomacs_layout_engine::gui_chrome::{collect_gui_menu_bar_items, collect_gui_
 use neovm_core::buffer::BufferId;
 use neovm_core::emacs_core::Value;
 use neovm_core::emacs_core::builtins::set_neomacs_monitor_info;
-use neovm_core::heap_types::LispString;
 use neovm_core::emacs_core::display::gui_window_system_symbol;
 use neovm_core::emacs_core::eval::{
     FontResolveRequest, FontSpecResolveRequest, GuiFrameHostSize, ImageResolveRequest,
@@ -50,6 +49,7 @@ use neovm_core::emacs_core::terminal::pure::{
 };
 use neovm_core::emacs_core::{Context, DisplayHost, GuiFrameHostRequest};
 use neovm_core::face::{FaceHeight, FontSlant, FontWeight, FontWidth};
+use neovm_core::heap_types::LispString;
 use neovm_core::window::{FrameId, Window};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1261,10 +1261,7 @@ fn frame_host_title(eval: &mut Context, frame_id: FrameId) -> LispString {
             .unwrap_or(Value::NIL),
         target_cols,
     );
-    rendered
-        .as_lisp_string()
-        .cloned()
-        .unwrap_or(fallback_title)
+    rendered.as_lisp_string().cloned().unwrap_or(fallback_title)
 }
 
 fn adopt_existing_primary_gui_frame(eval: &mut Context) -> Result<(), String> {
@@ -1731,8 +1728,7 @@ pub fn run(mode: RuntimeMode) {
                         tracing::info!("input-bridge: converted to kb event");
                         if let neovm_core::keyboard::InputEvent::KeyPress { key, .. } = &kb_event {
                             if key.is_default_quit_char() {
-                                quit_requested
-                                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                                quit_requested.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
                         }
                         if input_tx.send(kb_event).is_err() {

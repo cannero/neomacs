@@ -1430,7 +1430,8 @@ pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -
     let text = print_value_princ_in_state(eval, &args[0]);
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(target);
-    let princ_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    let princ_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
     eval.restore_specpdl_roots(roots);
     princ_result?;
     Ok(args[0])
@@ -1456,7 +1457,8 @@ pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -
     let text = super::error::print_value_in_state(eval, &args[0]);
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(target);
-    let prin1_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    let prin1_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
     eval.restore_specpdl_roots(roots);
     prin1_result?;
     Ok(args[0])
@@ -1503,7 +1505,8 @@ pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -
     text.push('\n');
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(target);
-    let print_result = dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
+    let print_result =
+        dispatch_print_callback_chars(&text, |ch| eval.apply(target, vec![ch]).map(|_| ()));
     eval.restore_specpdl_roots(roots);
     print_result?;
     Ok(args[0])

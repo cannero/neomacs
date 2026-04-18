@@ -699,22 +699,22 @@ pub(crate) fn builtin_load_in_vm_runtime(
                 shared, &path, &requested, &found, noerror, nomessage,
             )
             .map_err(|e| match e {
-                    EvalError::Signal {
-                        symbol,
-                        data,
-                        raw_data,
-                    } => Flow::Signal(crate::emacs_core::error::SignalData {
-                        symbol,
-                        data,
-                        raw_data,
-                        suppress_signal_hook: false,
-                        selected_resume: None,
-                        search_complete: false,
-                    }),
-                    EvalError::UncaughtThrow { tag, value } => {
-                        crate::emacs_core::error::signal("no-catch", vec![tag, value])
-                    }
-                });
+                EvalError::Signal {
+                    symbol,
+                    data,
+                    raw_data,
+                } => Flow::Signal(crate::emacs_core::error::SignalData {
+                    symbol,
+                    data,
+                    raw_data,
+                    suppress_signal_hook: false,
+                    selected_resume: None,
+                    search_complete: false,
+                }),
+                EvalError::UncaughtThrow { tag, value } => {
+                    crate::emacs_core::error::signal("no-catch", vec![tag, value])
+                }
+            });
             shared.restore_specpdl_roots(root_scope);
             result
         }
@@ -1261,14 +1261,17 @@ fn streaming_readevalloop(
             );
             // Dump Lisp backtrace (like GNU's debug-early-backtrace)
             {
-                let bt_frames: Vec<_> = eval.specpdl.iter().rev().filter_map(|entry| {
-                    match entry {
+                let bt_frames: Vec<_> = eval
+                    .specpdl
+                    .iter()
+                    .rev()
+                    .filter_map(|entry| match entry {
                         super::eval::SpecBinding::Backtrace { function, args, .. } => {
                             Some((function, args))
                         }
                         _ => None,
-                    }
-                }).collect();
+                    })
+                    .collect();
                 if !bt_frames.is_empty() {
                     tracing::error!("  Lisp backtrace:");
                     for (j, (function, frame_args)) in bt_frames.iter().enumerate() {
@@ -1289,10 +1292,7 @@ fn streaming_readevalloop(
                         let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
                         tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
                         if j >= 20 {
-                            tracing::error!(
-                                "    ... ({} more frames)",
-                                bt_frames.len() - j - 1
-                            );
+                            tracing::error!("    ... ({} more frames)", bt_frames.len() - j - 1);
                             break;
                         }
                     }

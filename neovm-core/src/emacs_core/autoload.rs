@@ -501,11 +501,7 @@ pub(crate) fn builtin_autoload_do_load(
             let result = (|| -> EvalResult {
                 let path = resolve_autoload_load_path(&eval.obarray, &file)?;
                 eval.load_file_internal(&path)?;
-                finish_autoload_do_load_in_state(
-                    &eval.obarray,
-                    funname,
-                    original_fundef.as_ref(),
-                )
+                finish_autoload_do_load_in_state(&eval.obarray, funname, original_fundef.as_ref())
             })();
             eval.restore_specpdl_roots(roots);
             result
@@ -529,11 +525,7 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
             let load_result = shared.load_file_internal(&path);
             shared.restore_specpdl_roots(roots);
             load_result?;
-            finish_autoload_do_load_in_state(
-                &shared.obarray,
-                funname,
-                original_fundef.as_ref(),
-            )
+            finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())
         }
     }
 }
@@ -656,10 +648,7 @@ pub(crate) fn builtin_symbol_file(eval: &mut super::eval::Context, args: Vec<Val
         return Ok(Value::heap_string(entry.file.clone()));
     }
 
-    if let Some(fndef) = eval
-        .obarray
-        .symbol_function(resolve_sym(symbol_name))
-    {
+    if let Some(fndef) = eval.obarray.symbol_function(resolve_sym(symbol_name)) {
         if is_autoload_value(&fndef) {
             if let Some(items) = list_to_vec(&fndef) {
                 if let Some(v) = items.get(1) {

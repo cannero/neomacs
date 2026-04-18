@@ -27,8 +27,7 @@
 use std::fmt;
 
 use crate::emacs_core::intern::{
-    SymId, canonical_symbol_for_name, is_canonical_id, resolve_sym,
-    resolve_sym_lisp_string,
+    SymId, canonical_symbol_for_name, is_canonical_id, resolve_sym, resolve_sym_lisp_string,
 };
 use crate::heap_types::LispString;
 
@@ -405,7 +404,8 @@ impl TaggedValue {
 
     /// If this is a symbol-with-pos, return the position as i64.
     pub fn as_symbol_with_pos_pos(&self) -> Option<i64> {
-        self.as_symbol_with_pos().and_then(|swp| swp.pos.as_fixnum())
+        self.as_symbol_with_pos()
+            .and_then(|swp| swp.pos.as_fixnum())
     }
 
     /// True if this value holds a heap pointer (needs GC tracing).
@@ -830,7 +830,8 @@ impl TaggedValue {
     /// For keywords (which are symbols in GNU Emacs), returns the keyword name
     /// (e.g., ":foo").
     pub fn as_symbol_name(self) -> Option<&'static str> {
-        self.as_symbol_lisp_string().and_then(LispString::as_utf8_str)
+        self.as_symbol_lisp_string()
+            .and_then(LispString::as_utf8_str)
     }
 
     /// Get the exact Lisp-string storage for a symbol name.

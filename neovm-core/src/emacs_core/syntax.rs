@@ -533,7 +533,6 @@ impl SyntaxTable {
             syntax_entry_to_value(&entry),
         ]);
     }
-
 }
 
 impl Default for SyntaxTable {
@@ -1909,8 +1908,13 @@ pub(crate) fn builtin_syntax_after_in_buffers(
         return Ok(Value::NIL);
     };
 
-    let entry =
-        effective_syntax_entry_for_char_at_byte(buf, &SyntaxTable::for_buffer(buf), ch, byte_index, true);
+    let entry = effective_syntax_entry_for_char_at_byte(
+        buf,
+        &SyntaxTable::for_buffer(buf),
+        ch,
+        byte_index,
+        true,
+    );
     Ok(syntax_entry_to_value(&entry))
 }
 

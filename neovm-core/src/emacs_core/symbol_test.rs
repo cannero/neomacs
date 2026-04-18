@@ -55,7 +55,8 @@ fn fmakunbound_masks_builtin_fallback_name() {
 fn symbol_properties() {
     crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
-    ob.put_property("foo", "doc", Value::string("A function.")).unwrap();
+    ob.put_property("foo", "doc", Value::string("A function."))
+        .unwrap();
     assert_eq!(
         ob.get_property("foo", "doc").unwrap().as_utf8_str(),
         Some("A function.")
@@ -128,7 +129,8 @@ fn canonical_id_mutators_keep_symbol_globally_interned() {
     assert!(ob.intern_soft("vm-ghost").is_some());
     assert!(ob.all_symbols().contains(&"vm-ghost"));
 
-    ob.put_property_id(sym, intern("vm-prop"), Value::fixnum(2)).unwrap();
+    ob.put_property_id(sym, intern("vm-prop"), Value::fixnum(2))
+        .unwrap();
     assert_eq!(
         ob.get_property("vm-ghost", "vm-prop"),
         Some(Value::fixnum(2))
@@ -147,14 +149,12 @@ fn replace_symbol_plist_id_overwrites_existing_entries() {
     let mut ob = Obarray::new();
     let sym = intern("vm-plist");
 
-    ob.put_property_id(sym, intern("stale"), Value::fixnum(1)).unwrap();
+    ob.put_property_id(sym, intern("stale"), Value::fixnum(1))
+        .unwrap();
     ob.replace_symbol_plist_id(sym, [(intern("fresh"), Value::fixnum(2))]);
 
     assert_eq!(ob.get_property("vm-plist", "stale"), None);
-    assert_eq!(
-        ob.get_property("vm-plist", "fresh"),
-        Some(Value::fixnum(2))
-    );
+    assert_eq!(ob.get_property("vm-plist", "fresh"), Some(Value::fixnum(2)));
 }
 
 #[test]
@@ -166,7 +166,8 @@ fn for_each_value_cell_mut_updates_plain_and_buffer_local_values() {
     ob.set_symbol_value("buffer-local", Value::fixnum(2));
     ob.make_buffer_local("buffer-local", true);
     ob.set_symbol_function("callable", Value::fixnum(99));
-    ob.put_property("plist-holder", "meta", Value::fixnum(77)).unwrap();
+    ob.put_property("plist-holder", "meta", Value::fixnum(77))
+        .unwrap();
 
     ob.for_each_value_cell_mut(|value| {
         if let Some(n) = value.as_fixnum() {

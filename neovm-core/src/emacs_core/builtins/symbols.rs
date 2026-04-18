@@ -261,8 +261,11 @@ pub(crate) fn builtin_internal_define_uninitialized_variable(
     eval.obarray_mut().make_special_id(symbol);
 
     if !documentation.is_nil() {
-        eval.obarray_mut()
-            .put_property_id(symbol, intern("variable-documentation"), documentation)?;
+        eval.obarray_mut().put_property_id(
+            symbol,
+            intern("variable-documentation"),
+            documentation,
+        )?;
     }
 
     Ok(Value::NIL)
@@ -640,7 +643,10 @@ pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> 
     expect_args("get", &args, 2)?;
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
-    Ok(eval.obarray().get_property_id(sym, prop).unwrap_or(Value::NIL))
+    Ok(eval
+        .obarray()
+        .get_property_id(sym, prop)
+        .unwrap_or(Value::NIL))
 }
 
 pub(crate) fn builtin_put(
@@ -1212,9 +1218,9 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
             _other => {
                 // Transparently unwrap symbol-with-pos → bare symbol name.
                 if let Some(id) = symbol_id(&args[0]) {
-                    std::borrow::Cow::Borrowed(
-                        crate::emacs_core::intern::resolve_sym_lisp_string(id),
-                    )
+                    std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(
+                        id,
+                    ))
                 } else {
                     return Err(signal(
                         "wrong-type-argument",
@@ -1248,9 +1254,7 @@ pub(crate) fn intern_soft_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResul
         _other => {
             // Transparently unwrap symbol-with-pos → bare symbol name.
             if let Some(id) = symbol_id(&args[0]) {
-                std::borrow::Cow::Borrowed(
-                    crate::emacs_core::intern::resolve_sym_lisp_string(id),
-                )
+                std::borrow::Cow::Borrowed(crate::emacs_core::intern::resolve_sym_lisp_string(id))
             } else {
                 return Err(signal(
                     "wrong-type-argument",
@@ -2782,8 +2786,14 @@ fn compare_buffer_ids_for_value_lt(
 ) -> std::cmp::Ordering {
     use std::cmp::Ordering;
 
-    let left_name = eval.buffers.get(lhs).map(|buffer| buffer.name.as_utf8_str());
-    let right_name = eval.buffers.get(rhs).map(|buffer| buffer.name.as_utf8_str());
+    let left_name = eval
+        .buffers
+        .get(lhs)
+        .map(|buffer| buffer.name.as_utf8_str());
+    let right_name = eval
+        .buffers
+        .get(rhs)
+        .map(|buffer| buffer.name.as_utf8_str());
     match (left_name, right_name) {
         (Some(left), Some(right)) => left.cmp(&right),
         (None, Some(_)) => Ordering::Less,

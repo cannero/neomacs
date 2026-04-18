@@ -1647,14 +1647,16 @@ fn equal_value_inner(
         (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
         (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
         (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
-        (ValueKind::String, ValueKind::String) => match (left.as_lisp_string(), right.as_lisp_string()) {
-            (Some(a), Some(b)) => {
-                a.schars() == b.schars()
-                    && a.sbytes() == b.sbytes()
-                    && a.as_bytes() == b.as_bytes()
+        (ValueKind::String, ValueKind::String) => {
+            match (left.as_lisp_string(), right.as_lisp_string()) {
+                (Some(a), Some(b)) => {
+                    a.schars() == b.schars()
+                        && a.sbytes() == b.sbytes()
+                        && a.as_bytes() == b.as_bytes()
+                }
+                _ => false,
             }
-            _ => false,
-        },
+        }
         (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
             super::marker::marker_logical_fields(left)
                 == super::marker::marker_logical_fields(right)
@@ -1684,9 +1686,9 @@ fn equal_value_inner(
                     if a.len() != b.len() {
                         return false;
                     }
-                    a.iter()
-                        .zip(b.iter())
-                        .all(|(x, y)| equal_value_inner(x, y, depth + 1, seen, symbols_with_pos_enabled))
+                    a.iter().zip(b.iter()).all(|(x, y)| {
+                        equal_value_inner(x, y, depth + 1, seen, symbols_with_pos_enabled)
+                    })
                 }
                 _ => false,
             }
@@ -1818,9 +1820,13 @@ fn closure_equal(
     }
 
     let body_equal = match (left.closure_body_value(), right.closure_body_value()) {
-        (Some(left_body), Some(right_body)) => {
-            equal_value_inner(&left_body, &right_body, depth + 1, seen, symbols_with_pos_enabled)
-        }
+        (Some(left_body), Some(right_body)) => equal_value_inner(
+            &left_body,
+            &right_body,
+            depth + 1,
+            seen,
+            symbols_with_pos_enabled,
+        ),
         (None, None) => true,
         _ => false,
     };
@@ -1833,9 +1839,7 @@ fn closure_equal(
         right.closure_env().unwrap_or(None),
     ) {
         (None, None) => true,
-        (Some(l), Some(r)) => {
-            equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled)
-        }
+        (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled),
         _ => false,
     };
     if !env_equal || left.closure_docstring().flatten() != right.closure_docstring().flatten() {
@@ -1847,9 +1851,7 @@ fn closure_equal(
         right.closure_doc_form().flatten(),
     ) {
         (None, None) => true,
-        (Some(l), Some(r)) => {
-            equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled)
-        }
+        (Some(l), Some(r)) => equal_value_inner(&l, &r, depth + 1, seen, symbols_with_pos_enabled),
         _ => false,
     }
 }

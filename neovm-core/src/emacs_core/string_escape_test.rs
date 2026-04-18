@@ -19,20 +19,29 @@ fn passes_through_control_chars_by_default() {
     // Control chars pass through literally (print-escape-newlines
     // and print-escape-control-characters are nil by default).
     assert_eq!(format_lisp_string_with_options_default("\n\t"), "\"\n\t\"");
-    assert_eq!(format_lisp_string_with_options_default("\u{7f}"), "\"\u{7f}\"");
+    assert_eq!(
+        format_lisp_string_with_options_default("\u{7f}"),
+        "\"\u{7f}\""
+    );
 }
 
 #[test]
 fn keeps_non_bmp_visible() {
     crate::test_utils::init_test_tracing();
-    assert_eq!(format_lisp_string_with_options_default("\u{10ffff}"), "\"\u{10ffff}\"");
+    assert_eq!(
+        format_lisp_string_with_options_default("\u{10ffff}"),
+        "\"\u{10ffff}\""
+    );
 }
 
 #[test]
 fn escapes_raw_byte_sentinel_as_octal() {
     crate::test_utils::init_test_tracing();
     let raw_377 = char::from_u32(0xE0FF).expect("valid sentinel scalar");
-    assert_eq!(format_lisp_string_with_options_default(&raw_377.to_string()), "\"\\377\"");
+    assert_eq!(
+        format_lisp_string_with_options_default(&raw_377.to_string()),
+        "\"\\377\""
+    );
 }
 
 #[test]

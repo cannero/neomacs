@@ -130,9 +130,11 @@ fn subr_dispatch_kind_from_global_table() {
     let if_id = intern("if");
     let throw_id = intern("throw");
 
-    let car_entry = crate::emacs_core::eval::lookup_global_subr_entry(car_id).expect("car registered");
+    let car_entry =
+        crate::emacs_core::eval::lookup_global_subr_entry(car_id).expect("car registered");
     let if_entry = crate::emacs_core::eval::lookup_global_subr_entry(if_id).expect("if registered");
-    let throw_entry = crate::emacs_core::eval::lookup_global_subr_entry(throw_id).expect("throw registered");
+    let throw_entry =
+        crate::emacs_core::eval::lookup_global_subr_entry(throw_id).expect("throw registered");
 
     assert_eq!(car_entry.dispatch_kind, SubrDispatchKind::Builtin);
     assert_eq!(if_entry.dispatch_kind, SubrDispatchKind::SpecialForm);

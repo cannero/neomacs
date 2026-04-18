@@ -380,8 +380,14 @@ fn mx_view_hello_file() {
     if !neo_has_hello {
         dump("NEO", &nl);
     }
-    assert!(gnu_has_hello, "GNU should show some 'hello' text after M-x view-hello-file");
-    assert!(neo_has_hello, "NEO should show some 'hello' text after M-x view-hello-file");
+    assert!(
+        gnu_has_hello,
+        "GNU should show some 'hello' text after M-x view-hello-file"
+    );
+    assert!(
+        neo_has_hello,
+        "NEO should show some 'hello' text after M-x view-hello-file"
+    );
 
     // Mode line should surface the buffer name HELLO.
     let gnu_has_name = gl.iter().any(|r| r.contains("HELLO"));

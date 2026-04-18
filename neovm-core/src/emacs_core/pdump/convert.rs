@@ -170,9 +170,7 @@ impl DumpEncoder {
             ValueKind::Veclike(VecLikeType::Macro) => {
                 DumpValue::Macro(dump_heap_ref(self.value_to_heap_ref(v)))
             }
-            ValueKind::Subr(s) => {
-                DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
-            }
+            ValueKind::Subr(s) => DumpValue::Subr(dump_name_id(intern::symbol_name_id(s))),
             ValueKind::Veclike(VecLikeType::Subr) => {
                 let s = v.as_subr_id().unwrap();
                 DumpValue::Subr(dump_name_id(intern::symbol_name_id(s)))
@@ -2477,8 +2475,7 @@ pub(crate) fn load_obarray(
             if let Some(sym) = obarray.get_mut_by_id(*sym_id) {
                 let trapped_write: SymbolTrappedWrite =
                     unsafe { std::mem::transmute(sd.trapped_write & 0b11) };
-                let interned: SymbolInterned =
-                    unsafe { std::mem::transmute(sd.interned & 0b11) };
+                let interned: SymbolInterned = unsafe { std::mem::transmute(sd.interned & 0b11) };
                 sym.flags.set_trapped_write(trapped_write);
                 sym.flags.set_interned(interned);
                 sym.flags.set_declared_special(sd.declared_special);

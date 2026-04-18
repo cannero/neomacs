@@ -857,7 +857,9 @@ fn locate_file_finds_first_matching_suffix() {
         ],
     )
     .expect("locate-file should succeed");
-    let found = result.as_utf8_str().expect("locate-file should return path");
+    let found = result
+        .as_utf8_str()
+        .expect("locate-file should return path");
     assert!(
         found.ends_with("probe.el"),
         "expected first matching suffix (.el), got {found}",

@@ -316,12 +316,27 @@ fn signal_invalid_read_syntax_in_lisp_string(
     absolute_error_pos: usize,
     message: String,
 ) -> Flow {
-    let storage = crate::emacs_core::builtins::runtime_string_from_lisp_string(buffer_text);
-    let storage_pos = crate::emacs_core::string_escape::storage_logical_byte_to_storage_byte(
-        &storage,
-        absolute_error_pos.min(buffer_text.sbytes()),
-    );
-    signal_invalid_read_syntax_in_buffer(&storage, storage_pos, message)
+    let clamped_pos = absolute_error_pos.min(buffer_text.sbytes());
+    let prefix = &buffer_text.as_bytes()[..clamped_pos];
+    let line = prefix.iter().filter(|&&byte| byte == b'\n').count() as i64 + 1;
+    let line_start = prefix
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
+    let column = if buffer_text.is_multibyte() {
+        crate::emacs_core::emacs_char::chars_in_multibyte(&prefix[line_start..]) as i64
+    } else {
+        (prefix.len() - line_start) as i64
+    };
+    signal(
+        "invalid-read-syntax",
+        vec![
+            Value::string(message),
+            Value::fixnum(line),
+            Value::fixnum(column),
+        ],
+    )
 }
 
 fn stdin_end_of_file_error() -> Flow {
@@ -2249,6 +2264,9 @@ pub(crate) fn finish_read_key_sequence_vector_interactive_in_runtime(
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+#[cfg(test)]
+#[path = "reader_raw_bytes_test.rs"]
+mod raw_bytes_tests;
 #[cfg(test)]
 #[path = "reader_test.rs"]
 mod tests;

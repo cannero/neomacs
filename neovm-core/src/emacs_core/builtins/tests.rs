@@ -1798,7 +1798,9 @@ fn subst_char_in_region_replaces_chars_in_accessible_region() {
     .expect("subst-char-in-region should succeed");
 
     assert_eq!(
-        builtin_buffer_string(&mut eval, vec![]).unwrap().as_utf8_str(),
+        builtin_buffer_string(&mut eval, vec![])
+            .unwrap()
+            .as_utf8_str(),
         Some("heLLo worLd heLLo")
     );
 }
@@ -1823,7 +1825,9 @@ fn subst_char_in_region_preserves_modified_flag_with_noundo() {
     .expect("subst-char-in-region with NOUNDO should succeed");
 
     assert_eq!(
-        builtin_buffer_string(&mut eval, vec![]).unwrap().as_utf8_str(),
+        builtin_buffer_string(&mut eval, vec![])
+            .unwrap()
+            .as_utf8_str(),
         Some("a b ")
     );
     assert_eq!(
@@ -2468,13 +2472,16 @@ fn kill_all_local_variables_preserves_partial_permanent_local_hooks() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer("*kill-all-local-hook*");
     eval.buffers.set_current(buf_id);
-    eval.obarray.put_property(
-        "compat-mixed-hook",
-        "permanent-local",
-        Value::symbol("permanent-local-hook"),
-    ).unwrap();
     eval.obarray
-        .put_property("compat--keep-hook", "permanent-local-hook", Value::T).unwrap();
+        .put_property(
+            "compat-mixed-hook",
+            "permanent-local",
+            Value::symbol("permanent-local-hook"),
+        )
+        .unwrap();
+    eval.obarray
+        .put_property("compat--keep-hook", "permanent-local-hook", Value::T)
+        .unwrap();
     {
         let buf = eval.buffers.current_buffer_mut().unwrap();
         buf.set_buffer_local(
@@ -3416,11 +3423,13 @@ fn featurep_accepts_optional_subfeature_arg() {
         "features",
         Value::list(vec![Value::symbol("vm-featurep-present")]),
     );
-    eval.obarray_mut().put_property(
-        "vm-featurep-present",
-        "subfeatures",
-        Value::list(vec![Value::symbol("vm-sub"), Value::fixnum(1)]),
-    ).unwrap();
+    eval.obarray_mut()
+        .put_property(
+            "vm-featurep-present",
+            "subfeatures",
+            Value::list(vec![Value::symbol("vm-sub"), Value::fixnum(1)]),
+        )
+        .unwrap();
 
     let base = builtin_featurep(&mut eval, vec![Value::symbol("vm-featurep-present")]).unwrap();
     assert_eq!(base, Value::T);
@@ -3462,7 +3471,8 @@ fn featurep_subfeatures_property_must_be_list() {
         Value::list(vec![Value::symbol("vm-featurep-present")]),
     );
     eval.obarray_mut()
-        .put_property("vm-featurep-present", "subfeatures", Value::fixnum(1)).unwrap();
+        .put_property("vm-featurep-present", "subfeatures", Value::fixnum(1))
+        .unwrap();
 
     let err = builtin_featurep(
         &mut eval,
@@ -4823,10 +4833,12 @@ fn pure_dispatch_position_placeholders_match_compat_contracts() {
         .expect("builtin pdumper-stats should evaluate");
     assert!(pdumper.is_nil());
 
-    let position_symbol =
-        dispatch_builtin_pure("position-symbol", vec![Value::symbol("x"), Value::fixnum(42)])
-            .expect("builtin position-symbol should resolve")
-            .expect("builtin position-symbol should evaluate");
+    let position_symbol = dispatch_builtin_pure(
+        "position-symbol",
+        vec![Value::symbol("x"), Value::fixnum(42)],
+    )
+    .expect("builtin position-symbol should resolve")
+    .expect("builtin position-symbol should evaluate");
     assert!(position_symbol.is_symbol_with_pos());
 
     let posn_at_point = dispatch_builtin_pure("posn-at-point", vec![])
@@ -8918,12 +8930,20 @@ fn format_prints_thread_handles_as_opaque_in_eval_dispatch() {
     let upper = dispatch_builtin(&mut eval, "format", vec![Value::string("%S"), thread])
         .expect("format should resolve for %S")
         .expect("format should evaluate for %S");
-    assert!(upper.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(
+        upper
+            .as_utf8_str()
+            .is_some_and(|s| s.starts_with("#<thread"))
+    );
 
     let lower = dispatch_builtin(&mut eval, "format", vec![Value::string("%s"), thread])
         .expect("format should resolve for %s")
         .expect("format should evaluate for %s");
-    assert!(lower.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(
+        lower
+            .as_utf8_str()
+            .is_some_and(|s| s.starts_with("#<thread"))
+    );
 }
 
 #[test]
@@ -8936,7 +8956,11 @@ fn message_prints_thread_handles_as_opaque_in_eval_dispatch() {
     let message = dispatch_builtin(&mut eval, "message", vec![Value::string("%S"), thread])
         .expect("message should resolve")
         .expect("message should evaluate");
-    assert!(message.as_utf8_str().is_some_and(|s| s.starts_with("#<thread")));
+    assert!(
+        message
+            .as_utf8_str()
+            .is_some_and(|s| s.starts_with("#<thread"))
+    );
 }
 
 #[test]
@@ -8984,7 +9008,9 @@ fn format_and_message_render_mutex_condvar_handles_in_eval_dispatch() {
             .expect("builtin should resolve")
             .expect("builtin should evaluate");
         assert!(
-            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered
+                .as_utf8_str()
+                .is_some_and(|s| s.starts_with(prefix)),
             "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -9102,7 +9128,9 @@ fn format_and_message_render_frame_window_handles_in_eval_dispatch() {
                 .expect("builtin should resolve")
                 .expect("builtin should evaluate");
             assert!(
-                rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
+                rendered
+                    .as_utf8_str()
+                    .is_some_and(|s| s.starts_with(prefix)),
                 "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
             );
         };
@@ -9161,7 +9189,9 @@ fn format_message_renders_opaque_handles_in_eval_dispatch() {
         .expect("format-message should resolve")
         .expect("format-message should evaluate");
         assert!(
-            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered
+                .as_utf8_str()
+                .is_some_and(|s| s.starts_with(prefix)),
             "expected format-message {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -9455,7 +9485,9 @@ fn message_box_wrappers_render_opaque_handles_in_eval_dispatch() {
             .expect("builtin should resolve")
             .expect("builtin should evaluate");
         assert!(
-            rendered.as_utf8_str().is_some_and(|s| s.starts_with(prefix)),
+            rendered
+                .as_utf8_str()
+                .is_some_and(|s| s.starts_with(prefix)),
             "expected {builtin} {spec} output to start with {prefix}, got: {rendered:?}"
         );
     };
@@ -10016,7 +10048,12 @@ fn set_buffer_multibyte_records_gnu_style_undo_entry() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
 
-    assert!(eval.buffers.current_buffer().expect("current buffer").get_multibyte());
+    assert!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .get_multibyte()
+    );
     assert_eq!(
         builtin_set_buffer_multibyte(&mut eval, vec![Value::NIL]).unwrap(),
         Value::NIL
@@ -10040,7 +10077,12 @@ fn set_buffer_multibyte_records_gnu_style_undo_entry() {
 
     crate::emacs_core::undo::builtin_primitive_undo(&mut eval, vec![Value::fixnum(1), undo_list])
         .expect("primitive-undo should replay set-buffer-multibyte");
-    assert!(eval.buffers.current_buffer().expect("current buffer").get_multibyte());
+    assert!(
+        eval.buffers
+            .current_buffer()
+            .expect("current buffer")
+            .get_multibyte()
+    );
 }
 
 #[test]

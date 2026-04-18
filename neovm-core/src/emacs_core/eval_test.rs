@@ -8451,18 +8451,20 @@ fn specpdl_backtrace_frame_args_survive_exact_gc() {
 
     let payload = Value::vector(vec![Value::fixnum(17)]);
     let bt_count = ev.specpdl.len();
-    ev.push_backtrace_frame(
-        Value::symbol("runtime-backtrace-active-call"),
-        &[payload],
-    );
+    ev.push_backtrace_frame(Value::symbol("runtime-backtrace-active-call"), &[payload]);
 
     ev.gc_collect_exact();
 
     // Find the backtrace frame and verify args survived GC.
-    let rooted = ev.specpdl.iter().rev().find_map(|entry| match entry {
-        SpecBinding::Backtrace { args, .. } => args.first().copied(),
-        _ => None,
-    }).expect("backtrace frame should remain present");
+    let rooted = ev
+        .specpdl
+        .iter()
+        .rev()
+        .find_map(|entry| match entry {
+            SpecBinding::Backtrace { args, .. } => args.first().copied(),
+            _ => None,
+        })
+        .expect("backtrace frame should remain present");
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(17)]
@@ -8478,17 +8480,19 @@ fn specpdl_gc_root_survives_exact_gc() {
 
     let payload = Value::vector(vec![Value::fixnum(13)]);
     let bt_count = ev.specpdl.len();
-    ev.push_backtrace_frame(
-        Value::symbol("active-call-root"),
-        &[payload],
-    );
+    ev.push_backtrace_frame(Value::symbol("active-call-root"), &[payload]);
 
     ev.gc_collect_exact();
 
-    let rooted = ev.specpdl.iter().rev().find_map(|entry| match entry {
-        SpecBinding::Backtrace { args, .. } => args.first().copied(),
-        _ => None,
-    }).expect("backtrace frame should remain present");
+    let rooted = ev
+        .specpdl
+        .iter()
+        .rev()
+        .find_map(|entry| match entry {
+            SpecBinding::Backtrace { args, .. } => args.first().copied(),
+            _ => None,
+        })
+        .expect("backtrace frame should remain present");
     assert_eq!(
         rooted.as_vector_data().unwrap().as_slice(),
         &[Value::fixnum(13)]

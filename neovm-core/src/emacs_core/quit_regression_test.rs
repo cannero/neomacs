@@ -116,11 +116,7 @@ fn regex_search_promotes_quit_to_signal() {
     match result {
         Err(e) => {
             let msg = format!("{}", e);
-            assert!(
-                msg.contains("quit"),
-                "expected quit signal, got: {}",
-                msg
-            );
+            assert!(msg.contains("quit"), "expected quit signal, got: {}", msg);
         }
         Ok(v) => panic!("expected quit, got: {:?}", v),
     }

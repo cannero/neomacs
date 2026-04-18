@@ -56,7 +56,10 @@ fn format_time_string_epoch() {
     // Unix epoch: 1970-01-01 00:00:00 UTC (Thursday)
     let result =
         builtin_format_time_string(vec![Value::string("%Y-%m-%d %H:%M:%S"), Value::fixnum(0)]);
-    assert_eq!(result.unwrap().as_utf8_str().unwrap(), "1970-01-01 00:00:00");
+    assert_eq!(
+        result.unwrap().as_utf8_str().unwrap(),
+        "1970-01-01 00:00:00"
+    );
 }
 
 #[test]
@@ -80,7 +83,10 @@ fn format_time_string_known_date() {
     // 2000-01-01 00:00:00 UTC = 946684800
     let result =
         builtin_format_time_string(vec![Value::string("%Y-%m-%d %A"), Value::fixnum(946684800)]);
-    assert_eq!(result.unwrap().as_utf8_str().unwrap(), "2000-01-01 Saturday");
+    assert_eq!(
+        result.unwrap().as_utf8_str().unwrap(),
+        "2000-01-01 Saturday"
+    );
 }
 
 #[test]
@@ -101,7 +107,10 @@ fn format_time_string_timezone() {
 fn format_time_string_iso_format() {
     crate::test_utils::init_test_tracing();
     let result = builtin_format_time_string(vec![Value::string("%F %T"), Value::fixnum(946684800)]);
-    assert_eq!(result.unwrap().as_utf8_str().unwrap(), "2000-01-01 00:00:00");
+    assert_eq!(
+        result.unwrap().as_utf8_str().unwrap(),
+        "2000-01-01 00:00:00"
+    );
 }
 
 #[test]

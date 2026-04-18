@@ -493,8 +493,11 @@ pub(crate) fn builtin_make_abbrev_table(
     let header_id = symbol_id(header).expect("abbrev-table header should be a symbol");
     eval.obarray_mut()
         .set_symbol_value_id(header_id, Value::NIL);
-    eval.obarray_mut()
-        .put_property_id(header_id, intern(":abbrev-table-modiff"), Value::fixnum(0))?;
+    eval.obarray_mut().put_property_id(
+        header_id,
+        intern(":abbrev-table-modiff"),
+        Value::fixnum(0),
+    )?;
 
     // Process optional property list
     if let Some(props_val) = args.first() {

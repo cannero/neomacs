@@ -1755,21 +1755,17 @@ pub(crate) fn looking_at_lisp_with_posix(
 
     let region_start = buf.begv_byte;
     let mut text = Vec::new();
-    buf.text.copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
+    buf.text
+        .copy_emacs_bytes_to(region_start, buf.zv_byte, &mut text);
     let start_rel = start - region_start;
     let compiled = compile_lisp_pattern_with_posix(pattern, case_fold, posix, true)?;
     let syn = BufferSyntaxLookup {
         syntax_table: crate::emacs_core::syntax::SyntaxTable::for_buffer(buf),
     };
 
-    if let Some((_end, regs)) = regex_emacs::re_match(
-        &compiled,
-        &text,
-        start_rel,
-        text.len(),
-        &syn,
-        start_rel,
-    ) {
+    if let Some((_end, regs)) =
+        regex_emacs::re_match(&compiled, &text, start_rel, text.len(), &syn, start_rel)
+    {
         let mut md = buffer_match_data_from_registers(&regs, region_start);
         md.searched_buffer = Some(buf.id);
         *match_data = Some(md);

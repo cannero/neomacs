@@ -973,9 +973,7 @@ fn command_object_p_in_state(
             .get_bytecode_data()
             .is_some_and(|bc| bc.interactive.is_some()),
         ValueKind::Cons => quoted_lambda_has_interactive_form(value),
-        ValueKind::Subr(id) => {
-            interactive.is_interactive(id) || builtin_command_symbol(id)
-        }
+        ValueKind::Subr(id) => interactive.is_interactive(id) || builtin_command_symbol(id),
         ValueKind::Veclike(VecLikeType::Subr) => {
             let id = value.as_subr_id().unwrap();
             interactive.is_interactive(id) || builtin_command_symbol(id)

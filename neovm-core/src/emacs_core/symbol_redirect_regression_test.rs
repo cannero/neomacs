@@ -118,5 +118,8 @@ fn plainval_survives_forced_gc() {
     let car_before = crate::emacs_core::value::eq_value(&before.cons_car(), &Value::fixnum(1));
     let cdr_after = crate::emacs_core::value::eq_value(&after.cons_cdr(), &Value::fixnum(2));
     assert!(car_before, "car should be 1 before GC");
-    assert!(cdr_after, "cdr should be 2 after GC — stale if GC trace missed it");
+    assert!(
+        cdr_after,
+        "cdr should be 2 after GC — stale if GC trace missed it"
+    );
 }

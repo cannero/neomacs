@@ -180,7 +180,8 @@ fn autoload_manager_keeps_live_symbol_identity() {
 
     assert!(mgr.entries.contains_key(&name));
     assert_eq!(
-        mgr.get_entry_symbol(name).map(|entry| entry.file.as_utf8_str()),
+        mgr.get_entry_symbol(name)
+            .map(|entry| entry.file.as_utf8_str()),
         Some(Some("autoload-live-symbol-file"))
     );
 }

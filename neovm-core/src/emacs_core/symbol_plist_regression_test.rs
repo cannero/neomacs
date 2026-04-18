@@ -98,10 +98,7 @@ fn setplist_accepts_and_preserves_arbitrary_list() {
     let plist = eval(&mut ctx, "(symbol-plist 'plist-setp)");
     let printed = print_val(&plist);
     assert_eq!(printed, "(x 10 y 20)");
-    assert_eq!(
-        eval(&mut ctx, "(get 'plist-setp 'y)"),
-        Value::fixnum(20)
-    );
+    assert_eq!(eval(&mut ctx, "(get 'plist-setp 'y)"), Value::fixnum(20));
 }
 
 #[test]

@@ -118,9 +118,7 @@ fn documentation_plan(
     // This can produce docs even when the function cell is non-callable.
     if let Some(name) = args[0].as_symbol_name() {
         let name = name.to_string();
-        if let Some(prop) = obarray
-            .get_property(&name, "function-documentation")
-        {
+        if let Some(prop) = obarray.get_property(&name, "function-documentation") {
             return documentation_plan_from_property_value(lisp_directory.as_deref(), prop);
         }
 

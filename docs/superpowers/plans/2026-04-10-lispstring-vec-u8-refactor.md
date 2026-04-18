@@ -33,6 +33,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - Backup and auto-save file-name plumbing now stays on `LispString` through name derivation and the Unix path boundary: backup names are computed from raw Lisp filename bytes, redirected backup directories are expanded relative to the visited file like GNU `files.el`, `make-auto-save-file-name` preserves raw visited/prefix bytes, and `do-auto-save` writes raw buffer bytes to raw auto-save file names without a runtime-string round-trip.
 - `make-process`, `start-process`, `start-file-process`, and the underlying child-spawn path now keep command vectors and `process-environment` entries as Lisp strings up to the OS boundary: raw unibyte argv/env bytes survive process record storage, `getenv-internal` now matches GNU's raw-byte `process-environment` scan instead of decoding through UTF-8 first, and child processes now inherit Lisp `process-environment` overrides via byte-preserving `OsString` conversion at spawn time.
 - `call-process`, `process-file`, and the `process-lines*` family now also keep program / arg / infile / file-destination values as Lisp strings until the spawn boundary, while `call-process-region` now writes raw string-input bytes to child stdin instead of forcing a runtime `String` conversion first. Raw unibyte argv and file-name bytes now survive the synchronous subprocess path through GNU-shaped `callproc.c` boundaries.
+- Reader-side invalid-read-syntax reporting for Lisp string sources now computes line/column directly from `LispString` bytes, so unibyte raw bytes keep GNU-shaped byte columns while multibyte strings count characters rather than UTF-8 storage bytes.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -60,7 +61,7 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc work, especially the remaining shell-command and reader/load helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc work, especially the remaining shell-command and `lread`/`load` helpers that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---

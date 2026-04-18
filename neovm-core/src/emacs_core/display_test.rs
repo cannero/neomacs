@@ -484,7 +484,10 @@ fn eval_frame_edges_live_window_designator_includes_buffer_context() {
         Err(Flow::Signal(sig)) => {
             assert_eq!(sig.symbol_name(), "error");
             let message = match sig.data.as_slice() {
-                [val] => val.as_utf8_str().expect("expected string payload").to_string(),
+                [val] => val
+                    .as_utf8_str()
+                    .expect("expected string payload")
+                    .to_string(),
                 other => panic!("expected single error message payload, got {other:?}"),
             };
             assert!(message.starts_with("#<window "));
@@ -3009,7 +3012,10 @@ fn eval_display_monitor_errors_render_window_designators() {
                 assert_eq!(sig.symbol_name(), "error");
                 match sig.data.as_slice() {
                     [val] => {
-                        let msg = val.as_utf8_str().expect("expected string payload").to_string();
+                        let msg = val
+                            .as_utf8_str()
+                            .expect("expected string payload")
+                            .to_string();
                         assert!(msg.contains("get-device-terminal"));
                         assert!(msg.contains("#<window"));
                         assert!(msg.contains("*scratch*"));

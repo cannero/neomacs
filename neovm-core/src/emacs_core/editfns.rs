@@ -609,7 +609,9 @@ pub(crate) fn builtin_insert_before_markers(
         let byte_len = bytes.len();
         let ls = crate::heap_types::LispString::from_emacs_bytes(bytes);
         signal_before_change(ctx, insert_pos, insert_pos)?;
-        let _ = ctx.buffers.insert_lisp_string_into_buffer_before_markers(id, &ls);
+        let _ = ctx
+            .buffers
+            .insert_lisp_string_into_buffer_before_markers(id, &ls);
         signal_after_change(ctx, insert_pos, insert_pos + byte_len, 0)?;
     }
     Ok(Value::NIL)

@@ -426,7 +426,11 @@ fn gnu_emacs_generate_org_loaddefs(
         OsString::from("-L"),
         paths.lisp_root.as_os_str().to_os_string(),
         OsString::from("-L"),
-        paths.lisp_root.join("emacs-lisp").as_os_str().to_os_string(),
+        paths
+            .lisp_root
+            .join("emacs-lisp")
+            .as_os_str()
+            .to_os_string(),
         OsString::from("--eval"),
         OsString::from("(require 'loaddefs-gen)"),
         OsString::from("--eval"),
@@ -452,10 +456,7 @@ fn find_gnu_emacs() -> Option<PathBuf> {
     }
 
     // Try `emacs` on PATH — verify it's GNU Emacs
-    let output = Command::new("emacs")
-        .arg("--version")
-        .output()
-        .ok()?;
+    let output = Command::new("emacs").arg("--version").output().ok()?;
     let version = String::from_utf8_lossy(&output.stdout);
     if version.contains("GNU Emacs") {
         return Some(PathBuf::from("emacs"));
@@ -466,11 +467,7 @@ fn find_gnu_emacs() -> Option<PathBuf> {
 
 /// Collect all .el files under a directory tree that are candidates for
 /// byte-compilation. Skips files with `no-byte-compile: t`.
-fn collect_compilable_el_files(
-    root: &Path,
-    current: &Path,
-    out: &mut Vec<PathBuf>,
-) -> Result<()> {
+fn collect_compilable_el_files(root: &Path, current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     let entries = match fs::read_dir(current) {
         Ok(e) => e,
         Err(_) => return Ok(()),

@@ -86,7 +86,8 @@ impl Buffer {
             }
         }
 
-        self.text.insert_emacs_bytes_both(insert_pos, bytes, char_len);
+        self.text
+            .insert_emacs_bytes_both(insert_pos, bytes, char_len);
         self.apply_byte_insert_side_effects(
             insert_pos,
             insert_char_pos,
@@ -339,7 +340,8 @@ impl Buffer {
             }
         }
 
-        self.text.delete_range_both(start, end, end_char - start_char);
+        self.text
+            .delete_range_both(start, end, end_char - start_char);
         self.apply_byte_delete_side_effects(
             start, end, start_char, end_char, true, false, true, true,
         );
@@ -367,8 +369,7 @@ impl Buffer {
         // walking chars and substituting the matched ones with to_bytes.
         use crate::emacs_core::emacs_char;
         let mut region_bytes = Vec::with_capacity(end - start);
-        self.text
-            .copy_emacs_bytes_to(start, end, &mut region_bytes);
+        self.text.copy_emacs_bytes_to(start, end, &mut region_bytes);
         let mut replacement_bytes = Vec::with_capacity(region_bytes.len());
         let mut changed = false;
         if self.get_multibyte() {

@@ -608,8 +608,7 @@ fn eval_sub_cons_pushes_unevalled_frame_for_special_forms() {
         .expect("eval if-body");
     let snap = PROBE.with(|p| p.borrow().clone());
     assert!(
-        snap.iter()
-            .any(|(f, u)| *f == Value::symbol("if") && *u),
+        snap.iter().any(|(f, u)| *f == Value::symbol("if") && *u),
         "expected an UNEVALLED `if' frame while body runs, got {:?}",
         snap
     );
@@ -732,7 +731,10 @@ fn backtrace_frame_internal_surfaces_unevalled_frame() {
     assert!(items[0].is_nil(), "UNEVALLED → evald=nil");
     assert_eq!(items[1], Value::symbol("if"));
     // args should be the cons list of un-evaluated forms, not a wrapping list.
-    assert_eq!(items[2], original_args, "forms list passed through verbatim");
+    assert_eq!(
+        items[2], original_args,
+        "forms list passed through verbatim"
+    );
     assert!(items[3].is_nil());
 }
 

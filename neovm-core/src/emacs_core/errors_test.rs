@@ -276,7 +276,10 @@ fn obarray_error_message_property() {
     let mut ob = Obarray::new();
     init_standard_errors(&mut ob);
     let msg = ob.get_property("void-variable", "error-message").unwrap();
-    assert_eq!(msg.as_utf8_str(), Some("Symbol’s value as variable is void"));
+    assert_eq!(
+        msg.as_utf8_str(),
+        Some("Symbol’s value as variable is void")
+    );
 }
 
 #[test]
@@ -633,7 +636,10 @@ fn builtin_error_message_string_user_error_variants() {
     ]);
     let non_string_result = builtin_error_message_string(&mut evaluator, vec![non_string]);
     assert!(non_string_result.is_ok());
-    assert_eq!(non_string_result.unwrap().as_utf8_str(), Some("integerp, x"));
+    assert_eq!(
+        non_string_result.unwrap().as_utf8_str(),
+        Some("integerp, x")
+    );
 }
 
 #[test]
@@ -733,7 +739,10 @@ fn builtin_error_message_string_peculiar_error_paths() {
     let file_single = Value::list(vec![Value::symbol("file-error"), Value::fixnum(1)]);
     let file_single_result = builtin_error_message_string(&mut evaluator, vec![file_single]);
     assert!(file_single_result.is_ok());
-    assert_eq!(file_single_result.unwrap().as_utf8_str(), Some("peculiar error"));
+    assert_eq!(
+        file_single_result.unwrap().as_utf8_str(),
+        Some("peculiar error")
+    );
 
     let file_double = Value::list(vec![
         Value::symbol("file-error"),

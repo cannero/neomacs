@@ -1177,8 +1177,8 @@ fn do_format(
                     // Precision may have truncated the content; the
                     // arg-side range is whatever content bytes actually
                     // made it into the formatted output.
-                    let arg_bytes_in = content_byte_end_in_formatted
-                        - content_byte_start_in_formatted;
+                    let arg_bytes_in =
+                        content_byte_end_in_formatted - content_byte_start_in_formatted;
                     spans.push(FormatPropSpan {
                         result_byte_start,
                         result_byte_end,

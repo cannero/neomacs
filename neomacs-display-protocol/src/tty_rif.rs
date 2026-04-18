@@ -119,7 +119,12 @@ impl TtyGrid {
     pub fn set(&mut self, row: usize, col: usize, ch: char, attrs: CellAttrs, padding: bool) {
         if row < self.height && col < self.width {
             let idx = row * self.width + col;
-            self.cells[idx] = TtyCell { ch, attrs, padding, extenders: None };
+            self.cells[idx] = TtyCell {
+                ch,
+                attrs,
+                padding,
+                extenders: None,
+            };
         }
     }
 
@@ -142,7 +147,12 @@ impl TtyGrid {
             } else {
                 Some(Box::<str>::from(extenders))
             };
-            self.cells[idx] = TtyCell { ch, attrs, padding, extenders: ext };
+            self.cells[idx] = TtyCell {
+                ch,
+                attrs,
+                padding,
+                extenders: ext,
+            };
         }
     }
 

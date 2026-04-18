@@ -35,19 +35,21 @@ fn merge_extender_into_last_glyph(area: &mut Vec<Glyph>, ch: char) -> bool {
                 let mut s = String::with_capacity(base.len_utf8() + ch.len_utf8());
                 s.push(*base);
                 s.push(ch);
-                glyph.glyph_type = GlyphType::Composite { text: s.into_boxed_str() };
+                glyph.glyph_type = GlyphType::Composite {
+                    text: s.into_boxed_str(),
+                };
                 return true;
             }
             GlyphType::Composite { text } => {
                 let mut s = String::with_capacity(text.len() + ch.len_utf8());
                 s.push_str(text);
                 s.push(ch);
-                glyph.glyph_type = GlyphType::Composite { text: s.into_boxed_str() };
+                glyph.glyph_type = GlyphType::Composite {
+                    text: s.into_boxed_str(),
+                };
                 return true;
             }
-            GlyphType::Glyphless { .. }
-            | GlyphType::Stretch { .. }
-            | GlyphType::Image { .. } => {
+            GlyphType::Glyphless { .. } | GlyphType::Stretch { .. } | GlyphType::Image { .. } => {
                 return false;
             }
         }

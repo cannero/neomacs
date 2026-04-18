@@ -149,7 +149,6 @@ impl<'a> Vm<'a> {
         result
     }
 
-
     fn collect_flow_roots(flow: &Flow, out: &mut Vec<Value>) {
         match flow {
             Flow::Signal(sig) => {
@@ -329,7 +328,8 @@ impl<'a> Vm<'a> {
                 if let Some(env) = func.env {
                     self.ctx.lexenv = env;
                 }
-                let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
+                let result =
+                    self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
                 self.ctx.truncate_condition_stack(condition_stack_base);
                 self.ctx.unbind_to(specpdl_base);
                 self.ctx.bc_buf.truncate(frame_base);
@@ -535,9 +535,11 @@ impl<'a> Vm<'a> {
                     let name_id = sym_id_at(constants, *idx);
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let extra = [val];
-                    vm_try!(self.with_frame_roots(func, &extra, |vm| {
-                        vm.assign_var_id(name_id, val)
-                    },));
+                    vm_try!(
+                        self.with_frame_roots(func, &extra, |vm| {
+                            vm.assign_var_id(name_id, val)
+                        },)
+                    );
                 }
                 Op::VarBind(idx) => {
                     // GNU bytecode.c Bvarbind: `specbind (vectorp[arg], POP);`
@@ -584,12 +586,11 @@ impl<'a> Vm<'a> {
                     let func_val = stk!().pop().unwrap_or(Value::NIL);
                     let writeback_names = self.writeback_callable_names(&func_val);
                     let writeback_args = args.clone();
-                    let result = vm_try!(self.with_frame_call_roots(
-                        func,
-                        func_val,
-                        args,
-                        |vm, args| vm.call_function(func_val, args),
-                    ));
+                    let result =
+                        vm_try!(
+                            self.with_frame_call_roots(func, func_val, args, |vm, args| vm
+                                .call_function(func_val, args),)
+                        );
                     if let Some((called_name, alias_target)) = writeback_names.as_ref() {
                         self.maybe_writeback_mutating_first_arg(
                             called_name,
@@ -609,7 +610,7 @@ impl<'a> Vm<'a> {
                     if n == 0 {
                         let func_val = stk!().pop().unwrap_or(Value::NIL);
                         let result = vm_try!(self.with_frame_call_roots(
-                        func,
+                            func,
                             func_val,
                             vec![],
                             |vm, args| vm.call_function(func_val, args),
@@ -627,7 +628,7 @@ impl<'a> Vm<'a> {
                         let writeback_names = self.writeback_callable_names(&func_val);
                         let writeback_args = args.clone();
                         let result = vm_try!(self.with_frame_call_roots(
-                        func,
+                            func,
                             func_val,
                             args,
                             |vm, args| vm.call_function(func_val, args),
@@ -750,7 +751,9 @@ impl<'a> Vm<'a> {
                         self.ctx.buffers.current_buffer().map(|buffer| buffer.id)
                     {
                         bind_stack.push(self.ctx.specpdl.len());
-                        self.ctx.specpdl.push(SpecBinding::SaveCurrentBuffer { buffer_id });
+                        self.ctx
+                            .specpdl
+                            .push(SpecBinding::SaveCurrentBuffer { buffer_id });
                     }
                 }
                 Op::SaveExcursion => {
@@ -774,7 +777,9 @@ impl<'a> Vm<'a> {
                 Op::SaveRestriction => {
                     if let Some(saved) = self.ctx.buffers.save_current_restriction_state() {
                         bind_stack.push(self.ctx.specpdl.len());
-                        self.ctx.specpdl.push(SpecBinding::SaveRestriction { state: saved });
+                        self.ctx
+                            .specpdl
+                            .push(SpecBinding::SaveRestriction { state: saved });
                     }
                 }
 
@@ -786,10 +791,7 @@ impl<'a> Vm<'a> {
                     // so we evaluate (progn . body) via eval_sub. This matches
                     // the semantics for TUI where window configs are trivial.
                     let body = stk!().pop().unwrap_or(Value::NIL);
-                    let progn_form = Value::cons(
-                        Value::symbol("progn"),
-                        body,
-                    );
+                    let progn_form = Value::cons(Value::symbol("progn"), body);
                     let result = vm_try!(self.ctx.eval_sub(progn_form));
                     stk_push!(result);
                 }
@@ -803,17 +805,20 @@ impl<'a> Vm<'a> {
                     let a = stk!()[len - 2];
                     if let (Some(av), Some(bv)) = (a.as_fixnum(), b.as_fixnum()) {
                         let res = av.wrapping_add(bv);
-                        if res >= Value::MOST_NEGATIVE_FIXNUM && res <= Value::MOST_POSITIVE_FIXNUM {
+                        if res >= Value::MOST_NEGATIVE_FIXNUM && res <= Value::MOST_POSITIVE_FIXNUM
+                        {
                             stk!()[len - 2] = Value::fixnum(res);
                             stk!().pop();
                         } else {
                             stk!().truncate(len - 2);
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "+", vec![a, b]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "+", vec![a, b]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "+", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "+", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -823,17 +828,20 @@ impl<'a> Vm<'a> {
                     let a = stk!()[len - 2];
                     if let (Some(av), Some(bv)) = (a.as_fixnum(), b.as_fixnum()) {
                         let res = av.wrapping_sub(bv);
-                        if res >= Value::MOST_NEGATIVE_FIXNUM && res <= Value::MOST_POSITIVE_FIXNUM {
+                        if res >= Value::MOST_NEGATIVE_FIXNUM && res <= Value::MOST_POSITIVE_FIXNUM
+                        {
                             stk!()[len - 2] = Value::fixnum(res);
                             stk!().pop();
                         } else {
                             stk!().truncate(len - 2);
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![a, b]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![a, b]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -843,22 +851,30 @@ impl<'a> Vm<'a> {
                     let a = stk!()[len - 2];
                     if let (Some(av), Some(bv)) = (a.as_fixnum(), b.as_fixnum()) {
                         if let Some(res) = av.checked_mul(bv) {
-                            if res >= Value::MOST_NEGATIVE_FIXNUM && res <= Value::MOST_POSITIVE_FIXNUM {
+                            if res >= Value::MOST_NEGATIVE_FIXNUM
+                                && res <= Value::MOST_POSITIVE_FIXNUM
+                            {
                                 stk!()[len - 2] = Value::fixnum(res);
                                 stk!().pop();
                             } else {
                                 stk!().truncate(len - 2);
-                                let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "*", vec![a, b]));
+                                let result = vm_try!(self.dispatch_vm_builtin_with_frame(
+                                    func,
+                                    "*",
+                                    vec![a, b]
+                                ));
                                 stk_push!(result);
                             }
                         } else {
                             stk!().truncate(len - 2);
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "*", vec![a, b]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "*", vec![a, b]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "*", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "*", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -878,12 +894,14 @@ impl<'a> Vm<'a> {
                             stk!().pop();
                         } else {
                             stk!().truncate(len - 2);
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "/", vec![a, b]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "/", vec![a, b]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "/", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "/", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -897,12 +915,14 @@ impl<'a> Vm<'a> {
                             stk!().pop();
                         } else {
                             stk!().truncate(len - 2);
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "%", vec![a, b]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "%", vec![a, b]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "%", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "%", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -913,12 +933,14 @@ impl<'a> Vm<'a> {
                             *stk!().last_mut().unwrap() = Value::fixnum(n + 1);
                         } else {
                             stk!().pop();
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "1+", vec![top]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "1+", vec![top]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().pop();
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "1+", vec![top]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "1+", vec![top]));
                         stk_push!(result);
                     }
                 }
@@ -929,12 +951,14 @@ impl<'a> Vm<'a> {
                             *stk!().last_mut().unwrap() = Value::fixnum(n - 1);
                         } else {
                             stk!().pop();
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "1-", vec![top]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "1-", vec![top]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().pop();
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "1-", vec![top]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "1-", vec![top]));
                         stk_push!(result);
                     }
                 }
@@ -945,12 +969,14 @@ impl<'a> Vm<'a> {
                             *stk!().last_mut().unwrap() = Value::fixnum(-n);
                         } else {
                             stk!().pop();
-                            let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![top]));
+                            let result =
+                                vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![top]));
                             stk_push!(result);
                         }
                     } else {
                         stk!().pop();
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![top]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "-", vec![top]));
                         stk_push!(result);
                     }
                 }
@@ -966,7 +992,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "=", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "=", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -979,7 +1006,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, ">", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, ">", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -992,7 +1020,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "<", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "<", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -1005,7 +1034,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "<=", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "<=", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -1018,7 +1048,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, ">=", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, ">=", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -1031,7 +1062,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "max", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "max", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -1044,7 +1076,8 @@ impl<'a> Vm<'a> {
                         stk!().pop();
                     } else {
                         stk!().truncate(len - 2);
-                        let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, "min", vec![a, b]));
+                        let result =
+                            vm_try!(self.dispatch_vm_builtin_with_frame(func, "min", vec![a, b]));
                         stk_push!(result);
                     }
                 }
@@ -1059,7 +1092,10 @@ impl<'a> Vm<'a> {
                     } else if !top.is_nil() {
                         let val = *top;
                         stk!().pop();
-                        vm_try!(Err(signal("wrong-type-argument", vec![Value::symbol("listp"), val])));
+                        vm_try!(Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), val]
+                        )));
                     }
                     // nil → nil: no change needed
                 }
@@ -1070,16 +1106,27 @@ impl<'a> Vm<'a> {
                     } else if !top.is_nil() {
                         let val = *top;
                         stk!().pop();
-                        vm_try!(Err(signal("wrong-type-argument", vec![Value::symbol("listp"), val])));
+                        vm_try!(Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), val]
+                        )));
                     }
                 }
                 Op::CarSafe => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_cons() { top.cons_car() } else { Value::NIL };
+                    *top = if top.is_cons() {
+                        top.cons_car()
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::CdrSafe => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_cons() { top.cons_cdr() } else { Value::NIL };
+                    *top = if top.is_cons() {
+                        top.cons_cdr()
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::Cons => {
                     let len = stk!().len();
@@ -1092,11 +1139,9 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
                     let items: Vec<Value> = stk!().drain(start..).collect();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "list",
-                        items.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(self.maybe_call_named_function_cell(func, "list", items.clone(),))
+                    {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(func, "list", items,))
@@ -1113,9 +1158,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "length", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "length", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1123,16 +1166,13 @@ impl<'a> Vm<'a> {
                     let list = stk!().pop().unwrap_or(Value::NIL);
                     let n = stk!().pop().unwrap_or(Value::fixnum(0));
                     let call_args = vec![n, list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "nth",
-                        call_args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(
+                            self.maybe_call_named_function_cell(func, "nth", call_args.clone(),)
+                        ) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "nth", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nth", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1147,9 +1187,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "nthcdr", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nthcdr", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1157,16 +1195,13 @@ impl<'a> Vm<'a> {
                     let idx = stk!().pop().unwrap_or(Value::NIL);
                     let seq = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![seq, idx];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "elt",
-                        call_args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(
+                            self.maybe_call_named_function_cell(func, "elt", call_args.clone(),)
+                        ) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "elt", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "elt", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1181,9 +1216,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "setcar", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "setcar", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1198,9 +1231,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "setcdr", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "setcdr", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1215,27 +1246,22 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "nconc", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nconc", call_args,))
                     };
                     stk_push!(result);
                 }
                 Op::Nreverse => {
                     let list = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![list];
-                    let result =
-                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                            "nreverse",
-                            call_args.clone(),
-                        )) {
-                            result
-                        } else {
-                            vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "nreverse", call_args,
-                            ))
-                        };
+                        "nreverse",
+                        call_args.clone(),
+                    )) {
+                        result
+                    } else {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nreverse", call_args,))
+                    };
                     stk_push!(result);
                 }
                 Op::Member => {
@@ -1249,9 +1275,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "member", call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "member", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1266,9 +1290,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "memq", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "memq", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1283,9 +1305,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "assq", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "assq", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1296,8 +1316,7 @@ impl<'a> Vm<'a> {
                 Op::Symbolp => {
                     let top = stk!().last_mut().unwrap();
                     let is_sym = top.is_symbol()
-                        || (self.ctx.symbols_with_pos_enabled
-                            && top.is_symbol_with_pos());
+                        || (self.ctx.symbols_with_pos_enabled && top.is_symbol_with_pos());
                     *top = if is_sym { Value::T } else { Value::NIL };
                 }
                 Op::Consp => {
@@ -1306,19 +1325,35 @@ impl<'a> Vm<'a> {
                 }
                 Op::Stringp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_string() { Value::T } else { Value::NIL };
+                    *top = if top.is_string() {
+                        Value::T
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::Listp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_cons() || top.is_nil() { Value::T } else { Value::NIL };
+                    *top = if top.is_cons() || top.is_nil() {
+                        Value::T
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::Integerp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_fixnum() { Value::T } else { Value::NIL };
+                    *top = if top.is_fixnum() {
+                        Value::T
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::Numberp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_fixnum() || top.is_float() { Value::T } else { Value::NIL };
+                    *top = if top.is_fixnum() || top.is_float() {
+                        Value::T
+                    } else {
+                        Value::NIL
+                    };
                 }
                 Op::Null | Op::Not => {
                     let top = stk!().last_mut().unwrap();
@@ -1349,9 +1384,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "equal", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "equal", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1361,16 +1394,12 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
                     let parts: Vec<Value> = stk!().drain(start..).collect();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "concat",
-                        parts.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(self.maybe_call_named_function_cell(func, "concat", parts.clone(),))
+                    {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "concat", parts,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "concat", parts,))
                     };
                     stk_push!(result);
                 }
@@ -1386,11 +1415,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func,
-                            "substring",
-                            call_args,
-                        ))
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "substring", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1398,18 +1423,15 @@ impl<'a> Vm<'a> {
                     let b = stk!().pop().unwrap_or(Value::NIL);
                     let a = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![a, b];
-                    let result =
-                        if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
+                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
-                            "string=",
-                            call_args.clone(),
-                        )) {
-                            result
-                        } else {
-                            vm_try!(self.dispatch_vm_builtin_with_frame(
-                                func, "string=", call_args,
-                            ))
-                        };
+                        "string=",
+                        call_args.clone(),
+                    )) {
+                        result
+                    } else {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "string=", call_args,))
+                    };
                     stk_push!(result);
                 }
                 Op::StringLessp => {
@@ -1507,16 +1529,13 @@ impl<'a> Vm<'a> {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let sym = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "set",
-                        call_args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(
+                            self.maybe_call_named_function_cell(func, "set", call_args.clone(),)
+                        ) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "set", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "set", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1531,9 +1550,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "fset", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "fset", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1541,16 +1558,13 @@ impl<'a> Vm<'a> {
                     let prop = stk!().pop().unwrap_or(Value::NIL);
                     let sym = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, prop];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "get",
-                        call_args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(
+                            self.maybe_call_named_function_cell(func, "get", call_args.clone(),)
+                        ) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "get", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "get", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1559,16 +1573,13 @@ impl<'a> Vm<'a> {
                     let prop = stk!().pop().unwrap_or(Value::NIL);
                     let sym = stk!().pop().unwrap_or(Value::NIL);
                     let call_args = vec![sym, prop, val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "put",
-                        call_args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(
+                            self.maybe_call_named_function_cell(func, "put", call_args.clone(),)
+                        ) {
                         result
                     } else {
-                        vm_try!(
-                            self.dispatch_vm_builtin_with_frame(func, "put", call_args,)
-                        )
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "put", call_args,))
                     };
                     stk_push!(result);
                 }
@@ -1638,7 +1649,10 @@ impl<'a> Vm<'a> {
                 Op::UnwindProtectPop => {
                     let cleanup = stk!().pop().unwrap_or(Value::NIL);
                     bind_stack.push(self.ctx.specpdl.len());
-                    self.ctx.specpdl.push(SpecBinding::UnwindProtect { forms: cleanup, lexenv: self.ctx.lexenv });
+                    self.ctx.specpdl.push(SpecBinding::UnwindProtect {
+                        forms: cleanup,
+                        lexenv: self.ctx.lexenv,
+                    });
                 }
                 Op::Throw => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1672,11 +1686,9 @@ impl<'a> Vm<'a> {
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
                     let writeback_args = args.clone();
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        &name,
-                        args.clone(),
-                    )) {
+                    let result = if let Some(result) =
+                        vm_try!(self.maybe_call_named_function_cell(func, &name, args.clone(),))
+                    {
                         result
                     } else {
                         vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args,))
@@ -1705,8 +1717,7 @@ impl<'a> Vm<'a> {
                     // through maybe_call_named_function_cell (which
                     // consults the symbol's function cell) would make
                     // neomacs MORE advisable than GNU, breaking parity.
-                    let result =
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args));
+                    let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args));
                     self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
@@ -1722,7 +1733,9 @@ impl<'a> Vm<'a> {
 
     fn writeback_callable_names(&self, func_val: &Value) -> Option<(String, Option<String>)> {
         match func_val.kind() {
-            ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) if func_val.as_subr_id().is_some() => {
+            ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr)
+                if func_val.as_subr_id().is_some() =>
+            {
                 let id = func_val.as_subr_id().unwrap();
                 Some((resolve_sym(id).to_owned(), None))
             }
@@ -2378,11 +2391,10 @@ impl<'a> Vm<'a> {
 
         // GNU PLAINVAL path: for non-LOCALIZED variables, `set-default`
         // behaves like `set` — writes to dynamic frame if let-bound.
-        let is_buffer_local = self
-            .ctx
-            .obarray
-            .get_by_id(resolved)
-            .is_some_and(|s| s.redirect() == crate::emacs_core::symbol::SymbolRedirect::Localized);
+        let is_buffer_local =
+            self.ctx.obarray.get_by_id(resolved).is_some_and(|s| {
+                s.redirect() == crate::emacs_core::symbol::SymbolRedirect::Localized
+            });
         if !is_buffer_local {
             crate::emacs_core::eval::set_runtime_binding_in_state(&mut *self.ctx, resolved, value);
         } else {
@@ -3630,7 +3642,8 @@ impl<'a> Vm<'a> {
         // All real builtins go through funcall_general → dispatch_subr.
         // This matches GNU Emacs where the bytecode VM delegates to
         // funcall_general for everything except bytecoded closures.
-        self.ctx.funcall_general(Value::subr_from_sym_id(intern(name)), args)
+        self.ctx
+            .funcall_general(Value::subr_from_sym_id(intern(name)), args)
     }
 
     fn with_default_directory_binding<T>(

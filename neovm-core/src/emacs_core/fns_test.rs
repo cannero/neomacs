@@ -529,7 +529,10 @@ fn md5_eval_buffer_core_semantics() {
         vec![Value::make_buffer(id), Value::fixnum(4), Value::fixnum(3)],
     )
     .unwrap();
-    assert_eq!(swapped.as_utf8_str(), Some("4a8a08f09d37b73795649038408b5f33"));
+    assert_eq!(
+        swapped.as_utf8_str(),
+        Some("4a8a08f09d37b73795649038408b5f33")
+    );
 }
 
 #[test]
@@ -664,7 +667,10 @@ fn secure_hash_sha1_known() {
         vec![Value::symbol("sha1"), Value::string("abc")]
     )
     .unwrap();
-    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(
+        r.as_utf8_str(),
+        Some("a9993e364706816aba3e25717850c26c9cd0d89d")
+    );
 }
 
 #[test]
@@ -790,7 +796,10 @@ fn secure_hash_eval_buffer_sha1() {
         vec![Value::symbol("sha1"), Value::make_buffer(id)],
     )
     .unwrap();
-    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(
+        r.as_utf8_str(),
+        Some("a9993e364706816aba3e25717850c26c9cd0d89d")
+    );
 }
 
 #[test]
@@ -867,7 +876,10 @@ fn secure_hash_eval_buffer_marker_range() {
         ],
     )
     .unwrap();
-    assert_eq!(r.as_utf8_str(), Some("5b2505039ac5af9e197f5dad04113906a9cf9a2a"));
+    assert_eq!(
+        r.as_utf8_str(),
+        Some("5b2505039ac5af9e197f5dad04113906a9cf9a2a")
+    );
 }
 
 #[test]
@@ -900,7 +912,10 @@ fn buffer_hash_eval_current_buffer_sha1() {
     buf.delete_region(buf.point_min(), buf.point_max());
     buf.insert("abc");
     let r = builtin_buffer_hash(&mut eval, vec![]).unwrap();
-    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(
+        r.as_utf8_str(),
+        Some("a9993e364706816aba3e25717850c26c9cd0d89d")
+    );
 }
 
 #[test]
@@ -916,7 +931,10 @@ fn buffer_hash_eval_by_name_sha1() {
         .expect("current buffer")
         .name_value();
     let r = builtin_buffer_hash(&mut eval, vec![name]).unwrap();
-    assert_eq!(r.as_utf8_str(), Some("a9993e364706816aba3e25717850c26c9cd0d89d"));
+    assert_eq!(
+        r.as_utf8_str(),
+        Some("a9993e364706816aba3e25717850c26c9cd0d89d")
+    );
 }
 
 #[test]

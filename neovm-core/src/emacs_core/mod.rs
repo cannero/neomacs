@@ -82,6 +82,8 @@ pub mod perf_trace;
 pub mod plist;
 pub mod print;
 pub mod process;
+#[cfg(test)]
+mod quit_regression_test;
 pub mod reader;
 pub mod rect;
 pub mod regex;
@@ -89,19 +91,17 @@ pub mod regex_emacs;
 pub mod register;
 #[cfg(test)]
 mod runtime_string_guard_test;
-#[cfg(test)]
-mod symbol_redirect_regression_test;
-#[cfg(test)]
-mod symbol_plist_regression_test;
-#[cfg(test)]
-mod symbol_function_regression_test;
-#[cfg(test)]
-mod quit_regression_test;
 pub mod search;
 pub(crate) mod string_escape;
 pub mod subr_docs;
 pub mod subr_info;
 pub mod symbol;
+#[cfg(test)]
+mod symbol_function_regression_test;
+#[cfg(test)]
+mod symbol_plist_regression_test;
+#[cfg(test)]
+mod symbol_redirect_regression_test;
 pub mod syntax;
 #[cfg(test)]
 mod syntax_gnu_parity_regression_test;

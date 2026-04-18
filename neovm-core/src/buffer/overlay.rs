@@ -508,7 +508,6 @@ fn priority_component(value: Value) -> i64 {
     }
 }
 
-
 fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
     let mut tail = plist;
     loop {
@@ -526,7 +525,6 @@ fn plist_get_named(plist: Value, prop_name: &str) -> Option<Value> {
         tail = pair_cdr.cons_cdr();
     }
 }
-
 
 impl Default for OverlayList {
     fn default() -> Self {

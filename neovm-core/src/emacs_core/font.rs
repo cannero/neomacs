@@ -501,10 +501,7 @@ pub(crate) fn update_face_from_frame_parameter(
             );
         }
         "background-color" => {
-            if let Some(function) = eval
-                .obarray()
-                .symbol_function("frame-set-background-mode")
-            {
+            if let Some(function) = eval.obarray().symbol_function("frame-set-background-mode") {
                 let _ = eval.apply(function, vec![Value::make_frame(frame_id.0)])?;
             }
             set_runtime_face_color_from_frame_parameter(
@@ -1051,11 +1048,12 @@ fn font_spec_resolve_request(
     };
 
     let elems = font_spec.as_vector_data().unwrap().clone();
-    let family =
-        font_vector_get_flexible(&elems, "family").and_then(|value| font_value_text_lisp_string(&value));
-    let registry =
-        font_vector_get_flexible(&elems, "registry").and_then(|value| font_value_text_lisp_string(&value));
-    let lang = font_vector_get_flexible(&elems, "lang").and_then(|value| font_value_text_lisp_string(&value));
+    let family = font_vector_get_flexible(&elems, "family")
+        .and_then(|value| font_value_text_lisp_string(&value));
+    let registry = font_vector_get_flexible(&elems, "registry")
+        .and_then(|value| font_value_text_lisp_string(&value));
+    let lang = font_vector_get_flexible(&elems, "lang")
+        .and_then(|value| font_value_text_lisp_string(&value));
     let weight = font_vector_get_flexible(&elems, "weight").and_then(font_weight_from_value);
     let slant = font_vector_get_flexible(&elems, "slant").and_then(font_slant_from_value);
 
@@ -1556,9 +1554,15 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         elems.push(value);
     };
 
-    push_field("family", Value::from_sym_id(intern(matched.family.as_utf8_str().unwrap_or_default())));
+    push_field(
+        "family",
+        Value::from_sym_id(intern(matched.family.as_utf8_str().unwrap_or_default())),
+    );
     if let Some(registry) = &matched.registry {
-        push_field("registry", Value::from_sym_id(intern(registry.as_utf8_str().unwrap_or_default())));
+        push_field(
+            "registry",
+            Value::from_sym_id(intern(registry.as_utf8_str().unwrap_or_default())),
+        );
     }
     if let Some(weight) = matched.weight {
         push_field("weight", Value::symbol(font_weight_symbol(weight)));
@@ -1573,7 +1577,10 @@ fn build_font_entity_for_spec_match(matched: &super::eval::ResolvedFontSpecMatch
         push_field("spacing", Value::fixnum(spacing as i64));
     }
     if let Some(postscript_name) = &matched.postscript_name {
-        push_field("postscript-name", Value::heap_string(postscript_name.clone()));
+        push_field(
+            "postscript-name",
+            Value::heap_string(postscript_name.clone()),
+        );
     }
 
     Value::vector(elems)
@@ -1584,7 +1591,9 @@ fn build_font_object_for_match(
     matched: &super::eval::ResolvedFontMatch,
 ) -> Value {
     let mut selected = face.clone();
-    selected.family = Some(Value::from_sym_id(intern(matched.family.as_utf8_str().unwrap_or_default())));
+    selected.family = Some(Value::from_sym_id(intern(
+        matched.family.as_utf8_str().unwrap_or_default(),
+    )));
     selected.foundry = matched
         .foundry
         .as_ref()

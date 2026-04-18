@@ -5,7 +5,7 @@
 //! (`fns.c`). Comparison uses `eq` (via `eq_value`) as GNU does.
 
 use crate::emacs_core::error::{Flow, signal};
-use crate::emacs_core::value::{eq_value, Value};
+use crate::emacs_core::value::{Value, eq_value};
 
 /// Walk `plist` looking for `prop`. Returns the associated value or None.
 /// Matches GNU `Fplist_get` when keys compare by eq.

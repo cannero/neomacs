@@ -4104,7 +4104,9 @@ fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
         .expect("captured current-load-list");
     let current_entries = list_to_vec(&current_load_list).expect("current-load-list is a list");
     assert_eq!(
-        current_entries.first().and_then(|value| value.as_utf8_str()),
+        current_entries
+            .first()
+            .and_then(|value| value.as_utf8_str()),
         Some("probe.el")
     );
 
@@ -4783,9 +4785,7 @@ fn neovm_loadup_bootstrap() {
         "expected float/integer CL classes to be registered, got {result}"
     );
 
-    let float_pred = eval
-        .obarray()
-        .get_property("float", "cl-deftype-satisfies");
+    let float_pred = eval.obarray().get_property("float", "cl-deftype-satisfies");
     let integer_pred = eval
         .obarray()
         .get_property("integer", "cl-deftype-satisfies");

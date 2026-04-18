@@ -485,8 +485,10 @@ pub(crate) fn builtin_special_form_p(args: Vec<Value>) -> EvalResult {
     expect_args("special-form-p", &args, 1)?;
     let result = match args[0].kind() {
         ValueKind::Symbol(id) => is_public_special_form_name(resolve_sym(id)),
-        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => subr_dispatch_kind_from_value(&args[0])
-            .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm),
+        ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
+            subr_dispatch_kind_from_value(&args[0])
+                .is_some_and(|kind| kind == SubrDispatchKind::SpecialForm)
+        }
         _ => false,
     };
     Ok(Value::bool_val(result))

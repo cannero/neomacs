@@ -957,7 +957,9 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                             let matches = if let Some(test_fn) = &test_fn {
                                 match eval.apply(*test_fn, vec![entry_key, *key]) {
                                     Ok(v) => v.is_truthy(),
-                                    Err(e) => { break Err(e); }
+                                    Err(e) => {
+                                        break Err(e);
+                                    }
                                 }
                             } else {
                                 equal_value(key, &entry_key, 0)

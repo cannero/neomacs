@@ -60,9 +60,18 @@ fn goto(ctx: &mut Context, pos: i64) {
 fn char_syntax_ascii_word() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("");
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum('a' as i64)])), 'w' as i64);
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum('Z' as i64)])), 'w' as i64);
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum('5' as i64)])), 'w' as i64);
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum('a' as i64)])),
+        'w' as i64
+    );
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum('Z' as i64)])),
+        'w' as i64
+    );
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum('5' as i64)])),
+        'w' as i64
+    );
 }
 
 #[test]
@@ -73,9 +82,18 @@ fn char_syntax_ascii_whitespace() {
     // Both SPACE and '-' (45) parse to SyntaxClass::Whitespace via
     // `string-to-syntax`, but `char-syntax` returns the first form.
     let space = ' ' as i64;
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum(' ' as i64)])), space);
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum('\t' as i64)])), space);
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum('\n' as i64)])), space);
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum(' ' as i64)])),
+        space
+    );
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum('\t' as i64)])),
+        space
+    );
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum('\n' as i64)])),
+        space
+    );
 }
 
 #[test]
@@ -83,7 +101,10 @@ fn char_syntax_cjk_is_word() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("");
     // U+4E2D 中 — GNU's standard-syntax-table ranges 0x80..=0x3FFFFF as Word.
-    assert_eq!(as_int(call(&mut ctx, "char-syntax", vec![fixnum(0x4e2d)])), 'w' as i64);
+    assert_eq!(
+        as_int(call(&mut ctx, "char-syntax", vec![fixnum(0x4e2d)])),
+        'w' as i64
+    );
 }
 
 // --- forward-word / backward-word ---------------------------------------
@@ -114,7 +135,11 @@ fn forward_word_negative_goes_backward() {
     let (mut ctx, _) = ctx_with_buffer("hello world");
     goto(&mut ctx, 12); // point-max
     call(&mut ctx, "forward-word", vec![fixnum(-1)]);
-    assert_eq!(point(&mut ctx), 7, "forward-word -1 from end lands at 'w' of 'world' = 7");
+    assert_eq!(
+        point(&mut ctx),
+        7,
+        "forward-word -1 from end lands at 'w' of 'world' = 7"
+    );
 }
 
 // --- skip-syntax-forward / skip-syntax-backward ------------------------
@@ -124,7 +149,11 @@ fn skip_syntax_forward_word_returns_count() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("abc def");
     goto(&mut ctx, 1);
-    let n = as_int(call(&mut ctx, "skip-syntax-forward", vec![Value::string("w")]));
+    let n = as_int(call(
+        &mut ctx,
+        "skip-syntax-forward",
+        vec![Value::string("w")],
+    ));
     assert_eq!(n, 3, "skip \"w\" over 'abc' returns 3");
 }
 
@@ -133,7 +162,11 @@ fn skip_syntax_forward_whitespace() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("   abc");
     goto(&mut ctx, 1);
-    let n = as_int(call(&mut ctx, "skip-syntax-forward", vec![Value::string(" ")]));
+    let n = as_int(call(
+        &mut ctx,
+        "skip-syntax-forward",
+        vec![Value::string(" ")],
+    ));
     assert_eq!(n, 3);
 }
 
@@ -151,7 +184,11 @@ fn modify_syntax_entry_adds_underscore_to_word_class() {
     );
     goto(&mut ctx, 1);
     call(&mut ctx, "forward-word", vec![fixnum(1)]);
-    assert_eq!(point(&mut ctx), 8, "with _ as word, forward-word consumes 'foo_bar'");
+    assert_eq!(
+        point(&mut ctx),
+        8,
+        "with _ as word, forward-word consumes 'foo_bar'"
+    );
 }
 
 // --- parse-partial-sexp ------------------------------------------------
@@ -160,11 +197,7 @@ fn modify_syntax_entry_adds_underscore_to_word_class() {
 fn parse_partial_sexp_tracks_depth() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("((a b) (c");
-    let state = call(
-        &mut ctx,
-        "parse-partial-sexp",
-        vec![fixnum(1), fixnum(10)],
-    );
+    let state = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(10)]);
     // "((a b) (c" — three opens ( ( (, one close ) → depth 2.
     let depth = as_int(call(&mut ctx, "car", vec![state]));
     assert_eq!(depth, 2, "three opens, one close => depth 2");
@@ -174,11 +207,7 @@ fn parse_partial_sexp_tracks_depth() {
 fn parse_partial_sexp_string_state() {
     crate::test_utils::init_test_tracing();
     let (mut ctx, _) = ctx_with_buffer("foo \"bar");
-    let state = call(
-        &mut ctx,
-        "parse-partial-sexp",
-        vec![fixnum(1), fixnum(9)],
-    );
+    let state = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(9)]);
     // state's 4th elt (index 3) is non-nil if inside a string.
     let in_string = call(&mut ctx, "nth", vec![fixnum(3), state]);
     assert!(!in_string.is_nil(), "unterminated string => elt 3 non-nil");

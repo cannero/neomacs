@@ -791,7 +791,9 @@ pub(crate) fn builtin_plist_member(
                 let matches = if let Some(predicate) = &predicate {
                     match eval.apply(*predicate, vec![entry_key, prop]) {
                         Ok(v) => v.is_truthy(),
-                        Err(e) => { break Err(e); }
+                        Err(e) => {
+                            break Err(e);
+                        }
                     }
                 } else {
                     eq_value(&entry_key, &prop)
