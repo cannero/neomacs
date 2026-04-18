@@ -239,10 +239,17 @@ pub(crate) enum SpecBinding {
     GcRoot { value: Value },
     /// Call frame for backtrace. Matches GNU SPECPDL_BACKTRACE.
     /// unbind_to discards these (no-op).
+    ///
+    /// `unevalled == true` mirrors GNU's `nargs == UNEVALLED` marker
+    /// (eval.c:2585 for special forms). In that shape, `args` holds
+    /// a single element: the original cons list of un-evaluated argument
+    /// forms. The walker emits `(nil FUNC FORMS FLAGS)` for these
+    /// (`backtrace_frame_apply`, eval.c:3993-3994).
     Backtrace {
         function: Value,
         args: LispArgVec,
         debug_on_exit: bool,
+        unevalled: bool,
     },
     /// unwind-protect cleanup. Matches GNU SPECPDL_UNWIND.
     /// For interpreter: forms is a cons list, unbind_to calls sf_progn_value.
@@ -6513,14 +6520,23 @@ impl Context {
             && let Some(target_sym_id) = func.as_subr_id()
             && self.subr_is_special_form_id(target_sym_id)
         {
-            if surface_sym_id == target_sym_id {
-                if let Some(result) = self.try_special_form_value_id(surface_sym_id, original_args)
-                {
-                    return result;
-                }
-            } else if let Some(result) =
-                self.try_aliased_special_form_value_id(surface_sym_id, target_sym_id, original_args)
-            {
+            // GNU eval.c:2585 records an UNEVALLED backtrace frame for
+            // every special-form dispatch so walkers (`backtrace`,
+            // `mapbacktrace`, `backtrace-frame--internal`) observe the
+            // frame with `(nil FUNC FORMS FLAGS)` shape.
+            let bt_count = self.specpdl.len();
+            self.push_unevalled_backtrace_frame(original_fun, original_args);
+            let result = if surface_sym_id == target_sym_id {
+                self.try_special_form_value_id(surface_sym_id, original_args)
+            } else {
+                self.try_aliased_special_form_value_id(
+                    surface_sym_id,
+                    target_sym_id,
+                    original_args,
+                )
+            };
+            self.unbind_to(bt_count);
+            if let Some(result) = result {
                 return result;
             }
         }
@@ -8860,6 +8876,26 @@ impl Context {
             function,
             args: args.iter().copied().collect(),
             debug_on_exit: false,
+            unevalled: false,
+        });
+    }
+
+    /// Push a backtrace frame for a special-form call (`nargs == UNEVALLED`
+    /// in GNU eval.c:2585). `original_args` is the cons list of un-evaluated
+    /// argument forms — XCDR of the original form. The walker emits
+    /// `(nil FUNC FORMS FLAGS)` for these frames.
+    pub(crate) fn push_unevalled_backtrace_frame(
+        &mut self,
+        function: Value,
+        original_args: Value,
+    ) {
+        let mut args = LispArgVec::new();
+        args.push(original_args);
+        self.specpdl.push(SpecBinding::Backtrace {
+            function,
+            args,
+            debug_on_exit: false,
+            unevalled: true,
         });
     }
 

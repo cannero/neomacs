@@ -605,6 +605,10 @@ struct BacktraceFrameSnapshot {
     function: Value,
     args: Vec<Value>,
     debug_on_exit: bool,
+    /// `true` mirrors GNU `nargs == UNEVALLED` for special forms; `args`
+    /// then holds a single element that is the cons list of un-evaluated
+    /// argument forms.
+    unevalled: bool,
 }
 
 /// Collect backtrace frames from the specpdl, ordered oldest-first (index 0 = deepest).
@@ -616,10 +620,12 @@ fn collect_backtrace_frames(eval: &super::eval::Context) -> Vec<BacktraceFrameSn
                 function,
                 args,
                 debug_on_exit,
+                unevalled,
             } => Some(BacktraceFrameSnapshot {
                 function: *function,
                 args: args.iter().copied().collect(),
                 debug_on_exit: *debug_on_exit,
+                unevalled: *unevalled,
             }),
             _ => None,
         })
@@ -697,12 +703,22 @@ fn apply_backtrace_callback(
     function: Value,
     frame: &BacktraceFrameSnapshot,
 ) -> EvalResult {
+    // Matches GNU `backtrace_frame_apply` (eval.c:3993-3998).
+    // UNEVALLED frames pass `evald=nil` and the single argument
+    // slot (the cons list of un-evaluated forms) directly; otherwise
+    // pass `evald=t` and a fresh list of the evaluated argument values.
+    let (evald, args) = if frame.unevalled {
+        let forms = frame.args.first().copied().unwrap_or(Value::NIL);
+        (Value::NIL, forms)
+    } else {
+        (Value::T, Value::list(frame.args.clone()))
+    };
     eval.apply(
         function,
         vec![
-            Value::T, // evaluated
+            evald,
             frame.function,
-            Value::list(frame.args.clone()),
+            args,
             runtime_backtrace_frame_flags(frame),
         ],
     )

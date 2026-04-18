@@ -569,6 +569,84 @@ fn backtrace_frame_internal_surfaces_live_frame() {
     assert!(items[3].is_nil(), "no flags on this frame");
 }
 
+/// Regression for GNU `nargs == UNEVALLED` parity (eval.c:2585, 3993).
+/// `eval_sub_cons` must push an UNEVALLED backtrace frame around every
+/// public special-form dispatch (`if`, `while`, `let`, etc.). The frame
+/// exists only during dispatch; we observe it from inside the body via
+/// a Rust probe subr that snapshots the live specpdl.
+#[test]
+fn eval_sub_cons_pushes_unevalled_frame_for_special_forms() {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static PROBE: RefCell<Vec<(Value, bool)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn probe(eval: &mut super::super::eval::Context) -> EvalResult {
+        let snap: Vec<(Value, bool)> = eval
+            .specpdl
+            .iter()
+            .filter_map(|e| match e {
+                super::super::eval::SpecBinding::Backtrace {
+                    function,
+                    unevalled,
+                    ..
+                } => Some((*function, *unevalled)),
+                _ => None,
+            })
+            .collect();
+        PROBE.with(|p| *p.borrow_mut() = snap);
+        Ok(Value::NIL)
+    }
+
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    eval.defsubr_0("__unevalled_probe__", probe);
+
+    PROBE.with(|p| p.borrow_mut().clear());
+    eval.eval_str("(if t (__unevalled_probe__) nil)")
+        .expect("eval if-body");
+    let snap = PROBE.with(|p| p.borrow().clone());
+    assert!(
+        snap.iter()
+            .any(|(f, u)| *f == Value::symbol("if") && *u),
+        "expected an UNEVALLED `if' frame while body runs, got {:?}",
+        snap
+    );
+}
+
+/// Regression for `backtrace-frame--internal` UNEVALLED dispatch. Set
+/// up an artificial UNEVALLED frame via `push_unevalled_backtrace_frame`
+/// and assert the callback receives `(nil FUNC FORMS nil)`.
+#[test]
+fn backtrace_frame_internal_surfaces_unevalled_frame() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let original_args = Value::list(vec![
+        Value::symbol("x"),
+        Value::list(vec![Value::symbol("+"), Value::fixnum(1), Value::fixnum(2)]),
+    ]);
+    eval.push_unevalled_backtrace_frame(Value::symbol("if"), original_args);
+
+    let callback = eval
+        .eval_str("(lambda (evald func args flags) (list evald func args flags))")
+        .expect("build callback");
+    let result = super::builtin_backtrace_frame_internal(
+        &mut eval,
+        vec![callback, Value::fixnum(0), Value::NIL],
+    )
+    .expect("walk");
+
+    let items = list_to_vec(&result).expect("four-element list");
+    assert_eq!(items.len(), 4);
+    assert!(items[0].is_nil(), "UNEVALLED → evald=nil");
+    assert_eq!(items[1], Value::symbol("if"));
+    // args should be the cons list of un-evaluated forms, not a wrapping list.
+    assert_eq!(items[2], original_args, "forms list passed through verbatim");
+    assert!(items[3].is_nil());
+}
+
 #[test]
 fn backtrace_helper_stubs_shape_and_errors() {
     crate::test_utils::init_test_tracing();
