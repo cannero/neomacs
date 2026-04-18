@@ -97,7 +97,7 @@ fn collect_insert_text_strings_and_chars() {
     let s = Value::string("hello");
     let c = Value::char('!');
     let result = collect_insert_text("insert", &[s, c]).unwrap();
-    assert_eq!(result, "hello!");
+    assert_eq!(result, b"hello!");
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn collect_insert_text_int_as_char() {
 
     // ASCII 65 = 'A'
     let result = collect_insert_text("insert", &[Value::fixnum(65)]).unwrap();
-    assert_eq!(result, "A");
+    assert_eq!(result, b"A");
 }
 
 #[test]
@@ -117,8 +117,11 @@ fn collect_insert_text_nonunicode_char_preserves_emacs_code() {
 
     let code = 0x3F_FF80i64;
     let result = collect_insert_text("insert", &[Value::fixnum(code)]).unwrap();
-    let decoded = crate::emacs_core::string_escape::decode_storage_char_codes(&result);
-    assert_eq!(decoded, vec![code as u32]);
+    // Raw byte 0x80 encodes as the overlong C0/C1 two-byte sequence
+    // [0xC0, 0x80] in Emacs internal encoding.
+    let (decoded, len) = crate::emacs_core::emacs_char::string_char(&result);
+    assert_eq!(decoded, code as u32);
+    assert_eq!(len, result.len());
 }
 
 #[test]

@@ -535,31 +535,53 @@ fn current_buffer_accessible_char_region_in_buffers(
 // ---------------------------------------------------------------------------
 
 /// Collect the insertable text from a mixed list of strings and characters.
-pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String, Flow> {
-    let mut text = String::new();
+///
+/// Returns raw Emacs-internal-encoding bytes. String args contribute their
+/// `LispString.as_bytes()` directly (promoted via overlong C0/C1 for
+/// unibyte 0x80..0xFF bytes). Character args are encoded via
+/// `emacs_char::char_string`. The caller is responsible for wrapping the
+/// result into a `LispString` before handing it to buffer insertion.
+pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<Vec<u8>, Flow> {
+    use crate::emacs_core::emacs_char;
+    let mut bytes: Vec<u8> = Vec::new();
     for arg in args {
         match arg.kind() {
             ValueKind::String => {
-                let s = arg.as_runtime_string_owned().ok_or_else(|| {
+                let ls = arg.as_lisp_string().ok_or_else(|| {
                     signal("wrong-type-argument", vec![Value::symbol("stringp"), *arg])
                 })?;
-                text.push_str(&s);
+                if ls.is_multibyte() {
+                    bytes.extend_from_slice(ls.as_bytes());
+                } else {
+                    // Unibyte string: each byte is a raw byte value. Promote
+                    // 0x80..0xFF to overlong C0/C1 Emacs encoding so the
+                    // concatenated result is a well-formed multibyte byte
+                    // stream.
+                    for &b in ls.as_bytes() {
+                        if b < 0x80 {
+                            bytes.push(b);
+                        } else {
+                            bytes.push(0xC0 | ((b >> 6) & 0x01));
+                            bytes.push(0x80 | (b & 0x3F));
+                        }
+                    }
+                }
+                continue;
             }
             ValueKind::Fixnum(_) => {
                 let code = super::builtins::expect_character_code(arg)? as u32;
-                let rendered =
-                    crate::emacs_core::string_escape::encode_char_code_for_string_storage(
-                        code, true,
-                    )
-                    .ok_or_else(|| {
-                        signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("characterp"), *arg],
-                        )
-                    })?;
-                text.push_str(&rendered);
+                if code > emacs_char::MAX_CHAR {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("characterp"), *arg],
+                    ));
+                }
+                let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                let len = emacs_char::char_string(code, &mut buf);
+                bytes.extend_from_slice(&buf[..len]);
+                continue;
             }
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("char-or-string-p"), *arg],
@@ -567,7 +589,7 @@ pub(crate) fn collect_insert_text(_name: &str, args: &[Value]) -> Result<String,
             }
         }
     }
-    Ok(text)
+    Ok(bytes)
 }
 
 /// `(insert-before-markers &rest ARGS)` — insert at point, advancing ALL
@@ -577,17 +599,18 @@ pub(crate) fn builtin_insert_before_markers(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    let text = collect_insert_text("insert-before-markers", &args)?;
-    if text.is_empty() {
+    let bytes = collect_insert_text("insert-before-markers", &args)?;
+    if bytes.is_empty() {
         return Ok(Value::NIL);
     }
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
     if let Some(id) = ctx.buffers.current_buffer_id() {
         let insert_pos = ctx.buffers.get(id).map(|buf| buf.pt_byte).unwrap_or(0);
-        let text_len = text.len();
+        let byte_len = bytes.len();
+        let ls = crate::heap_types::LispString::from_emacs_bytes(bytes);
         signal_before_change(ctx, insert_pos, insert_pos)?;
-        let _ = ctx.buffers.insert_into_buffer_before_markers(id, &text);
-        signal_after_change(ctx, insert_pos, insert_pos + text_len, 0)?;
+        let _ = ctx.buffers.insert_lisp_string_into_buffer_before_markers(id, &ls);
+        signal_after_change(ctx, insert_pos, insert_pos + byte_len, 0)?;
     }
     Ok(Value::NIL)
 }
