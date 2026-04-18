@@ -1,13 +1,17 @@
 //! GNU-style synchronous subprocess owner, corresponding to `callproc.c`.
 
+use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStringExt;
 use std::process::{Command, Stdio};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::resolve_sym;
 use super::value::{Value, ValueKind, VecLikeType, list_to_vec};
 use crate::buffer::BufferManager;
+use crate::heap_types::LispString;
 
 fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), Flow> {
     if args.len() != n {
@@ -44,7 +48,7 @@ fn maybe_redisplay_sync_output(
 enum OutputTarget {
     Discard,
     Buffer(Value),
-    File(String),
+    File(LispString),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,7 +62,7 @@ enum StderrTarget {
 struct DestinationSpec {
     stdout: OutputTarget,
     stderr: StderrTarget,
-    stderr_file: Option<String>,
+    stderr_file: Option<LispString>,
     no_wait: bool,
 }
 
@@ -72,6 +76,26 @@ fn callproc_owned_runtime_string(value: Value) -> String {
         .expect("ValueKind::String must carry LispString payload")
 }
 
+fn lisp_string_to_os_string(string: &LispString) -> OsString {
+    #[cfg(unix)]
+    {
+        if string.is_multibyte() {
+            OsString::from(super::builtins::runtime_string_from_lisp_string(string))
+        } else {
+            OsString::from_vec(string.as_bytes().to_vec())
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        OsString::from(super::builtins::runtime_string_from_lisp_string(string))
+    }
+}
+
+fn lisp_string_to_output_path(string: &LispString) -> std::path::PathBuf {
+    super::fileio::lisp_file_name_to_path_buf(string)
+}
+
 fn is_file_keyword(value: &Value) -> bool {
     value.as_keyword_id().map_or(false, |k| {
         let n = resolve_sym(k);
@@ -80,8 +104,8 @@ fn is_file_keyword(value: &Value) -> bool {
 }
 
 fn parse_file_target(items: &[Value]) -> Result<OutputTarget, Flow> {
-    let file_value = items.get(1).cloned().unwrap_or(Value::NIL);
-    let file = super::process::expect_string_strict(&file_value)?;
+    let file_value = items.get(1).unwrap_or(&Value::NIL);
+    let file = super::builtins::expect_lisp_string(file_value)?.clone();
     Ok(OutputTarget::File(file))
 }
 
@@ -116,13 +140,18 @@ fn parse_real_buffer_destination_in_state(
     }
 }
 
-fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<String>), Flow> {
+fn parse_stderr_destination(value: &Value) -> Result<(StderrTarget, Option<LispString>), Flow> {
     match value.kind() {
         ValueKind::Nil => Ok((StderrTarget::Discard, None)),
         ValueKind::T => Ok((StderrTarget::ToStdoutTarget, None)),
         ValueKind::String => Ok((
             StderrTarget::File,
-            Some(callproc_owned_runtime_string(*value)),
+            Some(
+                value
+                    .as_lisp_string()
+                    .expect("ValueKind::String must carry LispString payload")
+                    .clone(),
+            ),
         )),
         other => Err(signal_wrong_type_string(*value)),
     }
@@ -224,20 +253,21 @@ fn write_output_target_in_state(
             insert_process_output_in_state(buffers, destination, &text)
         }
         OutputTarget::File(path) => {
+            let path_buf = lisp_string_to_output_path(path);
             if append {
                 let mut file = OpenOptions::new()
                     .create(true)
                     .append(true)
-                    .open(path)
+                    .open(&path_buf)
                     .map_err(|e| {
-                        super::process::signal_process_io("Writing process output", Some(path), e)
+                        super::process::signal_process_io("Writing process output", None, e)
                     })?;
                 file.write_all(output).map_err(|e| {
-                    super::process::signal_process_io("Writing process output", Some(path), e)
+                    super::process::signal_process_io("Writing process output", None, e)
                 })
             } else {
-                std::fs::write(path, output).map_err(|e| {
-                    super::process::signal_process_io("Writing process output", Some(path), e)
+                std::fs::write(&path_buf, output).map_err(|e| {
+                    super::process::signal_process_io("Writing process output", None, e)
                 })
             }
         }
@@ -267,15 +297,18 @@ fn route_captured_output_in_state(
     }
 }
 
-fn configure_call_process_stdin(command: &mut Command, infile: Option<&str>) -> Result<(), Flow> {
+fn configure_call_process_stdin(
+    command: &mut Command,
+    infile: Option<&LispString>,
+) -> Result<(), Flow> {
     match infile {
         None => {
             command.stdin(Stdio::null());
             Ok(())
         }
         Some(path) => {
-            let file = std::fs::File::open(path).map_err(|e| {
-                super::process::signal_process_io("Opening process input file", Some(path), e)
+            let file = std::fs::File::open(lisp_string_to_output_path(path)).map_err(|e| {
+                super::process::signal_process_io("Opening process input file", None, e)
             })?;
             command.stdin(Stdio::from(file));
             Ok(())
@@ -285,17 +318,22 @@ fn configure_call_process_stdin(command: &mut Command, infile: Option<&str>) -> 
 
 fn run_process_command_in_state(
     buffers: &mut BufferManager,
-    program: &str,
-    infile: Option<String>,
+    program: &LispString,
+    infile: Option<LispString>,
     destination: &Value,
-    cmd_args: &[String],
+    cmd_args: &[LispString],
 ) -> EvalResult {
     let destination_spec = parse_call_process_destination(buffers, destination)?;
+    let program_os = lisp_string_to_os_string(program);
+    let cmd_args_os = cmd_args
+        .iter()
+        .map(lisp_string_to_os_string)
+        .collect::<Vec<OsString>>();
 
     if destination_spec.no_wait {
-        let mut command = Command::new(program);
-        command.args(cmd_args).stdout(Stdio::null());
-        configure_call_process_stdin(&mut command, infile.as_deref())?;
+        let mut command = Command::new(&program_os);
+        command.args(&cmd_args_os).stdout(Stdio::null());
+        configure_call_process_stdin(&mut command, infile.as_ref())?;
         match destination_spec.stderr {
             StderrTarget::Discard | StderrTarget::ToStdoutTarget => {
                 command.stderr(Stdio::null());
@@ -304,58 +342,64 @@ fn run_process_command_in_state(
                 let path = destination_spec.stderr_file.as_ref().ok_or_else(|| {
                     signal("error", vec![Value::string("Missing stderr file target")])
                 })?;
+                let path_buf = lisp_string_to_output_path(path);
                 let file = OpenOptions::new()
                     .create(true)
                     .truncate(true)
                     .write(true)
-                    .open(path)
+                    .open(&path_buf)
                     .map_err(|e| {
-                        super::process::signal_process_io("Writing process output", Some(path), e)
+                        super::process::signal_process_io("Writing process output", None, e)
                     })?;
                 command.stderr(Stdio::from(file));
             }
         };
 
-        let mut child = command.spawn().map_err(|e| {
-            super::process::signal_process_io("Searching for program", Some(program), e)
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
         std::thread::spawn(move || {
             let _ = child.wait();
         });
         return Ok(Value::NIL);
     }
 
-    let mut command = Command::new(program);
+    let mut command = Command::new(&program_os);
     command
-        .args(cmd_args)
+        .args(&cmd_args_os)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_call_process_stdin(&mut command, infile.as_deref())?;
-    let output = command.output().map_err(|e| {
-        super::process::signal_process_io("Searching for program", Some(program), e)
-    })?;
+    configure_call_process_stdin(&mut command, infile.as_ref())?;
+    let output = command
+        .output()
+        .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
 
     let exit_code = output.status.code().unwrap_or(-1);
     route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
     Ok(Value::fixnum(exit_code as i64))
 }
 
-fn run_process_capture_output(program: &str, cmd_args: &[String]) -> Result<(i32, Vec<u8>), Flow> {
-    let mut command = Command::new(program);
+fn run_process_capture_output(
+    program: &LispString,
+    cmd_args: &[LispString],
+) -> Result<(i32, Vec<u8>), Flow> {
+    let mut command = Command::new(lisp_string_to_os_string(program));
     command
-        .args(cmd_args)
+        .args(cmd_args.iter().map(lisp_string_to_os_string))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let output = command.output().map_err(|e| {
-        super::process::signal_process_io("Searching for program", Some(program), e)
-    })?;
+    let output = command
+        .output()
+        .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
     Ok((output.status.code().unwrap_or(-1), output.stdout))
 }
 
-fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<String>, Flow> {
+fn parse_optional_infile(args: &[Value], index: usize) -> Result<Option<LispString>, Flow> {
     if args.len() > index && !args[index].is_nil() {
-        Ok(Some(super::process::expect_string_strict(&args[index])?))
+        Ok(Some(
+            super::builtins::expect_lisp_string(&args[index])?.clone(),
+        ))
     } else {
         Ok(None)
     }
@@ -367,11 +411,12 @@ fn parse_sequence_args(args: &[Value]) -> Result<Vec<String>, Flow> {
         .collect()
 }
 
-fn signal_process_lines_status_error(program: &str, status: i32) -> Flow {
+fn signal_process_lines_status_error(program: &LispString, status: i32) -> Flow {
     signal(
         "error",
         vec![Value::string(format!(
-            "{program} exited with status {status}"
+            "{} exited with status {status}",
+            super::builtins::runtime_string_from_lisp_string(program)
         ))],
     )
 }
@@ -407,11 +452,11 @@ fn shell_command_with_args(command: &str, args: &[String]) -> String {
 
 fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> EvalResult {
     expect_min_args("call-process", &args, 1)?;
-    let program = super::process::expect_string_strict(&args[0])?;
+    let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).unwrap_or(&Value::NIL);
     let cmd_args = if args.len() > 4 {
-        super::process::parse_string_args_strict(&args[4..])?
+        super::process::parse_lisp_string_args_strict(&args[4..])?
     } else {
         Vec::new()
     };
@@ -420,7 +465,7 @@ fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> E
 
 fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value>) -> EvalResult {
     expect_min_args("call-process-region", &args, 3)?;
-    let program = super::process::expect_string_strict(&args[2])?;
+    let program = super::builtins::expect_lisp_string(&args[2])?.clone();
 
     let delete = args.len() > 3 && args[3].is_truthy();
     let destination = if args.len() > 4 {
@@ -431,7 +476,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
     let destination_spec = parse_call_process_destination(buffers, destination)?;
 
     let cmd_args = if args.len() > 6 {
-        super::process::parse_string_args_strict(&args[6..])?
+        super::process::parse_lisp_string_args_strict(&args[6..])?
     } else {
         Vec::new()
     };
@@ -443,7 +488,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                     .current_buffer()
                     .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
                 let len = buf.text.len();
-                (buf.text.text_range(0, len), (0usize, len))
+                (buf.text.text_range(0, len).into_bytes(), (0usize, len))
             };
             if delete {
                 let current_id = buffers
@@ -464,7 +509,11 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                     vec![Value::symbol("integer-or-marker-p"), args[0]],
                 ));
             }
-            callproc_owned_runtime_string(args[0])
+            args[0]
+                .as_lisp_string()
+                .expect("ValueKind::String must carry LispString payload")
+                .as_bytes()
+                .to_vec()
         }
         _ => {
             let start = super::process::expect_int_or_marker(&args[0])?;
@@ -476,7 +525,7 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                 let (region_beg, region_end) =
                     super::process::checked_region_bytes(buf, start, end)?;
                 (
-                    buf.text.text_range(region_beg, region_end),
+                    buf.text.text_range(region_beg, region_end).into_bytes(),
                     region_beg,
                     region_end,
                 )
@@ -494,9 +543,9 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
     };
 
     if destination_spec.no_wait {
-        let mut command = Command::new(&program);
+        let mut command = Command::new(lisp_string_to_os_string(&program));
         command
-            .args(&cmd_args)
+            .args(cmd_args.iter().map(lisp_string_to_os_string))
             .stdin(Stdio::piped())
             .stdout(Stdio::null());
         match destination_spec.stderr {
@@ -511,20 +560,20 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
                     .create(true)
                     .truncate(true)
                     .write(true)
-                    .open(path)
+                    .open(lisp_string_to_output_path(path))
                     .map_err(|e| {
-                        super::process::signal_process_io("Writing process output", Some(path), e)
+                        super::process::signal_process_io("Writing process output", None, e)
                     })?;
                 command.stderr(Stdio::from(file));
             }
         };
 
-        let mut child = command.spawn().map_err(|e| {
-            super::process::signal_process_io("Searching for program", Some(&program), e)
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
 
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(region_text.as_bytes());
+            let _ = stdin.write_all(&region_text);
         }
 
         std::thread::spawn(move || {
@@ -534,18 +583,16 @@ fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value
         return Ok(Value::NIL);
     }
 
-    let mut child = Command::new(&program)
-        .args(&cmd_args)
+    let mut child = Command::new(lisp_string_to_os_string(&program))
+        .args(cmd_args.iter().map(lisp_string_to_os_string))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| {
-            super::process::signal_process_io("Searching for program", Some(&program), e)
-        })?;
+        .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
 
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(region_text.as_bytes());
+        let _ = stdin.write_all(&region_text);
     }
 
     let output = child
@@ -583,9 +630,17 @@ pub(crate) fn builtin_call_process_shell_command(
         Vec::new()
     };
     let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec!["-c".to_string(), shell_command];
-    let result =
-        run_process_command_in_state(&mut eval.buffers, "sh", infile, &destination, &shell_args)?;
+    let shell_args = vec![
+        LispString::from_utf8("-c"),
+        LispString::from_utf8(&shell_command),
+    ];
+    let result = run_process_command_in_state(
+        &mut eval.buffers,
+        &LispString::from_utf8("sh"),
+        infile,
+        &destination,
+        &shell_args,
+    )?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
@@ -595,12 +650,12 @@ pub(crate) fn builtin_process_file(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-file", &args, 1)?;
-    let program = super::process::expect_string_strict(&args[0])?;
+    let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let infile = parse_optional_infile(&args, 1)?;
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(|v| v.is_truthy());
     let cmd_args = if args.len() > 4 {
-        super::process::parse_string_args_strict(&args[4..])?
+        super::process::parse_lisp_string_args_strict(&args[4..])?
     } else {
         Vec::new()
     };
@@ -625,9 +680,17 @@ pub(crate) fn builtin_process_file_shell_command(
         Vec::new()
     };
     let shell_command = shell_command_with_args(&command, &cmd_args);
-    let shell_args = vec!["-c".to_string(), shell_command];
-    let result =
-        run_process_command_in_state(&mut eval.buffers, "sh", infile, &destination, &shell_args)?;
+    let shell_args = vec![
+        LispString::from_utf8("-c"),
+        LispString::from_utf8(&shell_command),
+    ];
+    let result = run_process_command_in_state(
+        &mut eval.buffers,
+        &LispString::from_utf8("sh"),
+        infile,
+        &destination,
+        &shell_args,
+    )?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
@@ -637,8 +700,8 @@ pub(crate) fn builtin_process_lines(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines", &args, 1)?;
-    let program = super::process::expect_string_strict(&args[0])?;
-    let cmd_args = super::process::parse_string_args_strict(&args[1..])?;
+    let program = super::builtins::expect_lisp_string(&args[0])?.clone();
+    let cmd_args = super::process::parse_lisp_string_args_strict(&args[1..])?;
     let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
     if status != 0 {
         return Err(signal_process_lines_status_error(&program, status));
@@ -651,8 +714,8 @@ pub(crate) fn builtin_process_lines_ignore_status(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines-ignore-status", &args, 1)?;
-    let program = super::process::expect_string_strict(&args[0])?;
-    let cmd_args = super::process::parse_string_args_strict(&args[1..])?;
+    let program = super::builtins::expect_lisp_string(&args[0])?.clone();
+    let cmd_args = super::process::parse_lisp_string_args_strict(&args[1..])?;
     let (_, stdout) = run_process_capture_output(&program, &cmd_args)?;
     Ok(parse_output_lines(&stdout))
 }
@@ -662,9 +725,9 @@ pub(crate) fn builtin_process_lines_handling_status(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines-handling-status", &args, 2)?;
-    let program = super::process::expect_string_strict(&args[0])?;
+    let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let status_handler = args[1];
-    let cmd_args = super::process::parse_string_args_strict(&args[2..])?;
+    let cmd_args = super::process::parse_lisp_string_args_strict(&args[2..])?;
     let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
     let lines = parse_output_lines(&stdout);
 
@@ -700,3 +763,7 @@ fn parse_output_lines(stdout: &[u8]) -> Value {
         Value::list(text.split('\n').map(Value::string).collect())
     }
 }
+
+#[cfg(test)]
+#[path = "callproc_raw_bytes_test.rs"]
+mod raw_bytes_tests;
