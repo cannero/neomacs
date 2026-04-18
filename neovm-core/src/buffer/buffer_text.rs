@@ -688,10 +688,23 @@ impl BufferText {
     /// Overwrites `marker.next_marker` with the old head.
     /// Caller sets `marker.buffer` / `marker.bytepos` / `marker.charpos` —
     /// this helper only manipulates chain topology.
+    ///
+    /// **Precondition:** `marker.next_marker` must be null (marker is not
+    /// currently on any chain). Violating this silently truncates the
+    /// other chain. `debug_assert!` enforces it in debug builds.
     pub fn chain_splice_at_head(&self, marker: *mut crate::tagged::header::MarkerObj) {
         let mut storage = self.storage.borrow_mut();
         let old_head = storage.markers_head;
         unsafe {
+            // SAFETY: `marker` must be a live MarkerObj allocated via
+            // TaggedHeap::alloc_marker and not currently on any other chain
+            // (see precondition above). Writing through the pointer is sound
+            // because the heap retains ownership for the lifetime of the
+            // MarkerObj.
+            debug_assert!(
+                (*marker).data.next_marker.is_null(),
+                "chain_splice_at_head: marker is already on a chain"
+            );
             (*marker).data.next_marker = old_head;
         }
         storage.markers_head = marker;
@@ -699,10 +712,21 @@ impl BufferText {
 
     /// Unlink `marker` from this buffer's chain. Silent no-op if not present.
     /// Does NOT clear `marker.buffer` / positions — caller owns semantic cleanup.
+    ///
+    /// Unlike GNU `unchain_marker` (marker.c:684), which hard-asserts that
+    /// the marker is in the chain, we tolerate absent markers. This is
+    /// defensive: callers currently include code paths that may be
+    /// double-invoked during GC sweep and kill-buffer cleanup in T8/T9.
     pub fn chain_unlink(&self, marker: *mut crate::tagged::header::MarkerObj) {
         let mut storage = self.storage.borrow_mut();
         let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =
             &mut storage.markers_head;
+        // SAFETY: `prev_slot` walks the intrusive chain starting at
+        // `storage.markers_head`. Every non-null `*prev_slot` is a
+        // `*mut MarkerObj` previously installed via `chain_splice_at_head`,
+        // i.e. a live GC-managed allocation whose `.data.next_marker` is
+        // the next chain slot. We never read past a null terminator, and
+        // mutations only rewrite chain-owned `next_marker` fields.
         unsafe {
             while !(*prev_slot).is_null() {
                 let curr = *prev_slot;
@@ -723,6 +747,9 @@ impl BufferText {
         let storage = self.storage.borrow();
         let mut out = Vec::new();
         let mut curr = storage.markers_head;
+        // SAFETY: Same invariant as `chain_unlink` — `curr` walks live
+        // chain-owned MarkerObj pointers from `storage.markers_head`
+        // until a null terminator.
         unsafe {
             while !curr.is_null() {
                 out.push(curr);
