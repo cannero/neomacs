@@ -31,6 +31,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `file-system-info` now also expands to a Lisp filename before handler dispatch and uses the byte-preserving path boundary, so raw unibyte directory names no longer have to round-trip through a runtime `String`.
 - `find-file-noselect` now resolves and stores visited file names as Lisp strings, compares existing visited buffers against the resolved `LispString` path instead of a runtime string, and can reopen raw unibyte file names without losing the filename bytes.
 - Backup and auto-save file-name plumbing now stays on `LispString` through name derivation and the Unix path boundary: backup names are computed from raw Lisp filename bytes, redirected backup directories are expanded relative to the visited file like GNU `files.el`, `make-auto-save-file-name` preserves raw visited/prefix bytes, and `do-auto-save` writes raw buffer bytes to raw auto-save file names without a runtime-string round-trip.
+- `make-process`, `start-process`, `start-file-process`, and the underlying child-spawn path now keep command vectors and `process-environment` entries as Lisp strings up to the OS boundary: raw unibyte argv/env bytes survive process record storage, `getenv-internal` now matches GNU's raw-byte `process-environment` scan instead of decoding through UTF-8 first, and child processes now inherit Lisp `process-environment` overrides via byte-preserving `OsString` conversion at spawn time.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -51,12 +52,13 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 - `src/fileio.c`: `file-system-info` is another simple "expand first, dispatch on the Lisp filename, then ENCODE_FILE" surface. Neomacs should keep finishing the remaining file-name builtins in that same order.
 - `lisp/files.el`: `find-file-noselect` normalizes the input file name early and keeps passing file names around as Lisp strings while it looks up existing visiting buffers and decides how to populate the new buffer. The remaining Neomacs caller paths should keep moving in that same direction rather than collapsing the visited file name back to a runtime `String`.
 - `lisp/files.el`: `make-backup-file-name-1` expands redirected backup directories relative to the visited file's directory, and `make-auto-save-file-name` keeps deriving auto-save names from the current Lisp file name before any file-name handler or filesystem call. Neomacs should keep the backup/auto-save naming path in `LispString` up to the final OS boundary.
+- `src/process.c` and `src/callproc.c`: GNU keeps process command vectors and `process-environment` as Lisp strings/bytes until the final spawn boundary, only converting via `ENCODE_FILE` or raw `SSDATA`/`SBYTES` access when building argv/env for the child. Neomacs should keep converging on that shape instead of parsing process commands and environment entries through Rust `String` first.
 
 ## Remaining Work
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save work, especially the remaining process-facing helpers that still cross through runtime `String` values before OS calls.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/start-process work, especially the remaining `call-process` / shell-command / reader-load helpers that still cross through runtime `String` values before OS calls.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---
