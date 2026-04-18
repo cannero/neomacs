@@ -998,10 +998,7 @@ impl TaggedHeap {
     /// inside a live `BufferText`'s storage and must remain valid for
     /// the duration of the GC cycle. The caller must hold exclusive
     /// access to the heap and the buffer manager during the cycle.
-    pub unsafe fn set_marker_chain_head_slots(
-        &mut self,
-        slots: Vec<*mut *mut MarkerObj>,
-    ) {
+    pub unsafe fn set_marker_chain_head_slots(&mut self, slots: Vec<*mut *mut MarkerObj>) {
         self.marker_chain_head_slots = slots;
     }
 

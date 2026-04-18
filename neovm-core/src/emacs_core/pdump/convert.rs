@@ -2734,16 +2734,15 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                 if let Some(p) = markers_by_id.get(&mid).copied() {
                     return p;
                 }
-                let scratch = crate::emacs_core::value::Value::make_marker(
-                    crate::heap_types::MarkerData {
+                let scratch =
+                    crate::emacs_core::value::Value::make_marker(crate::heap_types::MarkerData {
                         buffer: Some(BufferId(db.id.0)),
                         insertion_type: false,
                         marker_id: Some(mid),
                         bytepos: 0,
                         charpos: 0,
                         next_marker: std::ptr::null_mut(),
-                    },
-                );
+                    });
                 scratch
                     .as_veclike_ptr()
                     .expect("freshly allocated marker should have a veclike ptr")

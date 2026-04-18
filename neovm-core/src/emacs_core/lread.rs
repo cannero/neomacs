@@ -922,21 +922,18 @@ fn locate_file_with_path_and_suffixes(
     suffixes: &[LispString],
     predicate: Option<&Value>,
 ) -> Result<Option<LispString>, Flow> {
-    let filename_runtime = lread_runtime_string(filename);
     let effective_suffixes: Vec<LispString> = if suffixes.is_empty() {
         vec![LispString::from_unibyte(Vec::new())]
     } else {
         suffixes.to_vec()
     };
 
-    let absolute = crate::emacs_core::fileio::file_name_absolute_p(&filename_runtime);
+    let absolute = matches!(filename.as_bytes().first(), Some(b'/') | Some(b'~'));
     if absolute || path.is_empty() {
-        let expanded = crate::emacs_core::fileio::expand_file_name(&filename_runtime, None);
+        let expanded = locate_file_expand_name(eval, filename, None)?;
         for suffix in &effective_suffixes {
-            let suffix_runtime = lread_runtime_string(suffix);
-            let candidate = format!("{expanded}{suffix_runtime}");
-            let candidate_lisp = runtime_path_to_lisp_string(&candidate);
-            if Path::new(&candidate).exists()
+            let candidate_lisp = append_lisp_file_name_suffix(&expanded, suffix);
+            if crate::emacs_core::fileio::lisp_file_name_to_path_buf(&candidate_lisp).exists()
                 && predicate_matches_candidate(eval, predicate, &candidate_lisp)?
             {
                 return Ok(Some(candidate_lisp));
@@ -946,14 +943,10 @@ fn locate_file_with_path_and_suffixes(
     }
 
     for dir in path {
-        let dir_runtime = lread_runtime_string(dir);
-        let base =
-            crate::emacs_core::fileio::expand_file_name(&filename_runtime, Some(&dir_runtime));
+        let base = locate_file_expand_name(eval, filename, Some(dir))?;
         for suffix in &effective_suffixes {
-            let suffix_runtime = lread_runtime_string(suffix);
-            let candidate = format!("{base}{suffix_runtime}");
-            let candidate_lisp = runtime_path_to_lisp_string(&candidate);
-            if Path::new(&candidate).exists()
+            let candidate_lisp = append_lisp_file_name_suffix(&base, suffix);
+            if crate::emacs_core::fileio::lisp_file_name_to_path_buf(&candidate_lisp).exists()
                 && predicate_matches_candidate(eval, predicate, &candidate_lisp)?
             {
                 return Ok(Some(candidate_lisp));
@@ -962,6 +955,32 @@ fn locate_file_with_path_and_suffixes(
     }
 
     Ok(None)
+}
+
+fn locate_file_expand_name(
+    eval: &mut super::eval::Context,
+    name: &LispString,
+    default_dir: Option<&LispString>,
+) -> Result<LispString, Flow> {
+    let mut args = vec![Value::heap_string(name.clone())];
+    if let Some(dir) = default_dir {
+        args.push(Value::heap_string(dir.clone()));
+    }
+    let expanded = crate::emacs_core::fileio::builtin_expand_file_name(eval, args)?;
+    Ok(expanded
+        .as_lisp_string()
+        .expect("expand-file-name should return a string")
+        .clone())
+}
+
+fn append_lisp_file_name_suffix(base: &LispString, suffix: &LispString) -> LispString {
+    let mut bytes = base.as_bytes().to_vec();
+    bytes.extend_from_slice(suffix.as_bytes());
+    if base.is_multibyte() || suffix.is_multibyte() {
+        LispString::from_emacs_bytes(bytes)
+    } else {
+        LispString::from_unibyte(bytes)
+    }
 }
 
 fn predicate_matches_candidate(

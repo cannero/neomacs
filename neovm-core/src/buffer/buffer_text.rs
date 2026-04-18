@@ -405,12 +405,7 @@ impl BufferText {
         self.storage.borrow_mut().text_props = table;
     }
 
-    pub fn replace_storage(
-        &self,
-        text: &str,
-        multibyte: bool,
-        text_props: TextPropertyTable,
-    ) {
+    pub fn replace_storage(&self, text: &str, multibyte: bool, text_props: TextPropertyTable) {
         let bytes =
             crate::emacs_core::string_escape::storage_string_to_buffer_bytes(text, multibyte);
         let string = if multibyte {
@@ -621,10 +616,7 @@ impl BufferText {
     /// before doing anything that could mutate the chain, and must not
     /// re-enter the chain (or invoke arbitrary Lisp) between lookup and
     /// use.
-    pub fn chain_find_by_id(
-        &self,
-        marker_id: u64,
-    ) -> *mut crate::tagged::header::MarkerObj {
+    pub fn chain_find_by_id(&self, marker_id: u64) -> *mut crate::tagged::header::MarkerObj {
         let storage = self.storage.borrow();
         let mut curr = storage.markers_head;
         // SAFETY: chain walks live chain-owned MarkerObj pointers from
@@ -821,8 +813,7 @@ impl BufferText {
     /// and sibling-indirect markers stay attached).
     pub fn remove_markers_for_buffers(&self, killed: &std::collections::HashSet<BufferId>) {
         let mut storage = self.storage.borrow_mut();
-        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =
-            &mut storage.markers_head;
+        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj = &mut storage.markers_head;
         // SAFETY: analogous to `chain_unlink`. Every non-null `*prev_slot`
         // was installed via `chain_splice_at_head`, i.e. a live GC-managed
         // MarkerObj with a valid `data.next_marker` link.
@@ -830,10 +821,7 @@ impl BufferText {
             while !(*prev_slot).is_null() {
                 let curr = *prev_slot;
                 let data = &mut (*curr).data;
-                let belongs_to_killed = data
-                    .buffer
-                    .map(|id| killed.contains(&id))
-                    .unwrap_or(false);
+                let belongs_to_killed = data.buffer.map(|id| killed.contains(&id)).unwrap_or(false);
                 if belongs_to_killed {
                     *prev_slot = data.next_marker;
                     data.next_marker = std::ptr::null_mut();
@@ -895,8 +883,7 @@ impl BufferText {
     /// double-invoked during GC sweep and kill-buffer cleanup in T8/T9.
     pub fn chain_unlink(&self, marker: *mut crate::tagged::header::MarkerObj) {
         let mut storage = self.storage.borrow_mut();
-        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj =
-            &mut storage.markers_head;
+        let mut prev_slot: *mut *mut crate::tagged::header::MarkerObj = &mut storage.markers_head;
         // SAFETY: `prev_slot` walks the intrusive chain starting at
         // `storage.markers_head`. Every non-null `*prev_slot` is a
         // `*mut MarkerObj` previously installed via `chain_splice_at_head`,

@@ -203,11 +203,7 @@ fn replace_lisp_string_handles_unibyte_raw_bytes() {
     assert_eq!(cached_before, 4);
 
     let raw = crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A', 0x80]);
-    text.replace_lisp_string(
-        &raw,
-        crate::buffer::text_props::TextPropertyTable::new(),
-        Vec::new(),
-    );
+    text.replace_lisp_string(&raw, crate::buffer::text_props::TextPropertyTable::new());
 
     assert!(!text.is_multibyte());
     assert_eq!(text.char_count(), 3);

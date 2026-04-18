@@ -110,16 +110,15 @@ pub(crate) fn register_global_subr_entry(sym_id: SymId, entry: SubrEntry) {
 
 /// Look up a subr entry by SymId.
 pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
-    GLOBAL_SUBR_TABLE.with(|table| {
-        table.borrow().get(&sym_id).cloned()
-    })
+    GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(&sym_id).cloned())
 }
 
 /// Access a subr entry by reference (avoids cloning).
-pub(crate) fn with_global_subr_entry<R>(sym_id: SymId, f: impl FnOnce(&SubrEntry) -> R) -> Option<R> {
-    GLOBAL_SUBR_TABLE.with(|table| {
-        table.borrow().get(&sym_id).map(f)
-    })
+pub(crate) fn with_global_subr_entry<R>(
+    sym_id: SymId,
+    f: impl FnOnce(&SubrEntry) -> R,
+) -> Option<R> {
+    GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(&sym_id).map(f))
 }
 
 /// Clear all subr entries (used during heap reset).
@@ -256,15 +255,19 @@ pub(crate) enum SpecBinding {
     /// For VM: forms is a callable (bytecode fn), unbind_to calls apply.
     UnwindProtect { forms: Value, lexenv: Value },
     /// save-excursion state. Matches GNU SPECPDL_UNWIND_EXCURSION.
-    SaveExcursion { buffer_id: crate::buffer::BufferId, marker_id: u64 },
+    SaveExcursion {
+        buffer_id: crate::buffer::BufferId,
+        marker_id: u64,
+    },
     /// save-current-buffer state. Matches GNU record_unwind_current_buffer.
     SaveCurrentBuffer { buffer_id: crate::buffer::BufferId },
     /// save-restriction state. Matches GNU SPECPDL_UNWIND with save_restriction_restore.
-    SaveRestriction { state: crate::buffer::SavedRestrictionState },
+    SaveRestriction {
+        state: crate::buffer::SavedRestrictionState,
+    },
     /// Placeholder. Matches GNU SPECPDL_NOP.
     Nop,
 }
-
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct VmRootFrame {
@@ -1733,7 +1736,6 @@ pub(crate) struct ActiveMacroExpansionScopeState {
     old_dynvars: Value,
 }
 
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct VmRootScopeState {
     pushed_vm_root_frame: bool,
@@ -1921,9 +1923,7 @@ fn begin_lambda_call_in_state(
     // which is the single source of truth for "is lexical mode active?"
     // via lexical_binding() -> !self.lexenv.is_nil().
 
-    Ok(ActiveLambdaCallState {
-        specpdl_count,
-    })
+    Ok(ActiveLambdaCallState { specpdl_count })
 }
 
 fn finish_lambda_call_in_state(
@@ -2084,8 +2084,7 @@ impl Context {
 
     #[inline]
     fn has_registered_subr(&self, sym_id: SymId) -> bool {
-        lookup_global_subr_entry(sym_id)
-            .is_some_and(|e| e.function.is_some())
+        lookup_global_subr_entry(sym_id).is_some_and(|e| e.function.is_some())
     }
 
     pub fn new() -> Self {
@@ -3670,12 +3669,14 @@ impl Context {
         // GNU Emacs seeds core startup vars with integer
         // `variable-documentation` offsets in the DOC table.
         for &(name, _) in STARTUP_VARIABLE_DOC_STUBS {
-            obarray.put_property(name, "variable-documentation", Value::fixnum(0))
+            obarray
+                .put_property(name, "variable-documentation", Value::fixnum(0))
                 .expect("startup variable-documentation plist should always be valid");
         }
         // Some startup docs are string-valued in GNU Emacs (not integer offsets).
         for &(name, doc) in STARTUP_VARIABLE_DOC_STRING_PROPERTIES {
-            obarray.put_property(name, "variable-documentation", Value::string(doc))
+            obarray
+                .put_property(name, "variable-documentation", Value::string(doc))
                 .expect("startup variable-documentation plist should always be valid");
         }
 
@@ -4032,9 +4033,7 @@ impl Context {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
-            quit_requested: std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false),
-            ),
+            quit_requested: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redisplay_fn: None,
             display_host: None,
             coding_systems: CodingSystemManager::new(),
@@ -4181,9 +4180,7 @@ impl Context {
             input_rx: None,
             #[cfg(unix)]
             wakeup_fd: None,
-            quit_requested: std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false),
-            ),
+            quit_requested: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             redisplay_fn: None,
             display_host: None,
             coding_systems,
@@ -5919,7 +5916,6 @@ impl Context {
         self.gc_safe_point_exact();
         Ok(())
     }
-
 }
 
 impl Context {
@@ -6554,11 +6550,7 @@ impl Context {
             let result = if surface_sym_id == target_sym_id {
                 self.try_special_form_value_id(surface_sym_id, original_args)
             } else {
-                self.try_aliased_special_form_value_id(
-                    surface_sym_id,
-                    target_sym_id,
-                    original_args,
-                )
+                self.try_aliased_special_form_value_id(surface_sym_id, target_sym_id, original_args)
             };
             if let Some(result) = result {
                 return result;
@@ -7525,7 +7517,9 @@ impl Context {
                 crate::emacs_core::eval::lexenv_binding_symbol_value(*sym_id),
                 *val,
             );
-            self.specpdl.push(SpecBinding::GcRoot { value: binding_pair });
+            self.specpdl.push(SpecBinding::GcRoot {
+                value: binding_pair,
+            });
             new_lexenv = Value::make_cons(binding_pair, new_lexenv);
             match self.specpdl.last_mut() {
                 Some(SpecBinding::GcRoot { value }) => *value = new_lexenv,
@@ -7620,10 +7614,7 @@ impl Context {
                     // Direct cons onto Vinternal_interpreter_environment.
                     // The LexicalEnv entry at specpdl_count saves the pre-let*
                     // state; unbind_to restores it.
-                    let binding = Value::make_cons(
-                        lexenv_binding_symbol_value(id),
-                        value,
-                    );
+                    let binding = Value::make_cons(lexenv_binding_symbol_value(id), value);
                     self.lexenv = Value::make_cons(binding, self.lexenv);
                 } else {
                     self.specbind(id, value);
@@ -8219,10 +8210,8 @@ impl Context {
                         self.specpdl.push(SpecBinding::LexicalEnv {
                             old_lexenv: self.lexenv,
                         });
-                        let binding = Value::make_cons(
-                            lexenv_binding_symbol_value(var_id),
-                            binding_value,
-                        );
+                        let binding =
+                            Value::make_cons(lexenv_binding_symbol_value(var_id), binding_value);
                         self.lexenv = Value::make_cons(binding, self.lexenv);
                     } else if bind_var {
                         self.specbind(var_id, binding_value);
@@ -8244,11 +8233,9 @@ impl Context {
         let count = self.specpdl.len();
         if let Some(buf_id) = self.buffers.current_buffer().map(|b| b.id) {
             let pt = self.buffers.get(buf_id).map(|b| b.pt_byte).unwrap_or(0);
-            let (marker_id, _marker_ptr) = self.buffers.create_marker(
-                buf_id,
-                pt,
-                InsertionType::Before,
-            );
+            let (marker_id, _marker_ptr) =
+                self.buffers
+                    .create_marker(buf_id, pt, InsertionType::Before);
             self.specpdl.push(SpecBinding::SaveExcursion {
                 buffer_id: buf_id,
                 marker_id,
@@ -8533,8 +8520,8 @@ impl Context {
         filename: Option<Value>,
         noerror: Option<Value>,
     ) -> EvalResult {
-        let feature_name = super::builtins::symbols::symbol_id(&feature)
-            .map(|sid| resolve_sym(sid).to_string());
+        let feature_name =
+            super::builtins::symbols::symbol_id(&feature).map(|sid| resolve_sym(sid).to_string());
         let filename_str = filename.as_ref().and_then(|v| v.as_runtime_string_owned());
         match plan_require_in_state(
             &self.obarray,
@@ -8947,11 +8934,7 @@ impl Context {
     /// in GNU eval.c:2585). `original_args` is the cons list of un-evaluated
     /// argument forms — XCDR of the original form. The walker emits
     /// `(nil FUNC FORMS FLAGS)` for these frames.
-    pub(crate) fn push_unevalled_backtrace_frame(
-        &mut self,
-        function: Value,
-        original_args: Value,
-    ) {
+    pub(crate) fn push_unevalled_backtrace_frame(&mut self, function: Value, original_args: Value) {
         let mut args = LispArgVec::new();
         args.push(original_args);
         self.specpdl.push(SpecBinding::Backtrace {
@@ -8981,9 +8964,7 @@ impl Context {
             .expect("set_backtrace_args_evalled: specpdl index out of range");
         match entry {
             SpecBinding::Backtrace {
-                unevalled,
-                args,
-                ..
+                unevalled, args, ..
             } if *unevalled => {
                 args.clear();
                 args.extend(evaluated.iter().copied());
@@ -8994,7 +8975,6 @@ impl Context {
             ),
         }
     }
-
 
     pub(crate) fn save_specpdl_roots(&self) -> SpecpdlRootScopeState {
         SpecpdlRootScopeState {
@@ -9083,9 +9063,7 @@ impl Context {
             // checks at the function-application boundary, but only on coarse
             // depth intervals so normal startup is not dominated by TLS lookups
             // in stacker::maybe_grow.
-            self.maybe_grow_eval_stack(|ctx| {
-                ctx.funcall_general_untraced(function, args)
-            })
+            self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(function, args))
         });
         self.unbind_to(bt_count);
         result
@@ -9118,9 +9096,7 @@ impl Context {
         let bt_count = self.specpdl.len();
         self.push_backtrace_frame(frame_function, &args);
         let result = self.maybe_gc_and_quit().and_then(|_| {
-            self.maybe_grow_eval_stack(|ctx| {
-                ctx.funcall_general_untraced(func, args)
-            })
+            self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
         });
         self.unbind_to(bt_count);
         result
@@ -9363,7 +9339,10 @@ impl Context {
         let name = resolve_name(entry.name_id);
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
             tracing::error!("(cdr t) called! Lisp backtrace:");
-            for (i, bt_entry) in self.specpdl.iter().rev()
+            for (i, bt_entry) in self
+                .specpdl
+                .iter()
+                .rev()
                 .filter_map(|e| match e {
                     SpecBinding::Backtrace { function, .. } => Some(function),
                     _ => None,
@@ -9584,7 +9563,8 @@ impl Context {
                 // Do NOT poison the cache with Void when the subr was found.
                 // A void-function from a known subr is transient (e.g., dispatch
                 // failure during initialization), not a permanent state change.
-                if func.as_subr_id()
+                if func
+                    .as_subr_id()
                     .and_then(lookup_global_subr_entry)
                     .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
                 {
@@ -9629,7 +9609,8 @@ impl Context {
                 let sym_id = intern(name);
                 let result = self.apply_subr_object(func, args, rewrite_builtin_wrong_arity);
                 // Do NOT poison the cache with Void when the subr was found.
-                if func.as_subr_id()
+                if func
+                    .as_subr_id()
                     .and_then(lookup_global_subr_entry)
                     .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
                 {
@@ -9672,9 +9653,11 @@ impl Context {
             if let Some(flow) = self.check_funcall_subr_arity_value(subr, args.len()) {
                 return Err(flow);
             }
-            if let Some(result) =
-                self.dispatch_subr_value_internal(subr, args.clone(), Value::subr_from_sym_id(sym_id))
-            {
+            if let Some(result) = self.dispatch_subr_value_internal(
+                subr,
+                args.clone(),
+                Value::subr_from_sym_id(sym_id),
+            ) {
                 return result;
             }
         }
@@ -9725,7 +9708,10 @@ impl Context {
             if args.len() != 2 {
                 return Err(signal(
                     "wrong-number-of-arguments",
-                    vec![Value::subr_from_sym_id(sym_id), Value::fixnum(args.len() as i64)],
+                    vec![
+                        Value::subr_from_sym_id(sym_id),
+                        Value::fixnum(args.len() as i64),
+                    ],
                 ));
             }
             let tag = args[0];
@@ -9836,9 +9822,7 @@ impl Context {
                 ValueKind::T => 1,
                 ValueKind::Fixnum(n) => ((n as u64).wrapping_mul(0x9E37_79B1)) ^ 0x10,
                 ValueKind::Symbol(sym) => ((sym.0 as u64) << 8) ^ 0x20,
-                ValueKind::Subr(sym) => {
-                    ((sym.0 as u64) << 8) ^ 0x22
-                }
+                ValueKind::Subr(sym) => ((sym.0 as u64) << 8) ^ 0x22,
                 ValueKind::Veclike(VecLikeType::Subr) => {
                     let sym = value.as_subr_id().unwrap();
                     ((sym.0 as u64) << 8) ^ 0x22
@@ -10507,7 +10491,10 @@ impl Context {
                 SpecBinding::Nop => {
                     // No-op, matches GNU SPECPDL_NOP
                 }
-                SpecBinding::UnwindProtect { forms: cleanup, lexenv } => {
+                SpecBinding::UnwindProtect {
+                    forms: cleanup,
+                    lexenv,
+                } => {
                     // Entry already popped — re-entrant errors won't re-unwind.
                     let saved_lexenv = self.lexenv;
                     self.lexenv = lexenv;
@@ -10520,7 +10507,10 @@ impl Context {
                     }
                     self.lexenv = saved_lexenv;
                 }
-                SpecBinding::SaveExcursion { buffer_id, marker_id } => {
+                SpecBinding::SaveExcursion {
+                    buffer_id,
+                    marker_id,
+                } => {
                     self.restore_current_buffer_if_live(buffer_id);
                     if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {
                         let _ = self.buffers.goto_buffer_byte(buffer_id, saved_pt);
@@ -10821,13 +10811,16 @@ impl Context {
             let (min_args, max_args, dispatch_kind) =
                 super::subr_info::lookup_compat_subr_metadata(name, 0, None);
             // Register in global static table so lookups by sym_id work
-            register_global_subr_entry(sym_id, SubrEntry {
-                function: None, // evaluator-handled, no SubrFn
-                min_args,
-                max_args,
-                dispatch_kind,
-                name_id,
-            });
+            register_global_subr_entry(
+                sym_id,
+                SubrEntry {
+                    function: None, // evaluator-handled, no SubrFn
+                    min_args,
+                    max_args,
+                    dispatch_kind,
+                    name_id,
+                },
+            );
             self.obarray.intern(name);
             self.obarray
                 .set_symbol_function_id(sym_id, Value::subr_from_sym_id(sym_id));
@@ -10901,17 +10894,21 @@ impl Context {
         let name_id = symbol_name_id(sym_id);
 
         // Register in global static table
-        register_global_subr_entry(sym_id, SubrEntry {
-            function: Some(func),
-            min_args,
-            max_args,
-            dispatch_kind,
-            name_id,
-        });
+        register_global_subr_entry(
+            sym_id,
+            SubrEntry {
+                function: Some(func),
+                min_args,
+                max_args,
+                dispatch_kind,
+                name_id,
+            },
+        );
 
         // Set symbol function cell to new immediate subr value
         self.obarray.intern(name);
-        self.obarray.set_symbol_function(name, Value::subr_from_sym_id(sym_id));
+        self.obarray
+            .set_symbol_function(name, Value::subr_from_sym_id(sym_id));
     }
 
     /// Call a registered subr value directly. Returns None if VALUE is not a

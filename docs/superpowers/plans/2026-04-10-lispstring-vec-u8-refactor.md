@@ -35,6 +35,7 @@ The checklist below is partially stale. Large parts of phases 1, 2, and 6 are al
 - `call-process`, `process-file`, and the `process-lines*` family now also keep program / arg / infile / file-destination values as Lisp strings until the spawn boundary, while `call-process-region` now writes raw string-input bytes to child stdin instead of forcing a runtime `String` conversion first. Raw unibyte argv and file-name bytes now survive the synchronous subprocess path through GNU-shaped `callproc.c` boundaries.
 - Reader-side invalid-read-syntax reporting for Lisp string sources now computes line/column directly from `LispString` bytes, so unibyte raw bytes keep GNU-shaped byte columns while multibyte strings count characters rather than UTF-8 storage bytes.
 - `eval-buffer` now mirrors GNU `lread.c` more closely at the lexical-cookie/load boundary: lexical-binding cookies for Lisp-string sources are parsed directly from raw source bytes, and the `load-in-progress` buffer-eval path now hands both source text and filenames to `load.rs` as Lisp strings instead of first rebuilding Rust runtime strings.
+- `locate-file` / `locate-file-internal` now keep filename, path, and suffix candidates on Lisp-string bytes through `expand-file-name` and the filesystem probe boundary, instead of reconstructing candidate paths through Rust `String` concatenation first.
 
 ## GNU Alignment Notes (Local Source Audit)
 
@@ -62,7 +63,7 @@ Reference tree: `/home/exec/Projects/github.com/emacs-mirror/emacs/`
 
 - Remove more `runtime_string_from_lisp_string` style adapters from core buffer/string paths so byte-preserving logic stays in `LispString`/`BufferText`.
 - Keep auditing buffer conversion helpers against GNU `copy_text`, `make_buffer_string_both`, and `set-buffer-multibyte`, especially around markers, overlays, and text property remapping.
-- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc work, especially the remaining shell-command helpers plus the deeper `value_reader` / `lread` / `load` paths that still rely on runtime-string storage adapters internally.
+- Continue the file-name audit at the remaining filesystem boundaries beyond the predicate/access/mode/create-delete/two-path/mtime/insert-write/filesystem-info/find-file/backup/auto-save/process/callproc/locate-file work, especially the remaining shell-command helpers plus the deeper `value_reader` / `lread` / `load` paths that still rely on runtime-string storage adapters internally.
 - Treat the original phased checklist below as historical implementation guidance; update individual checkbox items only when the remaining slices are actually revisited.
 
 ---
