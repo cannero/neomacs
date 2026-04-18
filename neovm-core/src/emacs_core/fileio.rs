@@ -158,7 +158,7 @@ fn file_truename_lisp_inner(
     filename: &crate::heap_types::LispString,
     default_dir: &crate::heap_types::LispString,
     remaining_links: &mut i64,
-    prev_dirs: &mut HashMap<String, crate::heap_types::LispString>,
+    prev_dirs: &mut HashMap<Vec<u8>, crate::heap_types::LispString>,
 ) -> Result<crate::heap_types::LispString, Flow> {
     let mut filename = if lisp_file_name_absolute_system_p(filename) {
         filename.clone()
@@ -181,7 +181,7 @@ fn file_truename_lisp_inner(
         let mut dir = lisp_file_name_directory(&filename).unwrap_or_else(|| default_dir.clone());
         let dirfile = lisp_directory_file_name(&dir);
         if !lisp_string_runtime_eq(&dir, &dirfile) {
-            let dir_key = crate::emacs_core::builtins::runtime_string_from_lisp_string(&dir);
+            let dir_key = dir.as_bytes().to_vec();
             if let Some(cached) = prev_dirs.get(&dir_key).cloned() {
                 dir = cached;
             } else {
@@ -650,8 +650,9 @@ fn file_system_info_path(path: &Path) -> std::io::Result<(i64, i64, i64)> {
             }
         }
 
-        let c_path = path_to_cstring(path)
-            .map_err(|_| std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name"))?;
+        let c_path = path_to_cstring(path).map_err(|_| {
+            std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name")
+        })?;
         let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
         if unsafe { libc::statvfs(c_path.as_ptr(), &mut stats as *mut libc::statvfs) } != 0 {
             return Err(std::io::Error::last_os_error());
@@ -1173,6 +1174,14 @@ fn file_name_runtime_result_value(text: &str, multibyte: bool) -> Value {
     ))
 }
 
+fn file_name_lisp_from_bytes(bytes: Vec<u8>, multibyte: bool) -> crate::heap_types::LispString {
+    if multibyte {
+        crate::heap_types::LispString::from_emacs_bytes(bytes)
+    } else {
+        crate::heap_types::LispString::from_unibyte(bytes)
+    }
+}
+
 fn fallback_root_default_directory() -> crate::heap_types::LispString {
     crate::heap_types::LispString::from_utf8("/")
 }
@@ -1207,54 +1216,71 @@ fn concat_file_name_lisp(
     left: &crate::heap_types::LispString,
     right: &crate::heap_types::LispString,
 ) -> crate::heap_types::LispString {
-    let text = format!(
-        "{}{}",
-        crate::emacs_core::builtins::runtime_string_from_lisp_string(left),
-        crate::emacs_core::builtins::runtime_string_from_lisp_string(right)
-    );
-    crate::emacs_core::builtins::runtime_string_to_lisp_string(
-        &text,
-        file_name_concat_result_multibyte(&[left, right]),
-    )
+    let mut bytes = Vec::with_capacity(left.as_bytes().len() + right.as_bytes().len());
+    bytes.extend_from_slice(left.as_bytes());
+    bytes.extend_from_slice(right.as_bytes());
+    file_name_lisp_from_bytes(bytes, file_name_concat_result_multibyte(&[left, right]))
 }
 
 fn lisp_file_name_directory(
     filename: &crate::heap_types::LispString,
 ) -> Option<crate::heap_types::LispString> {
-    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
-    file_name_directory(&filename_runtime).map(|dir| {
-        crate::emacs_core::builtins::runtime_string_to_lisp_string(&dir, filename.is_multibyte())
-    })
+    let bytes = filename.as_bytes();
+    if bytes.ends_with(b"/") {
+        return (!bytes.is_empty()).then(|| filename.clone());
+    }
+    bytes
+        .iter()
+        .rposition(|&byte| byte == b'/')
+        .map(|pos| file_name_lisp_from_bytes(bytes[..=pos].to_vec(), filename.is_multibyte()))
 }
 
 fn lisp_file_name_nondirectory(
     filename: &crate::heap_types::LispString,
 ) -> crate::heap_types::LispString {
-    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
-    crate::emacs_core::builtins::runtime_string_to_lisp_string(
-        &file_name_nondirectory(&filename_runtime),
-        filename.is_multibyte(),
-    )
+    let bytes = filename.as_bytes();
+    if bytes.ends_with(b"/") {
+        return file_name_lisp_from_bytes(Vec::new(), filename.is_multibyte());
+    }
+    match bytes.iter().rposition(|&byte| byte == b'/') {
+        Some(pos) => file_name_lisp_from_bytes(bytes[pos + 1..].to_vec(), filename.is_multibyte()),
+        None => filename.clone(),
+    }
 }
 
 fn lisp_file_name_as_directory(
     filename: &crate::heap_types::LispString,
 ) -> crate::heap_types::LispString {
-    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
-    crate::emacs_core::builtins::runtime_string_to_lisp_string(
-        &file_name_as_directory(&filename_runtime),
-        filename.is_multibyte(),
-    )
+    if filename.as_bytes().is_empty() {
+        return file_name_lisp_from_bytes(b"./".to_vec(), filename.is_multibyte());
+    }
+    if filename.as_bytes().ends_with(b"/") {
+        return filename.clone();
+    }
+    let mut bytes = filename.as_bytes().to_vec();
+    bytes.push(b'/');
+    file_name_lisp_from_bytes(bytes, filename.is_multibyte())
 }
 
 fn lisp_directory_file_name(
     filename: &crate::heap_types::LispString,
 ) -> crate::heap_types::LispString {
-    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
-    crate::emacs_core::builtins::runtime_string_to_lisp_string(
-        &directory_file_name(&filename_runtime),
-        filename.is_multibyte(),
-    )
+    let bytes = filename.as_bytes();
+    if bytes.is_empty() {
+        return filename.clone();
+    }
+    if bytes.iter().all(|&byte| byte == b'/') {
+        return if bytes.len() == 2 {
+            filename.clone()
+        } else {
+            file_name_lisp_from_bytes(vec![b'/'], filename.is_multibyte())
+        };
+    }
+    let trimmed_len = bytes
+        .iter()
+        .rposition(|&byte| byte != b'/')
+        .map_or(0, |pos| pos + 1);
+    file_name_lisp_from_bytes(bytes[..trimmed_len].to_vec(), filename.is_multibyte())
 }
 
 fn expand_file_name_lisp(
@@ -1275,16 +1301,14 @@ fn expand_file_name_lisp(
 }
 
 fn lisp_file_name_absolute_system_p(filename: &crate::heap_types::LispString) -> bool {
-    let filename_runtime = crate::emacs_core::builtins::runtime_string_from_lisp_string(filename);
-    file_name_absolute_p(&filename_runtime) && !filename_runtime.starts_with('~')
+    filename.as_bytes().first() == Some(&b'/')
 }
 
 fn lisp_string_runtime_eq(
     left: &crate::heap_types::LispString,
     right: &crate::heap_types::LispString,
 ) -> bool {
-    crate::emacs_core::builtins::runtime_string_from_lisp_string(left)
-        == crate::emacs_core::builtins::runtime_string_from_lisp_string(right)
+    left.as_bytes() == right.as_bytes()
 }
 
 fn lisp_file_name_is_ascii_text(filename: &crate::heap_types::LispString, text: &[u8]) -> bool {
@@ -1305,6 +1329,42 @@ fn lisp_string_strip_ascii_prefix(
     } else {
         crate::heap_types::LispString::from_unibyte(rest.to_vec())
     })
+}
+
+fn append_ascii_suffix_lisp(
+    value: &crate::heap_types::LispString,
+    suffix: &[u8],
+) -> crate::heap_types::LispString {
+    let mut bytes = Vec::with_capacity(value.as_bytes().len() + suffix.len());
+    bytes.extend_from_slice(value.as_bytes());
+    bytes.extend_from_slice(suffix);
+    file_name_lisp_from_bytes(bytes, value.is_multibyte())
+}
+
+fn wrap_ascii_around_lisp_string(
+    value: &crate::heap_types::LispString,
+    prefix: &[u8],
+    suffix: &[u8],
+) -> crate::heap_types::LispString {
+    let mut bytes = Vec::with_capacity(prefix.len() + value.as_bytes().len() + suffix.len());
+    bytes.extend_from_slice(prefix);
+    bytes.extend_from_slice(value.as_bytes());
+    bytes.extend_from_slice(suffix);
+    file_name_lisp_from_bytes(bytes, value.is_multibyte())
+}
+
+fn lisp_string_contains_bytes(
+    haystack: &crate::heap_types::LispString,
+    needle: &crate::heap_types::LispString,
+) -> bool {
+    let needle_bytes = needle.as_bytes();
+    if needle_bytes.is_empty() {
+        return true;
+    }
+    haystack
+        .as_bytes()
+        .windows(needle_bytes.len())
+        .any(|window| window == needle_bytes)
 }
 
 fn expand_cp_target_lisp_for_eval(
@@ -1988,7 +2048,10 @@ fn signal_existing_path_value(path: &Path, value: Value) -> Flow {
         .map(|metadata| metadata.is_dir())
         .unwrap_or(false)
     {
-        signal("file-error", vec![Value::string("File is a directory"), value])
+        signal(
+            "file-error",
+            vec![Value::string("File is a directory"), value],
+        )
     } else {
         signal(
             "file-already-exists",
@@ -2027,8 +2090,30 @@ fn path_to_cstring(path: &Path) -> Result<CString, std::ffi::NulError> {
     CString::new(path.as_os_str().as_bytes())
 }
 
+#[cfg(unix)]
+fn path_component_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
+    name.as_bytes().to_vec()
+}
+
+#[cfg(not(unix))]
+fn path_component_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
+    name.to_string_lossy().into_owned().into_bytes()
+}
+
 fn file_exists_path(path: &Path) -> bool {
     path.exists()
+}
+
+fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
+    if bytes.is_empty() || !bytes.iter().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    let mut value = 0u32;
+    for byte in bytes {
+        value = value.checked_mul(10)?;
+        value = value.checked_add((byte - b'0') as u32)?;
+    }
+    Some(value)
 }
 
 fn file_readable_path(path: &Path) -> bool {
@@ -2306,8 +2391,9 @@ fn set_file_times_path(
 ) -> std::io::Result<()> {
     #[cfg(unix)]
     {
-        let c_path = path_to_cstring(path)
-            .map_err(|_| std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name"))?;
+        let c_path = path_to_cstring(path).map_err(|_| {
+            std::io::Error::new(ErrorKind::InvalidInput, "embedded NUL in file name")
+        })?;
 
         let mut ts = [
             libc::timespec {
@@ -2611,7 +2697,10 @@ pub(crate) fn builtin_file_newer_than_file_p(eval: &mut Context, args: Vec<Value
         "file-newer-than-file-p",
         Some(&file1),
         Some(&file2),
-        vec![Value::heap_string(file1.clone()), Value::heap_string(file2.clone())],
+        vec![
+            Value::heap_string(file1.clone()),
+            Value::heap_string(file2.clone()),
+        ],
     )? {
         return Ok(result);
     }
@@ -2708,11 +2797,7 @@ pub(crate) fn builtin_set_file_times(eval: &mut Context, args: Vec<Value>) -> Ev
     let nofollow = args.get(2).is_some_and(|flag| !flag.is_nil());
     set_file_times_path(&lisp_file_name_to_path_buf(&filename), timestamp, nofollow).map_err(
         |err| {
-            signal_file_action_error_value(
-                err,
-                "Setting file times",
-                Value::heap_string(filename),
-            )
+            signal_file_action_error_value(err, "Setting file times", Value::heap_string(filename))
         },
     )?;
     Ok(Value::T)
@@ -2880,8 +2965,9 @@ pub(crate) fn builtin_delete_directory_internal(
     expect_args("delete-directory-internal", &args, 1)?;
     let directory = expect_lisp_string_strict(&args[0])?;
     let resolved = lisp_directory_file_name(&resolve_filename_lisp_for_eval(eval, &directory));
-    fs::remove_dir(lisp_file_name_to_path_buf(&resolved))
-        .map_err(|err| signal_file_action_error_value(err, "Removing directory", Value::heap_string(resolved)))?;
+    fs::remove_dir(lisp_file_name_to_path_buf(&resolved)).map_err(|err| {
+        signal_file_action_error_value(err, "Removing directory", Value::heap_string(resolved))
+    })?;
     Ok(Value::NIL)
 }
 
@@ -2928,7 +3014,10 @@ pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -
         ));
     }
     let mut target = expect_lisp_string_strict(&args[0])?;
-    if matches!(args.get(2).map(|value| value.kind()), Some(ValueKind::Fixnum(_))) {
+    if matches!(
+        args.get(2).map(|value| value.kind()),
+        Some(ValueKind::Fixnum(_))
+    ) {
         if lisp_file_name_is_ascii_text(&target, b"~") || target.as_bytes().starts_with(b"~/") {
             target = expand_file_name_lisp(&target, None);
         } else if let Some(stripped) = lisp_string_strip_ascii_prefix(&target, b"/:") {
@@ -2972,18 +3061,16 @@ pub(crate) fn builtin_make_symbolic_link(eval: &mut Context, args: Vec<Value>) -
                 )
             })?;
         }
-        std::os::unix::fs::symlink(
-            lisp_file_name_to_path_buf(&target),
-            &link_path,
-        )
-        .map_err(|err| {
-            signal_file_action_error_pair_values(
-                err,
-                "Making symbolic link",
-                Value::heap_string(target),
-                Value::heap_string(linkname),
-            )
-        })?;
+        std::os::unix::fs::symlink(lisp_file_name_to_path_buf(&target), &link_path).map_err(
+            |err| {
+                signal_file_action_error_pair_values(
+                    err,
+                    "Making symbolic link",
+                    Value::heap_string(target),
+                    Value::heap_string(linkname),
+                )
+            },
+        )?;
         Ok(Value::NIL)
     }
 
@@ -3066,9 +3153,13 @@ pub(crate) fn builtin_copy_file(eval: &mut Context, args: Vec<Value>) -> EvalRes
     handler_args.push(Value::heap_string(from.clone()));
     handler_args.push(Value::heap_string(to.clone()));
     handler_args.extend_from_slice(&args[2..]);
-    if let Some(result) =
-        maybe_dispatch_resolved_file_handler(eval, "copy-file", Some(&from), Some(&to), handler_args)?
-    {
+    if let Some(result) = maybe_dispatch_resolved_file_handler(
+        eval,
+        "copy-file",
+        Some(&from),
+        Some(&to),
+        handler_args,
+    )? {
         return Ok(result);
     }
     let ok_if_exists = args.get(2).is_some_and(|value| value.is_truthy());
@@ -3942,21 +4033,20 @@ pub(crate) fn builtin_insert_file_contents(
 
 /// Find the next numbered backup version for FILENAME.
 /// Scans `filename.~1~`, `filename.~2~`, ... and returns `max + 1`.
-fn next_backup_version_number(filename: &str) -> u32 {
-    let path = Path::new(filename);
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let base_name = path
-        .file_name()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let prefix = format!("{base_name}.~");
+fn next_backup_version_number_path(filename: &Path) -> u32 {
+    let parent = filename.parent().unwrap_or_else(|| Path::new("."));
+    let Some(base_name) = filename.file_name() else {
+        return 1;
+    };
+    let mut prefix = path_component_bytes(base_name);
+    prefix.extend_from_slice(b".~");
     let mut max_ver: u32 = 0;
     if let Ok(entries) = fs::read_dir(parent) {
         for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if let Some(rest) = name.strip_prefix(&prefix) {
-                if let Some(num_str) = rest.strip_suffix('~') {
-                    if let Ok(n) = num_str.parse::<u32>() {
+            let name = path_component_bytes(entry.file_name().as_os_str());
+            if let Some(rest) = name.strip_prefix(prefix.as_slice()) {
+                if let Some(num_bytes) = rest.strip_suffix(b"~") {
+                    if let Some(n) = parse_ascii_u32(num_bytes) {
                         max_ver = max_ver.max(n);
                     }
                 }
@@ -3968,64 +4058,64 @@ fn next_backup_version_number(filename: &str) -> u32 {
 
 /// Compute the backup file name for FILENAME, respecting `backup-directory-alist`
 /// and `version-control`.
-fn compute_backup_file_name(obarray: &Obarray, filename: &str) -> String {
+fn compute_backup_file_name_lisp(
+    obarray: &Obarray,
+    filename: &crate::heap_types::LispString,
+) -> crate::heap_types::LispString {
     // Check backup-directory-alist for redirection
-    let backup_dir = lookup_backup_directory(obarray, filename);
+    let backup_dir = lookup_backup_directory_lisp(obarray, filename);
+    let backup_base = match backup_dir {
+        Some(dir) => {
+            let base = lisp_file_name_nondirectory(filename);
+            concat_file_name_lisp(&lisp_file_name_as_directory(&dir), &base)
+        }
+        None => filename.clone(),
+    };
 
     let use_numbered = match obarray.symbol_value("version-control") {
         Some(v) if v.is_symbol_named("never") => false,
         Some(v) if v.is_nil() => {
             // nil => use numbered if the file already has numbered backups
-            next_backup_version_number(filename) > 1
+            next_backup_version_number_path(&lisp_file_name_to_path_buf(&backup_base)) > 1
         }
         Some(v) if v.is_truthy() => true,
         _ => false,
     };
 
     if use_numbered {
-        let ver = next_backup_version_number(filename);
-        match backup_dir {
-            Some(dir) => {
-                let base = file_name_nondirectory(filename);
-                format!("{dir}/{base}.~{ver}~")
-            }
-            None => format!("{filename}.~{ver}~"),
-        }
+        let ver = next_backup_version_number_path(&lisp_file_name_to_path_buf(&backup_base));
+        append_ascii_suffix_lisp(&backup_base, format!(".~{ver}~").as_bytes())
     } else {
-        match backup_dir {
-            Some(dir) => {
-                let base = file_name_nondirectory(filename);
-                format!("{dir}/{base}~")
-            }
-            None => format!("{filename}~"),
-        }
+        append_ascii_suffix_lisp(&backup_base, b"~")
     }
 }
 
 /// Look up FILENAME in `backup-directory-alist`.  Each entry is
 /// `(REGEXP . DIRECTORY)`.  Returns `Some(directory)` for the first match,
 /// or `None` if no entry matches.
-fn lookup_backup_directory(obarray: &Obarray, filename: &str) -> Option<String> {
+fn lookup_backup_directory_lisp(
+    obarray: &Obarray,
+    filename: &crate::heap_types::LispString,
+) -> Option<crate::heap_types::LispString> {
     let alist_val = obarray.symbol_value("backup-directory-alist")?;
     let entries = list_to_vec(alist_val)?;
+    let file_dir = lisp_file_name_directory(filename)?;
     for entry in &entries {
         if entry.is_cons() {
             let car = entry.cons_car();
             let cdr = entry.cons_cdr();
-            let pattern = match car.kind() {
-                ValueKind::String => fileio_owned_runtime_string(car),
-                _ => continue,
+            let Some(pattern) = car.as_lisp_string() else {
+                continue;
             };
-            let dir = match cdr.kind() {
-                ValueKind::String => fileio_owned_runtime_string(cdr),
-                _ => continue,
+            let Some(dir) = cdr.as_lisp_string() else {
+                continue;
             };
             // Simple substring match (GNU uses regex, but for now substring is
             // a pragmatic approximation that covers the common `"."` catch-all).
-            if pattern == "." || filename.contains(&pattern) {
+            if pattern.as_bytes() == b"." || lisp_string_contains_bytes(filename, pattern) {
                 // Ensure the backup directory exists
-                let dir_path = expand_file_name(&dir, None);
-                let _ = fs::create_dir_all(&dir_path);
+                let dir_path = expand_file_name_lisp(dir, Some(&file_dir));
+                let _ = fs::create_dir_all(lisp_file_name_to_path_buf(&dir_path));
                 return Some(dir_path);
             }
         }
@@ -4042,7 +4132,7 @@ fn backup_file_before_save(
     obarray: &Obarray,
     buffers: &mut crate::buffer::BufferManager,
     buffer_id: crate::buffer::BufferId,
-    filename: &str,
+    filename: &crate::heap_types::LispString,
 ) {
     // 1. Check make-backup-files (default t)
     if let Some(v) = obarray.symbol_value("make-backup-files") {
@@ -4068,13 +4158,15 @@ fn backup_file_before_save(
     }
 
     // 4. Only backup if the file already exists on disk
-    if !Path::new(filename).exists() {
+    let source_path = lisp_file_name_to_path_buf(filename);
+    if !file_exists_path(&source_path) {
         return;
     }
 
     // 5. Compute backup name and copy
-    let backup_name = compute_backup_file_name(obarray, filename);
-    if fs::copy(filename, &backup_name).is_ok() {
+    let backup_name = compute_backup_file_name_lisp(obarray, filename);
+    let backup_path = lisp_file_name_to_path_buf(&backup_name);
+    if fs::copy(&source_path, &backup_path).is_ok() {
         // 6. Set buffer-backed-up to t so we don't back up again until next change
         if let Some(buf) = buffers.get_mut(buffer_id) {
             buf.set_buffer_local("buffer-backed-up", Value::T);
@@ -4150,9 +4242,10 @@ pub(crate) fn builtin_write_region(
     let resolved = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[2])?);
     let visit_file = match args.get(4) {
         Some(v) if v.is_t() => Some(resolved.clone()),
-        Some(v) if v.is_string() => {
-            Some(resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(v)?))
-        }
+        Some(v) if v.is_string() => Some(resolve_filename_lisp_for_eval(
+            eval,
+            &expect_lisp_string_strict(v)?,
+        )),
         _ => None,
     };
 
@@ -4206,12 +4299,7 @@ pub(crate) fn builtin_write_region(
     // --- Backup before save ---
     // Only for truncate mode (not append/seek) when visiting the file.
     if matches!(append_mode, FileWriteMode::Truncate) {
-        backup_file_before_save(
-            &eval.obarray,
-            &mut eval.buffers,
-            current_id,
-            &crate::emacs_core::builtins::runtime_string_from_lisp_string(&resolved),
-        );
+        backup_file_before_save(&eval.obarray, &mut eval.buffers, current_id, &resolved);
     }
 
     let content = write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
@@ -4223,7 +4311,9 @@ pub(crate) fn builtin_write_region(
 
     // --- Write encoded bytes and handle fsync ---
     let file = write_bytes_to_file_with_mode(&encoded_bytes, &resolved_path, append_mode).map_err(
-        |err| signal_file_action_error_value(err, "Writing to", Value::heap_string(resolved.clone())),
+        |err| {
+            signal_file_action_error_value(err, "Writing to", Value::heap_string(resolved.clone()))
+        },
     )?;
 
     // fsync after write unless write-region-inhibit-fsync is non-nil.
@@ -4330,32 +4420,48 @@ pub(crate) fn builtin_find_file_noselect(
 /// For visited files: `#filename#` in the same directory.
 /// For non-visited buffers: `#*buffername*#` in the auto-save-list-file-prefix
 /// directory (or temporary-file-directory as fallback).
-fn make_auto_save_file_name_for_buffer(obarray: &Obarray, buf: &crate::buffer::Buffer) -> String {
-    if let Some(file_name) = buf.file_name_runtime_string_owned() {
+fn make_auto_save_file_name_for_buffer(
+    obarray: &Obarray,
+    buf: &crate::buffer::Buffer,
+) -> crate::heap_types::LispString {
+    if let Some(file_name) = buf.file_name_lisp_string() {
         // Visited file: #dir/filename# -> dir/#filename#
-        let dir = file_name_directory(&file_name).unwrap_or_default();
-        let base = file_name_nondirectory(&file_name);
-        format!("{dir}#{base}#")
+        let dir = lisp_file_name_directory(file_name)
+            .unwrap_or_else(|| file_name_lisp_from_bytes(Vec::new(), file_name.is_multibyte()));
+        let base =
+            wrap_ascii_around_lisp_string(&lisp_file_name_nondirectory(file_name), b"#", b"#");
+        concat_file_name_lisp(&dir, &base)
     } else {
         // Non-visited buffer: #*buffername*# in prefix dir or temp dir
         let dir = obarray
             .symbol_value("auto-save-list-file-prefix")
-            .and_then(|v| v.as_runtime_string_owned())
-            .and_then(|s| {
-                if s.is_empty() {
+            .and_then(|value| value.as_lisp_string().cloned())
+            .and_then(|value| {
+                if value.as_bytes().is_empty() {
                     None
                 } else {
-                    file_name_directory(&s)
+                    lisp_file_name_directory(&value)
                 }
             })
             .or_else(|| {
                 obarray
                     .symbol_value("temporary-file-directory")
-                    .and_then(|v| v.as_runtime_string_owned())
+                    .and_then(|value| value.as_lisp_string().cloned())
             })
-            .unwrap_or_else(|| "/tmp/".to_string());
-        let safe_name = buf.name_runtime_string_owned().replace('/', "!");
-        format!("{dir}#*{safe_name}*#")
+            .unwrap_or_else(|| crate::heap_types::LispString::from_utf8("/tmp/"));
+        let name = buf
+            .name_value()
+            .as_lisp_string()
+            .expect("buffer name must be a Lisp string");
+        let mut safe_name_bytes = name.as_bytes().to_vec();
+        for byte in &mut safe_name_bytes {
+            if *byte == b'/' {
+                *byte = b'!';
+            }
+        }
+        let safe_name = file_name_lisp_from_bytes(safe_name_bytes, name.is_multibyte());
+        let base = wrap_ascii_around_lisp_string(&safe_name, b"#*", b"*#");
+        concat_file_name_lisp(&lisp_file_name_as_directory(&dir), &base)
     }
 }
 
@@ -4375,16 +4481,31 @@ pub(crate) fn builtin_make_auto_save_file_name(
             .buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if let Some(file_name) = buf.file_name_lisp_string() {
+            let op = Value::symbol("make-auto-save-file-name");
+            let handler = find_file_name_handler_lisp(&eval.obarray, file_name, op);
+            if !handler.is_nil() {
+                let result = eval.funcall_general(handler, vec![op])?;
+                if result.is_string() {
+                    if let Some(buf) = eval.buffers.get_mut(current_id) {
+                        buf.set_buffer_local("buffer-auto-save-file-name", result);
+                        buf.set_auto_save_file_name_value(result);
+                    }
+                }
+                return Ok(result);
+            }
+        }
         make_auto_save_file_name_for_buffer(&eval.obarray, buf)
     };
 
     // Set buffer-auto-save-file-name as side effect
+    let auto_name_value = Value::heap_string(auto_name.clone());
     if let Some(buf) = eval.buffers.get_mut(current_id) {
-        buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-        buf.set_auto_save_file_name_value(Value::string(auto_name.clone()));
+        buf.set_buffer_local("buffer-auto-save-file-name", auto_name_value);
+        buf.set_auto_save_file_name_value(auto_name_value);
     }
 
-    Ok(Value::string(auto_name))
+    Ok(auto_name_value)
 }
 
 /// `(do-auto-save &optional NO-MESSAGE CURRENT)` -> nil
@@ -4421,7 +4542,7 @@ pub(crate) fn builtin_do_auto_save(
 
     for buf_id in buffer_ids {
         // Gather info from the buffer (immutable borrow)
-        let (should_save, auto_save_name, file_name, content) = {
+        let (auto_save_name, file_name, content_bytes, content_len) = {
             let Some(buf) = eval.buffers.get(buf_id) else {
                 continue;
             };
@@ -4458,18 +4579,13 @@ pub(crate) fn builtin_do_auto_save(
             }
 
             // Determine the auto-save target
-            let auto_name = buf.auto_save_file_name_runtime_string_owned();
-            let visit_name = buf.file_name_runtime_string_owned();
+            let auto_name = buf.auto_save_file_name_lisp_string().cloned();
+            let visit_name = buf.file_name_lisp_string().cloned();
+            let mut bytes = Vec::new();
+            buf.copy_emacs_bytes_to(0, buf.total_bytes(), &mut bytes);
 
-            // Get buffer content (entire buffer, not just accessible region)
-            let text = buf.text.text_range(0, buf.text.len());
-
-            (true, auto_name, visit_name, text)
+            (auto_name, visit_name, bytes, buf.total_bytes() as i64)
         };
-
-        if !should_save {
-            continue;
-        }
 
         // Determine which file to write to
         let target = if auto_save_visited {
@@ -4486,29 +4602,37 @@ pub(crate) fn builtin_do_auto_save(
                 make_auto_save_file_name_for_buffer(&eval.obarray, buf)
             };
             // Set the auto-save name on the buffer
+            let auto_name_value = Value::heap_string(auto_name.clone());
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.set_buffer_local("buffer-auto-save-file-name", Value::string(&auto_name));
-                buf.set_auto_save_file_name_value(Value::string(auto_name.clone()));
+                buf.set_buffer_local("buffer-auto-save-file-name", auto_name_value);
+                buf.set_auto_save_file_name_value(auto_name_value);
             }
-            // Write content
-            let _ = write_string_to_file(&content, &auto_name, false);
+            let _ = write_bytes_to_file_with_mode(
+                &content_bytes,
+                &lisp_file_name_to_path_buf(&auto_name),
+                FileWriteMode::Truncate,
+            );
             let _ = eval.buffers.set_buffer_auto_saved(buf_id);
             // Update buffer-saved-size
-            let size = content.len() as i64;
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.set_buffer_local("buffer-saved-size", Value::fixnum(size));
+                buf.set_buffer_local("buffer-saved-size", Value::fixnum(content_len));
             }
             continue;
         };
 
         // Write the buffer content to the target file
-        if write_string_to_file(&content, &target_path, false).is_ok() {
+        if write_bytes_to_file_with_mode(
+            &content_bytes,
+            &lisp_file_name_to_path_buf(&target_path),
+            FileWriteMode::Truncate,
+        )
+        .is_ok()
+        {
             // Mark the buffer as auto-saved
             let _ = eval.buffers.set_buffer_auto_saved(buf_id);
             // Update buffer-saved-size
-            let size = content.len() as i64;
             if let Some(buf) = eval.buffers.get_mut(buf_id) {
-                buf.set_buffer_local("buffer-saved-size", Value::fixnum(size));
+                buf.set_buffer_local("buffer-saved-size", Value::fixnum(content_len));
             }
         }
     }

@@ -135,14 +135,36 @@ fn make_auto_save_file_name_accepts_raw_unibyte_prefix_directory() {
         .expect("current buffer")
         .name_runtime_string_owned();
     let safe_name = buffer_name.replace('/', "!");
-    let expected_dir = crate::emacs_core::builtins::lisp_string_to_runtime_string(raw);
-    let expected = format!("{expected_dir}#*{safe_name}*#");
+    let mut expected = b"/tmp/neomacs-\xFF/#*".to_vec();
+    expected.extend_from_slice(safe_name.as_bytes());
+    expected.extend_from_slice(b"*#");
 
     let value = builtin_make_auto_save_file_name(&mut eval, vec![])
         .expect("make-auto-save-file-name should succeed");
-    assert_eq!(
-        value.as_runtime_string_owned().as_deref(),
-        Some(expected.as_str())
+    assert_unibyte_string_bytes(value, &expected);
+}
+
+#[cfg(unix)]
+#[test]
+fn make_auto_save_file_name_preserves_raw_unibyte_visited_filename() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"/tmp/neomacs-\xFF/demo-\xFE".to_vec(),
+    ));
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .set_file_name_value(raw);
+
+    let value = builtin_make_auto_save_file_name(&mut eval, vec![])
+        .expect("make-auto-save-file-name should preserve raw visited file names");
+    assert_unibyte_string_bytes(value, b"/tmp/neomacs-\xFF/#demo-\xFE#");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_unibyte_string_bytes(
+        buf.auto_save_file_name_value(),
+        b"/tmp/neomacs-\xFF/#demo-\xFE#",
     );
 }
 
@@ -1031,8 +1053,11 @@ fn builtin_copy_file_handles_raw_unibyte_paths() {
     let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
     fs::write(&src, b"copy me").unwrap();
 
-    builtin_copy_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
-        .expect("copy-file should handle raw-byte paths");
+    builtin_copy_file(
+        &mut Context::new(),
+        vec![raw_path_value(&src), raw_path_value(&dst)],
+    )
+    .expect("copy-file should handle raw-byte paths");
     assert_eq!(fs::read(&dst).unwrap(), b"copy me");
 
     let _ = fs::remove_dir_all(&base);
@@ -1137,8 +1162,11 @@ fn builtin_rename_file_handles_raw_unibyte_paths() {
     let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
     fs::write(&src, b"rename me").unwrap();
 
-    builtin_rename_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
-        .expect("rename-file should handle raw-byte paths");
+    builtin_rename_file(
+        &mut Context::new(),
+        vec![raw_path_value(&src), raw_path_value(&dst)],
+    )
+    .expect("rename-file should handle raw-byte paths");
     assert!(!src.exists());
     assert_eq!(fs::read(&dst).unwrap(), b"rename me");
 
@@ -1185,8 +1213,11 @@ fn builtin_add_name_to_file_handles_raw_unibyte_paths() {
     let dst = base.join(std::ffi::OsStr::from_bytes(b"dst-\xFD"));
     fs::write(&src, b"link me").unwrap();
 
-    builtin_add_name_to_file(&mut Context::new(), vec![raw_path_value(&src), raw_path_value(&dst)])
-        .expect("add-name-to-file should handle raw-byte paths");
+    builtin_add_name_to_file(
+        &mut Context::new(),
+        vec![raw_path_value(&src), raw_path_value(&dst)],
+    )
+    .expect("add-name-to-file should handle raw-byte paths");
     assert_same_file_path_bufs(&src, &dst);
 
     let _ = fs::remove_dir_all(&base);
@@ -2799,8 +2830,11 @@ fn builtin_file_newer_than_file_p_handles_raw_unibyte_paths() {
     fs::write(&new, b"new").expect("write new raw file");
 
     assert_eq!(
-        builtin_file_newer_than_file_p(&mut Context::new(), vec![raw_path_value(&new), raw_path_value(&old)])
-            .expect("raw file-newer-than-file-p"),
+        builtin_file_newer_than_file_p(
+            &mut Context::new(),
+            vec![raw_path_value(&new), raw_path_value(&old)]
+        )
+        .expect("raw file-newer-than-file-p"),
         Value::T
     );
 
@@ -3715,7 +3749,9 @@ fn builtin_write_region_handles_raw_unibyte_filename_and_visit() {
     {
         let buf = eval.buffers.current_buffer_mut().expect("current buffer");
         buf.set_multibyte_value(false);
-        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![0xFF, b'A']));
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'A',
+        ]));
     }
 
     builtin_write_region(
@@ -3734,6 +3770,47 @@ fn builtin_write_region_handles_raw_unibyte_filename_and_visit() {
     let buf = eval.buffers.current_buffer().expect("current buffer");
     assert_unibyte_string_bytes(buf.file_name_value(), out_path.as_os_str().as_bytes());
     assert!(!buf.is_modified());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_write_region_backup_preserves_raw_unibyte_backup_filename() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = raw_temp_path(b"neovm-write-backup-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let out_path = dir.join(std::ffi::OsStr::from_bytes(b"buffer-\xFE"));
+    fs::write(&out_path, b"old bytes").unwrap();
+    let backup_path = dir.join(std::ffi::OsStr::from_bytes(b"buffer-\xFE~"));
+
+    let mut eval = Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'A',
+        ]));
+    }
+
+    builtin_write_region(
+        &mut eval,
+        vec![
+            Value::NIL,
+            Value::NIL,
+            raw_path_value(&out_path),
+            Value::NIL,
+            Value::T,
+        ],
+    )
+    .expect("write-region should preserve raw backup names");
+
+    assert_eq!(fs::read(&out_path).unwrap(), vec![0xFF, b'A']);
+    assert_eq!(fs::read(&backup_path).unwrap(), b"old bytes");
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3801,6 +3878,46 @@ fn builtin_find_file_noselect_handles_raw_unibyte_filename() {
     let result2 = builtin_find_file_noselect(&mut eval, vec![raw_path_value(&path)])
         .expect("repeat raw find-file-noselect");
     assert_eq!(result, result2);
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn builtin_do_auto_save_preserves_raw_unibyte_filename_and_bytes() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = raw_temp_path(b"neovm-auto-save-\xFF");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let visited_path = dir.join(std::ffi::OsStr::from_bytes(b"visited-\xFE"));
+    let auto_path = dir.join(std::ffi::OsStr::from_bytes(b"#visited-\xFE#"));
+
+    let mut eval = Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.set_multibyte_value(false);
+        buf.set_file_name_value(raw_path_value(&visited_path));
+        buf.insert_lisp_string(&crate::heap_types::LispString::from_unibyte(vec![
+            0xFF, b'A',
+        ]));
+    }
+    builtin_make_auto_save_file_name(&mut eval, vec![]).expect("make-auto-save-file-name");
+
+    builtin_do_auto_save(&mut eval, vec![]).expect("do-auto-save should preserve raw filenames");
+
+    assert_eq!(fs::read(&auto_path).unwrap(), vec![0xFF, b'A']);
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_unibyte_string_bytes(
+        buf.auto_save_file_name_value(),
+        auto_path.as_os_str().as_bytes(),
+    );
+    assert_eq!(
+        buf.buffer_local_value("buffer-saved-size"),
+        Some(Value::fixnum(2))
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }
