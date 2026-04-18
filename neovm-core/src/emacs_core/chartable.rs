@@ -336,30 +336,40 @@ fn ct_set_range(vec: &mut Vec<Value>, min: i64, max: i64, value: Value) {
 /// entries.
 fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
     let start = ct_data_start(vec);
-    let mut i = start;
-    let mut match_value: Option<Value> = None;
-    while i + 1 < vec.len() {
-        match vec[i].kind() {
+    let len = vec.len();
+    if len < start + 2 {
+        return None;
+    }
+    // Scan right-to-left so the first match seen is the most recently
+    // pushed entry — matching the "last assignment wins" semantic of
+    // `set-char-table-range` without needing to scan every pair on
+    // every call. The hot font-lock/syntax-ppss path pounds this
+    // function millions of times per fontification; the old
+    // unconditional O(N) scan was the dominant cost on a 147-char
+    // *scratch* buffer (see commit note).
+    let mut i = len; // walk backwards two slots at a time
+    while i >= start + 2 {
+        i -= 2;
+        let key = vec[i];
+        match key.kind() {
             ValueKind::Fixnum(existing) => {
                 if existing == ch {
-                    match_value = Some(vec[i + 1]);
+                    return Some(vec[i + 1]);
                 }
             }
             ValueKind::Cons => {
-                // Range entry: key is (MIN . MAX)
-                let pair_car = vec[i].cons_car();
-                let pair_cdr = vec[i].cons_cdr();
+                let pair_car = key.cons_car();
+                let pair_cdr = key.cons_cdr();
                 if let (Some(min), Some(max)) = (pair_car.as_fixnum(), pair_cdr.as_fixnum()) {
                     if ch >= min && ch <= max {
-                        match_value = Some(vec[i + 1]);
+                        return Some(vec[i + 1]);
                     }
                 }
             }
             _ => {}
         }
-        i += 2;
     }
-    match_value
+    None
 }
 
 /// `(char-table-range CHAR-TABLE RANGE)` -- look up a value.
@@ -413,16 +423,21 @@ pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     if !table.is_vector() {
         return Err(wrong_type("char-table-p", table));
     }
-    let vec = table.as_vector_data().unwrap().clone();
+    // Borrow the Vec instead of cloning — the 115K clones/sec we used to
+    // do in font-lock's syntax-ppss path each allocated a ~50+-entry Vec
+    // and nuked syntax-table reading throughput. GNU's `CHAR_TABLE_REF`
+    // is direct array indexing; the closest we can do without reshaping
+    // the table is to index without copying.
+    let vec_ref = table.as_vector_data().unwrap();
 
-    if let Some(val) = ct_get_char(&vec, ch) {
+    if let Some(val) = ct_get_char(vec_ref, ch) {
         if !val.is_nil() {
             return Ok(val);
         }
     }
 
-    let default = vec[CT_DEFAULT];
-    let parent = vec[CT_PARENT];
+    let default = vec_ref[CT_DEFAULT];
+    let parent = vec_ref[CT_PARENT];
 
     if !default.is_nil() {
         Ok(default)

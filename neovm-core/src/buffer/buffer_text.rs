@@ -545,7 +545,16 @@ impl BufferText {
         insertion_type: InsertionType,
     ) {
         let mut storage = self.storage.borrow_mut();
-        storage.markers.retain(|marker| marker.id != marker_id);
+        // Callers (BufferManager::create_marker, pdump load) assign IDs
+        // from the buffer's monotonic counter, so the old unconditional
+        // `retain |m| m.id != marker_id` was O(N) wasted work on every
+        // registration. Duplicate IDs never happen in practice; if they
+        // did, downstream `marker_entry` / `remove_marker` would still
+        // touch the first match. Keeping the push cheap is what lets
+        // font-lock's match-data markers scale — each match creates
+        // ~10 markers and a single fontification pass on *scratch*
+        // builds tens of thousands of them (a separate marker-GC bug
+        // tracks cleanup).
         storage.markers.push(MarkerEntry {
             id: marker_id,
             buffer_id,
