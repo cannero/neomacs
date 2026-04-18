@@ -230,9 +230,8 @@ pub struct MinibufferState {
 
 impl MinibufferState {
     fn new(buffer_id: BufferId, prompt: LispString, initial: LispString, depth: usize) -> Self {
-        let prompt_runtime = super::builtins::runtime_string_from_lisp_string(&prompt);
         let cursor_pos = initial.byte_len();
-        let prompt_end = crate::emacs_core::string_escape::storage_byte_len(&prompt_runtime);
+        let prompt_end = prompt.sbytes();
         Self {
             buffer_id,
             prompt,
