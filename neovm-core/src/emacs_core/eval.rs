@@ -6647,16 +6647,27 @@ impl Context {
         // (eval.c:2715, 3292-3300) which both mutate the outer
         // record_in_backtrace entry via `set_backtrace_args`.
         //
-        // Each evaluated arg is rooted on the specpdl via
-        // `push_specpdl_root` immediately. GNU relies on conservative
-        // stack scanning of its `SAFE_ALLOCA_LISP (vals, numargs)`
-        // array; neomacs uses exact GC, so a local `Vec<Value>` is
-        // invisible to the tracer. If a later arg evaluator triggers
-        // GC, an unrooted earlier arg would be collected. The roots
-        // are unwound once `set_backtrace_args_evalled` transfers
-        // ownership to the outer frame, which is itself GC-traced.
+        // `func` and each evaluated arg are rooted on the specpdl via
+        // `push_specpdl_root`. GNU relies on conservative stack
+        // scanning of `SAFE_ALLOCA_LISP (vals, numargs)` plus the
+        // `fun` C local; neomacs uses exact GC, so a local
+        // `Vec<Value>` and the Rust-local `func` Value are invisible
+        // to the tracer.
+        //
+        // `func` is rooted BEFORE the arg loop so it survives GC
+        // triggered by any arg evaluator, and stays rooted through
+        // `funcall_general_untraced` below -- it only gets popped by
+        // the outer `eval_sub_cons` `unbind_to(outer_bt_count)`. This
+        // is specifically needed when `original_fun` is a cons
+        // (lambda-literal head): the resolved Lambda Value lives only
+        // on the Rust stack, and the outer UNEVALLED frame records
+        // `original_fun`, not `func`.
+        //
+        // Per-arg roots are popped once `set_backtrace_args_evalled`
+        // transfers ownership to the outer frame's args slot.
         let mut args = Vec::new();
-        let roots_base = self.specpdl.len();
+        self.push_specpdl_root(func);
+        let args_roots_base = self.specpdl.len();
         let mut cursor = original_args;
         while cursor.is_cons() {
             let arg_form = cursor.cons_car();
@@ -6666,7 +6677,7 @@ impl Context {
             cursor = cursor.cons_cdr();
         }
         self.set_backtrace_args_evalled(outer_bt_count, &args);
-        self.unbind_to(roots_base);
+        self.unbind_to(args_roots_base);
 
         self.maybe_gc_and_quit()?;
         self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
