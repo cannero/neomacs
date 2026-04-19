@@ -6049,17 +6049,17 @@ impl Context {
     /// `lexical-binding` buffer-local AND specbinds
     /// `Vinternal_interpreter_environment` to `(t)` or `nil`.
     ///
-    /// Uses `set_variable` which routes through the buffer-local
-    /// FORWARDED dispatch (matching GNU where `lexical-binding` is
-    /// `DEFVAR_PER_BUFFER` in buffer.c). Each buffer gets its own
-    /// `lexical-binding` value from its file's -*- cookie.
+    /// Uses the runtime assignment path so the visible binding is
+    /// updated even when a caller has dynamically let-bound
+    /// `lexical-binding`. This matches GNU `Fset`, which mutates the
+    /// current binding cell before `readevalloop`.
     ///
     /// Note: `Feval` (begin_eval_with_lexical_arg) does NOT call this.
     /// `Feval` only saves/restores `self.lexenv` without touching the
     /// per-buffer `lexical-binding`, matching GNU where nested eval
     /// calls never clobber the file-level setting.
     pub fn set_lexical_binding(&mut self, enabled: bool) {
-        self.set_variable("lexical-binding", Value::bool_val(enabled));
+        self.set_runtime_binding_by_id(intern("lexical-binding"), Value::bool_val(enabled));
         if enabled {
             if self.lexenv.is_nil() {
                 self.lexenv = top_level_lexenv_sentinel();

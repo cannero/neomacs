@@ -578,6 +578,24 @@ fn set_lexical_binding_syncs_top_level_lexenv_sentinel() {
 }
 
 #[test]
+fn set_lexical_binding_updates_visible_dynamic_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let sym = intern("lexical-binding");
+
+    let specpdl_count = ev.specpdl.len();
+    ev.specbind(sym, Value::NIL);
+    assert!(ev.visible_variable_value_or_nil("lexical-binding").is_nil());
+
+    ev.set_lexical_binding(true);
+    assert!(ev.visible_variable_value_or_nil("lexical-binding").is_t());
+    assert!(ev.lexical_binding());
+
+    ev.unbind_to(specpdl_count);
+    assert!(ev.visible_variable_value_or_nil("lexical-binding").is_nil());
+}
+
+#[test]
 fn clear_top_level_eval_state_restores_top_level_lexenv_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
