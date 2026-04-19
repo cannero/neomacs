@@ -2126,6 +2126,10 @@ fn bootstrap_buffers(
         .clear_buffer_labeled_restrictions(msg_id);
     if let Some(buf) = eval.buffer_manager_mut().get_mut(msg_id) {
         buf.widen();
+        let len = buf.total_bytes();
+        if len > 0 {
+            buf.delete_region(0, len);
+        }
         buf.goto_byte(0);
     }
 

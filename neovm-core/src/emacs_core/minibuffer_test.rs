@@ -887,6 +887,32 @@ fn builtin_minibuffer_prompt_end_falls_back_to_point_min_without_prompt_field() 
 }
 
 #[test]
+fn install_minibuffer_buffer_text_reuses_existing_buffer_via_buffer_edit_pipeline() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let minibuf_id = eval.buffers.create_buffer(" *Minibuf-reinstall*");
+    let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+
+    let first_prompt_end = crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+        buf,
+        &crate::heap_types::LispString::from_utf8("Prompt: "),
+        Some(&crate::heap_types::LispString::from_utf8("stale")),
+    );
+    assert_eq!(first_prompt_end, "Prompt: ".len());
+    assert_eq!(buf.point_byte(), "Prompt: stale".len());
+
+    let second_prompt_end = crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+        buf,
+        &crate::heap_types::LispString::from_utf8("Switch to buffer: "),
+        Some(&crate::heap_types::LispString::from_utf8("*Messages*")),
+    );
+
+    assert_eq!(second_prompt_end, "Switch to buffer: ".len());
+    assert_eq!(buf.buffer_string(), "Switch to buffer: *Messages*");
+    assert_eq!(buf.point_byte(), "Switch to buffer: *Messages*".len());
+}
+
+#[test]
 fn builtin_minibufferp_accepts_string_and_second_arg() {
     crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![Value::string("x"), Value::NIL]).unwrap();

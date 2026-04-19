@@ -256,10 +256,15 @@ pub(crate) fn install_minibuffer_buffer_text(
     prompt: &LispString,
     initial: Option<&LispString>,
 ) -> usize {
-    let text_len = buf.text.len();
+    // Match GNU `read_minibuf` / `erase-buffer`: clear the minibuffer through
+    // the buffer edit pipeline so point, narrowing, and sibling state reset
+    // together before we insert the new prompt and initial contents.
+    buf.widen();
+    let text_len = buf.total_bytes();
     if text_len > 0 {
-        buf.text.delete_range(0, text_len);
+        buf.delete_region(0, text_len);
     }
+    buf.goto_byte(0);
 
     buf.insert_lisp_string(prompt);
     let prompt_end = buf.total_bytes();

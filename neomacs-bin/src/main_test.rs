@@ -1351,6 +1351,34 @@ fn bootstrap_buffers_reuses_existing_named_buffers_in_cached_bootstrap() {
 }
 
 #[test]
+fn bootstrap_buffers_clears_predump_messages_buffer_contents() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let messages_id = eval
+        .buffer_manager()
+        .find_buffer_by_name("*Messages*")
+        .expect("bootstrap messages");
+    {
+        let messages = eval
+            .buffer_manager_mut()
+            .get_mut(messages_id)
+            .expect("live messages buffer");
+        messages.widen();
+        messages.goto_byte(messages.point_max());
+        messages.insert("stale predump log\n");
+    }
+
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+
+    let messages = eval
+        .buffer_manager()
+        .get(messages_id)
+        .expect("messages buffer after bootstrap");
+    assert_eq!(messages.buffer_string(), "");
+    assert_eq!(messages.point_byte(), 0);
+}
+
+#[test]
 fn gnu_startup_keeps_scratch_selected_under_q_startup() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
         .expect("cached bootstrap evaluator");

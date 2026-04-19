@@ -4541,14 +4541,6 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
         );
     }
 
-    let major_mode = dispatch_builtin_pure(
-        "set-buffer-major-mode",
-        vec![Value::make_buffer(crate::buffer::BufferId(1))],
-    )
-    .expect("builtin set-buffer-major-mode should resolve")
-    .expect("builtin set-buffer-major-mode should evaluate");
-    assert!(major_mode.is_nil());
-
     let redisplay = dispatch_builtin_pure(
         "set-buffer-redisplay",
         vec![
@@ -4561,6 +4553,56 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
     .expect("builtin set-buffer-redisplay should resolve")
     .expect("builtin set-buffer-redisplay should evaluate");
     assert!(redisplay.is_nil());
+}
+
+#[test]
+fn eval_dispatch_set_buffer_major_mode_runs_default_mode_function() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::load::create_bootstrap_evaluator_cached;
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    eval.eval_str(
+        r#"(progn
+             (defun sbmm-test-mode ()
+               (setq-local sbmm-ran t))
+             (set-default 'major-mode 'sbmm-test-mode))"#,
+    )
+    .expect("define synthetic major mode");
+
+    let buf_id = eval.buffers.create_buffer("sbmm-target");
+    let result = dispatch_builtin(
+        &mut eval,
+        "set-buffer-major-mode",
+        vec![Value::make_buffer(buf_id)],
+    )
+    .expect("builtin set-buffer-major-mode should resolve")
+    .expect("builtin set-buffer-major-mode should evaluate");
+    assert!(result.is_nil());
+
+    eval.buffers.set_current(buf_id);
+    assert_eq!(format_eval_result(&eval.eval_str("sbmm-ran")), "OK t");
+}
+
+#[test]
+fn bootstrap_set_buffer_major_mode_runs_fundamental_mode_file_locals() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::load::create_bootstrap_evaluator_cached;
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    let result = format_eval_result(&eval.eval_str(
+        r#"(let ((buf (get-buffer-create " *sbmm-file-locals*")))
+             (with-current-buffer buf
+               (erase-buffer)
+               (setq buffer-file-name
+                     (expand-file-name "sbmm-file-locals.txt" temporary-file-directory))
+               (setq default-directory temporary-file-directory)
+               (insert "hello\n\n;; Local Variables:\n;; tab-width: 42\n;; End:\n")
+               (kill-all-local-variables)
+               (set-buffer-major-mode buf)
+               (list major-mode tab-width
+                     (local-variable-p 'tab-width (current-buffer)))))"#,
+    ));
+    assert_eq!(result, "OK (fundamental-mode 42 t)");
 }
 
 #[test]
@@ -9639,6 +9681,26 @@ fn message_nil_returns_nil() {
     let current_after_clear =
         builtin_current_message(&mut eval, vec![]).expect("current-message should clear");
     assert!(current_after_clear.is_nil());
+}
+
+#[test]
+fn message_logs_to_visible_messages_buffer_name_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_message(&mut eval, vec![Value::string("hello echo")])
+        .expect("message eval should log to *Messages*");
+
+    let messages_id = eval
+        .buffers
+        .find_buffer_by_name("*Messages*")
+        .expect("*Messages* buffer");
+    let messages = eval.buffers.get(messages_id).expect("*Messages* live");
+    assert_eq!(messages.buffer_string(), "hello echo\n");
+    assert!(
+        eval.buffers.find_buffer_by_name(" *Messages*").is_none(),
+        "message should not create hidden legacy messages buffer"
+    );
 }
 
 #[test]

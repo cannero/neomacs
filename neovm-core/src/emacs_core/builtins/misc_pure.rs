@@ -34,8 +34,8 @@ fn message_dolog(ctx: &mut super::eval::Context, msg: &crate::heap_types::LispSt
         return;
     }
 
-    // Get or create *Messages* buffer (GNU uses " *Messages*" with leading space)
-    let messages_name = " *Messages*";
+    // GNU xdisp.c defaults `messages-buffer-name` to "*Messages*".
+    let messages_name = "*Messages*";
     let buf_id = if let Some(id) = ctx.buffers.find_buffer_by_name(messages_name) {
         id
     } else {
