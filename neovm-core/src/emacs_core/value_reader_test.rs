@@ -721,3 +721,33 @@ fn lisp_read_source_tracks_logical_offsets_for_unibyte_input() {
     assert_eq!(second.as_fixnum(), Some(42));
     assert_eq!(second_end, 6);
 }
+
+#[test]
+fn lisp_read_source_reads_late_multibyte_forms_directly() {
+    crate::test_utils::init_test_tracing();
+    let mut text = String::new();
+    for _ in 0..1024 {
+        text.push_str("\"é\"\n");
+    }
+    text.push_str("42");
+
+    let input = crate::heap_types::LispString::from_utf8(&text);
+    let source = LispReadSource::new(&input);
+    let mut pos = 0;
+
+    for _ in 0..1024 {
+        let (form, next_pos) = source
+            .read_one(pos)
+            .expect("multibyte read should succeed")
+            .expect("multibyte form should exist");
+        assert!(form.is_string(), "expected string form, got {form:?}");
+        pos = next_pos;
+    }
+
+    let (last, end_pos) = source
+        .read_one(pos)
+        .expect("final read should succeed")
+        .expect("final form should exist");
+    assert_eq!(last.as_fixnum(), Some(42));
+    assert_eq!(end_pos, input.sbytes());
+}

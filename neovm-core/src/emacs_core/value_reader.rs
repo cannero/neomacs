@@ -156,25 +156,12 @@ impl<'a> LispReadSource<'a> {
         start: usize,
         end: usize,
     ) -> Result<Option<(Value, usize)>, ReadError> {
-        let substring = self.storage_slice_range(start, end);
-        match read_one_with_source_multibyte(&substring, self.is_multibyte(), 0) {
-            Ok(Some((value, end_pos))) => Ok(Some((
-                value,
-                start
-                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        &substring, end_pos,
-                    ),
-            ))),
-            Ok(None) => Ok(None),
-            Err(err) => Err(ReadError {
-                message: err.message,
-                position: start
-                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        &substring,
-                        err.position,
-                    ),
-            }),
+        let mut reader = Reader::new_lisp_string(self.input, start, end);
+        if !reader.skip_ws_and_comments() {
+            return Ok(None);
         }
+        let value = reader.read_form()?;
+        Ok(Some((value, reader.pos)))
     }
 
     pub fn read_one_with_locate_syms(
@@ -191,25 +178,13 @@ impl<'a> LispReadSource<'a> {
         end: usize,
         locate_syms: bool,
     ) -> Result<Option<(Value, usize)>, ReadError> {
-        let substring = self.storage_slice_range(start, end);
-        match read_one_with_locate_syms(&substring, self.is_multibyte(), 0, locate_syms) {
-            Ok(Some((value, end_pos))) => Ok(Some((
-                value,
-                start
-                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        &substring, end_pos,
-                    ),
-            ))),
-            Ok(None) => Ok(None),
-            Err(err) => Err(ReadError {
-                message: err.message,
-                position: start
-                    + crate::emacs_core::string_escape::storage_byte_to_logical_byte(
-                        &substring,
-                        err.position,
-                    ),
-            }),
+        let mut reader = Reader::new_lisp_string(self.input, start, end);
+        reader.locate_syms = locate_syms;
+        if !reader.skip_ws_and_comments() {
+            return Ok(None);
         }
+        let value = reader.read_form()?;
+        Ok(Some((value, reader.pos)))
     }
 }
 
@@ -235,10 +210,16 @@ impl std::error::Error for ReadError {}
 // Reader struct
 // ---------------------------------------------------------------------------
 
+enum ReaderSource<'a> {
+    Runtime(&'a str),
+    LispString(&'a crate::heap_types::LispString),
+}
+
 struct Reader<'a> {
-    input: &'a str,
+    source: ReaderSource<'a>,
     source_multibyte: bool,
     pos: usize,
+    limit: usize,
     /// `#N=EXPR` / `#N#` read labels for shared structure in `.elc` files.
     read_labels: std::collections::HashMap<usize, Value>,
     /// When true, wrap interned symbols in symbol-with-pos objects.
@@ -259,9 +240,27 @@ fn translate_runtime_source_char(ch: char) -> u32 {
 impl<'a> Reader<'a> {
     fn new(input: &'a str, source_multibyte: bool) -> Self {
         Self {
-            input,
+            source: ReaderSource::Runtime(input),
             source_multibyte,
             pos: 0,
+            limit: input.len(),
+            read_labels: std::collections::HashMap::new(),
+            locate_syms: false,
+        }
+    }
+
+    fn new_lisp_string(input: &'a crate::heap_types::LispString, start: usize, end: usize) -> Self {
+        assert!(start <= end, "invalid Lisp reader range: {start}..{end}");
+        assert!(
+            end <= input.sbytes(),
+            "Lisp reader end {end} exceeds logical length {}",
+            input.sbytes()
+        );
+        Self {
+            source: ReaderSource::LispString(input),
+            source_multibyte: input.is_multibyte(),
+            pos: start,
+            limit: end,
             read_labels: std::collections::HashMap::new(),
             locate_syms: false,
         }
@@ -959,7 +958,8 @@ impl<'a> Reader<'a> {
                 break;
             }
         }
-        let hex_str = &self.input[start..self.pos].trim_end_matches(';');
+        let hex_storage = self.source_slice_string(start, self.pos);
+        let hex_str = hex_storage.trim_end_matches(';');
         if hex_str.is_empty() {
             return Err(self.error("expected hex digits after \\x"));
         }
@@ -977,8 +977,8 @@ impl<'a> Reader<'a> {
                 _ => return Err(self.error(&format!("expected {} hex digits", count))),
             }
         }
-        u32::from_str_radix(&self.input[start..self.pos], 16)
-            .map_err(|_| self.error("invalid hex escape"))
+        let hex_storage = self.source_slice_string(start, self.pos);
+        u32::from_str_radix(&hex_storage, 16).map_err(|_| self.error("invalid hex escape"))
     }
 
     fn read_unicode_name_escape(&mut self) -> Result<u32, ReadError> {
@@ -993,7 +993,7 @@ impl<'a> Reader<'a> {
         if self.current() != Some('}') {
             return Err(self.error("unterminated \\N{...} escape"));
         }
-        let name = &self.input[start..self.pos];
+        let name = self.source_slice_string(start, self.pos);
         self.bump();
 
         let hex = name
@@ -1379,7 +1379,8 @@ impl<'a> Reader<'a> {
             }
         }
 
-        let digits: String = self.input[start..self.pos]
+        let digits_source = self.source_slice_string(start, self.pos);
+        let digits: String = digits_source
             .chars()
             .filter(|c| *c != '_' && *c != '-' && *c != '+')
             .collect();
@@ -1621,17 +1622,19 @@ impl<'a> Reader<'a> {
     }
 
     fn current(&self) -> Option<char> {
-        self.input[self.pos..].chars().next()
+        self.source_char_at(self.pos)
     }
 
     fn peek_at(&self, offset: usize) -> Option<char> {
-        self.input[self.pos..].chars().nth(offset)
+        let mut pos = self.pos;
+        for _ in 0..offset {
+            pos = self.next_pos(pos)?;
+        }
+        self.source_char_at(pos)
     }
 
     fn bump(&mut self) {
-        if let Some(ch) = self.current() {
-            self.pos += ch.len_utf8();
-        }
+        self.pos = self.next_pos(self.pos).unwrap_or(self.limit);
     }
 
     fn error(&self, message: &str) -> ReadError {
@@ -1656,7 +1659,7 @@ impl<'a> Reader<'a> {
         if self.pos == start {
             return Err(self.error("expected decimal length"));
         }
-        self.input[start..self.pos]
+        self.source_slice_string(start, self.pos)
             .parse::<usize>()
             .map_err(|_| self.error("invalid decimal length"))
     }
@@ -1672,17 +1675,123 @@ impl<'a> Reader<'a> {
     /// our `String`) and land mid-docstring on files like `window.elc`,
     /// where docstrings contain U+2019 (`'`) stored as `0xe2 0x80 0x99`.
     fn skip_exact_source_bytes(&mut self, len: usize) -> Result<(), ReadError> {
-        let mut chars = self.input[self.pos..].chars();
-        let mut bytes_advanced = 0usize;
-        for _ in 0..len {
-            match chars.next() {
-                Some(c) => bytes_advanced += c.len_utf8(),
-                None => return Err(self.error("byte skip past end of input")),
+        match self.source {
+            ReaderSource::Runtime(input) => {
+                let mut chars = input[self.pos..self.limit].chars();
+                let mut bytes_advanced = 0usize;
+                for _ in 0..len {
+                    match chars.next() {
+                        Some(c) => bytes_advanced += c.len_utf8(),
+                        None => return Err(self.error("byte skip past end of input")),
+                    }
+                }
+                self.pos += bytes_advanced;
+                Ok(())
+            }
+            ReaderSource::LispString(_) => {
+                let end = self
+                    .pos
+                    .checked_add(len)
+                    .ok_or_else(|| self.error("byte skip past end of input"))?;
+                if end > self.limit {
+                    return Err(self.error("byte skip past end of input"));
+                }
+                self.pos = end;
+                Ok(())
             }
         }
-        self.pos += bytes_advanced;
-        Ok(())
     }
+
+    fn source_char_at(&self, pos: usize) -> Option<char> {
+        if pos >= self.limit {
+            return None;
+        }
+        match self.source {
+            ReaderSource::Runtime(input) => input[pos..self.limit].chars().next(),
+            ReaderSource::LispString(input) => self.lisp_string_step(input, pos).map(|(ch, _)| ch),
+        }
+    }
+
+    fn next_pos(&self, pos: usize) -> Option<usize> {
+        if pos >= self.limit {
+            return None;
+        }
+        match self.source {
+            ReaderSource::Runtime(input) => input[pos..self.limit]
+                .chars()
+                .next()
+                .map(|ch| pos + ch.len_utf8()),
+            ReaderSource::LispString(input) => self
+                .lisp_string_step(input, pos)
+                .map(|(_, width)| pos + width),
+        }
+    }
+
+    fn lisp_string_step(
+        &self,
+        input: &crate::heap_types::LispString,
+        pos: usize,
+    ) -> Option<(char, usize)> {
+        let bytes = input.as_bytes();
+        if pos >= self.limit || pos >= bytes.len() {
+            return None;
+        }
+
+        if !self.source_multibyte {
+            let byte = *bytes.get(pos)?;
+            let ch = if byte.is_ascii() {
+                byte as char
+            } else {
+                char::from_u32(0xE300 + byte as u32).expect("valid unibyte sentinel")
+            };
+            return Some((ch, 1));
+        }
+
+        let (code, width) = emacs_char::string_char(&bytes[pos..]);
+        if pos + width > self.limit {
+            return None;
+        }
+        Some((runtime_source_char_from_emacs_code(code), width))
+    }
+
+    fn source_slice_string(&self, start: usize, end: usize) -> String {
+        assert!(start <= end, "invalid reader slice: {start}..{end}");
+        assert!(
+            end <= self.limit,
+            "reader slice end {end} exceeds limit {}",
+            self.limit
+        );
+        match self.source {
+            ReaderSource::Runtime(input) => input[start..end].to_string(),
+            ReaderSource::LispString(input) => {
+                let slice = input
+                    .slice(start, end)
+                    .expect("reader slice should stay within source");
+                crate::emacs_core::builtins::runtime_string_from_lisp_string(&slice)
+            }
+        }
+    }
+}
+
+fn runtime_source_char_from_emacs_code(code: u32) -> char {
+    if let Some(ch) = char::from_u32(code) {
+        return ch;
+    }
+
+    if (0x3FFF80..=0x3FFFFF).contains(&code) {
+        let raw = code - 0x3FFF00;
+        return char::from_u32(0xE000 + raw).expect("valid raw-byte sentinel");
+    }
+
+    let storage = crate::emacs_core::string_escape::encode_nonunicode_char_for_storage(code)
+        .expect("reader source code must encode into storage");
+    let mut chars = storage.chars();
+    let ch = chars.next().expect("storage encoding must not be empty");
+    assert!(
+        chars.next().is_none(),
+        "reader source code {code:#X} encoded to multi-char storage sequence"
+    );
+    ch
 }
 
 // ---------------------------------------------------------------------------
