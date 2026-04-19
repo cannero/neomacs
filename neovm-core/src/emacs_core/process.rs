@@ -811,6 +811,10 @@ impl ProcessManager {
             None => return false,
         };
 
+        if !process_status_is_run(&proc.status) {
+            return false;
+        }
+
         // PTY child path.
         if let Some(ref mut pty_child) = proc.pty_child {
             match pty_child.try_wait() {
