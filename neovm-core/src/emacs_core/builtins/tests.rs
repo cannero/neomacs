@@ -4896,10 +4896,14 @@ fn pure_dispatch_record_query_placeholders_match_compat_contracts() {
         Value::string("-*-*-*-*-*-*-*-*-*-*-*-*-fontset-default")
     );
 
-    let read_pos = dispatch_builtin_pure("read-positioning-symbols", vec![])
+    let read_pos = dispatch_builtin_pure("read-positioning-symbols", vec![Value::string("x")])
         .expect("builtin read-positioning-symbols should resolve")
         .expect("builtin read-positioning-symbols should evaluate");
-    assert!(read_pos.is_nil());
+    assert!(read_pos.is_symbol_with_pos());
+    assert_eq!(
+        read_pos.as_symbol_with_pos_sym().unwrap(),
+        Value::symbol("x")
+    );
 
     let recent_auto_save = dispatch_builtin_pure("recent-auto-save-p", vec![])
         .expect("builtin recent-auto-save-p should resolve")
@@ -4929,11 +4933,6 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         .expect("builtin redirect-debugging-output should evaluate");
     assert!(redirect_dbg.is_nil());
 
-    assert!(
-        dispatch_builtin_pure("redirect-frame-focus", vec![Value::NIL]).is_none(),
-        "redirect-frame-focus now depends on live frame state"
-    );
-
     let remove_pos = dispatch_builtin_pure("remove-pos-from-symbol", vec![Value::symbol("x")])
         .expect("builtin remove-pos-from-symbol should resolve")
         .expect("builtin remove-pos-from-symbol should evaluate");
@@ -4962,6 +4961,11 @@ fn pure_dispatch_reconsider_redirect_placeholders_match_compat_contracts() {
         }
         other => panic!("expected signal, got: {other:?}"),
     }
+
+    let redirect_focus = dispatch_builtin_pure("redirect-frame-focus", vec![Value::NIL])
+        .expect("builtin redirect-frame-focus should resolve")
+        .expect("builtin redirect-frame-focus should evaluate");
+    assert!(redirect_focus.is_nil());
 
     let restore_modified = dispatch_builtin_pure("restore-buffer-modified-p", vec![Value::NIL])
         .expect("builtin restore-buffer-modified-p should resolve")
@@ -5203,10 +5207,10 @@ fn pure_dispatch_unicode_value_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin unix-sync should evaluate");
     assert!(unix_sync.is_nil());
 
-    assert!(
-        dispatch_builtin_pure("value<", vec![Value::fixnum(1), Value::fixnum(2)]).is_none(),
-        "value< now requires eval state because GNU ordering depends on live runtime objects"
-    );
+    let value_lt = dispatch_builtin_pure("value<", vec![Value::fixnum(1), Value::fixnum(2)])
+        .expect("builtin value< should resolve")
+        .expect("builtin value< should evaluate");
+    assert_eq!(value_lt, Value::T);
 
     let binding_locus = dispatch_builtin_pure("variable-binding-locus", vec![Value::symbol("x")])
         .expect("builtin variable-binding-locus should resolve")
