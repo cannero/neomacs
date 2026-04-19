@@ -379,3 +379,101 @@ fn isearch_forward_via_cs() {
 
     assert_pair_nearly_matches("isearch_forward_via_cs", &gnu, &neo, 2);
 }
+
+#[test]
+fn isearch_backward_via_cr() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=40 {
+        if line == 5 {
+            contents.push_str("needle target\n");
+        } else {
+            contents.push_str(&format!("filler line {line:02}\n"));
+        }
+    }
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "reverse-search.txt",
+        &contents,
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-r");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"needle");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("needle target"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("isearch_backward_via_cr", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_region_and_yank_via_cw_cy() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "cut-yank.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-@");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-y");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha line"))
+            && grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_region_and_yank_via_cw_cy", &gnu, &neo, 2);
+}
+
+#[test]
+fn undo_edit_via_cx_u() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "undo-usage.txt",
+        "alpha line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omega line");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x u");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("undo-usage.txt"))
+            && grid.iter().any(|row| row.contains("alpha line"))
+            && !grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("undo_edit_via_cx_u", &gnu, &neo, 2);
+}

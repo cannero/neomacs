@@ -2985,6 +2985,13 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
         return Ok(Value::NIL);
     }
 
+    // GNU cmds.c:Fself_insert_command calls `undo-auto-amalgamate`
+    // for single-char interactive insertions so repeated typing groups
+    // correctly while still leaving command boundaries for `undo`.
+    if repeats < 2 {
+        eval.apply(Value::symbol("undo-auto-amalgamate"), vec![])?;
+    }
+
     // Barf if the key that invoked this was not a character.
     let ch = match c.kind() {
         ValueKind::Fixnum(code) => {
@@ -3371,33 +3378,20 @@ fn collect_where_is_sequences_value(
         return false; // Prevent infinite recursion in circular keymaps
     }
 
-    // Collect all bindings from the alist portion
     let mut bindings: Vec<(Value, Value)> = Vec::new();
-    list_keymap_for_each_binding(keymap, |event, binding| {
-        bindings.push((event, binding));
-    });
-
-    // Sort by event description for consistent ordering
-    bindings.sort_by(|(a, _), (b, _)| {
-        let a_str = if let Some(name) = a.as_symbol_name() {
-            name.to_string()
-        } else if let Some(ke) = super::keymap::emacs_event_to_key_event(a) {
-            format_key_event(&ke)
-        } else {
-            format!("{}", a)
-        };
-        let b_str = if let Some(name) = b.as_symbol_name() {
-            name.to_string()
-        } else if let Some(ke) = super::keymap::emacs_event_to_key_event(b) {
-            format_key_event(&ke)
-        } else {
-            format!("{}", b)
-        };
-        a_str.cmp(&b_str)
-    });
+    list_keymap_for_each_binding(keymap, |event, binding| bindings.push((event, binding)));
 
     for (event, binding) in bindings {
         prefix.push(event);
+
+        if binding_matches_definition(&binding, definition) {
+            out.push(prefix.clone());
+            if first_only {
+                prefix.pop();
+                return true;
+            }
+        }
+
         if let Some(prefix_keymap) = where_is_binding_prefix_keymap(obarray, &binding) {
             if collect_where_is_sequences_value(
                 obarray,
@@ -3408,12 +3402,6 @@ fn collect_where_is_sequences_value(
                 first_only,
                 depth + 1,
             ) {
-                prefix.pop();
-                return true;
-            }
-        } else if binding_matches_definition(&binding, definition) {
-            out.push(prefix.clone());
-            if first_only {
                 prefix.pop();
                 return true;
             }

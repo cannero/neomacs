@@ -208,6 +208,16 @@ pub(crate) fn signal_before_change(
     beg: usize,
     end: usize,
 ) -> Result<(), Flow> {
+    if let Some(current_id) = ctx.buffers.current_buffer_id() {
+        let undo_enabled = ctx
+            .buffers
+            .get(current_id)
+            .is_some_and(|buf| !buf.get_undo_list().is_t());
+        if undo_enabled && ctx.obarray.fboundp("undo-auto--undoable-change") {
+            ctx.apply(Value::symbol("undo-auto--undoable-change"), vec![])?;
+        }
+    }
+
     if inhibit_modification_hooks(ctx) {
         return Ok(());
     }
@@ -626,6 +636,9 @@ pub(crate) fn builtin_delete_char(
     expect_max_args("delete-char", &args, 2)?;
     let n = expect_integer("delete-char", &args[0])?;
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
+    if n.unsigned_abs() < 2 {
+        ctx.apply(Value::symbol("undo-auto-amalgamate"), vec![])?;
+    }
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
         let Some((start, end)) = ({
             let Some(buf) = ctx.buffers.get(current_id) else {

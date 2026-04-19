@@ -4377,6 +4377,32 @@ fn where_is_internal_follows_symbol_function_prefix_maps_like_gnu_help_command()
 }
 
 #[test]
+fn where_is_internal_returns_prefix_key_for_prefix_command_symbol() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-keymap))
+                 (prefix (make-sparse-keymap)))
+             (fset 'test-where-is-prefix-command prefix)
+             (define-key m [8] 'test-where-is-prefix-command)
+             (equal (where-is-internal 'test-where-is-prefix-command m t) [8]))"#,
+    );
+    assert_eq!(result, "OK t");
+}
+
+#[test]
+fn where_is_internal_preserves_map_iteration_order_for_first_match() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-sparse-keymap)))
+             (define-key m "H" 'ignore)
+             (define-key m "?" 'ignore)
+             (define-key m "h" 'ignore)
+             (equal (where-is-internal 'ignore m t) [104]))"#,
+    );
+    assert_eq!(result, "OK t");
+}
+
+#[test]
 fn bootstrap_define_keymap_populates_help_style_bindings() {
     crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(

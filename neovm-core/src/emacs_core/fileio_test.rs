@@ -3110,6 +3110,7 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
         Some(path_str.as_str())
     );
     assert!(!buf.is_modified());
+    assert!(buf.get_undo_list().is_nil());
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3839,6 +3840,7 @@ fn test_find_file_noselect() {
             assert_eq!(buf.buffer_string(), "file content here");
             assert!(buf.file_name_value().is_string());
             assert!(!buf.is_modified());
+            assert!(buf.get_undo_list().is_nil());
         }
         other => panic!("Expected Buffer, got {:?}", buf_val),
     }
@@ -3880,6 +3882,92 @@ fn builtin_find_file_noselect_handles_raw_unibyte_filename() {
     assert_eq!(result, result2);
 
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bootstrap_find_file_noselect_applies_footer_local_variables() {
+    crate::test_utils::init_test_tracing();
+    use super::super::load::create_bootstrap_evaluator_cached;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("locals.txt");
+    fs::write(
+        &path,
+        "headline\n\n\
+         ;; Local Variables:\n\
+         ;; tab-width: 42\n\
+         ;; End:\n",
+    )
+    .expect("write local-vars fixture");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    let path_str = path.to_string_lossy().to_string();
+    let rendered = format_eval_result(&eval.eval_str(&format!(
+        r#"(let ((buf (find-file-noselect {:?})))
+                 (with-current-buffer buf
+                   (list tab-width
+                         (local-variable-p 'tab-width (current-buffer))
+                         default-directory)))"#,
+        path_str
+    )));
+
+    let expected_dir = format!("{}/", dir.path().to_string_lossy());
+    assert_eq!(rendered, format!("OK (42 t {expected_dir:?})"));
+}
+
+#[test]
+fn bootstrap_find_file_noselect_runs_find_file_hook() {
+    crate::test_utils::init_test_tracing();
+    use super::super::load::create_bootstrap_evaluator_cached;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("hook.txt");
+    fs::write(&path, "hook body\n").expect("write hook fixture");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    let path_str = path.to_string_lossy().to_string();
+    let rendered = format_eval_result(&eval.eval_str(&format!(
+        r#"(let ((find-file-hook (list (lambda () (setq-local neovm-find-file-hook-ran t)))))
+                 (let ((buf (find-file-noselect {:?})))
+                   (with-current-buffer buf
+                     (list (bound-and-true-p neovm-find-file-hook-ran)
+                           buffer-file-name))))"#,
+        path_str
+    )));
+
+    assert_eq!(rendered, format!("OK (t {path_str:?})"));
+}
+
+#[test]
+fn bootstrap_find_file_noselect_undo_preserves_visited_file_contents() {
+    crate::test_utils::init_test_tracing();
+    use super::super::load::create_bootstrap_evaluator_cached;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("undo-visit.txt");
+    fs::write(&path, "alpha line\n").expect("write undo fixture");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap evaluator");
+    let path_str = path.to_string_lossy().to_string();
+    let rendered = format_eval_result(&eval.eval_str(&format!(
+        r#"(let ((buf (find-file-noselect {:?})))
+             (with-current-buffer buf
+               (goto-char (point-max))
+               (insert "omega line")
+               (condition-case _err
+                   (undo)
+                 (error nil))
+               (list (buffer-string)
+                     pending-undo-list
+                     buffer-undo-list)))"#,
+        path_str
+    )));
+
+    assert_eq!(
+        rendered,
+        r#"OK ("alpha line
+" t (("omega line" . 12) (12 . 22) (t . 0)))"#
+    );
 }
 
 #[cfg(unix)]

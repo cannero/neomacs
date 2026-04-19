@@ -580,6 +580,10 @@ fn next_window_start_for_point_line_continuation<B: super::neovm_bridge::LayoutB
 
     for row in rows.iter().skip(point_row_index) {
         let end_pos = row.end_buffer_pos? as i64;
+        let end_byte = buf_access.lisp_charpos_to_bytepos(end_pos);
+        if matches!(buf_access.byte_at(end_byte), Some(b'\n')) {
+            return None;
+        }
         let next_pos = end_pos.saturating_add(1);
         if next_pos > buffer_size {
             return None;

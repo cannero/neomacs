@@ -3887,6 +3887,10 @@ pub(crate) fn builtin_insert_file_contents(
             (buf.pt_byte, buf.pt_byte, 0)
         }
     });
+    let empty_undo_list_p = eval
+        .buffers
+        .current_buffer()
+        .is_some_and(|buf| visit && buf.get_undo_list().is_nil() && buf.text.is_empty());
     if let Some((beg, end, _old_len)) = pre_state {
         super::editfns::signal_before_change(eval, beg, end)?;
     }
@@ -4000,6 +4004,11 @@ pub(crate) fn builtin_insert_file_contents(
             .buffers
             .set_buffer_file_name(current_id, Value::heap_string(resolved.clone()));
         let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
+        if empty_undo_list_p {
+            let _ = eval
+                .buffers
+                .configure_buffer_undo_list(current_id, Value::NIL);
+        }
     }
 
     let value = Value::list(vec![
@@ -4352,6 +4361,7 @@ pub(crate) fn builtin_find_file_noselect(
     expect_max_args("find-file-noselect", &args, 4)?;
     let abs_path = resolve_filename_lisp_for_eval(eval, &expect_lisp_string_strict(&args[0])?);
     let abs_path_buf = lisp_file_name_to_path_buf(&abs_path);
+    let rawfile = args.get(2).is_some_and(|value| !value.is_nil());
 
     // Check if there's already a buffer visiting this file
     for buf_id in eval.buffers.buffer_list() {
@@ -4373,42 +4383,52 @@ pub(crate) fn builtin_find_file_noselect(
     let unique_name = eval.buffers.generate_new_buffer_name(&buf_name);
     let buf_id = eval.buffers.create_buffer(&unique_name);
 
-    // If the file exists, read its contents into the new buffer
-    if file_exists_path(&abs_path_buf) {
-        let contents = fs::read_to_string(&abs_path_buf).map_err(|err| {
-            signal_file_action_error_value(
-                err,
-                "Opening input file",
-                Value::heap_string(abs_path.clone()),
-            )
-        })?;
-
-        // Save and restore current buffer around the insert
-        let saved_current = eval.buffers.current_buffer_id();
-
+    let saved_current = eval.buffers.current_buffer_id();
+    let open_result = (|| -> EvalResult {
         eval.switch_current_buffer(buf_id)?;
-        let content_len = contents.len();
-        super::editfns::signal_before_change(eval, 0, 0)?;
-        let _ = eval.buffers.insert_into_buffer(buf_id, &contents);
-        super::editfns::signal_after_change(eval, 0, content_len, 0)?;
-        let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
+
+        let visit_error = if file_exists_path(&abs_path_buf) {
+            builtin_insert_file_contents(
+                eval,
+                vec![Value::heap_string(abs_path.clone()), Value::T],
+            )?;
+            let _ = eval.buffers.goto_buffer_byte(buf_id, 0);
+            Value::NIL
+        } else {
+            Value::T
+        };
+
         let _ = eval
             .buffers
             .set_buffer_file_name(buf_id, Value::heap_string(abs_path.clone()));
+        if let Some(default_directory) = lisp_file_name_directory(&abs_path) {
+            let _ = eval.buffers.set_buffer_local_property(
+                buf_id,
+                "default-directory",
+                Value::heap_string(default_directory),
+            );
+        }
         let _ = eval.buffers.set_buffer_modified_flag(buf_id, false);
 
-        // Restore the previous current buffer
-        if let Some(prev_id) = saved_current {
-            eval.restore_current_buffer_if_live(prev_id);
+        // GNU `find-file-noselect-1` routes normal visits through
+        // `after-find-file`, which applies major-mode detection,
+        // file-local variables, and `find-file-hook`. Plain
+        // `Context::new()` test evaluators don't load that Lisp yet,
+        // so only call it when the runtime has it installed.
+        if !rawfile && eval.obarray().symbol_function("after-find-file").is_some() {
+            let warn = Value::bool_val(args.get(1).is_none_or(|value| value.is_nil()));
+            let _ =
+                eval.funcall_general(Value::symbol("after-find-file"), vec![visit_error, warn])?;
         }
-    } else {
-        // File doesn't exist — create an empty buffer with the file name set
-        let _ = eval
-            .buffers
-            .set_buffer_file_name(buf_id, Value::heap_string(abs_path));
+
+        Ok(Value::make_buffer(buf_id))
+    })();
+
+    if let Some(prev_id) = saved_current {
+        eval.restore_current_buffer_if_live(prev_id);
     }
 
-    Ok(Value::make_buffer(buf_id))
+    open_result
 }
 
 // ===========================================================================

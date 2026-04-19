@@ -2520,6 +2520,43 @@ fn next_window_start_for_point_line_continuation_advances_last_visible_row() {
 }
 
 #[test]
+fn next_window_start_for_point_line_continuation_ignores_newline_terminated_rows() {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    let buffer_size = {
+        let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+        buf.insert("needle target\nfiller line 06\n");
+        buf.goto_byte(0);
+        buf.point_max_char() as i64
+    };
+    let access = {
+        let buf = eval.buffer_manager().get(buf_id).expect("buffer");
+        RustBufferAccess::new(buf)
+    };
+    let rows = vec![DisplayRowSnapshot {
+        row: 0,
+        y: 0,
+        height: 16,
+        start_x: 0,
+        start_col: 0,
+        end_x: 0,
+        end_col: 0,
+        start_buffer_pos: Some(1),
+        end_buffer_pos: Some(14),
+    }];
+
+    assert_eq!(
+        next_window_start_for_point_line_continuation(&rows, 0, 0, &access, buffer_size),
+        None,
+        "expected no retry when the last visible row ended on a real newline"
+    );
+}
+
+#[test]
 fn next_window_start_for_point_line_continuation_ignores_tail_clipping_when_point_row_is_not_last_visible_row()
  {
     let mut eval = Context::new();

@@ -5059,6 +5059,14 @@ impl Context {
             // (`safe_run_hooks (Qpre_command_hook)`).
             self.safe_run_hook_if_bound("pre-command-hook");
 
+            // GNU `keyboard.c:1530-1534` adds undo boundaries here, after
+            // `pre-command-hook` and before command execution, so the
+            // previous command's edits are grouped before the next command
+            // mutates any buffer state.
+            if self.obarray.fboundp("undo-auto--add-boundary") {
+                let _ = self.apply(Value::symbol("undo-auto--add-boundary"), vec![]);
+            }
+
             // Execute the command. Finding 13: GNU calls
             // `Fcall_interactively` directly from the loop. We do
             // the same by routing through the call-interactively
