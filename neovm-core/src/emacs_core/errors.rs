@@ -486,7 +486,7 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
         } else {
             build_signal_flow("error", args[1])
         };
-        return Err(flow);
+        return dispatch_signal_flow(eval, flow);
     }
 
     let sym_name = match args[0].as_symbol_name() {
@@ -501,7 +501,17 @@ pub(crate) fn builtin_signal(eval: &mut super::eval::Context, args: Vec<Value>) 
 
     let flow = build_signal_flow(&sym_name, args[1]);
 
-    Err(flow)
+    dispatch_signal_flow(eval, flow)
+}
+
+fn dispatch_signal_flow(eval: &mut super::eval::Context, flow: Flow) -> EvalResult {
+    match flow {
+        Flow::Signal(sig) => match eval.dispatch_signal_if_needed(sig) {
+            Ok(dispatched) => Err(Flow::Signal(dispatched)),
+            Err(flow) => Err(flow),
+        },
+        other => Err(other),
+    }
 }
 
 /// `(error-message-string ERROR-DATA)` — format an error for display.

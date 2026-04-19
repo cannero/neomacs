@@ -398,10 +398,13 @@ fn runtime_macro_cache_handles_raw_unibyte_strings_in_environment() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_variable("load-in-progress", Value::T);
+    ev.eval_str("(defvar runtime-cache-count 0)")
+        .expect("defvar runtime-cache-count");
     ev.eval_str(
         "(defalias 'runtime-cache-macro
            (cons 'macro
                  (lambda (form)
+                   (setq runtime-cache-count (1+ runtime-cache-count))
                    form)))",
     )
     .expect("install runtime-cache-macro");
@@ -6760,7 +6763,7 @@ fn run_window_configuration_change_hook_uses_window_buffer_context() {
            (defalias 'wcch-log-global-buffer
              #'(lambda ()
                  (setq hook-log
-                       (cons (intern (concat \"global:\" (buffer-name))) hook-log)))))"#,
+                       (cons (intern (concat "global:" (buffer-name))) hook-log)))))"#,
     )
     .expect("hook setup");
 

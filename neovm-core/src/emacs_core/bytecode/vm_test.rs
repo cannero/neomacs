@@ -266,6 +266,25 @@ fn vm_signal_nil_error_object_uses_embedded_symbol_and_skips_signal_hook() {
 }
 
 #[test]
+fn vm_signal_hook_runs_before_invalid_error_symbol_canonicalization() {
+    crate::test_utils::init_test_tracing();
+    with_vm_eval_full_context_state(
+        "(catch 'tag
+           (let ((signal-hook-function
+                  (lambda (sym data)
+                    (throw 'tag (list sym data)))))
+             (signal 'neomacs-invalid-signal 1)))",
+        false,
+        |result, _eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK (neomacs-invalid-signal 1)"
+            );
+        },
+    );
+}
+
+#[test]
 fn vm_compiled_unwind_protect_runs_cleanup_on_throw() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

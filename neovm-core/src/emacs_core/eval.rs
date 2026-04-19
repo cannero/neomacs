@@ -6382,7 +6382,8 @@ impl Context {
         let mut result = Value::NIL;
         let mut error = None;
         for form in &forms {
-            match self.eval_sub(*form).map_err(super::error::map_flow) {
+            let eval_result = self.eval_sub(*form);
+            match self.finalize_public_eval_result(eval_result) {
                 Ok(v) => result = v,
                 Err(e) => {
                     error = Some(e);
@@ -6401,7 +6402,19 @@ impl Context {
     /// Evaluate a single Value form, mapping Flow errors to EvalError.
     pub fn eval_form(&mut self, form: Value) -> Result<Value, EvalError> {
         crate::tagged::gc::set_tagged_heap(&mut self.tagged_heap);
-        self.eval_sub(form).map_err(map_flow)
+        let eval_result = self.eval_sub(form);
+        self.finalize_public_eval_result(eval_result)
+    }
+
+    fn finalize_public_eval_result(&mut self, result: EvalResult) -> Result<Value, EvalError> {
+        match result {
+            Ok(value) => Ok(value),
+            Err(Flow::Signal(sig)) => match self.dispatch_signal_if_needed(sig) {
+                Ok(dispatched) => Err(map_flow(Flow::Signal(dispatched))),
+                Err(flow) => Err(map_flow(flow)),
+            },
+            Err(flow) => Err(map_flow(flow)),
+        }
     }
 
     /// Evaluate a runtime Value form, matching GNU Emacs's `eval_sub` in eval.c.
@@ -8036,6 +8049,14 @@ impl Context {
         });
         let result = match self.sf_progn_value(tail.cons_cdr()) {
             Ok(value) => Ok(value),
+            Err(Flow::Signal(sig)) => match self.dispatch_signal_if_needed(sig) {
+                Ok(dispatched) => Err(Flow::Signal(dispatched)),
+                Err(Flow::Throw {
+                    tag: thrown_tag,
+                    value,
+                }) if eq_value(&tag, &thrown_tag) => Ok(value),
+                Err(flow) => Err(flow),
+            },
             Err(Flow::Throw {
                 tag: thrown_tag,
                 value,
