@@ -1991,6 +1991,14 @@ fn special_event_map_bootstraps_delete_frame_and_focus_handlers() {
 fn read_char_updates_monitor_snapshot_and_runs_display_monitor_hooks() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
+    ev.eval_str(
+        r#"(progn
+             (setq monitor-hook-terminal nil)
+             (setq display-monitors-changed-functions
+                   (list (lambda (terminal)
+                           (setq monitor-hook-terminal terminal)))))"#,
+    )
+    .expect("install display monitor hook");
     ev.command_loop.keyboard.pending_input_events.push_back(
         crate::keyboard::InputEvent::MonitorsChanged {
             monitors: vec![crate::emacs_core::builtins::NeomacsMonitorInfo {

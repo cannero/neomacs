@@ -2726,7 +2726,7 @@ impl crate::emacs_core::eval::Context {
                         "display-monitors-changed-functions",
                     );
                     let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
-                    let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
+                    let _ = crate::emacs_core::hook_runtime::run_named_hook(
                         self,
                         hook_sym,
                         &[terminal],
@@ -3221,11 +3221,8 @@ impl crate::emacs_core::eval::Context {
                     "display-monitors-changed-functions",
                 );
                 let terminal = crate::emacs_core::terminal::pure::terminal_handle_value();
-                let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(
-                    self,
-                    hook_sym,
-                    &[terminal],
-                )?;
+                let _ =
+                    crate::emacs_core::hook_runtime::run_named_hook(self, hook_sym, &[terminal])?;
                 Ok(None)
             }
             InputEvent::SelectWindow { window_id } => {
