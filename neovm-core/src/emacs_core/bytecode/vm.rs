@@ -2025,8 +2025,14 @@ impl<'a> Vm<'a> {
             }
         }
 
-        // Obarray top-level value via the new redirect dispatch.
-        if let Some(val) = self.ctx.obarray.find_symbol_value(resolved) {
+        // GNU `bytecode.c:Bvarref` falls back to `Fsymbol_value`,
+        // not the raw symbol cell. Route the VM fallback through the
+        // shared runtime reader so forwarded slot-backed vars like
+        // `buffer-undo-list` observe current-buffer state.
+        if let Some(val) = self
+            .ctx
+            .visible_runtime_variable_value_by_id_resolved(resolved)
+        {
             return Ok(val);
         }
 
@@ -2166,7 +2172,6 @@ impl<'a> Vm<'a> {
             &self.ctx.obarray,
             name_id,
         )?;
-        let resolved_name = resolve_sym(resolved);
         if resolved != name_id
             && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
         {
@@ -2176,25 +2181,15 @@ impl<'a> Vm<'a> {
         // specbind writes directly to obarray, so dynamic stack lookup is
         // no longer needed — fall through to obarray lookup.
 
-        // Obarray top-level via the new redirect dispatch.
-        if let Some(val) = self.ctx.obarray.find_symbol_value(resolved) {
+        // GNU `bytecode.c:Bvarref` falls back to `Fsymbol_value`,
+        // not the raw symbol cell. Use the shared runtime reader so
+        // bytecode observes the same forwarded/localized semantics as
+        // tree-walk eval.
+        if let Some(val) = self
+            .ctx
+            .visible_runtime_variable_value_by_id_resolved(resolved)
+        {
             return Ok(val);
-        }
-
-        if name == "nil" {
-            return Ok(Value::NIL);
-        }
-        if name == "t" {
-            return Ok(Value::T);
-        }
-        if resolved_name == "nil" {
-            return Ok(Value::NIL);
-        }
-        if resolved_name == "t" {
-            return Ok(Value::T);
-        }
-        if resolved_name.starts_with(':') {
-            return Ok(Value::keyword(resolved_name));
         }
 
         Err(signal("void-variable", vec![Value::symbol(name)]))

@@ -10784,6 +10784,20 @@ pub(crate) fn set_runtime_binding(
         return Some(current_id);
     }
 
+    // Non-forwarded per-buffer variables like `buffer-undo-list`
+    // still live behind the generic buffer-local storage helpers.
+    // Preserve the pre-Phase-10 behavior for those names: if the
+    // current buffer already reports the variable as local, write the
+    // current buffer binding instead of the obarray cell.
+    if symbol_is_canonical
+        && let Some(current_id) = buffers.current_buffer_id()
+        && let Some(buf) = buffers.get(current_id)
+        && buf.has_buffer_local_by_sym_id(sym_id)
+    {
+        let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
+        return Some(current_id);
+    }
+
     obarray.set_symbol_value_id(sym_id, value);
     None
 }

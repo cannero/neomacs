@@ -8096,6 +8096,19 @@ fn vm_kill_all_local_variables_uses_shared_runtime_defaults_and_clears_local_map
 }
 
 #[test]
+fn vm_setq_buffer_undo_list_reads_shared_undo_state() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (setq buffer-undo-list t)
+                 buffer-undo-list)"#
+        ),
+        "OK t"
+    );
+}
+
+#[test]
 fn vm_syntax_table_accessors_use_shared_current_buffer_state() {
     crate::test_utils::init_test_tracing();
     // syntax-after is defined in subr.el → bootstrap context required.
