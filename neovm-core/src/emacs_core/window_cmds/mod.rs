@@ -1879,16 +1879,12 @@ pub(crate) fn builtin_set_window_point(
                         .is_some_and(|frame| frame.selected_window == wid);
                     let mut buffer_to_move = None;
                     if let Some(Window::Leaf {
-                        buffer_id,
-                        point,
-                        old_point,
-                        ..
+                        buffer_id, point, ..
                     }) = frames
                         .get_mut(fid)
                         .and_then(|frame| frame.find_window_mut(wid))
                     {
                         *point = clamped;
-                        *old_point = clamped;
                         if selected_live_window {
                             if let Some(buffer) = buffers.get(*buffer_id) {
                                 buffer_to_move =
@@ -1920,16 +1916,12 @@ pub(crate) fn builtin_set_window_point(
                     .is_some_and(|frame| frame.selected_window == wid);
                 let mut buffer_to_move = None;
                 if let Some(Window::Leaf {
-                    buffer_id,
-                    point,
-                    old_point,
-                    ..
+                    buffer_id, point, ..
                 }) = frames
                     .get_mut(fid)
                     .and_then(|frame| frame.find_window_mut(wid))
                 {
                     *point = clamped;
-                    *old_point = clamped;
                     if selected_live_window {
                         if let Some(buffer) = buffers.get(*buffer_id) {
                             buffer_to_move =

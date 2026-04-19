@@ -589,6 +589,27 @@ def
 }
 
 #[test]
+fn set_window_point_preserves_window_old_point_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let r = eval_one_with_frame(
+        r#"(let* ((w (selected-window))
+                  (b (get-buffer-create " *window-old-point*")))
+             (unwind-protect
+                 (progn
+                   (save-current-buffer
+                     (set-buffer b)
+                     (erase-buffer)
+                     (insert (make-string 40 ?x))
+                     (goto-char 7))
+                   (set-window-buffer w b)
+                   (set-window-point w 13)
+                   (list (window-point w) (window-old-point w)))
+               (when (buffer-live-p b) (kill-buffer b))))"#,
+    );
+    assert_eq!(r, "OK (13 7)");
+}
+
+#[test]
 fn selected_window_sync_prefers_live_current_buffer_point_before_resync() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
