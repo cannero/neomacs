@@ -4194,6 +4194,48 @@ fn builtin_load_uses_hist_file_name_when_purify_flag_is_set() {
 }
 
 #[test]
+fn builtin_load_prepends_history_entry_and_preserves_existing_tail() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-history-tail-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    fs::write(&file, "(setq vm-load-history-tail-probe t)\n").expect("write fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    let old_history = Value::list(vec![Value::list(vec![
+        Value::string("/tmp/older.el"),
+        Value::symbol("vm-older-probe"),
+    ])]);
+    eval.set_variable("load-history", old_history);
+
+    let loaded = load_file(&mut eval, &file).expect("load file");
+    assert_eq!(loaded, Value::T);
+
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::NIL);
+    let entries = list_to_vec(&history).expect("load-history is a list");
+    let first = list_to_vec(&entries[0]).expect("entry is a list");
+    let path_str = file.to_string_lossy().to_string();
+    assert_eq!(
+        first.first().and_then(|value| value.as_utf8_str()),
+        Some(path_str.as_str())
+    );
+    assert!(
+        crate::emacs_core::value::equal_value(&history.cons_cdr(), &old_history, 0),
+        "load should preserve the previous load-history tail",
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn load_file_exact_gc_roots_load_history_and_after_load_filename() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

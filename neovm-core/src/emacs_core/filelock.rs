@@ -164,8 +164,10 @@ fn read_lock_contents(lock_path: &Path) -> io::Result<String> {
 }
 
 fn current_lock_owner(lock_path: &Path) -> Result<LockOwner, io::Error> {
-    if !lock_path.exists() {
-        return Ok(LockOwner::None);
+    match fs::symlink_metadata(lock_path) {
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(LockOwner::None),
+        Err(err) => return Err(err),
     }
 
     let contents = read_lock_contents(lock_path)?;
@@ -397,4 +399,23 @@ pub(crate) fn builtin_unlock_buffer(
         let _ = unlock_file_resolved(eval, &filename)?;
     }
     Ok(Value::NIL)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn current_lock_owner_recognizes_dangling_symlink_lockfiles() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let lock_path = dir.path().join(".#probe");
+        std::os::unix::fs::symlink(current_lock_info_string(), &lock_path)
+            .expect("create lock symlink");
+
+        assert!(matches!(
+            current_lock_owner(&lock_path).expect("read lock owner"),
+            LockOwner::Current
+        ));
+    }
 }

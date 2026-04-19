@@ -1205,6 +1205,13 @@ where
 
     let result = body(eval);
 
+    if result.is_ok() {
+        // GNU `readevalloop` calls `build_load_history` before the
+        // load context is unwound, so it sees the live
+        // `current-load-list` for this file.
+        build_load_history(eval, hist_file_name, true);
+    }
+
     // Restore reader load-file-name
     super::value_reader::set_reader_load_file_name(old_reader_load_file);
 
@@ -1393,9 +1400,8 @@ fn streaming_readevalloop(
         form_idx += 1;
     }
 
-    // NOTE: record_load_history (which calls do-after-load-evaluation)
-    // is now called OUTSIDE with_load_context, matching GNU lread.c:1537-1541
-    // where unbind_to runs before do-after-load-evaluation.
+    // GNU `readevalloop` builds load-history before unwinding the load
+    // context; `with_load_context` handles that merge on successful return.
     Ok(Value::T)
 }
 
@@ -1543,6 +1549,7 @@ fn streaming_readevalloop_lisp_source(
         form_idx += 1;
     }
 
+    build_load_history(eval, hist_file_name, true);
     Ok(Value::T)
 }
 
@@ -1815,10 +1822,13 @@ fn load_file_body(
         )
     });
 
-    // GNU lread.c:1540-1541: after unbind_to restores lexenv,
-    // run eval-after-load hooks. This ensures the after-load callbacks
-    // run with the CALLER'S lexenv, not the file's (t) lexenv.
-    record_load_history(eval, &hist_file_name);
+    // GNU lread.c:1533-1541: `build_load_history` runs inside
+    // `readevalloop`, before `unbind_to`, while the after-load hooks
+    // run after the load context is unwound. Keep the latter order so
+    // callbacks see the caller's restored lexenv.
+    if result.is_ok() {
+        run_after_load_evaluation(eval, &hist_file_name);
+    }
 
     result
 }
@@ -1914,42 +1924,63 @@ fn elc_has_lexical_binding(raw_bytes: &[u8]) -> bool {
     preview.contains("lexical-binding: t")
 }
 
-fn record_load_history(eval: &mut super::eval::Context, path_lisp: &LispString) {
-    let path_str = load_display_string(path_lisp);
-    tracing::debug!("record_load_history: {}", path_str);
+fn build_load_history(eval: &mut super::eval::Context, filename: &LispString, entire: bool) {
+    let path_str = load_display_string(filename);
+    tracing::debug!("build_load_history: {}", path_str);
     let roots = eval.save_specpdl_roots();
-    // GNU protects the same post-load temporaries with GCPRO/specpdl roots
-    // in lread.c. Exact GC needs explicit rooting here as well.
-    let path_value = Value::heap_string(path_lisp.clone());
-    eval.push_specpdl_root(path_value);
-    let entry = Value::cons(path_value, Value::NIL);
-    eval.push_specpdl_root(entry);
+    let current_load_list = eval.visible_variable_value_or_nil("current-load-list");
+    eval.push_specpdl_root(current_load_list);
     let history = eval
         .obarray()
         .symbol_value("load-history")
         .cloned()
         .unwrap_or(Value::NIL);
-    let filtered_history = Value::list(
-        list_to_vec(&history)
+    eval.push_specpdl_root(history);
+    let filtered_history = if entire {
+        Value::list(
+            list_to_vec(&history)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|existing| {
+                    if existing.is_cons() {
+                        existing
+                            .cons_car()
+                            .as_lisp_string()
+                            .is_none_or(|loaded| !load_name_equal(loaded, filename))
+                    } else {
+                        true
+                    }
+                })
+                .collect(),
+        )
+    } else {
+        history
+    };
+    eval.push_specpdl_root(filtered_history);
+    let entry = Value::list(
+        list_to_vec(&current_load_list)
             .unwrap_or_default()
             .into_iter()
-            .filter(|existing| {
-                if existing.is_cons() {
-                    existing
-                        .cons_car()
-                        .as_lisp_string()
-                        .is_none_or(|loaded| loaded != path_lisp)
-                } else {
-                    true
-                }
-            })
+            .rev()
             .collect(),
     );
-    eval.push_specpdl_root(filtered_history);
-    let updated_history = Value::cons(entry, filtered_history);
+    eval.push_specpdl_root(entry);
+    let updated_history = if entire {
+        Value::cons(entry, filtered_history)
+    } else {
+        filtered_history
+    };
     eval.push_specpdl_root(updated_history);
     eval.set_variable("load-history", updated_history);
+    if entire {
+        eval.set_variable("current-load-list", Value::T);
+    }
+    eval.restore_specpdl_roots(roots);
+}
 
+fn run_after_load_evaluation(eval: &mut super::eval::Context, path_lisp: &LispString) {
+    let path_str = load_display_string(path_lisp);
+    let roots = eval.save_specpdl_roots();
     // GNU Emacs lread.c:1540-1541: after loading a file, call
     // (do-after-load-evaluation FILENAME) to run eval-after-load hooks.
     let dale_id = super::intern::intern("do-after-load-evaluation");
