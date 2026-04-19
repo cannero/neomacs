@@ -793,6 +793,10 @@ fn subr_key_binding_commands_are_real_lisp_functions_after_bootstrap() {
             !crate::emacs_core::autoload::is_autoload_value(&function),
             "expected {name} startup function cell to be loaded, not an autoload"
         );
+        assert!(
+            !function.is_subr(),
+            "expected {name} startup function cell to be a GNU Lisp function, not a Rust subr"
+        );
         let command = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .unwrap_or_else(|err| panic!("commandp should accept {name}: {err:?}"));
         assert!(command.is_truthy(), "expected commandp true for {name}");
@@ -1040,6 +1044,14 @@ fn commandp_true_for_loaded_lisp_commands_after_bootstrap() {
         "tab-to-tab-stop",
         "transient-mark-mode",
     ] {
+        let function = ev
+            .obarray
+            .symbol_function(name)
+            .unwrap_or_else(|| panic!("missing {name} startup function cell"));
+        assert!(
+            !function.is_subr(),
+            "expected {name} startup function cell to remain a GNU Lisp command"
+        );
         let result = builtin_commandp_interactive(&mut ev, vec![Value::symbol(name)])
             .expect("commandp call");
         assert!(result.is_truthy(), "expected commandp true for {name}");
