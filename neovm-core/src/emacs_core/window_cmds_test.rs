@@ -858,12 +858,14 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
     assert_eq!(
         super::builtin_window_body_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-body-width"),
-        Value::fixnum(756)
+        // GNU `window-body-width` also subtracts the frame-default right
+        // scroll-bar area when a GUI frame inherits `vertical-scroll-bar = t`.
+        Value::fixnum(748)
     );
     assert_eq!(
         super::builtin_window_text_width(&mut ev, vec![Value::NIL, Value::T])
             .expect("window-text-width"),
-        Value::fixnum(756)
+        Value::fixnum(748)
     );
     assert_eq!(
         super::builtin_window_edges(&mut ev, vec![Value::NIL, Value::T, Value::NIL, Value::T])
@@ -871,7 +873,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
         Value::list(vec![
             Value::fixnum(16),
             Value::fixnum(0),
-            Value::fixnum(772),
+            Value::fixnum(764),
             Value::fixnum(584),
         ])
     );
@@ -1054,8 +1056,11 @@ fn fit_window_to_buffer_invalid_window_designators_signal_error() {
         "(condition-case err (fit-window-to-buffer 999999) (error (car err)))
          (condition-case err (fit-window-to-buffer 'foo) (error (car err)))",
     );
-    assert_eq!(results[0], "OK wrong-type-argument");
-    assert_eq!(results[1], "OK wrong-type-argument");
+    // GNU's Lisp `fit-window-to-buffer` normalizes WINDOW via
+    // `window-normalize-window`, which signals plain `error` for invalid
+    // designators.
+    assert_eq!(results[0], "OK error");
+    assert_eq!(results[1], "OK error");
 }
 
 #[test]
