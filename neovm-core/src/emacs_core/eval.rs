@@ -5830,13 +5830,13 @@ impl Context {
         }
     }
 
-    fn poll_pending_input_for_throw_on_input(&mut self) {
-        // GNU's keyboard/input path treats batch mode as a separate path and
-        // does not poll window-system input while `noninteractive` is set.
-        // Neomacs should likewise skip resize/input syncing during batch
-        // bootstrap and batch command loops.
-        if self.command_loop_noninteractive() {
-            return;
+    fn poll_pending_input_for_throw_on_input(&mut self) -> Result<(), Flow> {
+        // GNU skips the interactive keyboard path only when there is no live
+        // input source. Tests and embedded hosts can attach `input_rx` while
+        // keeping `noninteractive` true, and `throw-on-input` must still see
+        // that host input.
+        if self.command_loop_noninteractive() && self.input_rx.is_none() {
+            return Ok(());
         }
 
         self.sync_pending_resize_events();
@@ -5847,7 +5847,7 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
         if throw_on_input.is_nil() {
-            return;
+            return Ok(());
         }
 
         let quit_flag = self
@@ -5856,8 +5856,10 @@ impl Context {
             .copied()
             .unwrap_or(Value::NIL);
         if !quit_flag.is_nil() {
-            return;
+            return Ok(());
         }
+
+        while self.stage_next_host_input_event_if_available()? {}
 
         if self
             .command_loop
@@ -5869,6 +5871,8 @@ impl Context {
             self.obarray
                 .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
         }
+
+        Ok(())
     }
 
     /// Interrupt on input for GNU-style `throw-on-input` users such as
@@ -5911,7 +5915,7 @@ impl Context {
     /// explicitly or run before materializing heap-backed Values, so this path
     /// now uses exact roots rather than conservative stack scanning.
     fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
-        self.poll_pending_input_for_throw_on_input();
+        self.poll_pending_input_for_throw_on_input()?;
         self.maybe_quit()?;
         self.gc_safe_point_exact();
         Ok(())
