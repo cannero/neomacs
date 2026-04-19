@@ -2368,8 +2368,21 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
     expect_args_range("window-text-pixel-size", &args, 0, 7)?;
     validate_optional_window_designator_in_state(&eval.frames, args.first(), "window-live-p")?;
 
-    // Get frame metrics
     let frame = eval.frames.selected_frame();
+    // GNU batch/TTY startup has no meaningful pixel geometry for this
+    // query. Our synthetic fallback frame uses 1x1 character metrics to
+    // keep char-cell window geometry helpers working; treat that frame as
+    // "no pixel metrics" here so callers observe GNU's `(0 . 0)`.
+    if frame.is_none_or(|frame| {
+        frame.window_system.is_none()
+            && frame.char_width <= 1.0
+            && frame.char_height <= 1.0
+            && frame.font_pixel_size <= 1.0
+    }) {
+        return Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)));
+    }
+
+    // Get frame metrics
     let char_w = frame.map(|f| f.char_width).unwrap_or(8.0);
     let char_h = frame.map(|f| f.char_height).unwrap_or(16.0);
 
@@ -2712,10 +2725,14 @@ pub(crate) fn builtin_move_to_window_line(
     expect_args("move-to-window-line", &args, 1)?;
 
     // Find selected window's window-start, buffer, and bounds.
-    let frame = eval
-        .frames
-        .selected_frame()
-        .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+    let Some(frame) = eval.frames.selected_frame() else {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "move-to-window-line called from unrelated buffer",
+            )],
+        ));
+    };
     let wid = frame.selected_window;
     let is_mini = frame.minibuffer_window == Some(wid);
     let ch = frame.char_height.max(1.0);
@@ -2738,6 +2755,14 @@ pub(crate) fn builtin_move_to_window_line(
         .buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("No buffer in selected window")]))?;
+    if eval.buffers.current_buffer_id() != Some(buf_id) {
+        return Err(signal(
+            "error",
+            vec![Value::string(
+                "move-to-window-line called from unrelated buffer",
+            )],
+        ));
+    }
 
     // Determine visible body lines for this window.
     let total_body_lines = {

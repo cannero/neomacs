@@ -172,18 +172,6 @@ pub(crate) fn ensure_standard_category_table_object() -> EvalResult {
     })
 }
 
-fn clone_char_table_object(value: &Value) -> EvalResult {
-    match value.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            Ok(Value::vector(value.as_vector_data().unwrap().clone()))
-        }
-        _ => Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("category-table-p"), *value],
-        )),
-    }
-}
-
 fn deep_copy_category_table(source: &Value) -> EvalResult {
     if !is_category_table_value(source)? {
         return Err(signal(
@@ -192,7 +180,11 @@ fn deep_copy_category_table(source: &Value) -> EvalResult {
         ));
     }
 
-    let copy = clone_char_table_object(source)?;
+    // GNU `copy_category_table` starts from `copy_char_table`, which
+    // duplicates the char-table structure before copying the category
+    // payloads. Building a fresh category table object here avoids
+    // aliasing the original table's nested chartable vectors.
+    let copy = make_category_table_object()?;
     let default = super::chartable::builtin_char_table_range(vec![*source, Value::NIL])?;
     if default.is_vector() {
         super::chartable::builtin_set_char_table_range(vec![
@@ -210,6 +202,15 @@ fn deep_copy_category_table(source: &Value) -> EvalResult {
         copy,
         Value::fixnum(CATEGORY_DOCSTRING_SLOT),
         clone_vector_value(&docstrings)?,
+    ])?;
+    let version = super::chartable::builtin_char_table_extra_slot(vec![
+        *source,
+        Value::fixnum(CATEGORY_VERSION_SLOT),
+    ])?;
+    super::chartable::builtin_set_char_table_extra_slot(vec![
+        copy,
+        Value::fixnum(CATEGORY_VERSION_SLOT),
+        version,
     ])?;
 
     for (key, value) in super::chartable::char_table_local_entries(source)? {
@@ -523,14 +524,15 @@ pub(crate) fn builtin_modify_category_entry(
         if has_category == reset {
             let updated = clone_vector_value(&existing)?;
             set_category_set_member(&updated, category, !reset)?;
-            let key = if cursor == to {
+            let chunk_end = to.min(end);
+            let key = if cursor == chunk_end {
                 Value::fixnum(cursor)
             } else {
-                Value::cons(Value::fixnum(cursor), Value::fixnum(to))
+                Value::cons(Value::fixnum(cursor), Value::fixnum(chunk_end))
             };
             super::chartable::builtin_set_char_table_range(vec![table, key, updated])?;
         }
-        cursor = to.saturating_add(1);
+        cursor = to.min(end).saturating_add(1);
     }
 
     Ok(Value::NIL)
