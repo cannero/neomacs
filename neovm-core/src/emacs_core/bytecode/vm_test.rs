@@ -1361,6 +1361,23 @@ fn vm_comparisons() {
 }
 
 #[test]
+fn vm_bootstrap_comparisons_and_fixnump_handle_bignums() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_bootstrap_eval_str(
+            "(let ((x (1+ most-positive-fixnum))) (list (<= x most-positive-fixnum) (>= x most-positive-fixnum) (fixnump x) (bignump x)))"
+        ),
+        "OK (nil t nil t)"
+    );
+    assert_eq!(
+        vm_bootstrap_eval_str(
+            "(let ((x 1267650600228229401496703205376)) (list (<= x most-positive-fixnum) (>= x most-positive-fixnum) (fixnump x) (bignump x)))"
+        ),
+        "OK (nil t nil t)"
+    );
+}
+
+#[test]
 fn vm_if() {
     crate::test_utils::init_test_tracing();
     assert_eq!(vm_eval_str("(if t 1 2)"), "OK 1");

@@ -159,13 +159,23 @@ pub fn runtime_startup_context() -> Context {
 pub fn runtime_startup_eval_all(src: &str) -> Vec<String> {
     let mut eval = runtime_startup_context();
     let forms = crate::emacs_core::value_reader::read_all(src).expect("parse");
-    forms
+    // Root parsed forms across the eval loop. Heap literals like bignums,
+    // strings, and cons cells are otherwise invisible to the GC until the
+    // evaluator reaches them, which can corrupt bootstrap tests that call
+    // into bytecode and trigger collection mid-eval.
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    let results = forms
         .into_iter()
         .map(|form| {
             let result = eval.eval_form(form);
             format_eval_result(&result)
         })
-        .collect()
+        .collect();
+    eval.restore_specpdl_roots(roots);
+    results
 }
 
 /// Evaluate the first form from SRC in a cached runtime-startup evaluator and

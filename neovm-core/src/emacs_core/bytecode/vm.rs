@@ -1341,7 +1341,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Integerp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_fixnum() {
+                    *top = if top.is_integer() {
                         Value::T
                     } else {
                         Value::NIL
@@ -1349,7 +1349,7 @@ impl<'a> Vm<'a> {
                 }
                 Op::Numberp => {
                     let top = stk!().last_mut().unwrap();
-                    *top = if top.is_fixnum() || top.is_float() {
+                    *top = if top.is_number() {
                         Value::T
                     } else {
                         Value::NIL
