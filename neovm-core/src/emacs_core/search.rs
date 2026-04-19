@@ -220,57 +220,6 @@ pub(crate) fn normalize_lisp_string_start_arg(
     ))
 }
 
-fn preserve_case(replacement: &str, matched: &str) -> String {
-    super::casefiddle::apply_replace_match_case(replacement, matched)
-}
-
-fn expand_emacs_replacement(
-    rep: &str,
-    groups: &[Option<(usize, usize)>],
-    source: &str,
-    literal: bool,
-) -> String {
-    if literal {
-        return rep.to_string();
-    }
-
-    let mut out = String::with_capacity(rep.len());
-    let mut chars = rep.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
-        }
-
-        let Some(next) = chars.next() else {
-            out.push('\\');
-            break;
-        };
-
-        match next {
-            '&' => {
-                if let Some(Some((start, end))) = groups.first()
-                    && let Some(text) = source.get(*start..*end)
-                {
-                    out.push_str(text);
-                }
-            }
-            '1'..='9' => {
-                let idx = next.to_digit(10).unwrap() as usize;
-                if let Some(Some((start, end))) = groups.get(idx)
-                    && let Some(text) = source.get(*start..*end)
-                {
-                    out.push_str(text);
-                }
-            }
-            '\\' => out.push('\\'),
-            other => out.push(other),
-        }
-    }
-
-    out
-}
-
 fn flatten_match_data(md: &super::regex::MatchData) -> Value {
     let mut trailing = md.groups.len();
     while trailing > 0 && md.groups[trailing - 1].is_none() {
@@ -312,9 +261,10 @@ pub(crate) fn builtin_regexp_quote(args: Vec<Value>) -> EvalResult {
     )
 }
 
-/// Parse SUBEXP and START args (positions 5 and 6) for replace-regexp-in-string.
-fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, usize), Flow> {
-    // args[5] = SUBEXP (optional), args[6] = START (optional)
+fn parse_replace_regexp_subexp_start_lisp(
+    args: &[Value],
+    string: &crate::heap_types::LispString,
+) -> Result<(usize, usize), Flow> {
     let subexp = match args.get(5) {
         Some(v) if v.is_nil() => 0i64,
         None => 0i64,
@@ -326,95 +276,168 @@ fn parse_replace_regexp_subexp_start(args: &[Value], s: &str) -> Result<(i64, us
             vec![
                 Value::fixnum(subexp),
                 Value::fixnum(0),
-                Value::fixnum(s.len() as i64),
+                Value::fixnum(string.schars() as i64),
             ],
         ));
     }
-    let start = normalize_string_start_arg(s, args.get(6))?;
-    Ok((subexp, start))
+    let start = normalize_lisp_string_start_arg(string, args.get(6))?;
+    Ok((subexp as usize, start))
 }
 
-/// Core implementation for replace-regexp-in-string with string replacement.
-fn replace_regexp_in_string_core(
+fn storage_string_from_lisp_string(string: &crate::heap_types::LispString) -> String {
+    crate::emacs_core::string_escape::emacs_bytes_to_storage_string(
+        string.as_bytes(),
+        string.is_multibyte(),
+    )
+}
+
+fn storage_string_to_lisp_string(text: &str, multibyte: bool) -> crate::heap_types::LispString {
+    let bytes = crate::emacs_core::string_escape::storage_string_to_buffer_bytes(text, multibyte);
+    if multibyte {
+        crate::heap_types::LispString::from_emacs_bytes(bytes)
+    } else {
+        crate::heap_types::LispString::from_unibyte(bytes)
+    }
+}
+
+fn translate_match_data_to_substring(
+    match_data: &super::regex::MatchData,
+    delta: i64,
+    searched_string: super::regex::SearchedString,
+) -> super::regex::MatchData {
+    let mut translated = match_data.clone();
+    for group in translated.groups.iter_mut() {
+        if let Some((start, end)) = group {
+            *start = (*start as i64 + delta).max(0) as usize;
+            *end = (*end as i64 + delta).max(0) as usize;
+        }
+    }
+    translated.searched_string = Some(searched_string);
+    translated.searched_buffer = None;
+    translated.buffer_positions_are_bytes = false;
+    translated
+}
+
+fn replace_match_on_substring(
+    source: &crate::heap_types::LispString,
+    replacement: &crate::heap_types::LispString,
+    fixedcase: bool,
+    literal: bool,
+    subexp: usize,
+    match_data: &Option<super::regex::MatchData>,
+) -> Result<crate::heap_types::LispString, Flow> {
+    let source_storage = storage_string_from_lisp_string(source);
+    let replacement_storage = storage_string_from_lisp_string(replacement);
+    let result = super::regex::replace_match_string_with_syntax(
+        &source_storage,
+        &replacement_storage,
+        fixedcase,
+        literal,
+        subexp,
+        match_data,
+        None,
+        false,
+    )
+    .map_err(|msg| signal("error", vec![Value::string(msg)]))?;
+    Ok(storage_string_to_lisp_string(
+        &result,
+        source.is_multibyte() || replacement.is_multibyte(),
+    ))
+}
+
+fn concat_lisp_string_pieces(
+    pieces: Vec<crate::heap_types::LispString>,
+) -> crate::heap_types::LispString {
+    let mut iter = pieces.into_iter();
+    let Some(mut acc) = iter.next() else {
+        return crate::heap_types::LispString::from_unibyte(Vec::new());
+    };
+    for piece in iter {
+        acc = acc.concat(&piece);
+    }
+    acc
+}
+
+fn replace_regexp_in_string_lisp<F>(
     args: &[Value],
     case_fold: bool,
-    rep: &str,
-    start_override: Option<usize>,
-) -> EvalResult {
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[2])?;
-    let fixedcase = args.get(3).is_some_and(|v| v.is_truthy());
-    let literal = args.get(4).is_some_and(|v| v.is_truthy());
-
-    let (subexp, start) = if let Some(so) = start_override {
-        let sub = match args.get(5) {
-            Some(v) if v.is_nil() => 0i64,
-            None => 0i64,
-            Some(value) => expect_int(value)?,
-        };
-        (sub, so)
-    } else {
-        parse_replace_regexp_subexp_start(args, &s)?
-    };
-
-    let iterated =
-        super::regex::iterate_string_matches_with_case_fold(&pattern, &s, start, case_fold)
-            .map_err(|msg| signal("invalid-regexp", vec![Value::string(msg)]))?;
-
-    let max_subexp = iterated.capture_count.saturating_sub(1);
-    if (subexp as usize) > max_subexp {
-        return Err(signal(
-            "error",
-            vec![
-                Value::string("replace-match subexpression does not exist"),
-                Value::fixnum(subexp),
-            ],
-        ));
-    }
-
-    let mut out = String::with_capacity(s.len().saturating_sub(start));
+    mut replacement_for_match: F,
+) -> EvalResult
+where
+    F: FnMut(
+        &crate::heap_types::LispString,
+        &Option<super::regex::MatchData>,
+    ) -> Result<crate::heap_types::LispString, Flow>,
+{
+    let pattern = expect_lisp_string(&args[0])?;
+    let source = expect_lisp_string(&args[2])?;
+    let (_, start) = parse_replace_regexp_subexp_start_lisp(args, source)?;
     let mut cursor = start;
+    let mut search_at = start;
+    let mut pieces = Vec::new();
+    let mut match_data = None;
+    let total_chars = source.schars();
 
-    for groups in iterated.matches {
-        let Some((_, full_end)) = groups.first().and_then(|group| *group) else {
-            continue;
+    // GNU `replace-regexp-in-string` searches the original Lisp string,
+    // translates match data onto the matched substring, then runs
+    // `replace-match` semantics on that substring.
+    while search_at < source.byte_len() {
+        let found = super::regex::string_match_full_with_case_fold_source_lisp_pattern_posix(
+            pattern,
+            source,
+            super::regex::SearchedString::Heap(args[2]),
+            search_at,
+            case_fold,
+            false,
+            &mut match_data,
+        )
+        .map_err(|msg| signal("invalid-regexp", vec![Value::string(msg)]))?;
+        if found.is_none() {
+            break;
+        }
+
+        let Some(current_md) = match_data.clone() else {
+            break;
         };
-        let (replace_start, replace_end, case_source) = if subexp == 0 {
-            let Some((match_start, match_end)) = groups.first().and_then(|group| *group) else {
-                continue;
-            };
-            let Some(src) = s.get(match_start..match_end) else {
-                continue;
-            };
-            (match_start, match_end, src)
-        } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
-            let Some(src) = s.get(*group_start..*group_end) else {
-                continue;
-            };
-            (*group_start, *group_end, src)
-        } else {
-            return Err(signal(
-                "error",
-                vec![
-                    Value::string("replace-match subexpression does not exist"),
-                    Value::fixnum(subexp),
-                ],
-            ));
+        let Some((full_start_char, full_end_char)) = current_md.groups.first().and_then(|g| *g)
+        else {
+            break;
         };
 
-        out.push_str(&s[cursor..replace_start]);
-        let base = expand_emacs_replacement(rep, &groups, &s, literal);
-        let replacement = if fixedcase {
-            base
+        let match_span_end_char = if full_start_char == full_end_char {
+            (full_start_char + 1).min(total_chars)
         } else {
-            preserve_case(&base, case_source)
+            full_end_char
         };
-        out.push_str(&replacement);
-        cursor = if subexp == 0 { full_end } else { replace_end };
+        let full_start_byte = super::regex::char_pos_to_byte_lisp_string(source, full_start_char);
+        let match_span_end_byte =
+            super::regex::char_pos_to_byte_lisp_string(source, match_span_end_char);
+
+        pieces.push(
+            source
+                .slice(cursor, full_start_byte)
+                .expect("validated match prefix must slice"),
+        );
+
+        let match_span = source
+            .slice(full_start_byte, match_span_end_byte)
+            .expect("validated match span must slice");
+        let translated_md = Some(translate_match_data_to_substring(
+            &current_md,
+            -(full_start_char as i64),
+            super::regex::SearchedString::Owned(match_span.clone()),
+        ));
+        pieces.push(replacement_for_match(&match_span, &translated_md)?);
+        cursor = match_span_end_byte;
+        search_at = match_span_end_byte;
     }
 
-    out.push_str(&s[cursor..]);
-    Ok(Value::string(out))
+    pieces.push(
+        source
+            .slice(cursor, source.byte_len())
+            .expect("validated match tail must slice"),
+    );
+    Ok(Value::heap_string(concat_lisp_string_pieces(pieces)))
 }
 
 /// Route symbol-value reads through the full GNU lookup path so
@@ -437,122 +460,71 @@ pub(crate) fn builtin_replace_regexp_in_string(
         .map(|value| !value.is_nil())
         .unwrap_or(false);
 
-    // Check if REP is a string or a function
-    let rep_is_string = args[1].as_utf8_str().is_some();
-
-    if rep_is_string {
-        let rep = expect_string(&args[1])?;
-        return replace_regexp_in_string_core(&args, case_fold, &rep, None);
-    }
-
-    // REP is a function — call it with each matched string.
-    let func = args[1];
-    let pattern = expect_string(&args[0])?;
-    let s = expect_string(&args[2])?;
     let fixedcase = args.get(3).is_some_and(|v| v.is_truthy());
-    let _literal = args.get(4).is_some_and(|v| v.is_truthy());
-    let (subexp, start) = parse_replace_regexp_subexp_start(&args, &s)?;
+    let literal = args.get(4).is_some_and(|v| v.is_truthy());
+    let (subexp, _) = parse_replace_regexp_subexp_start_lisp(&args, expect_lisp_string(&args[2])?)?;
 
-    let iterated =
-        super::regex::iterate_string_matches_with_case_fold(&pattern, &s, start, case_fold)
-            .map_err(|msg| signal("invalid-regexp", vec![Value::string(msg)]))?;
-
-    let max_subexp = iterated.capture_count.saturating_sub(1);
-    if (subexp as usize) > max_subexp {
-        return Err(signal(
-            "error",
-            vec![
-                Value::string("replace-match subexpression does not exist"),
-                Value::fixnum(subexp),
-            ],
-        ));
+    if args[1].is_string() {
+        let replacement = expect_lisp_string(&args[1])?.clone();
+        return replace_regexp_in_string_lisp(&args, case_fold, |match_span, translated_md| {
+            replace_match_on_substring(
+                match_span,
+                &replacement,
+                fixedcase,
+                literal,
+                subexp,
+                translated_md,
+            )
+        });
     }
 
-    let search_region = &s[start..];
-    let mut out = String::with_capacity(search_region.len());
-    let mut cursor = start;
-    let prefix_chars = s[..start].chars().count();
-    let searched_string = match args[2].kind() {
-        ValueKind::String => super::regex::SearchedString::Heap(args[2]),
-        _ => super::regex::SearchedString::Owned(crate::heap_types::LispString::from_utf8(&s)),
-    };
-
+    let func = args[1];
     let gc_roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(func);
+    let saved_match_data = eval.match_data.clone();
 
     let result = (|| -> EvalResult {
-        for groups in &iterated.matches {
-            let Some((full_start, full_end)) = groups.first().and_then(|group| *group) else {
-                continue;
-            };
-
-            let (replace_start, replace_end, case_source) = if subexp == 0 {
-                let Some(src) = s.get(full_start..full_end) else {
-                    continue;
-                };
-                (full_start, full_end, src.to_string())
-            } else if let Some(Some((group_start, group_end))) = groups.get(subexp as usize) {
-                let Some(src) = s.get(*group_start..*group_end) else {
-                    continue;
-                };
-                (*group_start, *group_end, src.to_string())
-            } else {
+        replace_regexp_in_string_lisp(&args, case_fold, |match_span, translated_md| {
+            // GNU wraps the whole function in `save-match-data`, but each REP
+            // callback observes the translated substring-local match data.
+            eval.match_data = translated_md.clone();
+            let Some((match_start, match_end)) = translated_md
+                .as_ref()
+                .and_then(|md| md.groups.first().and_then(|group| *group))
+            else {
                 return Err(signal(
                     "error",
                     vec![
                         Value::string("replace-match subexpression does not exist"),
-                        Value::fixnum(subexp),
+                        Value::fixnum(subexp as i64),
                     ],
                 ));
             };
-
-            // Set match-data so the function can call match-string etc.
-            // In Emacs, replace-regexp-in-string calls string-match on the
-            // whole STRING with START, so match positions are character
-            // positions relative to the whole string.
-            let mut match_groups = Vec::with_capacity(groups.len());
-            for group in groups {
-                match_groups.push(group.map(|(group_start, group_end)| {
-                    let cs = search_region[..group_start - start].chars().count() + prefix_chars;
-                    let ce = search_region[..group_end - start].chars().count() + prefix_chars;
-                    (cs, ce)
-                }));
-            }
-            eval.match_data = Some(super::regex::MatchData {
-                groups: match_groups,
-                searched_string: Some(searched_string.clone()),
-                searched_buffer: None,
-                buffer_positions_are_bytes: false,
-            });
-
-            out.push_str(&s[cursor..replace_start]);
-
-            // Call the function with the matched string
-            let matched_str = &s[full_start..full_end];
-            let func_result = eval.apply(func, vec![Value::string(matched_str)])?;
-            let base = match func_result.as_utf8_str() {
-                Some(s) => s.to_string(),
-                None => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("stringp"), func_result],
-                    ));
-                }
-            };
-
-            let replacement = if fixedcase {
-                base
-            } else {
-                preserve_case(&base, &case_source)
-            };
-            out.push_str(&replacement);
-            cursor = if subexp == 0 { full_end } else { replace_end };
-        }
-
-        out.push_str(&s[cursor..]);
-        Ok(Value::string(out))
+            let match_start_byte =
+                super::regex::char_pos_to_byte_lisp_string(match_span, match_start);
+            let match_end_byte = super::regex::char_pos_to_byte_lisp_string(match_span, match_end);
+            let matched = match_span
+                .slice(match_start_byte, match_end_byte)
+                .expect("translated match bounds must slice");
+            let func_result = eval.apply(func, vec![Value::heap_string(matched)])?;
+            let replacement = func_result.as_lisp_string().ok_or_else(|| {
+                signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("stringp"), func_result],
+                )
+            })?;
+            replace_match_on_substring(
+                match_span,
+                replacement,
+                fixedcase,
+                literal,
+                subexp,
+                translated_md,
+            )
+        })
     })();
 
+    eval.match_data = saved_match_data;
     eval.restore_specpdl_roots(gc_roots);
     result
 }
