@@ -415,11 +415,15 @@ fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
         fs::read_to_string(&subr_x_path).unwrap_or_else(|err| panic!("read subr-x.el: {err}"));
     let subr_x_forms =
         crate::emacs_core::value_reader::read_all(&subr_x_source).expect("parse subr-x.el");
-    let mut found_string_chop_newline = false;
+    let roots = eval.save_specpdl_roots();
     for form in &subr_x_forms {
+        eval.push_specpdl_root(*form);
+    }
+    let mut found_string_chop_newline = false;
+    for (index, form) in subr_x_forms.iter().enumerate() {
         eval.eval_form(*form).unwrap_or_else(|err| {
             panic!(
-                "eval subr-x prefix from {}: {}",
+                "eval subr-x prefix from {} form #{index}: {}",
                 subr_x_path.display(),
                 format_eval_error(&eval, &err)
             )
@@ -429,6 +433,7 @@ fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
             break;
         }
     }
+    eval.restore_specpdl_roots(roots);
     assert!(
         found_string_chop_newline,
         "subr-x.el should define string-chop-newline before later helpers"
