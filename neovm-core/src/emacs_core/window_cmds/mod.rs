@@ -137,14 +137,8 @@ fn parse_integer_or_marker_arg(value: &Value) -> Result<IntegerOrMarkerArg, Flow
     match value.kind() {
         ValueKind::Fixnum(n) => Ok(IntegerOrMarkerArg::Int(n)),
         _ if value.is_marker() => {
-            let position = if let Some(elems) = value.as_vector_data() {
-                match elems.get(2).map(|v| v.kind()) {
-                    Some(ValueKind::Fixnum(n)) => Some(n),
-                    _ => None,
-                }
-            } else {
-                None
-            };
+            let position =
+                super::marker::marker_logical_fields(value).and_then(|(_, position, _)| position);
             Ok(IntegerOrMarkerArg::Marker {
                 raw: *value,
                 position,
@@ -3987,7 +3981,6 @@ pub(crate) fn builtin_set_window_buffer(
             }
             if old_buffer_id != buf_id {
                 let old_buffer_value = Value::make_buffer(old_buffer_id);
-                let new_buffer_value = Value::make_buffer(buf_id);
                 let old_window_start_pos = old_window_start.max(1) as i64;
                 let old_point_pos = old_point.max(1) as i64;
                 let history_entry = Value::list(vec![
@@ -4005,7 +3998,7 @@ pub(crate) fn builtin_set_window_buffer(
                 ]);
                 let filtered_prev = filtered_window_prev_buffers(
                     frames.window_prev_buffers(wid),
-                    &[old_buffer_value, new_buffer_value],
+                    &[old_buffer_value],
                 )?;
                 frames.set_window_next_buffers(wid, Value::NIL);
                 if should_record_window_history_buffer(
@@ -4626,6 +4619,56 @@ fn request_live_gui_frame_resize(
     Ok(())
 }
 
+fn request_live_gui_frame_resize_and_keep_pending(
+    frames: &mut FrameManager,
+    display_host: &mut Option<Box<dyn super::eval::DisplayHost>>,
+    fid: FrameId,
+    desired_cols: i64,
+    desired_total_lines: i64,
+) -> Result<(), Flow> {
+    let (text_width_px, text_height_px) =
+        live_gui_resize_pixels_from_logical_size(frames, fid, desired_cols, desired_total_lines)?;
+    let (total_width_px, total_height_px, title, geometry_hints) = {
+        let frame = frames
+            .get(fid)
+            .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+        let non_text_width = frame_non_text_width_pixels_in_state(frames, fid);
+        let non_text_height = frame_non_text_height_pixels(frame);
+        (
+            text_width_px.saturating_add(non_text_width).max(1),
+            text_height_px.saturating_add(non_text_height).max(1),
+            frame.host_title_lisp_string(),
+            frame.gui_geometry_hints(),
+        )
+    };
+
+    let Some(host) = display_host.as_mut() else {
+        return request_live_gui_frame_resize(
+            frames,
+            display_host,
+            fid,
+            text_width_px,
+            text_height_px,
+            false,
+        );
+    };
+
+    host.resize_gui_frame(super::eval::GuiFrameHostRequest {
+        frame_id: fid,
+        width: total_width_px,
+        height: total_height_px,
+        title,
+        geometry_hints,
+    })
+    .map_err(|message| signal("error", vec![Value::string(message)]))?;
+
+    let frame = frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    frame.queue_pending_gui_resize(desired_cols, desired_total_lines, true);
+    Ok(())
+}
+
 fn flush_pending_live_gui_resize(
     eval: &mut super::eval::Context,
     fid: FrameId,
@@ -4654,14 +4697,18 @@ fn flush_pending_live_gui_resize(
         text_height_px
     );
 
-    request_live_gui_frame_resize(
-        &mut eval.frames,
-        &mut eval.display_host,
-        fid,
-        text_width_px,
-        text_height_px,
-        false,
-    )
+    if pending.host_request_sent {
+        Ok(())
+    } else {
+        request_live_gui_frame_resize(
+            &mut eval.frames,
+            &mut eval.display_host,
+            fid,
+            text_width_px,
+            text_height_px,
+            false,
+        )
+    }
 }
 
 // ===========================================================================
@@ -5366,14 +5413,34 @@ pub(crate) fn builtin_set_frame_height(
     };
     let text_height_px = check_frame_pixels(&args[1], pixelwise, char_height)?;
     if uses_window_system_pixels {
-        request_live_gui_frame_resize(
-            &mut ctx.frames,
-            &mut ctx.display_host,
-            fid,
-            current_text_width_px,
-            text_height_px,
-            pretend,
-        )?;
+        if ctx.display_host.is_some() && !pretend {
+            let desired_cols = {
+                let frame = ctx
+                    .frames
+                    .get(fid)
+                    .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+                frame_total_cols(frame)
+            };
+            let desired_total_lines = ((text_height_px as f32) / char_height.max(1.0))
+                .floor()
+                .max(1.0) as i64;
+            request_live_gui_frame_resize_and_keep_pending(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                desired_cols,
+                desired_total_lines,
+            )?;
+        } else {
+            request_live_gui_frame_resize(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                current_text_width_px,
+                text_height_px,
+                pretend,
+            )?;
+        }
     } else {
         let cols = {
             let frame = &mut ctx
@@ -5421,14 +5488,34 @@ pub(crate) fn builtin_set_frame_width(
     };
     let text_width_px = check_frame_pixels(&args[1], pixelwise, char_width)?;
     if uses_window_system_pixels {
-        request_live_gui_frame_resize(
-            &mut ctx.frames,
-            &mut ctx.display_host,
-            fid,
-            text_width_px,
-            current_text_height_px,
-            pretend,
-        )?;
+        if ctx.display_host.is_some() && !pretend {
+            let desired_cols = ((text_width_px as f32) / char_width.max(1.0))
+                .floor()
+                .max(1.0) as i64;
+            let desired_total_lines = {
+                let frame = ctx
+                    .frames
+                    .get(fid)
+                    .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+                frame_total_lines(frame)
+            };
+            request_live_gui_frame_resize_and_keep_pending(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                desired_cols,
+                desired_total_lines,
+            )?;
+        } else {
+            request_live_gui_frame_resize(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                text_width_px,
+                current_text_height_px,
+                pretend,
+            )?;
+        }
     } else {
         let text_lines = {
             let frame = &mut ctx
@@ -5486,14 +5573,30 @@ pub(crate) fn builtin_set_frame_size(
         char_height
     );
     if uses_window_system_pixels {
-        request_live_gui_frame_resize(
-            &mut ctx.frames,
-            &mut ctx.display_host,
-            fid,
-            text_width_px,
-            text_height_px,
-            false,
-        )?;
+        let desired_cols = ((text_width_px as f32) / char_width.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        let desired_total_lines = ((text_height_px as f32) / char_height.max(1.0))
+            .floor()
+            .max(1.0) as i64;
+        if ctx.display_host.is_some() {
+            request_live_gui_frame_resize_and_keep_pending(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                desired_cols,
+                desired_total_lines,
+            )?;
+        } else {
+            request_live_gui_frame_resize(
+                &mut ctx.frames,
+                &mut ctx.display_host,
+                fid,
+                text_width_px,
+                text_height_px,
+                false,
+            )?;
+        }
     } else {
         let cols = ((text_width_px as f32) / char_width.max(1.0))
             .floor()
@@ -6354,7 +6457,7 @@ pub(crate) fn builtin_modify_frame_parameters(
                     .frames
                     .get_mut(fid)
                     .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
-                frame.queue_pending_gui_resize(desired_cols, desired_total_lines);
+                frame.queue_pending_gui_resize(desired_cols, desired_total_lines, false);
             } else {
                 let (text_width_px, text_height_px) = live_gui_resize_pixels_from_logical_size(
                     &eval.frames,

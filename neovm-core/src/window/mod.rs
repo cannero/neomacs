@@ -1192,6 +1192,7 @@ pub struct FrameWindowHookRecord {
 pub struct PendingGuiResize {
     pub width_cols: i64,
     pub total_lines: i64,
+    pub host_request_sent: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1582,11 +1583,17 @@ impl Frame {
         self.defer_next_gui_parameter_resize || self.pending_gui_resize.is_some()
     }
 
-    pub fn queue_pending_gui_resize(&mut self, width_cols: i64, total_lines: i64) {
+    pub fn queue_pending_gui_resize(
+        &mut self,
+        width_cols: i64,
+        total_lines: i64,
+        host_request_sent: bool,
+    ) {
         self.defer_next_gui_parameter_resize = false;
         self.pending_gui_resize = Some(PendingGuiResize {
             width_cols,
             total_lines,
+            host_request_sent,
         });
     }
 

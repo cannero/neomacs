@@ -5843,8 +5843,6 @@ impl Context {
             return Ok(());
         }
 
-        self.sync_pending_resize_events();
-
         let throw_on_input = self
             .obarray
             .symbol_value_id(self.throw_on_input_symbol)
