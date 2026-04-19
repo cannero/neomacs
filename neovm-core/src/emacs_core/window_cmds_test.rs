@@ -2598,7 +2598,7 @@ fn window_geometry_queries_match_batch_alias_and_edge_shapes() {
     );
     assert_eq!(
         out[2],
-        "OK ((wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-valid-p 999999) (wrong-type-argument window-valid-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (error \"999999 is not a live window\") (error \"999999 is not a valid window\") (error \"999999 is not a live window\") (error \"999999 is not a valid window\") (wrong-number-of-arguments window-text-height 3) (wrong-number-of-arguments window-mode-line-height 2) wrong-number-of-arguments (0 0 80 24) (wrong-number-of-arguments window-edges 5))"
+        "OK ((wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-valid-p 999999) (wrong-type-argument window-valid-p 999999) (wrong-type-argument window-live-p 999999) (wrong-type-argument window-live-p 999999) (error \"999999 is not a live window\") (error \"999999 is not a valid window\") (error \"999999 is not a live window\") (error \"999999 is not a valid window\") (wrong-number-of-arguments window-text-height 3) (wrong-number-of-arguments window-mode-line-height 2) wrong-number-of-arguments (0 0 80 24) (wrong-number-of-arguments (0 . 4) 5))"
     );
 }
 
@@ -3215,9 +3215,10 @@ fn x_create_frame_creates_opening_frame_and_notifies_host() {
     let requests = host.realized.clone();
     ev.set_display_host(Box::new(host));
 
+    let title = Value::heap_string(LispString::from_utf8("Neomacs"));
     let params = Value::list(vec![
-        Value::cons(Value::symbol("name"), Value::string("Neomacs")),
-        Value::cons(Value::symbol("title"), Value::string("Neomacs")),
+        Value::cons(Value::symbol("name"), title),
+        Value::cons(Value::symbol("title"), title),
         Value::cons(Value::symbol("width"), Value::fixnum(80)),
         Value::cons(Value::symbol("height"), Value::fixnum(25)),
     ]);
