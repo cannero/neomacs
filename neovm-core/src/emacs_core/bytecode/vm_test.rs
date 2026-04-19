@@ -6346,7 +6346,7 @@ fn vm_format_mode_line_coding_and_remote_specs_match_gnu() {
                  (set (make-local-variable 'buffer-file-coding-system) 'utf-8-unix)
                  (format-mode-line "%z|%Z|%@"))"#
         ),
-        r#"OK "U|U:|-""#
+        r#"OK "UUU|UUU:|-""#
     );
 }
 

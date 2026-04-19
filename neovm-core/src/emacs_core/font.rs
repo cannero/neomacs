@@ -4323,20 +4323,15 @@ pub(crate) fn builtin_internal_set_alternative_font_registry_alist(args: Vec<Val
         let mut converted = Vec::with_capacity(members.len());
         let mut names = Vec::with_capacity(members.len());
         for member in members {
-            let text = match member.kind() {
-                ValueKind::String => member.as_lisp_string().expect("checked string").clone(),
-                _other => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("stringp"), member],
-                    ));
-                }
-            };
-            let downcased = ascii_downcase_lisp_string(&text);
-            converted.push(Value::heap_string(downcased.clone()));
-            names.push(downcased);
+            let downcased = crate::emacs_core::builtins::builtin_downcase(vec![member])?;
+            if let Some(text) = downcased.as_lisp_string() {
+                names.push(text.clone());
+            }
+            converted.push(downcased);
         }
-        if let Some(name) = names.first().cloned() {
+        if names.len() == converted.len()
+            && let Some(name) = names.first().cloned()
+        {
             alist.push((name, names));
         }
         normalized.push(Value::list(converted));
