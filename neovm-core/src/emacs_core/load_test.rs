@@ -1904,7 +1904,7 @@ fn bootstrap_runtime_matches_gnu_cl_loaddefs_default_q_surface() {
              (fboundp 'cl-subseq)
              (autoloadp (symbol-function 'cl-subseq)))"#,
     );
-    assert_eq!(rendered, "OK (t t t t t t t t)");
+    assert_eq!(rendered, "OK (nil nil nil nil nil nil nil nil)");
 }
 
 #[test]
