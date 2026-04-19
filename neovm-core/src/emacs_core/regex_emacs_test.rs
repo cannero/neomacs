@@ -212,6 +212,15 @@ fn test_fastmap_charset_not() {
 }
 
 #[test]
+fn test_unterminated_charset_reports_gnu_ebrack() {
+    crate::test_utils::init_test_tracing();
+    match regex_compile("[invalid", false, false) {
+        Ok(_) => panic!("unterminated charset should fail"),
+        Err(err) => assert_eq!(err.message, "Unmatched [ or [^"),
+    }
+}
+
+#[test]
 fn test_multibyte_charset() {
     crate::test_utils::init_test_tracing();
     let syn = DefaultSyntaxLookup;

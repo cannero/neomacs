@@ -1283,11 +1283,21 @@ fn compile_charset(
     pattern_multibyte: bool,
 ) -> Result<(), RegexCompileError> {
     let plen = pattern.len();
+    if *p >= plen {
+        return Err(RegexCompileError {
+            message: "Unmatched [ or [^".to_string(),
+        });
+    }
 
     // Check for negation
     let negate = *p < plen && pattern[*p] == b'^';
     if negate {
         *p += 1;
+        if *p >= plen {
+            return Err(RegexCompileError {
+                message: "Unmatched [ or [^".to_string(),
+            });
+        }
     }
 
     let op = if negate {
@@ -1318,6 +1328,7 @@ fn compile_charset(
     // Special case: ] at start is literal
     let mut first = true;
     let mut last_char: Option<char> = None; // Track last single char for ranges
+    let mut closed = false;
 
     while *p < plen {
         let b = pattern[*p];
@@ -1328,6 +1339,7 @@ fn compile_charset(
         *p += clen;
 
         if b == b']' && !first {
+            closed = true;
             break;
         }
         first = false;
@@ -1447,6 +1459,12 @@ fn compile_charset(
             add_multibyte_range(&mut mb_ranges, c, c, case_fold);
         }
         last_char = Some(c);
+    }
+
+    if !closed {
+        return Err(RegexCompileError {
+            message: "Unmatched [ or [^".to_string(),
+        });
     }
 
     // Store multibyte ranges if any were collected.
