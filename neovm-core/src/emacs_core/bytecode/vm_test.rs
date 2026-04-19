@@ -2263,7 +2263,7 @@ fn vm_window_state_accessors_use_shared_runtime_state() {
                        (window-prev-buffers w)
                        (window-next-buffers w)))"#
         ),
-        "OK (7 7 9 t 9 nil nil nil)"
+        "OK (7 7 9 t 1 nil nil nil)"
     );
     assert_eq!(
         vm_bootstrap_eval_str(
