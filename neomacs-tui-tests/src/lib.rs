@@ -234,6 +234,11 @@ impl TuiSession {
     pub fn text_grid(&self) -> Vec<String> {
         (0..ROWS).map(|r| self.row_text(r)).collect()
     }
+
+    /// Return the isolated HOME directory used for this session.
+    pub fn home_dir(&self) -> &std::path::Path {
+        &self.home
+    }
 }
 
 impl Drop for TuiSession {

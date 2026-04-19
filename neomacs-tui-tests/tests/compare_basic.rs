@@ -449,10 +449,7 @@ fn mx_view_hello_file() {
 ///   - `global-eldoc-mode` is on by default in NEO and adds " ElDoc" to
 ///     the mode-line minor-mode list, which GNU omits.
 ///
-/// When all four gaps are closed, remove `#[ignore]` and this test will
-/// guard against any regression of exact-screen parity.
 #[test]
-#[ignore = "tracks known NeoMacs feature gaps: enriched-mode, VC-mode, view-mode C-h, eldoc"]
 fn mx_view_hello_file_strict_match() {
     let (mut gnu, mut neo) = boot_pair("");
 
