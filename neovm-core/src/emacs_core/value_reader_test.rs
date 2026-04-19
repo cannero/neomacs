@@ -580,8 +580,9 @@ fn dollar_hash_load_file_name() {
     assert!(v.is_nil(), "expected nil, got {v:?}");
 }
 
-/// Read forms from window.elc until form 22 (the form that loadup
-/// fails on) and assert no docstring fragment leaks out.
+/// Read forms from window.elc through the `.elc` unibyte reader path
+/// until form 22 (the form that loadup fails on) and assert no
+/// docstring fragment leaks out.
 #[test]
 fn read_window_elc_does_not_leak_docstring_fragments() {
     crate::test_utils::init_test_tracing();
@@ -593,6 +594,9 @@ fn read_window_elc_does_not_leak_docstring_fragments() {
             return;
         }
     };
+    // `.elc` loading wraps raw bytes in a Latin-1 envelope and then
+    // reads with `source_multibyte=false` so string literals can
+    // distinguish raw 8-bit bytes from genuine multibyte source text.
     let content: String = bytes.iter().map(|&b| b as char).collect();
 
     // Skip the .elc preamble: header lines starting with `;` until the
@@ -608,7 +612,7 @@ fn read_window_elc_does_not_leak_docstring_fragments() {
 
     let mut form_idx = 0;
     while form_idx < 50 {
-        let res = read_one(&content, pos);
+        let res = read_one_with_source_multibyte(&content, false, pos);
         match res {
             Ok(Some((form, next_pos))) => {
                 // Make sure we never produce a symbol whose name appears
