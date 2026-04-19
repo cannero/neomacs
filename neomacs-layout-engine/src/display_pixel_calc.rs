@@ -13,7 +13,7 @@
 //!   window-box-relative positions (in align-to mode) or widths
 //! - Fall-through to an arbitrary symbol, recursing into its value
 //!   (normally looked up via buffer-local-value in GNU; this port
-//!   accepts a caller-provided closure)
+//!   accepts a caller-provided symbol-value map)
 //! - Cons `(+ E…)` and `(- E…)` for recursive arithmetic
 //! - Cons `(NUM)` for absolute pixel count
 //! - Cons `(NUM . UNIT)` for scaled values
@@ -27,6 +27,7 @@
 //! unification plan. See `docs/plans/2026-04-11-display-engine-unification.md`.
 
 use neovm_core::emacs_core::Value;
+use std::collections::HashMap;
 
 /// Context equivalent to the fields of GNU's `struct it` that
 /// `calc_pixel_width_or_height` reads.
@@ -112,6 +113,10 @@ pub struct PixelCalcContext {
     /// evaluation to match GNU's `lnum_pixel_width` handling.
     /// GNU: `it->line_number_produced_p ? it->lnum_pixel_width : 0`.
     pub line_number_pixel_width: f64,
+
+    /// Buffer-local symbol fall-through used by GNU's
+    /// `buffer_local_value` tail in `calc_pixel_width_or_height`.
+    pub symbol_values: HashMap<String, Value>,
 }
 
 impl PixelCalcContext {
@@ -139,6 +144,7 @@ impl PixelCalcContext {
             scroll_bar_width: 0.0,
             scroll_bar_on_left: false,
             line_number_pixel_width: 0.0,
+            symbol_values: HashMap::new(),
         }
     }
 }
@@ -394,12 +400,12 @@ fn calc_symbol(
     }
 
     // GNU xdisp.c:30233 — fall through: `prop = buffer_local_value(prop,
-    // it->w->contents)`. The port doesn't currently support buffer-local
-    // fall-through. For doom-modeline and the forms we've identified in
-    // the audit, this branch is not reached. If a future user reports
-    // a missing symbol, add the fall-through via a caller-provided
-    // closure on `PixelCalcContext`.
-    // TODO(verify): buffer-local fall-through for unrecognized symbols.
+    // it->w->contents)`. The layout engine passes the relevant
+    // buffer-local values through `PixelCalcContext::symbol_values`.
+    if let Some(value) = ctx.symbol_values.get(name).copied() {
+        return calc_pixel_width_or_height(ctx, &value, width_p, align_to);
+    }
+
     None
 }
 

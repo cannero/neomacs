@@ -241,10 +241,11 @@ pub(crate) fn parse_overlay_face_runs(
     runs
 }
 
-/// An align-to entry within an overlay string: byte offset + target pixel position.
+/// An align-to entry within an overlay string.
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayAlignEntry {
     pub byte_offset: u16,
+    pub covers_bytes: u16,
     pub align_to_px: f32,
 }
 
@@ -584,15 +585,17 @@ impl LayoutEngine {
             if align_idx < spec.align_entries.len()
                 && byte_idx == spec.align_entries[align_idx].byte_offset as usize
             {
-                let target_x = spec.align_entries[align_idx].align_to_px;
+                let align = &spec.align_entries[align_idx];
+                let target_x = align.align_to_px;
                 if target_x > sl_x_offset {
                     let gap = target_x - sl_x_offset;
                     let cols = (gap / spec.char_width.max(1.0)).round() as usize;
                     // Emit `cols` individual space glyphs via the
                     // backend. The TtyDisplayBackend then materializes
                     // them as Char(' ') glyphs, matching the 3.3′
-                    // workaround for TtyRif::glyph_to_char's
-                    // single-cell Stretch rendering.
+                    // workaround retained from 3.3' so align-to
+                    // gaps remain materialized as explicit cells
+                    // instead of a single aggregated stretch glyph.
                     for _ in 0..cols {
                         backend.produce_glyph(GlyphKind::Char(' '), &current_render_face, 0);
                         sl_x_offset += spec.char_width.max(1.0);
@@ -602,8 +605,7 @@ impl LayoutEngine {
                     emit_progress(sl_x_offset);
                 }
                 align_idx += 1;
-                let (_ch, ch_len) = decode_utf8(&spec.text[byte_idx..]);
-                byte_idx += ch_len;
+                byte_idx = (align.byte_offset + align.covers_bytes) as usize;
                 continue;
             }
 
@@ -738,6 +740,7 @@ impl LayoutEngine {
         face: &ResolvedFace,
         rendered: Value,
         face_resolver: &FaceResolver,
+        symbol_values: std::collections::HashMap<String, Value>,
         kind: StatusLineKind,
         builder: Option<&mut crate::matrix_builder::GlyphMatrixBuilder>,
         on_progress: Option<&mut dyn FnMut(StatusLineOutputProgress)>,
@@ -754,6 +757,7 @@ impl LayoutEngine {
             face,
             rendered,
             face_resolver,
+            symbol_values,
             kind,
         ) {
             return self.render_status_line_spec_via_backend(
@@ -799,6 +803,7 @@ impl LayoutEngine {
         base_face: &ResolvedFace,
         rendered: Value,
         face_resolver: &FaceResolver,
+        symbol_values: std::collections::HashMap<String, Value>,
         kind: StatusLineKind,
     ) -> Option<StatusLineSpec> {
         let text = rendered.as_runtime_string_owned()?;
@@ -917,6 +922,7 @@ impl LayoutEngine {
             scroll_bar_width: 0.0,
             scroll_bar_on_left: false,
             line_number_pixel_width: 0.0,
+            symbol_values,
         };
 
         for interval in props.intervals_snapshot() {
@@ -977,6 +983,7 @@ impl LayoutEngine {
                             (interval.start as u16).min(spec.text.len().saturating_sub(1) as u16);
                         spec.align_entries.push(OverlayAlignEntry {
                             byte_offset,
+                            covers_bytes: interval.end.saturating_sub(interval.start) as u16,
                             align_to_px: target_x,
                         });
                         done = true;

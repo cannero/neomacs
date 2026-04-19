@@ -1,5 +1,6 @@
 use super::*;
 use neovm_core::emacs_core::Context;
+use std::collections::HashMap;
 
 /// Construct a realistic test context: 800x600 window, 10px char
 /// width, 20px line height, 8px left fringe, 0 margins, 0 scroll
@@ -28,6 +29,7 @@ fn test_ctx() -> PixelCalcContext {
         scroll_bar_width: 0.0,
         scroll_bar_on_left: false,
         line_number_pixel_width: 0.0,
+        symbol_values: HashMap::new(),
     }
 }
 
@@ -185,6 +187,19 @@ fn left_margin_symbol_in_width_mode_returns_margin_width() {
     let ctx = test_ctx();
     let v = Value::symbol("left-margin");
     assert_eq!(calc_pixel_width_or_height(&ctx, &v, true, None), Some(0.0));
+}
+
+#[test]
+fn unknown_symbol_falls_through_to_buffer_local_value_like_gnu() {
+    let mut ctx = test_ctx();
+    ctx.symbol_values
+        .insert("header-line-indent-width".to_string(), Value::fixnum(0));
+    let (_keep, v) = parse("(+ header-line-indent-width 1)");
+    let mut align = -1_i32;
+    assert_eq!(
+        calc_pixel_width_or_height(&ctx, &v, true, Some(&mut align)),
+        Some(10.0)
+    );
 }
 
 // ------------------------------------------------------------------

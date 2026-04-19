@@ -1,4 +1,6 @@
 use super::*;
+use neomacs_display_protocol::Rect;
+use std::collections::HashMap;
 
 // ---------------------------------------------------------------
 // Helper: build a 14-byte face run record (native-endian)
@@ -559,4 +561,236 @@ fn status_line_row_height_for_face_uses_realized_line_height_and_box() {
         engine.status_line_row_height_for_face(&face, 8.0, 12.0, 20.0),
         20.0
     );
+}
+
+#[test]
+fn build_rust_status_line_spec_preserves_display_space_align_entries() {
+    let _eval = neovm_core::emacs_core::Context::new();
+    let mut engine = LayoutEngine::new();
+    let table = neovm_core::face::FaceTable::new();
+    let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+    let rendered = Value::string("C R");
+    neovm_core::emacs_core::value::set_string_text_properties_for_value(
+        rendered,
+        vec![neovm_core::emacs_core::value::StringTextPropertyRun {
+            start: 1,
+            end: 2,
+            plist: Value::list(vec![
+                Value::symbol("display"),
+                Value::list(vec![
+                    Value::symbol("space"),
+                    Value::keyword("align-to"),
+                    Value::fixnum(1),
+                ]),
+            ]),
+        }],
+    );
+
+    let mut next_face_id = 1;
+    let spec = engine
+        .build_rust_status_line_spec(
+            0.0,
+            0.0,
+            80.0,
+            16.0,
+            1,
+            8.0,
+            12.0,
+            &mut next_face_id,
+            resolver.default_face(),
+            rendered,
+            &resolver,
+            HashMap::new(),
+            StatusLineKind::HeaderLine,
+        )
+        .expect("status line spec");
+
+    assert_eq!(spec.align_entries.len(), 1);
+    assert_eq!(spec.align_entries[0].byte_offset, 1);
+    assert_eq!(spec.align_entries[0].covers_bytes, 1);
+    assert!(spec.display_props.is_empty());
+}
+
+#[test]
+fn render_status_line_spec_skips_zero_gap_align_to_placeholder_space() {
+    let _eval = neovm_core::emacs_core::Context::new();
+    let mut engine = LayoutEngine::new();
+    let table = neovm_core::face::FaceTable::new();
+    let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+    let rendered = Value::string("C R");
+    neovm_core::emacs_core::value::set_string_text_properties_for_value(
+        rendered,
+        vec![neovm_core::emacs_core::value::StringTextPropertyRun {
+            start: 1,
+            end: 2,
+            plist: Value::list(vec![
+                Value::symbol("display"),
+                Value::list(vec![
+                    Value::symbol("space"),
+                    Value::keyword("align-to"),
+                    Value::fixnum(1),
+                ]),
+            ]),
+        }],
+    );
+
+    let mut next_face_id = 1;
+    let spec = engine
+        .build_rust_status_line_spec(
+            0.0,
+            0.0,
+            80.0,
+            16.0,
+            1,
+            8.0,
+            12.0,
+            &mut next_face_id,
+            resolver.default_face(),
+            rendered,
+            &resolver,
+            HashMap::new(),
+            StatusLineKind::HeaderLine,
+        )
+        .expect("status line spec");
+
+    let mut builder = crate::matrix_builder::GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    let _ = engine.render_status_line_spec_via_backend(&spec, Some(0), Some(&mut builder), None);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let row = &state.window_matrices[0].matrix.rows[0];
+    let glyphs = &row.glyphs[1];
+
+    assert_eq!(glyphs.len(), 2);
+    assert!(matches!(
+        glyphs.first().map(|glyph| &glyph.glyph_type),
+        Some(neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch: 'C' })
+    ));
+    assert!(matches!(
+        glyphs.get(1).map(|glyph| &glyph.glyph_type),
+        Some(neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch: 'R' })
+    ));
+}
+
+#[test]
+fn build_rust_status_line_spec_resolves_header_line_indent_width_symbol() {
+    let _eval = neovm_core::emacs_core::Context::new();
+    let mut engine = LayoutEngine::new();
+    let table = neovm_core::face::FaceTable::new();
+    let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+    let rendered = Value::string("C ");
+    neovm_core::emacs_core::value::set_string_text_properties_for_value(
+        rendered,
+        vec![neovm_core::emacs_core::value::StringTextPropertyRun {
+            start: 1,
+            end: 2,
+            plist: Value::list(vec![
+                Value::symbol("display"),
+                Value::list(vec![
+                    Value::symbol("space"),
+                    Value::keyword("align-to"),
+                    Value::list(vec![
+                        Value::symbol("+"),
+                        Value::symbol("header-line-indent-width"),
+                        Value::fixnum(1),
+                    ]),
+                ]),
+            ]),
+        }],
+    );
+
+    let mut symbol_values = HashMap::new();
+    symbol_values.insert("header-line-indent-width".to_string(), Value::fixnum(0));
+
+    let mut next_face_id = 1;
+    let spec = engine
+        .build_rust_status_line_spec(
+            0.0,
+            0.0,
+            80.0,
+            16.0,
+            1,
+            8.0,
+            12.0,
+            &mut next_face_id,
+            resolver.default_face(),
+            rendered,
+            &resolver,
+            symbol_values,
+            StatusLineKind::HeaderLine,
+        )
+        .expect("status line spec");
+
+    assert_eq!(spec.align_entries.len(), 1);
+    assert_eq!(spec.align_entries[0].byte_offset, 1);
+    assert_eq!(spec.align_entries[0].covers_bytes, 1);
+    assert!((spec.align_entries[0].align_to_px - spec.char_width).abs() < 0.001);
+}
+
+#[test]
+fn render_status_line_spec_skips_multi_byte_align_to_interval() {
+    let _eval = neovm_core::emacs_core::Context::new();
+    let mut engine = LayoutEngine::new();
+    let table = neovm_core::face::FaceTable::new();
+    let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+    let rendered = Value::string("X   Y");
+    neovm_core::emacs_core::value::set_string_text_properties_for_value(
+        rendered,
+        vec![neovm_core::emacs_core::value::StringTextPropertyRun {
+            start: 1,
+            end: 4,
+            plist: Value::list(vec![
+                Value::symbol("display"),
+                Value::list(vec![
+                    Value::symbol("space"),
+                    Value::keyword("align-to"),
+                    Value::fixnum(4),
+                ]),
+            ]),
+        }],
+    );
+
+    let mut next_face_id = 1;
+    let spec = engine
+        .build_rust_status_line_spec(
+            0.0,
+            0.0,
+            80.0,
+            16.0,
+            1,
+            8.0,
+            12.0,
+            &mut next_face_id,
+            resolver.default_face(),
+            rendered,
+            &resolver,
+            HashMap::new(),
+            StatusLineKind::HeaderLine,
+        )
+        .expect("status line spec");
+
+    assert_eq!(spec.align_entries.len(), 1);
+    assert_eq!(spec.align_entries[0].covers_bytes, 3);
+
+    let mut builder = crate::matrix_builder::GlyphMatrixBuilder::new();
+    builder.begin_window(1, 1, 10, Rect::new(0.0, 0.0, 80.0, 16.0), true);
+    let _ = engine.render_status_line_spec_via_backend(&spec, Some(0), Some(&mut builder), None);
+    builder.end_row();
+    builder.end_window();
+
+    let state = builder.finish(10, 1, 8.0, 16.0);
+    let row = &state.window_matrices[0].matrix.rows[0];
+    let glyphs = &row.glyphs[1];
+
+    assert_eq!(glyphs.len(), 5);
+    assert!(matches!(
+        glyphs.first().map(|glyph| &glyph.glyph_type),
+        Some(neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch: 'X' })
+    ));
+    assert!(matches!(
+        glyphs.last().map(|glyph| &glyph.glyph_type),
+        Some(neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch: 'Y' })
+    ));
 }

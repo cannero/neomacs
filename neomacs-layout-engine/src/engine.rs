@@ -677,6 +677,7 @@ fn eval_display_space_as_width(
         scroll_bar_width: 0.0,
         scroll_bar_on_left: false,
         line_number_pixel_width: 0.0,
+        symbol_values: std::collections::HashMap::new(),
     };
 
     // items[0] is the `space` symbol; walk the keyword-value plist
@@ -5094,6 +5095,16 @@ impl LayoutEngine {
             }
         }
 
+        let mut status_line_symbol_values = std::collections::HashMap::new();
+        if let Some(buffer) = evaluator
+            .buffer_manager()
+            .get(neovm_core::buffer::BufferId(params.buffer_id))
+        {
+            if let Some(value) = buffer.buffer_local_value("header-line-indent-width") {
+                status_line_symbol_values.insert("header-line-indent-width".to_string(), value);
+            }
+        }
+
         // Tab-line: evaluate format-mode-line with tab-line-format
         if params.tab_line_height > 0.0 {
             // Tab-line is above header-line (at the very top of the window)
@@ -5138,6 +5149,7 @@ impl LayoutEngine {
                 tl_face,
                 tab_text,
                 face_resolver,
+                status_line_symbol_values.clone(),
                 StatusLineKind::TabLine,
                 Some(&mut builder),
                 Some(&mut advance_output),
@@ -5193,6 +5205,7 @@ impl LayoutEngine {
                 hl_face,
                 header_text,
                 face_resolver,
+                status_line_symbol_values.clone(),
                 StatusLineKind::HeaderLine,
                 Some(&mut builder),
                 Some(&mut advance_output),
@@ -5263,6 +5276,7 @@ impl LayoutEngine {
                 ml_face,
                 mode_text,
                 face_resolver,
+                status_line_symbol_values.clone(),
                 StatusLineKind::ModeLine,
                 Some(&mut builder),
                 Some(&mut advance_output),
