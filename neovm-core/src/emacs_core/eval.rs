@@ -4719,7 +4719,11 @@ impl Context {
                 Ok(value) if outermost_command_loop && self.command_loop_noninteractive() => {
                     // GNU keyboard.c:1145 — end of file in batch run
                     tracing::info!("command_loop_inner: noninteractive EOF, calling kill-emacs");
-                    super::builtins::symbols::builtin_kill_emacs(self, vec![Value::T])?;
+                    match super::builtins::symbols::builtin_kill_emacs(self, vec![Value::T]) {
+                        Err(Flow::Signal(sig)) if sig.symbol == self.kill_emacs_symbol => {}
+                        Ok(_) => {}
+                        Err(flow) => return Err(flow),
+                    }
                     return Ok(value);
                 }
                 // Any other result propagates up
