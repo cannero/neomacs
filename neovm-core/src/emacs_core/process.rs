@@ -6019,16 +6019,34 @@ pub(crate) fn builtin_accept_process_output(
                 // cycle after reading bytes, so a child that exits
                 // immediately after flushing output can run its sentinel
                 // before we return.
+                let mut idle_follow_up_polls = 0usize;
                 loop {
+                    let _ = eval.processes.wait_for_output(Duration::ZERO);
+                    let _ = eval.service_wait_path_special_input_events()?;
                     let follow_up = eval.service_wait_path_once(
                         request.target_id,
                         request.just_this_one,
                         request.allow_timers,
                         false,
                     )?;
-                    if !follow_up.target_process_activity {
+                    if follow_up.target_process_activity {
+                        idle_follow_up_polls = 0;
+                        continue;
+                    }
+
+                    let target_still_running = request
+                        .target_id
+                        .and_then(|pid| eval.processes.get(pid))
+                        .is_some_and(|process| process_status_is_run(&process.status));
+                    if !target_still_running {
                         break;
                     }
+
+                    idle_follow_up_polls += 1;
+                    if idle_follow_up_polls >= 4 {
+                        break;
+                    }
+                    std::thread::yield_now();
                 }
             }
             return Ok(Value::T);
