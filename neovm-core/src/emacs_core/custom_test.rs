@@ -816,6 +816,25 @@ fn make_local_variable_ignores_lexical_bindings_like_gnu() {
 }
 
 #[test]
+fn make_local_variable_after_compiled_preread_matches_gnu() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_all(
+        r#"(let* ((fn (byte-compile
+                      '(lambda ()
+                         (unless delay-mode-hooks nil)
+                         (make-local-variable 'delay-mode-hooks)
+                         (let ((delay-mode-hooks t)) nil)
+                         (list (local-variable-p 'delay-mode-hooks)
+                               (assq 'delay-mode-hooks (buffer-local-variables))
+                               delay-mode-hooks
+                               (default-value 'delay-mode-hooks))))))
+             (with-temp-buffer
+               (funcall fn)))"#,
+    );
+    assert_eq!(result[0], "OK (t (delay-mode-hooks) nil nil)");
+}
+
+#[test]
 fn make_local_variable_constant_and_keyword_payloads_match_oracle() {
     crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(

@@ -195,6 +195,17 @@ pub(crate) fn builtin_make_local_variable(
         .unwrap_or(Value::UNBOUND);
     ctx.obarray.make_symbol_localized(resolved, default_value);
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
+        let current_buf = Value::make_buffer(current_id);
+        if let Some(blv) = ctx.obarray.blv_mut(resolved)
+            && crate::emacs_core::value::eq_value(&blv.where_buf, &current_buf)
+        {
+            // GNU `Fmake_local_variable` calls `swap_in_global_binding`
+            // before consing the new `(sym . val)` alist entry when the
+            // BLV cache is currently loaded for this buffer.
+            blv.where_buf = Value::NIL;
+            blv.found = false;
+            blv.valcell = blv.defcell;
+        }
         if let Some(buf) = ctx.buffers.get_mut(current_id) {
             // Only seed when no entry exists yet (idempotent — calling
             // make-local-variable twice doesn't double-prepend).
