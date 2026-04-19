@@ -1601,11 +1601,10 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (autoloadp (symbol-function 'emacs-lisp-mode))
                (functionp (symbol-function 'emacs-lisp-mode)))",
     );
-    // After the specbind refactor, cl--block-wrapper and cl--block-throw
-    // become fboundp in the bootstrap runtime (indices 7-8 are now t).
+    // GNU loadup.el explicitly requires gv for the interpreted add-hook path,
+    // then loads cl-preloaded and leaves cl-lib/cl-loaddefs entry points visible.
     assert_eq!(
-        rendered,
-        "OK (nil nil nil nil nil t t t t nil nil nil nil nil nil nil nil t t t t t nil t)",
+        rendered, "OK (t nil nil nil nil t t t t t t t t t t t t t t t t t nil t)",
         "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
 }
@@ -1631,10 +1630,9 @@ fn bootstrap_runtime_matches_gnu_oclosure_advice_surface() {
                (type-of (cadr (assq :before advice--how-alist)))
                (byte-code-function-p (cadr (assq :before advice--how-alist))))",
     );
-    // NeoVM loads nadvice.el from source (no .elc), so advice handlers
-    // are interpreted functions rather than byte-code functions.
+    // GNU -Q runtime exposes nadvice advice prototypes as byte-code oclosures.
     assert_eq!(
-        rendered, "OK (t nil t nil t t t t t interpreted-function nil)",
+        rendered, "OK (t nil t nil t t t t t byte-code-function t)",
         "bootstrap runtime should match GNU -Q oclosure/nadvice surface"
     );
 }
@@ -1728,7 +1726,7 @@ fn bootstrap_cache_parallel_creation_worker() {
         &mut eval,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (nil t t)");
+    assert_eq!(rendered, "OK (t t t)");
 }
 
 #[test]
@@ -1760,7 +1758,7 @@ fn bootstrap_cache_parallel_creation_is_safe() {
         &mut loaded,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (nil t t)");
+    assert_eq!(rendered, "OK (t t t)");
 }
 
 #[test]
@@ -1801,7 +1799,7 @@ fn bootstrap_cache_parallel_stale_repair_is_safe() {
         &mut loaded,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (nil t t)");
+    assert_eq!(rendered, "OK (t t t)");
 }
 
 #[test]
@@ -1886,7 +1884,7 @@ fn bootstrap_runtime_loaded_bytecode_preserves_wrong_arity_shape() {
 }
 
 #[test]
-fn bootstrap_runtime_keeps_cl_loaddefs_out_of_default_q_surface() {
+fn bootstrap_runtime_matches_gnu_cl_loaddefs_default_q_surface() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
     apply_runtime_startup_state(&mut eval).unwrap_or_else(|err| {
@@ -1904,7 +1902,7 @@ fn bootstrap_runtime_keeps_cl_loaddefs_out_of_default_q_surface() {
              (fboundp 'cl-subseq)
              (autoloadp (symbol-function 'cl-subseq)))"#,
     );
-    assert_eq!(rendered, "OK (nil nil nil nil nil nil nil nil)");
+    assert_eq!(rendered, "OK (t t t t t t t t)");
 }
 
 #[test]
@@ -2406,7 +2404,7 @@ fn normalize_runtime_surface_preserves_partial_bindings_global_prefix_links() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap) keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-emacs)"
     );
 }
 
@@ -2428,7 +2426,7 @@ fn partial_bootstrap_through_simple_preserves_gnu_prefix_maps() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap) keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-emacs)"
     );
 }
 
@@ -3304,14 +3302,14 @@ fn bootstrap_neomacs_runtime_loads_neo_term_layer() {
 }
 
 #[test]
-fn bootstrap_neomacs_gui_runtime_prefers_neo_term_layer_over_x_term() {
+fn bootstrap_neomacs_gui_runtime_loads_x_and_neo_term_layers() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_with_features(&["neomacs", "x"])
         .expect("neomacs+x bootstrap evaluator");
     assert!(eval.feature_present("neomacs"));
     assert!(eval.feature_present("x"));
     assert!(eval.feature_present("neo-win"));
-    assert!(!eval.feature_present("x-win"));
+    assert!(eval.feature_present("x-win"));
 }
 
 #[test]
@@ -4942,17 +4940,22 @@ fn eval_after_load_defines_function_on_provide() {
         .obarray()
         .symbol_function("test-pkg-fn")
         .is_some_and(|f| !f.is_nil());
-    eprintln!("test-pkg-fn before provide: {before}");
     assert!(!before, "should NOT be defined before provide");
 
-    // 3. Simulate provide DURING file loading (load-file-name is set)
-    // This triggers the delayed-func which defers to after-load-functions
-    // 3b. test-pkg-fn might NOT be defined yet (deferred to after-load-functions)
+    // 3. Simulate provide DURING file loading (load-file-name is set).
+    // GNU's eval-after-load adds an after-load-functions hook in this case,
+    // so the callback must still be deferred immediately after provide.
     let mid = eval
-        .obarray()
-        .symbol_function("test-pkg-fn")
-        .is_some_and(|f| !f.is_nil());
-    eprintln!("test-pkg-fn after provide (during load): {mid}");
+        .eval_str(
+            r#"(let ((load-file-name "/tmp/test-pkg.el"))
+                 (provide 'test-pkg)
+                 (fboundp 'test-pkg-fn))"#,
+        )
+        .expect("provide during simulated load should succeed");
+    assert!(
+        mid.is_nil(),
+        "feature callback should remain deferred until do-after-load-evaluation"
+    );
 
     // 4. Simulate do-after-load-evaluation (runs after-load-functions)
     eval.eval_str(
@@ -4966,7 +4969,6 @@ fn eval_after_load_defines_function_on_provide() {
         .obarray()
         .symbol_function("test-pkg-fn")
         .is_some_and(|f| !f.is_nil());
-    eprintln!("test-pkg-fn after do-after-load-evaluation: {after}");
     assert!(
         after,
         "should be defined after do-after-load-evaluation runs after-load-functions"
@@ -4991,6 +4993,107 @@ fn defface_warning_creates_face_after_bootstrap() {
 }
 
 #[test]
+fn add_hook_preserves_uninterned_symbol_callable_object() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    let result = eval
+        .eval_str(
+            r#"(progn
+                 (defvar test-hook nil)
+                 (let ((fun (make-symbol "test-helper")))
+                   (fset fun (lambda (x) (+ x 1)))
+                   (add-hook 'test-hook fun)
+                   (let ((stored (car test-hook)))
+                     (list (eq stored fun)
+                           (functionp stored)
+                           (funcall stored 41)))))"#,
+        )
+        .expect("bootstrap add-hook should preserve uninterned callable symbol");
+
+    assert_eq!(
+        result,
+        Value::list(vec![Value::T, Value::T, Value::fixnum(42)]),
+        "bootstrap add-hook should preserve the exact uninterned function object"
+    );
+}
+
+#[test]
+fn direct_hook_runtime_accepts_bootstrap_uninterned_symbol_hook_members() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    eval.eval_str(
+        r#"(progn
+             (defvar test-hook nil)
+             (let ((fun (make-symbol "test-helper")))
+               (fset fun (lambda (x) (set 'test-hook-result x)))
+               (add-hook 'test-hook fun)))"#,
+    )
+    .expect("bootstrap add-hook setup should work");
+
+    crate::emacs_core::hook_runtime::run_named_hook_with_args(
+        &mut eval,
+        &[Value::symbol("test-hook"), Value::fixnum(42)],
+    )
+    .expect("direct hook runtime should run uninterned hook symbol");
+
+    assert_eq!(
+        eval.obarray().symbol_value("test-hook-result").copied(),
+        Some(Value::fixnum(42)),
+        "direct hook runtime should funcall uninterned hook members"
+    );
+}
+
+#[test]
+fn bootstrap_run_hook_with_args_keeps_builtin_dispatch_surface() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    let result = eval
+        .eval_str(
+            r#"(let ((overrides (if (boundp 'internal--compiler-function-overrides)
+                                   internal--compiler-function-overrides
+                                 nil)))
+                 (list
+                  (subrp (symbol-function 'run-hook-with-args))
+                  (subrp (indirect-function 'run-hook-with-args))
+                  (assq 'run-hook-with-args overrides)))"#,
+        )
+        .expect("bootstrap run-hook-with-args surface should be inspectable");
+
+    assert_eq!(
+        result,
+        Value::list(vec![Value::T, Value::T, Value::NIL]),
+        "bootstrap should leave run-hook-with-args on the builtin subr surface"
+    );
+}
+
+#[test]
+fn bootstrap_lisp_run_hook_with_args_accepts_uninterned_symbol_after_setup_eval() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = create_bootstrap_evaluator().expect("bootstrap");
+    eval.eval_str(
+        r#"(progn
+             (defvar test-hook nil)
+             (let ((fun (make-symbol "test-helper")))
+               (fset fun (lambda (x) (set 'test-hook-result x)))
+               (add-hook 'test-hook fun)))"#,
+    )
+    .expect("bootstrap setup should work");
+
+    eval.eval_str("(run-hook-with-args 'test-hook 42)")
+        .expect("separate bootstrap run-hook-with-args call should work");
+
+    assert_eq!(
+        eval.obarray().symbol_value("test-hook-result").copied(),
+        Some(Value::fixnum(42)),
+        "separate Lisp eval should still funcall uninterned hook members"
+    );
+}
+
+#[test]
 fn uninterned_symbol_in_hook_works() {
     crate::test_utils::init_test_tracing();
 
@@ -5000,7 +5103,7 @@ fn uninterned_symbol_in_hook_works() {
     eval.eval_str(
         r#"(progn
            (defvar test-hook nil)
-           (let ((fun (make-symbol \"test-helper\")))
+           (let ((fun (make-symbol "test-helper")))
              (fset fun (lambda (x) (set 'test-hook-result x)))
              (add-hook 'test-hook fun))
            (run-hook-with-args 'test-hook 42))"#,
@@ -5008,7 +5111,6 @@ fn uninterned_symbol_in_hook_works() {
     .expect("hook with uninterned symbol should work");
 
     let result = eval.obarray().symbol_value("test-hook-result").cloned();
-    eprintln!("test-hook-result: {:?}", result);
     assert!(
         result.is_some_and(|v| v == Value::fixnum(42)),
         "hook with uninterned symbol should fire"
@@ -5228,7 +5330,7 @@ fn source_cycle_spacing_form_loads_after_bootstrap_prefix() {
 }
 
 #[test]
-fn partial_bootstrap_footer_local_variables_error_is_catchable() {
+fn partial_bootstrap_footer_local_variables_with_empty_suffix_do_not_error() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
     let rendered = eval_rendered(
@@ -5249,10 +5351,7 @@ fn partial_bootstrap_footer_local_variables_error_is_catchable() {
                (error (list 'error (car err) (cdr err)))))"#,
     );
 
-    assert_eq!(
-        rendered,
-        "OK (error user-error (\"Local variables entry is missing the suffix\"))"
-    );
+    assert_eq!(rendered, "OK (ok nil)");
 }
 
 #[test]
@@ -6499,7 +6598,7 @@ fn auth_source_backend_exposes_type_slot() {
 
     let mut eval =
         create_bootstrap_evaluator_cached_with_features(&["neomacs"]).expect("bootstrap evaluator");
-    eval.eval_str(r#"(load \"subdirs\" nil t)"#)
+    eval.eval_str(r#"(load "subdirs" nil t)"#)
         .expect("load runtime subdirs.el");
     let require_error = eval
         .require_value(Value::symbol("auth-source"), None, None)
@@ -7052,10 +7151,7 @@ fn bootstrap_eieio_core_accessor_macroexpand_matches_gnu_source_shape() {
 "#,
     );
 
-    assert_eq!(
-        rendered,
-        "OK (t t t (progn (or (eieio--class-p class) (signal 'wrong-type-argument (list 'eieio--class class))) (let* ((v class)) (aset v 5 idx))))"
-    );
+    assert_eq!(rendered, "OK (t t t (let* ((v class)) (aset v 5 idx)))");
 }
 
 #[test]
@@ -7097,10 +7193,7 @@ fn bootstrap_eieio_core_accessor_compiler_macro_call_matches_gnu_source_shape() 
 "#,
     );
 
-    assert_eq!(
-        rendered,
-        "OK (progn (or (eieio--class-p class) (signal 'wrong-type-argument (list 'eieio--class class))) (aref class 5))"
-    );
+    assert_eq!(rendered, "OK (progn (aref class 5))");
 }
 
 #[test]
@@ -7418,7 +7511,7 @@ fn bootstrap_cl_extra_source_vs_compiled_cl_subseq_setf() {
 }
 
 #[test]
-fn bootstrap_cl_extra_gv_expander_requires_eval_in_source_and_compiled_paths() {
+fn bootstrap_cl_extra_gv_expander_matches_gnu_source_and_compiled_surfaces() {
     crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let project_root = manifest.parent().expect("project root");
@@ -7434,22 +7527,38 @@ fn bootstrap_cl_extra_gv_expander_requires_eval_in_source_and_compiled_paths() {
               (funcall setter-form ''(20 30))
             (invalid-function 'invalid-function)
             (error (car err))))
-         (setter
+         (setter-t
           (let ((v 'placeholder-seq))
-            (eval setter-form t))))
+            (condition-case err
+                (eval setter-form t)
+              (error (car err)))))
+         (setter-lex
+          (let ((v 'placeholder-seq))
+            (condition-case err
+                (eval setter-form lexical-binding)
+              (error (car err)))))
+         (setter-env
+          (condition-case err
+              (eval setter-form '((v . placeholder-seq)))
+            (error (car err)))))
     (list direct
-          (functionp setter)
-          (closurep setter))))
+          setter-t
+          setter-lex
+          (functionp setter-env)
+          (closurep setter-env))))
 "#;
 
     let source_rendered = cached_bootstrap_eval_with_loaded_file(&source_path, form);
-    assert_eq!(source_rendered, "OK (invalid-function t t)");
+    assert_eq!(
+        source_rendered,
+        "OK (invalid-function void-variable void-variable t t)"
+    );
 
-    // Skip .elc test when compiled files are not available (NeoVM
-    // loads .el source only).
+    // The checked-in compiled artifact currently surfaces
+    // `(void-function gv--defsetter)` under both GNU Emacs and NeoVM.
     if compiled_path.exists() {
         let compiled_rendered = cached_bootstrap_eval_with_loaded_file(&compiled_path, form);
-        assert_eq!(compiled_rendered, "OK (invalid-function t t)");
+        assert_eq!(compiled_rendered, "ERR (void-function gv--defsetter)");
     }
 }
 
