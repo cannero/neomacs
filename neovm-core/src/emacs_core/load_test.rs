@@ -1700,7 +1700,7 @@ fn bootstrap_cache_write_lock_reports_busy_without_blocking() {
     };
     let elapsed = start.elapsed();
     assert!(
-        err.contains("lock busy"),
+        matches!(err, BootstrapCacheLockError::Busy(_)),
         "expected busy-lock error, got: {err}"
     );
     assert!(
@@ -1756,6 +1756,47 @@ fn bootstrap_cache_parallel_creation_is_safe() {
     let mut loaded =
         create_bootstrap_evaluator_cached_at_path(&[], &dump_path).expect("reload dump after race");
     apply_runtime_startup_state(&mut loaded).expect("runtime startup after race");
+    let rendered = eval_rendered(
+        &mut loaded,
+        "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
+    );
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_cache_parallel_stale_repair_is_safe() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let dump_path = dir.path().join("parallel-bootstrap-stale.pdump");
+    let exe = std::env::current_exe().expect("current test binary");
+
+    crate::emacs_core::pdump::dump_to_file(&Context::new(), &dump_path)
+        .expect("write seed bootstrap cache");
+    let mut stale_bytes = fs::read(&dump_path).expect("read initial bootstrap cache");
+    stale_bytes[12] ^= 0x01;
+    fs::write(&dump_path, stale_bytes).expect("corrupt bootstrap cache fingerprint");
+
+    let mut children = Vec::new();
+    for _ in 0..2 {
+        let mut cmd = Command::new(&exe);
+        cmd.env(BOOTSTRAP_CACHE_RACE_DUMP_ENV, &dump_path)
+            .arg("--exact")
+            .arg(BOOTSTRAP_CACHE_RACE_WORKER_TEST)
+            .arg("--nocapture");
+        children.push(cmd.spawn().expect("spawn stale-cache bootstrap worker"));
+    }
+
+    for mut child in children {
+        let status = child.wait().expect("wait for stale-cache bootstrap worker");
+        assert!(
+            status.success(),
+            "stale-cache bootstrap worker failed: {status}"
+        );
+    }
+
+    let mut loaded = create_bootstrap_evaluator_cached_at_path(&[], &dump_path)
+        .expect("reload repaired dump after stale race");
+    apply_runtime_startup_state(&mut loaded).expect("runtime startup after stale repair");
     let rendered = eval_rendered(
         &mut loaded,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",

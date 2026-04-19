@@ -8,10 +8,10 @@ command = 'prlimit --as=8589934592 --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
-# even without "bootstrap" in their name. Recent startup smoke runs take
-# around 150-160s on this tree, so the old 100s cap was causing false
-# timeouts for otherwise healthy bootstrap-heavy tests.
-slow-timeout = { period = "180s", terminate-after = 1, grace-period = "0s" }
+# even without "bootstrap" in their name. Current full loadup-based cache
+# creation can take over 300s on this tree, so the old 180s cap still causes
+# false timeouts for healthy cache-writer/bootstrap-heavy tests.
+slow-timeout = { period = "480s", terminate-after = 1, grace-period = "0s" }
 
 # Apply memory limit to all tests
 [[profile.default.scripts]]

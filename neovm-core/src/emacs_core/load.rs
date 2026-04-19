@@ -2272,38 +2272,57 @@ fn bootstrap_dump_lock_path(dump_path: &Path) -> PathBuf {
     dump_path.with_file_name(lock_name)
 }
 
+#[derive(Debug)]
+enum BootstrapCacheLockError {
+    Busy(String),
+    Other(String),
+}
+
+impl std::fmt::Display for BootstrapCacheLockError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Busy(message) | Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+fn open_bootstrap_lock_file(lock_path: &Path) -> Result<std::fs::File, String> {
+    if let Some(parent) = lock_path.parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).map_err(|err| {
+            format!(
+                "bootstrap cache lock: failed creating {}: {err}",
+                parent.display()
+            )
+        })?;
+    }
+
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path)
+        .map_err(|err| {
+            format!(
+                "bootstrap cache lock: failed opening {}: {err}",
+                lock_path.display()
+            )
+        })
+}
+
 struct BootstrapCacheWriteLock {
     #[cfg(unix)]
     file: std::fs::File,
 }
 
 impl BootstrapCacheWriteLock {
-    fn acquire(lock_path: &Path) -> Result<Self, String> {
-        if let Some(parent) = lock_path.parent()
-            && !parent.exists()
-        {
-            std::fs::create_dir_all(parent).map_err(|err| {
-                format!(
-                    "bootstrap cache lock: failed creating {}: {err}",
-                    parent.display()
-                )
-            })?;
-        }
-
+    fn acquire(lock_path: &Path) -> Result<Self, BootstrapCacheLockError> {
         #[cfg(unix)]
         {
-            let file = std::fs::OpenOptions::new()
-                .create(true)
-                .truncate(false)
-                .read(true)
-                .write(true)
-                .open(lock_path)
-                .map_err(|err| {
-                    format!(
-                        "bootstrap cache lock: failed opening {}: {err}",
-                        lock_path.display()
-                    )
-                })?;
+            let file =
+                open_bootstrap_lock_file(lock_path).map_err(BootstrapCacheLockError::Other)?;
 
             // Serialize cache creation/repair across processes while keeping
             // ordinary pdump reads lock-free.
@@ -2311,13 +2330,44 @@ impl BootstrapCacheWriteLock {
             if rc != 0 {
                 let err = std::io::Error::last_os_error();
                 if matches!(err.raw_os_error(), Some(libc::EWOULDBLOCK)) {
-                    return Err(format!(
+                    return Err(BootstrapCacheLockError::Busy(format!(
                         "bootstrap cache lock busy at {}",
                         lock_path.display()
-                    ));
+                    )));
                 }
-                return Err(format!(
+                return Err(BootstrapCacheLockError::Other(format!(
                     "bootstrap cache lock: failed locking {}: {}",
+                    lock_path.display(),
+                    err
+                )));
+            }
+
+            Ok(Self { file })
+        }
+
+        #[cfg(not(unix))]
+        {
+            let _ = lock_path;
+            Ok(Self {})
+        }
+    }
+}
+
+struct BootstrapCacheReadLock {
+    #[cfg(unix)]
+    file: std::fs::File,
+}
+
+impl BootstrapCacheReadLock {
+    fn wait(lock_path: &Path) -> Result<Self, String> {
+        #[cfg(unix)]
+        {
+            let file = open_bootstrap_lock_file(lock_path)?;
+            let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_SH) };
+            if rc != 0 {
+                let err = std::io::Error::last_os_error();
+                return Err(format!(
+                    "bootstrap cache lock: failed waiting on {}: {}",
                     lock_path.display(),
                     err
                 ));
@@ -3749,7 +3799,43 @@ pub(crate) fn create_bootstrap_evaluator_cached_at_path(
         }
     }
 
+    fn try_load_dump(
+        dump_path: &Path,
+        project_root: &Path,
+        log_context: &str,
+    ) -> Result<Option<super::eval::Context>, EvalError> {
+        let start = std::time::Instant::now();
+        match pdump::load_from_dump(dump_path) {
+            Ok(mut eval) => {
+                tracing::info!(
+                    "pdump: loaded bootstrap state from {} {} ({:.2?})",
+                    dump_path.display(),
+                    log_context,
+                    start.elapsed()
+                );
+                finalize_or_log(
+                    &mut eval,
+                    project_root,
+                    "pdump finalize after cached load failed",
+                )?;
+                Ok(Some(eval))
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "pdump: load {} failed ({err})",
+                    if log_context.is_empty() {
+                        "attempt"
+                    } else {
+                        log_context
+                    }
+                );
+                Ok(None)
+            }
+        }
+    }
+
     let project_root = runtime_project_root();
+    let lock_path = bootstrap_dump_lock_path(dump_path);
     tracing::info!("pdump: bootstrap cache candidate {}", dump_path.display());
 
     // Allow disabling pdump via env var
@@ -3761,29 +3847,46 @@ pub(crate) fn create_bootstrap_evaluator_cached_at_path(
 
     // Try loading from dump first
     if dump_path.exists() {
-        let start = std::time::Instant::now();
-        match pdump::load_from_dump(dump_path) {
-            Ok(mut eval) => {
-                tracing::info!(
-                    "pdump: loaded bootstrap state from {} ({:.2?})",
-                    dump_path.display(),
-                    start.elapsed()
-                );
-                finalize_or_log(&mut eval, &project_root, "pdump finalize failed")?;
-
-                return Ok(eval);
-            }
-            Err(e) => {
-                tracing::warn!("pdump: load failed ({e}), falling back to full bootstrap");
-            }
+        if let Some(eval) = try_load_dump(dump_path, &project_root, "on first attempt")? {
+            return Ok(eval);
         }
     } else {
         tracing::info!("pdump: bootstrap cache miss at {}", dump_path.display());
     }
 
-    let _write_lock = match BootstrapCacheWriteLock::acquire(&bootstrap_dump_lock_path(dump_path)) {
+    let _write_lock = match BootstrapCacheWriteLock::acquire(&lock_path) {
         Ok(lock) => Some(lock),
-        Err(err) => {
+        Err(BootstrapCacheLockError::Busy(err)) => {
+            tracing::info!("pdump: waiting for bootstrap cache writer ({err})");
+            match BootstrapCacheReadLock::wait(&lock_path) {
+                Ok(read_lock) => {
+                    if dump_path.exists()
+                        && let Some(eval) =
+                            try_load_dump(dump_path, &project_root, "after waiting for writer")?
+                    {
+                        return Ok(eval);
+                    }
+
+                    drop(read_lock);
+                    match BootstrapCacheWriteLock::acquire(&lock_path) {
+                        Ok(lock) => Some(lock),
+                        Err(err) => {
+                            tracing::warn!(
+                                "pdump: cache writer handoff unavailable ({err}), bootstrapping without cache"
+                            );
+                            None
+                        }
+                    }
+                }
+                Err(wait_err) => {
+                    tracing::warn!(
+                        "pdump: cache wait failed ({wait_err}), bootstrapping without cache"
+                    );
+                    None
+                }
+            }
+        }
+        Err(BootstrapCacheLockError::Other(err)) => {
             tracing::warn!("pdump: cache lock unavailable ({err}), bootstrapping without cache");
             None
         }
@@ -3801,20 +3904,8 @@ pub(crate) fn create_bootstrap_evaluator_cached_at_path(
     }
 
     if dump_path.exists() {
-        let start = std::time::Instant::now();
-        match pdump::load_from_dump(dump_path) {
-            Ok(mut eval) => {
-                tracing::info!(
-                    "pdump: loaded bootstrap state from {} after lock ({:.2?})",
-                    dump_path.display(),
-                    start.elapsed()
-                );
-                finalize_or_log(&mut eval, &project_root, "pdump finalize after lock failed")?;
-                return Ok(eval);
-            }
-            Err(e) => {
-                tracing::warn!("pdump: load after lock failed ({e}), rebuilding bootstrap cache");
-            }
+        if let Some(eval) = try_load_dump(dump_path, &project_root, "after acquiring write lock")? {
+            return Ok(eval);
         }
     }
 
