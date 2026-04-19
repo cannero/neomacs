@@ -199,3 +199,71 @@ fn find_file_other_window_via_cx4_cf() {
 
     assert_pair_nearly_matches("find_file_other_window_via_cx4_cf", &gnu, &neo, 2);
 }
+
+#[test]
+fn save_buffer_after_edit_via_cx_cs() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "save-usage.txt",
+        "alpha line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omega line");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-s");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("save-usage.txt"))
+            && grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_eq!(
+        fs::read_to_string(gnu.home_dir().join("save-usage.txt")).expect("read GNU saved file"),
+        "alpha line\nomega line\n"
+    );
+    assert_eq!(
+        fs::read_to_string(neo.home_dir().join("save-usage.txt")).expect("read Neo saved file"),
+        "alpha line\nomega line\n"
+    );
+    assert_pair_nearly_matches("save_buffer_after_edit_via_cx_cs", &gnu, &neo, 2);
+}
+
+#[test]
+fn isearch_forward_via_cs() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "search-usage.txt",
+        "alpha line\nbeta target\nomega line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-s");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"target");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("search-usage.txt"))
+            && grid.iter().any(|row| row.contains("beta target"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("isearch_forward_via_cs", &gnu, &neo, 2);
+}

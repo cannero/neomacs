@@ -3323,6 +3323,10 @@ impl LayoutEngine {
                         }
                         if space_width > 0.0 {
                             let _bg = Color::from_pixel(default_resolved.bg);
+                            self.matrix_builder.push_stretch(
+                                (space_width / face_char_w).ceil() as u16,
+                                current_face_id.saturating_sub(1),
+                            );
                             x += space_width;
                             col += (space_width / face_char_w).ceil() as usize;
                             output_emitter.emit_text_span(
@@ -3826,6 +3830,8 @@ impl LayoutEngine {
                     col,
                     next_tab,
                 );
+                self.matrix_builder
+                    .push_stretch(spaces as u16, current_face_id.saturating_sub(1));
                 x += spaces as f32 * face_space_w;
                 col = next_tab;
                 charpos += 1;

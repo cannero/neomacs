@@ -1,6 +1,7 @@
 use super::*;
 use crate::neovm_bridge::RustBufferAccess;
 use neomacs_display_protocol::frame_glyphs::GlyphRowRole;
+use neomacs_display_protocol::glyph_matrix::GlyphType;
 use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::eval::{
     DisplayHost, GuiFrameHostRequest, ImageResolveRequest, ResolvedImage,
@@ -982,6 +983,127 @@ fn layout_frame_rust_clamps_tab_hbar_cursor_width_when_x_stretch_cursor_is_nil()
 #[test]
 fn layout_frame_rust_expands_tab_hbar_cursor_width_when_x_stretch_cursor_is_t() {
     assert_layout_frame_rust_tab_cursor_width(true, Value::symbol("hbar"));
+}
+
+#[test]
+fn layout_frame_rust_emits_buffer_tab_as_stretch_glyph() {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    {
+        let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+        buf.insert("a\tb");
+    }
+
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-tab-stretch", 320, 120, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+
+    let mut engine = LayoutEngine::new();
+    engine.layout_frame_rust(&mut eval, frame_id);
+
+    let state = engine
+        .last_frame_display_state
+        .as_ref()
+        .expect("display state");
+    let window_entry = state
+        .window_matrices
+        .iter()
+        .find(|entry| entry.window_id == selected_window.0)
+        .expect("selected window matrix");
+    let text_row = window_entry
+        .matrix
+        .rows
+        .iter()
+        .find(|row| row.enabled && row.role == GlyphRowRole::Text)
+        .expect("text row");
+    let glyphs = &text_row.glyphs[1];
+
+    assert!(matches!(
+        glyphs.first().map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Char { ch: 'a' })
+    ));
+    assert!(matches!(
+        glyphs.get(1).map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Stretch { width_cols: 7 })
+    ));
+    assert!(matches!(
+        glyphs.get(2).map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Char { ch: 'b' })
+    ));
+}
+
+#[test]
+fn layout_frame_rust_emits_display_space_as_stretch_glyph() {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    let text = "a b";
+    let space_byte_start = text.find(' ').expect("space start");
+    let space_byte_end = space_byte_start + 1;
+    {
+        let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+        buf.insert(text);
+        buf.text.text_props_put_property(
+            space_byte_start,
+            space_byte_end,
+            Value::symbol("display"),
+            display_space_width_spec(4),
+        );
+    }
+
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-display-space-stretch", 320, 120, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+
+    let mut engine = LayoutEngine::new();
+    engine.layout_frame_rust(&mut eval, frame_id);
+
+    let state = engine
+        .last_frame_display_state
+        .as_ref()
+        .expect("display state");
+    let window_entry = state
+        .window_matrices
+        .iter()
+        .find(|entry| entry.window_id == selected_window.0)
+        .expect("selected window matrix");
+    let text_row = window_entry
+        .matrix
+        .rows
+        .iter()
+        .find(|row| row.enabled && row.role == GlyphRowRole::Text)
+        .expect("text row");
+    let glyphs = &text_row.glyphs[1];
+
+    assert!(matches!(
+        glyphs.first().map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Char { ch: 'a' })
+    ));
+    assert!(matches!(
+        glyphs.get(1).map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Stretch { width_cols: 4 })
+    ));
+    assert!(matches!(
+        glyphs.get(2).map(|glyph| &glyph.glyph_type),
+        Some(GlyphType::Char { ch: 'b' })
+    ));
 }
 
 fn display_space_width_spec(columns: i64) -> Value {
