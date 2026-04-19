@@ -828,10 +828,51 @@ fn workspace_pdump_paths() -> (std::path::PathBuf, std::path::PathBuf) {
     (final_path, bootstrap_path)
 }
 
+fn ensure_workspace_bootstrap_pdump_current(bootstrap_path: &std::path::Path) {
+    if load_from_dump(bootstrap_path).is_ok() {
+        return;
+    }
+
+    crate::emacs_core::load::create_bootstrap_evaluator_cached_at_path(&[], bootstrap_path)
+        .unwrap_or_else(|err| {
+            panic!(
+                "refresh workspace bootstrap pdump {}: {err}",
+                bootstrap_path.display()
+            )
+        });
+}
+
+fn ensure_workspace_final_pdump_current(
+    final_path: &std::path::Path,
+    bootstrap_path: &std::path::Path,
+) {
+    if load_from_dump(final_path).is_ok() {
+        return;
+    }
+
+    let eval =
+        crate::emacs_core::load::create_runtime_startup_evaluator_at_path(&[], bootstrap_path)
+            .unwrap_or_else(|err| {
+                panic!(
+                    "refresh workspace final pdump {} from bootstrap {}: {err}",
+                    final_path.display(),
+                    bootstrap_path.display()
+                )
+            });
+    dump_to_file(&eval, final_path).unwrap_or_else(|err| {
+        panic!(
+            "rewrite workspace final pdump {}: {err}",
+            final_path.display()
+        )
+    });
+}
+
 #[test]
 fn test_measure_current_workspace_final_pdump_performance() {
     crate::test_utils::init_test_tracing();
     let (final_path, bootstrap_path) = workspace_pdump_paths();
+    ensure_workspace_bootstrap_pdump_current(&bootstrap_path);
+    ensure_workspace_final_pdump_current(&final_path, &bootstrap_path);
     let final_size = std::fs::metadata(&final_path)
         .expect("stat final pdump")
         .len();
@@ -889,6 +930,7 @@ fn test_measure_current_workspace_final_pdump_performance() {
 fn test_measure_current_workspace_bootstrap_pdump_raw_load() {
     crate::test_utils::init_test_tracing();
     let (_final_path, bootstrap_path) = workspace_pdump_paths();
+    ensure_workspace_bootstrap_pdump_current(&bootstrap_path);
     let bootstrap_size = std::fs::metadata(&bootstrap_path)
         .expect("stat bootstrap pdump")
         .len();
