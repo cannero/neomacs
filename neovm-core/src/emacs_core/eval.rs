@@ -10744,17 +10744,44 @@ pub(crate) fn set_runtime_binding(
         return Some(buf_id);
     }
 
-    // If the buffer already has a local binding (slot-backed), write
-    // to it. Mirrors GNU `set_internal` SYMBOL_FORWARDED arm for
-    // BUFFER_OBJFWD slots.
+    // Phase 10D: ordinary `setq` on a FORWARDED BUFFER_OBJFWD symbol
+    // mirrors GNU `set_internal` (`data.c:1774-1784`):
+    //
+    //   - always-local slots write the current buffer slot directly
+    //   - conditional slots with an existing local flag write the
+    //     current buffer slot directly
+    //   - conditional slots without a local flag auto-create a local
+    //     binding, unless a surrounding `let` is shadowing the buffer
+    //     binding, in which case the write targets the default path
+    //     (`set_default_internal`)
     if symbol_is_canonical
+        && matches!(redirect, Some(SymbolRedirect::Forwarded))
         && let Some(current_id) = buffers.current_buffer_id()
-        && let Some(buf) = buffers.get(current_id)
+        && let Some(info) = crate::buffer::buffer::lookup_buffer_slot_by_sym_id(sym_id)
     {
-        if buf.has_buffer_local_by_sym_id(sym_id) {
+        let has_local = buffers
+            .get(current_id)
+            .map(|buf| info.local_flags_idx < 0 || buf.slot_local_flag(info.offset))
+            .unwrap_or(false);
+        if has_local {
             let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
             return Some(current_id);
         }
+
+        let let_shadows = specpdl.iter().rev().any(|entry| {
+            matches!(
+                entry,
+                SpecBinding::LetDefault { sym_id: s, .. } | SpecBinding::LetLocal { sym_id: s, .. }
+                    if *s == sym_id
+            )
+        });
+        if let_shadows {
+            buffers.set_buffer_default_slot(info, value);
+            return None;
+        }
+
+        let _ = buffers.set_buffer_local_property_by_sym_id(current_id, sym_id, value);
+        return Some(current_id);
     }
 
     obarray.set_symbol_value_id(sym_id, value);

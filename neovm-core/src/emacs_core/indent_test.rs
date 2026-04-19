@@ -681,7 +681,12 @@ fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
              (setq tab-width 4)
              (insert "\tb")
              (goto-char (point-max))
-             (list (current-indentation) (current-column)))"#,
+             (list (current-indentation) (current-column)))
+           (with-temp-buffer
+             (setq tab-width 4)
+             (list (local-variable-p 'tab-width (current-buffer))
+                   tab-width
+                   (default-value 'tab-width)))"#,
     );
     let printed: Vec<String> = results
         .iter()
@@ -691,6 +696,7 @@ fn eval_indent_builtins_respect_dynamic_and_buffer_local_settings() {
     assert_eq!(printed[0], "OK (4 0 4 4)");
     assert_eq!(printed[1], "OK (6 6 (9 32 32))");
     assert_eq!(printed[2], "OK (4 5)");
+    assert_eq!(printed[3], "OK (t 4 8)");
 }
 
 #[test]

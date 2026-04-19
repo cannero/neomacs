@@ -1865,8 +1865,9 @@ pub(crate) fn builtin_compute_motion(
     let text = buf.text.to_string();
     let begv = buf.begv_byte;
     let zv = buf.zv_byte;
-    let tab_width = buf
-        .get_buffer_local("tab-width")
+    let tab_width = crate::buffer::buffer::lookup_buffer_slot("tab-width")
+        .map(|info| buf.slots[info.offset])
+        .or_else(|| buf.get_buffer_local("tab-width"))
         .or_else(|| obarray.symbol_value("tab-width").copied())
         .and_then(|value: Value| match value.kind() {
             ValueKind::Fixnum(n) if n > 0 => Some(n as usize),
