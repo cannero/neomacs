@@ -29,6 +29,14 @@ fn load_display_string(value: &LispString) -> String {
     crate::emacs_core::emacs_char::to_utf8_lossy(value.as_bytes())
 }
 
+fn load_name_equal(left: &LispString, right: &LispString) -> bool {
+    crate::emacs_core::value::equal_value(
+        &Value::heap_string(left.clone()),
+        &Value::heap_string(right.clone()),
+        0,
+    )
+}
+
 #[cfg(not(unix))]
 fn load_runtime_string(value: &LispString) -> String {
     super::builtins::runtime_string_from_lisp_string(value)
@@ -1675,7 +1683,7 @@ pub(crate) fn load_file_with_requested_and_found_flags(
     let load_count = eval
         .loads_in_progress
         .iter()
-        .filter(|p| *p == found)
+        .filter(|p| load_name_equal(p, found))
         .count();
     if load_count > 3 {
         let found_value = Value::heap_string(found.clone());
