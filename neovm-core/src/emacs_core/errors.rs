@@ -328,6 +328,15 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
     );
     register_simple(obarray, "dbus-error", "D-Bus error", &["error"]);
 
+    // --- sqlite-error family ---
+    register_simple(obarray, "sqlite-error", "Database error", &["error"]);
+    register_simple(
+        obarray,
+        "sqlite-locked-error",
+        "Database locked",
+        &["sqlite-error"],
+    );
+
     // --- json-error family ---
     register_simple(obarray, "json-error", "JSON error", &["error"]);
     register_simple(

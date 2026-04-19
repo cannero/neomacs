@@ -8616,6 +8616,17 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
             .expect("gnutls-peer-status-warning-describe should evaluate");
     assert_eq!(peer_warning, Value::NIL);
 
+    let async_err = dispatch_builtin_pure(
+        "gnutls-asynchronous-parameters",
+        vec![Value::NIL, Value::NIL],
+    )
+    .expect("gnutls-asynchronous-parameters should resolve")
+    .unwrap_err();
+    match async_err {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
+        other => panic!("expected signal, got {other:?}"),
+    }
+
     let bye_err = dispatch_builtin_pure("gnutls-bye", vec![Value::NIL, Value::NIL])
         .expect("gnutls-bye should resolve")
         .unwrap_err();
@@ -8623,6 +8634,16 @@ fn dispatch_builtin_pure_handles_gnutls_runtime_placeholders() {
         Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
         other => panic!("expected signal, got {other:?}"),
     }
+
+    let deinit = dispatch_builtin_pure("gnutls-deinit", vec![Value::fixnum(1)])
+        .expect("gnutls-deinit should resolve")
+        .expect("gnutls-deinit should evaluate");
+    assert_eq!(deinit, Value::T);
+
+    let initstage = dispatch_builtin_pure("gnutls-get-initstage", vec![Value::fixnum(1)])
+        .expect("gnutls-get-initstage should resolve")
+        .expect("gnutls-get-initstage should evaluate");
+    assert_eq!(initstage, Value::fixnum(0));
 
     let cert_err = dispatch_builtin_pure("gnutls-format-certificate", vec![Value::NIL])
         .expect("gnutls-format-certificate should resolve")

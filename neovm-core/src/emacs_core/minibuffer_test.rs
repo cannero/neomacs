@@ -854,6 +854,39 @@ fn eval_minibuffer_runtime_state_preserves_raw_unibyte_prompt_and_contents() {
 }
 
 #[test]
+fn builtin_minibuffer_prompt_end_falls_back_to_point_min_without_prompt_field() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
+    {
+        let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+        let prompt_end = crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+            buf,
+            &crate::heap_types::LispString::from_utf8("Prompt: "),
+            Some(&crate::heap_types::LispString::from_utf8("vm-mini")),
+        );
+        let _ = buf
+            .text
+            .text_props_remove_property(0, prompt_end, Value::symbol("field"));
+    }
+    eval.buffers.set_current(minibuf_id);
+    eval.minibuffers
+        .read_from_minibuffer(minibuf_id, "Prompt: ", Some("vm-mini"), None)
+        .expect("enter minibuffer");
+
+    assert_eq!(
+        builtin_minibuffer_prompt_end_ctx(&mut eval, vec![]).unwrap(),
+        Value::fixnum(1)
+    );
+    assert_eq!(
+        builtin_minibuffer_contents_ctx(&mut eval, vec![])
+            .unwrap()
+            .as_utf8_str(),
+        Some("Prompt: vm-mini")
+    );
+}
+
+#[test]
 fn builtin_minibufferp_accepts_string_and_second_arg() {
     crate::test_utils::init_test_tracing();
     let result = builtin_minibufferp(vec![Value::string("x"), Value::NIL]).unwrap();

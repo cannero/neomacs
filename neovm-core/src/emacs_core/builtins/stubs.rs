@@ -1339,13 +1339,12 @@ pub(crate) fn builtin_gnutls_error_fatalp(args: Vec<Value>) -> EvalResult {
 }
 
 fn expect_processp(value: &Value) -> Result<(), Flow> {
-    if value.is_nil() {
-        Err(signal(
+    match value.kind() {
+        ValueKind::Fixnum(n) if n >= 0 => Ok(()),
+        _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("processp"), *value],
-        ))
-    } else {
-        Ok(())
+        )),
     }
 }
 
@@ -1365,6 +1364,7 @@ pub(crate) fn builtin_gnutls_peer_status_warning_describe(args: Vec<Value>) -> E
 
 pub(crate) fn builtin_gnutls_asynchronous_parameters(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-asynchronous-parameters", &args, 2)?;
+    expect_processp(&args[0])?;
     Ok(Value::NIL)
 }
 
@@ -1377,7 +1377,7 @@ pub(crate) fn builtin_gnutls_bye(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_gnutls_deinit(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-deinit", &args, 1)?;
     expect_processp(&args[0])?;
-    Ok(Value::NIL)
+    Ok(Value::T)
 }
 
 pub(crate) fn builtin_gnutls_format_certificate(args: Vec<Value>) -> EvalResult {
@@ -1389,7 +1389,7 @@ pub(crate) fn builtin_gnutls_format_certificate(args: Vec<Value>) -> EvalResult 
 pub(crate) fn builtin_gnutls_get_initstage(args: Vec<Value>) -> EvalResult {
     expect_args("gnutls-get-initstage", &args, 1)?;
     expect_processp(&args[0])?;
-    Ok(Value::NIL)
+    Ok(Value::fixnum(0))
 }
 
 pub(crate) fn builtin_gnutls_hash_digest(args: Vec<Value>) -> EvalResult {

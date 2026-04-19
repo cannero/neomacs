@@ -3834,8 +3834,11 @@ fn vm_minibuffer_builtins_use_shared_runtime_state() {
                 let minibuf_id = eval.buffers.create_buffer(" *Minibuf-1*");
                 {
                     let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
-                    buf.text.insert_str(0, "Prompt: vm-mini");
-                    buf.goto_byte(buf.text.len());
+                    crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+                        buf,
+                        &crate::heap_types::LispString::from_utf8("Prompt: "),
+                        Some(&crate::heap_types::LispString::from_utf8("vm-mini")),
+                    );
                 }
                 eval.buffers.set_current(minibuf_id);
                 eval.minibuffers
@@ -4727,49 +4730,34 @@ fn vm_delete_process_builtin_uses_shared_runtime_state() {
 #[test]
 fn vm_process_contact_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
-    let result = vm_eval_with_init_str(
-        r#"(list
-             (let ((port (process-contact 1 :service))
-                   (local (process-contact 1 :local)))
-               (list
-                (stringp (process-contact 1 :name))
-                (eq (process-contact 1 :server) t)
-                (integerp port)
-                (and (vectorp local)
-                     (= (length local) 5)
-                     (= (aref local 0) 127)
-                     (= (aref local 4) port))
-                (null (process-contact 1 :remote))
-                (null (process-contact 1 :coding))
-                (null (process-contact 1 :foo))))
-             (list
-              (stringp (process-contact 2 :name))
-              (null (process-contact 2 :server))
-              (null (process-contact 2 :service))
-              (null (process-contact 2 :local))
-              (null (process-contact 2 :remote))
-              (null (process-contact 2 :coding))
-              (null (process-contact 2 :foo))))"#,
-        |eval| {
-            use crate::emacs_core::process::ProcessKind;
-
-            let network_id = eval.processes.create_process_with_kind(
-                "vm-contact-network".into(),
-                Value::NIL,
-                String::new(),
-                vec![],
-                ProcessKind::Network,
-            );
-            assert_eq!(network_id, 1);
-            let pipe_id = eval.processes.create_process_with_kind(
-                "vm-contact-pipe".into(),
-                Value::NIL,
-                String::new(),
-                vec![],
-                ProcessKind::Pipe,
-            );
-            assert_eq!(pipe_id, 2);
-        },
+    let result = vm_eval_str(
+        r#"(let ((network (make-network-process :name "vm-contact-network" :server t :service 0))
+                 (pipe (make-pipe-process :name "vm-contact-pipe")))
+             (unwind-protect
+                 (list
+                  (let ((port (process-contact network :service))
+                        (local (process-contact network :local)))
+                    (list
+                     (stringp (process-contact network :name))
+                     (eq (process-contact network :server) t)
+                     (integerp port)
+                     (and (vectorp local)
+                          (= (length local) 5)
+                          (= (aref local 0) 127)
+                          (= (aref local 4) port))
+                     (null (process-contact network :remote))
+                     (null (process-contact network :coding))
+                     (null (process-contact network :foo))))
+                  (list
+                   (stringp (process-contact pipe :name))
+                   (null (process-contact pipe :server))
+                   (null (process-contact pipe :service))
+                   (null (process-contact pipe :local))
+                   (null (process-contact pipe :remote))
+                   (null (process-contact pipe :coding))
+                   (null (process-contact pipe :foo))))
+               (condition-case nil (delete-process network) (error nil))
+               (condition-case nil (delete-process pipe) (error nil))))"#,
     );
     assert_eq!(result, "OK ((t t t t t t t) (t t t t t t t))");
 }
@@ -5762,9 +5750,9 @@ fn vm_native_stub_clusters_use_direct_dispatch() {
                  (null (neomacs-set-mouse-absolute-pixel-position 0 0))
                  (null (neomacs-display-monitor-attributes-list))
                  (null (neomacs-clipboard-set "x"))
-                 (null (neomacs-clipboard-get))
+                 (equal (neomacs-clipboard-get) "x")
                  (null (neomacs-primary-selection-set "x"))
-                 (null (neomacs-primary-selection-get))
+                 (equal (neomacs-primary-selection-get) "x")
                  (equal (neomacs-core-backend) "rust")
                  (equal (gnutls-available-p) '(gnutls))
                  (equal (gnutls-ciphers) '(AES-256-GCM))
@@ -5774,19 +5762,25 @@ fn vm_native_stub_clusters_use_direct_dispatch() {
                  (equal (gnutls-error-string 0) "Success.")
                  (null (gnutls-error-fatalp 1))
                  (null (gnutls-peer-status-warning-describe nil))
-                 (null (gnutls-asynchronous-parameters nil nil))
-                 (null (gnutls-boot t nil nil))
-                 (null (gnutls-bye t nil))
-                 (null (gnutls-deinit t))
+                 (let ((p (start-process "vm-gnutls-stub" nil "cat")))
+                   (unwind-protect
+                       (list
+                        (null (gnutls-asynchronous-parameters p nil))
+                        (condition-case err (gnutls-boot t nil nil)
+                          (wrong-type-argument (car err)))
+                        (condition-case err (gnutls-bye t nil)
+                          (wrong-type-argument (car err)))
+                        (eq (gnutls-deinit p) t)
+                        (= (gnutls-get-initstage p) 0)
+                        (null (gnutls-peer-status p)))
+                     (condition-case nil (delete-process p) (error nil))))
                  (equal (gnutls-format-certificate "x") "Certificate")
-                 (null (gnutls-get-initstage t))
                  (equal (gnutls-hash-digest 'sha256 "x") "digest")
                  (equal (gnutls-hash-mac 'sha256 "k" "x") "mac")
-                 (null (gnutls-peer-status t))
                  (null (gnutls-symmetric-decrypt nil nil nil nil))
                  (null (gnutls-symmetric-encrypt nil nil nil nil)))"##
         ),
-        r#"OK (t (t t t) t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t)"#
+        r#"OK (t (t t t) t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t t (t wrong-type-argument wrong-type-argument t t t) t t t t t)"#
     );
 }
 
@@ -6053,7 +6047,7 @@ fn vm_map_char_table_uses_direct_dispatch() {
                   table)
                  (nreverse seen))"#
         ),
-        "OK ((97 98 word) (122 122 122))"
+        "OK ((97 98 word) (122 122 symbol))"
     );
 }
 

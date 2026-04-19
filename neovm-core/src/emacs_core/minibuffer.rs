@@ -1084,20 +1084,46 @@ pub(crate) fn builtin_minibuffer_prompt_end_ctx(
 ) -> EvalResult {
     expect_args("minibuffer-prompt-end", &args, 0)?;
 
-    let Some(buffer) = eval.buffers.current_buffer() else {
+    let Some((current_id, point_min, point_max)) = eval.buffers.current_buffer().map(|buffer| {
+        (
+            buffer.id,
+            buffer.point_min_char() as i64 + 1,
+            buffer.point_max_char() as i64 + 1,
+        )
+    }) else {
         return Ok(Value::fixnum(1));
     };
-    let point_min = buffer.point_min_char() as i64 + 1;
 
     let Some(state) = eval.minibuffers.current() else {
         return Ok(Value::fixnum(point_min));
     };
-    if state.buffer_id != buffer.id {
+    if state.buffer_id != current_id {
         return Ok(Value::fixnum(point_min));
     }
 
-    super::builtins::dispatch_builtin(eval, "field-end", vec![Value::fixnum(point_min)])
-        .expect("field-end builtin must exist")
+    let prompt_end =
+        super::builtins::dispatch_builtin(eval, "field-end", vec![Value::fixnum(point_min)])
+            .expect("field-end builtin must exist")?;
+    let prompt_end_pos = prompt_end.as_fixnum().unwrap_or(point_min);
+
+    // GNU `Fminibuffer_prompt_end` falls back to point-min when the active
+    // minibuffer has no prompt field at BEGV, even if `field-end` reaches ZV.
+    if prompt_end_pos == point_max {
+        let buffer = eval
+            .buffers
+            .get(current_id)
+            .expect("current minibuffer must remain available");
+        let point_min_byte = buffer.lisp_pos_to_accessible_byte(point_min);
+        if buffer
+            .text
+            .text_props_get_property(point_min_byte, Value::symbol("field"))
+            .is_none()
+        {
+            return Ok(Value::fixnum(point_min));
+        }
+    }
+
+    Ok(prompt_end)
 }
 
 /// `(minibuffer-contents)` — returns the current minibuffer contents.
