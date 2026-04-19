@@ -989,7 +989,9 @@ fn completed_redisplay_preserves_point_row_history_over_output_progress() {
 
     display.commit_completed_redisplay();
 
-    assert_eq!(display.last_cursor_vpos, 2);
+    // GNU xdisp.c commits `w->last_cursor_vpos = w->cursor.vpos`, so live
+    // output progress must not override the window's logical cursor row.
+    assert_eq!(display.last_cursor_vpos, 1);
 }
 
 #[test]
