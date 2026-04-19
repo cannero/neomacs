@@ -1089,8 +1089,17 @@ pub(crate) fn builtin_match_string(
         Some(b) => b,
         None => return Ok(Value::NIL),
     };
-    if end <= buf.total_bytes() {
-        Ok(buf.buffer_substring_value(start, end))
+    if md.uses_buffer_byte_positions() {
+        if end <= buf.total_bytes() {
+            return Ok(buf.buffer_substring_value(start, end));
+        }
+        return Ok(Value::NIL);
+    }
+
+    let start_byte = buf.lisp_pos_to_byte(start as i64);
+    let end_byte = buf.lisp_pos_to_byte(end as i64);
+    if end_byte <= buf.total_bytes() && start_byte <= end_byte {
+        Ok(buf.buffer_substring_value(start_byte, end_byte))
     } else {
         Ok(Value::NIL)
     }
@@ -1123,9 +1132,10 @@ pub(crate) fn builtin_match_beginning_with_state(
                 Some(Some((start, _end))) => {
                     if md.searched_string.is_some() {
                         Ok(Value::fixnum(*start as i64))
-                    } else if let Some(buf) = md
-                        .searched_buffer
-                        .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                    } else if md.uses_buffer_byte_positions()
+                        && let Some(buf) = md
+                            .searched_buffer
+                            .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
                         if *start <= buf.total_bytes() {
                             let pos = buf.text.emacs_byte_to_char(*start) as i64 + 1;
@@ -1178,9 +1188,10 @@ pub(crate) fn builtin_match_end_with_state(
                 Some(Some((_start, end))) => {
                     if md.searched_string.is_some() {
                         Ok(Value::fixnum(*end as i64))
-                    } else if let Some(buf) = md
-                        .searched_buffer
-                        .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
+                    } else if md.uses_buffer_byte_positions()
+                        && let Some(buf) = md
+                            .searched_buffer
+                            .and_then(|buffer_id| buffers.and_then(|bufs| bufs.get(buffer_id)))
                     {
                         if *end <= buf.total_bytes() {
                             let pos = buf.text.emacs_byte_to_char(*end) as i64 + 1;
@@ -1244,20 +1255,26 @@ pub(crate) fn builtin_match_data_with_state(
                     continue;
                 }
 
-                let buffer_positions = searched_buffer_id.and_then(|buffer_id| {
-                    buffers.as_deref().and_then(|bufs| {
-                        bufs.get(buffer_id).and_then(|buffer| {
-                            if *start <= *end && *end <= buffer.total_bytes() {
-                                Some((
-                                    buffer.text.emacs_byte_to_char(*start) as i64 + 1,
-                                    buffer.text.emacs_byte_to_char(*end) as i64 + 1,
-                                ))
-                            } else {
-                                None
-                            }
+                let buffer_positions = if md.uses_buffer_byte_positions() {
+                    searched_buffer_id.and_then(|buffer_id| {
+                        buffers.as_deref().and_then(|bufs| {
+                            bufs.get(buffer_id).and_then(|buffer| {
+                                if *start <= *end && *end <= buffer.total_bytes() {
+                                    Some((
+                                        buffer.text.emacs_byte_to_char(*start) as i64 + 1,
+                                        buffer.text.emacs_byte_to_char(*end) as i64 + 1,
+                                    ))
+                                } else {
+                                    None
+                                }
+                            })
                         })
                     })
-                });
+                } else if searched_buffer_id.is_some() {
+                    Some((*start as i64, *end as i64))
+                } else {
+                    None
+                };
 
                 if integers {
                     if let Some((start_pos, end_pos)) = buffer_positions {
@@ -1399,20 +1416,11 @@ pub(crate) fn builtin_set_match_data_with_state(
     if groups.is_empty() {
         *match_data = None;
     } else {
-        if let Some(buffer_id) = searched_buffer
-            && let Some(buffer) = buffers.get(buffer_id)
-        {
-            for group in groups.iter_mut() {
-                if let Some((start, end)) = group {
-                    *start = buffer.lisp_pos_to_byte(*start as i64);
-                    *end = buffer.lisp_pos_to_byte(*end as i64);
-                }
-            }
-        }
         *match_data = Some(super::regex::MatchData {
             groups,
             searched_string: None,
             searched_buffer,
+            buffer_positions_are_bytes: false,
         });
     }
 

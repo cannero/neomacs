@@ -3778,8 +3778,20 @@ pub(crate) fn builtin_byte_to_position(
         return Ok(Value::NIL);
     }
 
+    let mut boundary = byte_pos0;
+    if buf.text.is_multibyte() && boundary < byte_len {
+        while boundary > 0
+            && buf
+                .text
+                .emacs_byte_at(boundary)
+                .is_some_and(|byte| (byte & 0xC0) == 0x80)
+        {
+            boundary -= 1;
+        }
+    }
+
     Ok(Value::fixnum(
-        buf.text.emacs_byte_to_char(byte_pos0) as i64 + 1,
+        buf.text.emacs_byte_to_char(boundary) as i64 + 1,
     ))
 }
 

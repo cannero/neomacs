@@ -522,6 +522,7 @@ pub(crate) fn builtin_replace_regexp_in_string(
                 groups: match_groups,
                 searched_string: Some(searched_string.clone()),
                 searched_buffer: None,
+                buffer_positions_are_bytes: false,
             });
 
             out.push_str(&s[cursor..replace_start]);
