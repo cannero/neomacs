@@ -8774,6 +8774,26 @@ fn direct_closure_call_uses_specpdl_for_rooting() {
 }
 
 #[test]
+fn direct_closure_call_rest_args_preserve_heap_values_under_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.gc_stress = true;
+
+    let callable = ev
+        .eval_str("(lambda (&rest rest) (car (cdr (cdr rest))))")
+        .expect("lambda should evaluate");
+
+    let result = ev
+        .funcall_general_untraced(
+            callable,
+            vec![Value::fixnum(1), Value::fixnum(2), Value::string("29.1")],
+        )
+        .expect("rest-arg lambda call should succeed");
+
+    assert_eq!(result, Value::string("29.1"));
+}
+
+#[test]
 fn direct_context_apply_accepts_uninterned_symbol_function_designators() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -9223,6 +9243,24 @@ fn gc_stress_builtin_apply_roots_closure_function_argument() {
                (apply f nil)))"#,
     ));
     assert_eq!(result, "OK (7 8 9)");
+}
+
+#[test]
+fn gc_stress_macro_expansion_result_stays_rooted_for_eval() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.gc_stress = true;
+    ev.tagged_heap.set_gc_threshold(1);
+    let result = format_eval_result(&ev.eval_str(
+        r#"(progn
+             (defalias 'vm-gc-expand-put
+               (cons 'macro
+                     #'(lambda ()
+                         (list 'put ''vm-gc-expand-target ''custom-version "29.1"))))
+             (vm-gc-expand-put)
+             (get 'vm-gc-expand-target 'custom-version))"#,
+    ));
+    assert_eq!(result, "OK \"29.1\"");
 }
 
 #[test]

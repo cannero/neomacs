@@ -35,6 +35,14 @@ pub struct Vm<'a> {
     ctx: &'a mut crate::emacs_core::eval::Context,
 }
 
+// Match the evaluator's coarse stack-growth policy so deeply recursive
+// bytecode/macroexpansion paths don't exhaust the native thread stack before
+// `max-lisp-eval-depth` handling can fire.
+const VM_STACK_RED_ZONE: usize = 128 * 1024;
+const VM_STACK_SEGMENT: usize = 2 * 1024 * 1024;
+const VM_STACK_GROWTH_PROBE_START_DEPTH: usize = 16;
+const VM_STACK_GROWTH_PROBE_INTERVAL: usize = 16;
+
 impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
     fn hook_context(&self) -> &crate::emacs_core::eval::Context {
         &self.ctx
@@ -77,6 +85,17 @@ impl<'a> Vm<'a> {
         let result = f(self);
         self.ctx.pop_vm_root_frame();
         result
+    }
+
+    #[inline]
+    fn maybe_grow_vm_stack<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
+        let depth = self.ctx.depth;
+        if depth < VM_STACK_GROWTH_PROBE_START_DEPTH
+            || !depth.is_multiple_of(VM_STACK_GROWTH_PROBE_INTERVAL)
+        {
+            return f(self);
+        }
+        stacker::maybe_grow(VM_STACK_RED_ZONE, VM_STACK_SEGMENT, || f(self))
     }
 
     fn with_vm_root_scope<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
@@ -202,14 +221,16 @@ impl<'a> Vm<'a> {
         // reachable even if the ByteCodeObj tracing has a gap (e.g. cloned
         // ByteCodeFunction whose constants diverge from the heap object, or
         // NIL func_value from sf_byte_code_value).
-        let result = self.with_dynamic_vm_roots(|vm| {
-            if func_value.is_heap_object() {
-                vm.push_dynamic_vm_root(func_value);
-            }
-            for value in func.constants.iter().copied() {
-                vm.push_dynamic_vm_root(value);
-            }
-            vm.run_frame(func, args, func_value)
+        let result = self.maybe_grow_vm_stack(|vm| {
+            vm.with_dynamic_vm_roots(|vm| {
+                if func_value.is_heap_object() {
+                    vm.push_dynamic_vm_root(func_value);
+                }
+                for value in func.constants.iter().copied() {
+                    vm.push_dynamic_vm_root(value);
+                }
+                vm.run_frame(func, args, func_value)
+            })
         });
         self.ctx.depth -= 1;
         result

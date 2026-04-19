@@ -979,7 +979,10 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
     if f.is_nil() {
         return None;
     }
-    Some(f)
+    // GNU `readevalloop` keeps the symbol Qinternal_macroexpand_for_load and
+    // resolves the current function cell on each call. Mirror that here
+    // instead of caching the callable object itself across the whole load.
+    Some(Value::symbol("internal-macroexpand-for-load"))
 }
 
 /// Port of real Emacs's `readevalloop_eager_expand_eval` from lread.c.
@@ -1155,6 +1158,7 @@ where
     let old_load_true_file = eval.obarray().symbol_value("load-true-file-name").cloned();
     let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
+    let old_macro_cache_disabled = eval.macro_cache_disabled;
 
     // Mirrors GNU readevalloop (lread.c:2220-2222):
     //   specbind(Qinternal_interpreter_environment,
@@ -1202,18 +1206,17 @@ where
     // Set the reader's #$ thread-local so value_reader produces the
     // actual file path string (matching GNU lread.c Vload_file_name).
     super::value_reader::set_reader_load_file_name(Some(load_file_value));
+    // GNU eager load walks the current function cells directly and does not
+    // keep a separate runtime macro-expansion cache. Disable the NeoVM cache
+    // across file loads so exact GC does not retain or traverse stale
+    // load-local macroexpansion trees.
+    eval.macro_cache_disabled = true;
 
     let result = body(eval);
 
-    if result.is_ok() {
-        // GNU `readevalloop` calls `build_load_history` before the
-        // load context is unwound, so it sees the live
-        // `current-load-list` for this file.
-        build_load_history(eval, hist_file_name, true);
-    }
-
     // Restore reader load-file-name
     super::value_reader::set_reader_load_file_name(old_reader_load_file);
+    eval.macro_cache_disabled = old_macro_cache_disabled;
 
     eval.set_lexical_binding(old_lexical);
     // Restore lexenv via specpdl unbind_to, matching GNU's
@@ -1260,11 +1263,17 @@ fn streaming_readevalloop(
         .unwrap_or_default()
         .to_string_lossy()
         .to_string();
+    let load_specpdl_base = eval.specpdl.len();
 
     let mut pos = 0;
     let mut form_idx = 0;
 
     loop {
+        debug_assert_eq!(
+            eval.specpdl.len(),
+            load_specpdl_base,
+            "streaming_readevalloop leaked specpdl entries before {file_name} form {form_idx}",
+        );
         let read_result =
             super::value_reader::read_one_with_source_multibyte(content, source_multibyte, pos)
                 .map_err(|e| {
@@ -1309,6 +1318,7 @@ fn streaming_readevalloop(
         let eval_roots = eval.save_specpdl_roots();
         eval.push_specpdl_root(form);
         let eval_result = if let Some(mexp) = macroexpand_fn {
+            eval.push_specpdl_root(mexp);
             // GNU-style eager expand: one level, recurse for progn,
             // full expand + eval.
             streaming_readevalloop_eager_expand_eval(eval, form, mexp)
@@ -1397,11 +1407,17 @@ fn streaming_readevalloop(
         eval.push_specpdl_root(form);
         eval.gc_safe_point_exact();
         eval.restore_specpdl_roots(gc_roots);
+        debug_assert_eq!(
+            eval.specpdl.len(),
+            load_specpdl_base,
+            "streaming_readevalloop leaked specpdl entries after {file_name} form {form_idx}",
+        );
         form_idx += 1;
     }
 
     // GNU `readevalloop` builds load-history before unwinding the load
-    // context; `with_load_context` handles that merge on successful return.
+    // context so `current-load-list` still names the file being loaded.
+    build_load_history(eval, hist_file_name, true);
     Ok(Value::T)
 }
 
@@ -1418,11 +1434,17 @@ fn streaming_readevalloop_lisp_source(
         .to_string_lossy()
         .to_string();
     let read_source = super::value_reader::LispReadSource::new(content);
+    let load_specpdl_base = eval.specpdl.len();
 
     let mut pos = 0;
     let mut form_idx = 0;
 
     loop {
+        debug_assert_eq!(
+            eval.specpdl.len(),
+            load_specpdl_base,
+            "streaming_readevalloop_lisp_source leaked specpdl entries before {file_name} form {form_idx}",
+        );
         let read_result = read_source.read_one(pos).map_err(|e| {
             if e.message.contains("end of input") || e.message.contains("unterminated") {
                 return EvalError::Signal {
@@ -1462,6 +1484,7 @@ fn streaming_readevalloop_lisp_source(
         let eval_roots = eval.save_specpdl_roots();
         eval.push_specpdl_root(form);
         let eval_result = if let Some(mexp) = macroexpand_fn {
+            eval.push_specpdl_root(mexp);
             streaming_readevalloop_eager_expand_eval(eval, form, mexp)
         } else {
             eval.eval_sub(form).map_err(map_flow)
@@ -1546,6 +1569,11 @@ fn streaming_readevalloop_lisp_source(
         eval.push_specpdl_root(form);
         eval.gc_safe_point_exact();
         eval.restore_specpdl_roots(gc_roots);
+        debug_assert_eq!(
+            eval.specpdl.len(),
+            load_specpdl_base,
+            "streaming_readevalloop_lisp_source leaked specpdl entries after {file_name} form {form_idx}",
+        );
         form_idx += 1;
     }
 
@@ -1565,6 +1593,10 @@ fn streaming_readevalloop_eager_expand_eval(
     form: Value,
     macroexpand: Value,
 ) -> Result<Value, EvalError> {
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(form);
+    eval.push_specpdl_root(macroexpand);
+
     // Step 1: one-level expand (full_p = nil)
     let step1_start = std::time::Instant::now();
     let expanded = match eval.apply(macroexpand, vec![form, Value::NIL]) {
@@ -1575,15 +1607,18 @@ fn streaming_readevalloop_eager_expand_eval(
             // matching .elc behavior.
             eval.note_eager_macro_perf_step1(step1_start.elapsed());
             tracing::debug!("streaming eager_expand step1 failed, falling back to plain eval");
-            return eval.eval_sub(form).map_err(map_flow);
+            let result = eval.eval_sub(form).map_err(map_flow);
+            eval.restore_specpdl_roots(roots);
+            return result;
         }
     };
     eval.note_eager_macro_perf_step1(step1_start.elapsed());
 
     // Root the expanded form so it survives GC during progn iteration.
-    let roots = eval.save_specpdl_roots();
+    let expanded_roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(expanded);
     let result = streaming_readevalloop_eager_expand_eval_inner(eval, expanded, macroexpand);
+    eval.restore_specpdl_roots(expanded_roots);
     eval.restore_specpdl_roots(roots);
     result
 }
@@ -1821,7 +1856,6 @@ fn load_file_body(
             macroexpand_fn,
         )
     });
-
     // GNU lread.c:1533-1541: `build_load_history` runs inside
     // `readevalloop`, before `unbind_to`, while the after-load hooks
     // run after the load context is unwound. Keep the latter order so
@@ -1937,33 +1971,12 @@ fn build_load_history(eval: &mut super::eval::Context, filename: &LispString, en
         .unwrap_or(Value::NIL);
     eval.push_specpdl_root(history);
     let filtered_history = if entire {
-        Value::list(
-            list_to_vec(&history)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|existing| {
-                    if existing.is_cons() {
-                        existing
-                            .cons_car()
-                            .as_lisp_string()
-                            .is_none_or(|loaded| !load_name_equal(loaded, filename))
-                    } else {
-                        true
-                    }
-                })
-                .collect(),
-        )
+        filter_load_history_without_filename(eval, history, filename)
     } else {
         history
     };
     eval.push_specpdl_root(filtered_history);
-    let entry = Value::list(
-        list_to_vec(&current_load_list)
-            .unwrap_or_default()
-            .into_iter()
-            .rev()
-            .collect(),
-    );
+    let entry = reverse_copy_rooted_list(eval, current_load_list);
     eval.push_specpdl_root(entry);
     let updated_history = if entire {
         Value::cons(entry, filtered_history)
@@ -1976,6 +1989,55 @@ fn build_load_history(eval: &mut super::eval::Context, filename: &LispString, en
         eval.set_variable("current-load-list", Value::T);
     }
     eval.restore_specpdl_roots(roots);
+}
+
+fn reverse_copy_rooted_list(eval: &mut super::eval::Context, list: Value) -> Value {
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(list);
+    let mut tail = list;
+    let mut reversed = Value::NIL;
+    while tail.is_cons() {
+        let iter_roots = eval.save_specpdl_roots();
+        eval.push_specpdl_root(reversed);
+        reversed = Value::cons(tail.cons_car(), reversed);
+        eval.restore_specpdl_roots(iter_roots);
+        tail = tail.cons_cdr();
+    }
+    eval.restore_specpdl_roots(roots);
+    reversed
+}
+
+fn filter_load_history_without_filename(
+    eval: &mut super::eval::Context,
+    history: Value,
+    filename: &LispString,
+) -> Value {
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(history);
+    let mut tail = history;
+    let mut filtered_reversed = Value::NIL;
+    while tail.is_cons() {
+        let existing = tail.cons_car();
+        let keep = if existing.is_cons() {
+            existing
+                .cons_car()
+                .as_lisp_string()
+                .is_none_or(|loaded| !load_name_equal(loaded, filename))
+        } else {
+            true
+        };
+        if keep {
+            let iter_roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(filtered_reversed);
+            filtered_reversed = Value::cons(existing, filtered_reversed);
+            eval.restore_specpdl_roots(iter_roots);
+        }
+        tail = tail.cons_cdr();
+    }
+    eval.push_specpdl_root(filtered_reversed);
+    let filtered = reverse_copy_rooted_list(eval, filtered_reversed);
+    eval.restore_specpdl_roots(roots);
+    filtered
 }
 
 fn run_after_load_evaluation(eval: &mut super::eval::Context, path_lisp: &LispString) {

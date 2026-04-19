@@ -5,7 +5,24 @@
 //! (`fns.c`). Comparison uses `eq` (via `eq_value`) as GNU does.
 
 use crate::emacs_core::error::{Flow, signal};
+use crate::emacs_core::eval::{
+    push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots,
+};
 use crate::emacs_core::value::{Value, eq_value};
+
+fn plist_entry(prop: Value, value: Value, tail: Value) -> Value {
+    let saved = save_scratch_gc_roots();
+    push_scratch_gc_root(prop);
+    push_scratch_gc_root(value);
+    push_scratch_gc_root(tail);
+
+    let value_cell = Value::cons(value, tail);
+    push_scratch_gc_root(value_cell);
+    let entry = Value::cons(prop, value_cell);
+
+    restore_scratch_gc_roots(saved);
+    entry
+}
 
 /// Walk `plist` looking for `prop`. Returns the associated value or None.
 /// Matches GNU `Fplist_get` when keys compare by eq.
@@ -47,7 +64,7 @@ pub fn plist_put(plist: Value, prop: Value, value: Value) -> Result<(Value, bool
             ));
         }
         let changed = !value.is_nil();
-        return Ok((Value::list(vec![prop, value]), changed));
+        return Ok((plist_entry(prop, value, Value::NIL), changed));
     }
     let mut tail = plist;
     let mut last_value_cell: Option<Value> = None;
@@ -61,7 +78,7 @@ pub fn plist_put(plist: Value, prop: Value, value: Value) -> Result<(Value, bool
                 ));
             }
             // Append (prop value) to the tail of `plist`.
-            let new_tail = Value::cons(prop, Value::cons(value, Value::NIL));
+            let new_tail = plist_entry(prop, value, Value::NIL);
             if let Some(lvc) = last_value_cell {
                 lvc.set_cdr(new_tail);
             }

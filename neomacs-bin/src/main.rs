@@ -2181,6 +2181,11 @@ fn bootstrap_buffers(
                 bootstrap_default_font_name(frame_metrics.font_pixel_size),
             )
         };
+        // Reused startup frames must be normalized back to GNU's initial-frame
+        // surface: generated name (e.g. "F1"), nil title, nil icon-name.
+        frame.set_generated_name_value(frame.generated_name_value());
+        frame.clear_title();
+        frame.icon_name = Value::NIL;
         frame.width = width;
         frame.height = height;
         frame.visible = true;
@@ -2452,6 +2457,12 @@ fn opening_frame_initial_alist(eval: &Context, window_system: Value) -> Value {
 
 #[cfg(test)]
 fn run_gnu_startup(eval: &mut Context) {
+    increase_stack_limit();
+    stacker::grow(64 * 1024 * 1024, || run_gnu_startup_inner(eval));
+}
+
+#[cfg(test)]
+fn run_gnu_startup_inner(eval: &mut Context) {
     eval.setup_thread_locals();
     let _ = std::fs::write("/tmp/neomacs-startup-phases.trace", "");
     maybe_install_startup_phase_trace(eval);
@@ -2508,72 +2519,56 @@ fn maybe_install_startup_phase_trace(eval: &mut Context) {
         (progn
           (defvar neomacs--startup-last-phase nil)
           (defvar neomacs--startup-last-call nil)
+          (defvar neomacs--startup-trace-active nil)
           (with-temp-buffer
             (write-region (point-min) (point-max)
                           "/tmp/neomacs-startup-phases.trace" nil 'silent))
           (defun neomacs--startup-trace-around (name orig &rest args)
-            (setq neomacs--startup-last-phase name)
-            (setq neomacs--startup-last-call (cons name args))
-            (with-temp-buffer
-              (insert (format "enter %S %S\n" name args))
-              (append-to-file (point-min) (point-max)
-                              "/tmp/neomacs-startup-phases.trace"))
-            (prog1
+            (if neomacs--startup-trace-active
                 (apply orig args)
-              (with-temp-buffer
-                (insert (format "leave %S\n" name))
-                (append-to-file (point-min) (point-max)
-                                "/tmp/neomacs-startup-phases.trace"))))
+              (let ((neomacs--startup-trace-active t))
+                (setq neomacs--startup-last-phase name)
+                (setq neomacs--startup-last-call (cons name args))
+                (with-temp-buffer
+                  (insert (format "enter %S %S\n" name args))
+                  (append-to-file (point-min) (point-max)
+                                  "/tmp/neomacs-startup-phases.trace"))
+                (prog1
+                    (apply orig args)
+                  (with-temp-buffer
+                    (insert (format "leave %S\n" name))
+                    (append-to-file (point-min) (point-max)
+                                    "/tmp/neomacs-startup-phases.trace"))))))
           (dolist (fn '(set-locale-environment
                         handle-args-function
-                        window-system-initialization
-                        command-line
+                        x-handle-args
+                        x-open-connection
+                        create-default-fontset
+                        create-fontset-from-fontset-spec
+                        create-fontset-from-x-resource
+                        neomacs--setup-cursor-blink
+                        neomacs--setup-animations
+                        pixel-scroll-precision-mode
                         frame-initialize
-                        display-graphic-p
-                        face-spec-recalc
-                        face-spec-choose
-                        face-background
-                        face-attribute
-                        internal-get-lisp-face-attribute
-                        internal-merge-in-global-face
-                        tab-bar-height
-                        tool-bar-height
-                        tab-bar-mode
-                        tool-bar-mode
-                        minibuffer-frame-list
-                        delete-frame
-                        frame-parameters
-                        frame-parameter
-                        modify-frame-parameters
-                        make-frame
-                        frame-set-background-mode
-                        coding-system-type
-                        coding-system-get
-                        coding-system-change-eol-conversion
-                        set-keyboard-coding-system
-                        set-keyboard-coding-system-internal
-                        set-terminal-coding-system
-                        set-terminal-coding-system-internal
                         startup--setup-quote-display
-                        frame-notice-user-settings
-                        frame-focus-state
-                        blink-cursor--should-blink
-                        blink-cursor-check
-                        blink-cursor-suspend
-                        sit-for
-                        read-event
-                        frame-list
-                        frame-selected-window
-                        frame-visible-p
-                        window-minibuffer-p
+                        normal-erase-is-backspace-setup-frame
+                        tty-register-default-colors
+                        startup--load-user-init-file
+                        custom-reevaluate-setting
                         tty-run-terminal-initialization
-                        face-set-after-frame-default))
+                        display-startup-echo-area-message
+                        command-line-1
+                        display-startup-screen
+                        frame-notice-user-settings))
             (when (fboundp fn)
               (advice-add fn :around
-                          (apply-partially #'neomacs--startup-trace-around fn)))))
+                          (eval `(lambda (orig &rest args)
+                                   (apply #'neomacs--startup-trace-around
+                                          ',fn orig args)))))))
     "#;
-    eval.eval_str(source)
-        .expect("startup trace helper should install");
+    if let Err(err) = eval.eval_str(source) {
+        tracing::warn!("startup trace helper install failed: {err:?}");
+    }
 }
 
 fn ensure_dir_string(path: &Path) -> String {

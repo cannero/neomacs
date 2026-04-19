@@ -144,6 +144,7 @@ fn eval_forms_from_source_streaming(
         let eval_roots = eval.save_specpdl_roots();
         eval.push_specpdl_root(form);
         let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            eval.push_specpdl_root(mexp_fn);
             super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
                 super::error::EvalError::Signal {
                     symbol,
@@ -209,6 +210,7 @@ fn eval_forms_from_lisp_source_streaming(
         let eval_roots = eval.save_specpdl_roots();
         eval.push_specpdl_root(form);
         let eval_result = if let Some(mexp_fn) = macroexpand_fn {
+            eval.push_specpdl_root(mexp_fn);
             super::load::eager_expand_eval(eval, form, mexp_fn).map_err(|e| match e {
                 super::error::EvalError::Signal {
                     symbol,

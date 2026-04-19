@@ -1,4 +1,7 @@
 use super::*;
+use crate::emacs_core::eval::{
+    push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots,
+};
 use crate::emacs_core::fontset;
 use crate::emacs_core::intern::{NIL_SYM_ID, T_SYM_ID, is_canonical_id};
 use crate::emacs_core::symbol::Obarray;
@@ -662,7 +665,14 @@ pub(crate) fn put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalRes
     let sym = expect_symbol_id(&args[0])?;
     let prop = expect_symbol_id(&args[1])?;
     let value = args[2];
-    obarray.put_property_id(sym, prop, value)?;
+
+    let saved = save_scratch_gc_roots();
+    push_scratch_gc_root(args[0]);
+    push_scratch_gc_root(args[1]);
+    push_scratch_gc_root(value);
+    let result = obarray.put_property_id(sym, prop, value);
+    restore_scratch_gc_roots(saved);
+    result?;
     Ok(value)
 }
 

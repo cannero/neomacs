@@ -8,6 +8,7 @@ use neovm_core::emacs_core::eval::{
 use neovm_core::emacs_core::load::{
     apply_runtime_startup_state, create_bootstrap_evaluator_cached_with_features,
 };
+use neovm_core::heap_types::LispString;
 use neovm_core::window::DisplayRowSnapshot;
 use std::sync::{Arc, Mutex};
 
@@ -123,7 +124,7 @@ fn assert_echo_message_renders_in_minibuffer_window(use_gui_metrics: bool) {
         eval.frame_manager_mut()
             .create_frame("layout-minibuffer-echo", 640, 160, buf_id);
     let echo = "Echo lives in minibuffer";
-    eval.set_current_message(Some(echo.to_string()));
+    eval.set_current_message(Some(LispString::from_utf8(echo)));
 
     let mut engine = LayoutEngine::new();
     if use_gui_metrics {

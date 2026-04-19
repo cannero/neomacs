@@ -2112,6 +2112,7 @@ dependencies = [
  "neomacs-display-runtime",
  "neomacs-layout-engine",
  "neovm-core",
+ "stacker",
  "tempfile",
  "tracing",
 ]

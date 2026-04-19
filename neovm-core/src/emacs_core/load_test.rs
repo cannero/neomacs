@@ -452,6 +452,139 @@ fn gnu_subr_x_string_chop_newline_loads_without_rust_builtin() {
 }
 
 #[test]
+fn load_bindings_source_survives_gc_stress_after_custom_runtime() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = Context::new();
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut eval);
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
+    eval.set_variable(
+        "load-path",
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
+    );
+    eval.gc_stress = true;
+    eval.tagged_heap.set_gc_threshold(1);
+
+    let load_path = get_load_path(&eval.obarray());
+    let bindings_path =
+        bootstrap_fixture_path(&load_path, "bindings", false).expect("bindings.el fixture path");
+    load_file(&mut eval, &bindings_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading source bindings from {}: {}",
+            bindings_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let probe = eval
+        .eval_str(
+            r#"(list nil
+                     (symbol-function 'bindings--define-key)
+                     (get 'bindings--define-key 'byte-obsolete-info)
+                     (boundp 'mode-line-right-align-edge)
+                     (get 'mode-line-right-align-edge 'standard-value)
+                     (get 'mode-line-format 'standard-value)
+                     (default-toplevel-value 'mode-line-format))"#,
+        )
+        .expect("probe bindings custom state");
+    let values = list_to_vec(&probe).expect("bindings probe should return list");
+    assert_eq!(values[0], Value::NIL);
+    assert!(!values[1].is_nil(), "bindings--define-key function cell");
+    assert!(!values[2].is_nil(), "bindings--define-key obsolete plist");
+    assert_eq!(values[3], Value::T);
+    assert!(
+        !values[4].is_nil(),
+        "mode-line-right-align-edge standard-value"
+    );
+    assert!(!values[5].is_nil(), "mode-line-format standard-value");
+    assert!(!values[6].is_nil(), "mode-line-format default value");
+}
+
+#[test]
+fn obsolete_function_alias_metadata_survives_gc_stress_after_help_runtime() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = Context::new();
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut eval);
+    eval.gc_stress = true;
+    eval.tagged_heap.set_gc_threshold(1);
+
+    let result = eval
+        .eval_str(
+            r#"(progn
+                 (defalias 'vm-obsolete-old #'ignore "Old doc.")
+                 (make-obsolete 'vm-obsolete-old 'ignore "31.1")
+                 (list (symbol-function 'vm-obsolete-old)
+                       (get 'vm-obsolete-old 'byte-obsolete-info)
+                       (get 'vm-obsolete-old 'function-documentation)))"#,
+        )
+        .expect("obsolete alias form should survive gc stress");
+    let values = list_to_vec(&result).expect("obsolete alias probe should return list");
+    assert_eq!(values[0], Value::symbol("ignore"));
+    assert_eq!(values[2], Value::string("Old doc."));
+    let obsolete_items = list_to_vec(&values[1]).expect("byte-obsolete-info should be a list");
+    assert_eq!(
+        obsolete_items,
+        vec![Value::symbol("ignore"), Value::NIL, Value::string("31.1"),]
+    );
+}
+
+#[test]
+fn bindings_split_source_survives_gc_stress_after_help_runtime() {
+    crate::test_utils::init_test_tracing();
+
+    let mut eval = Context::new();
+    crate::test_utils::load_minimal_gnu_help_runtime(&mut eval);
+    eval.gc_stress = true;
+    eval.tagged_heap.set_gc_threshold(1);
+
+    let path = source_bootstrap_path("bindings.el");
+    let content = std::fs::read_to_string(&path).expect("read bindings.el");
+    let forms = crate::emacs_core::value_reader::read_all(&content).expect("parse bindings.el");
+
+    let split_at = forms.len().saturating_sub(16);
+    let prefix_source = format!(
+        ";;; bindings-prefix-subset.el --- focused bootstrap slice -*- lexical-binding: t; -*-\n\n{}\n",
+        forms[..split_at]
+            .iter()
+            .map(crate::emacs_core::print::print_value)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    );
+    let tail_source = format!(
+        ";;; bindings-tail-subset.el --- focused bootstrap slice -*- lexical-binding: t; -*-\n\n{}\n",
+        forms[split_at..]
+            .iter()
+            .map(crate::emacs_core::print::print_value)
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    );
+    let dir = tempfile::tempdir().expect("tempdir");
+    let prefix_path = dir.path().join("bindings-prefix-subset.el");
+    std::fs::write(&prefix_path, prefix_source).expect("write bindings prefix subset");
+    let tail_path = dir.path().join("bindings-tail-subset.el");
+    std::fs::write(&tail_path, tail_source).expect("write bindings tail subset");
+
+    load_file(&mut eval, &prefix_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading focused bindings prefix from {}: {}",
+            prefix_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    load_file(&mut eval, &tail_path).unwrap_or_else(|err| {
+        panic!(
+            "failed loading focused bindings tail from {}: {}",
+            tail_path.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+}
+
+#[test]
 fn gnu_subr_el_defines_wholenump_without_rust_shim() {
     crate::test_utils::init_test_tracing();
     let eval = partial_bootstrap_eval_until("keymap", true);

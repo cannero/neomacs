@@ -11860,6 +11860,20 @@ fn put_promotes_symbol_properties_to_live_raw_plists() {
 }
 
 #[test]
+fn put_string_property_survives_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.gc_stress = true;
+
+    let result = eval.eval_str(
+        "(progn
+           (put 'vm-put-string-property 'custom-version \"29.1\")
+           (get 'vm-put-string-property 'custom-version))",
+    );
+    assert_eq!(format_eval_result(&result), "OK \"29.1\"");
+}
+
+#[test]
 fn register_code_conversion_map_publishes_symbol_properties() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

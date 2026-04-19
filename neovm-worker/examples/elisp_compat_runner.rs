@@ -1,5 +1,6 @@
 use neovm_core::TaskScheduler;
-use neovm_core::emacs_core::{parse_forms, print_expr};
+use neovm_core::emacs_core::print_value;
+use neovm_core::emacs_core::value_reader::read_all;
 use neovm_host_abi::{LispValue, Signal, TaskError, TaskOptions};
 use neovm_worker::{WorkerConfig, WorkerRuntime};
 use std::fs;
@@ -93,16 +94,16 @@ fn main() {
     });
     let workers = rt.start_dummy_workers();
 
-    let forms = match parse_forms(&source) {
+    let forms = match read_all(&source) {
         Ok(forms) => forms,
         Err(err) => {
-            eprintln!("failed to parse forms: {err}");
+            eprintln!("failed to parse forms: {}", err.message);
             std::process::exit(2);
         }
     };
 
     for (index, form) in forms.iter().enumerate() {
-        let rendered_form = print_expr(form);
+        let rendered_form = print_value(form);
         let task = match rt.spawn(
             LispValue {
                 bytes: rendered_form.clone().into_bytes(),

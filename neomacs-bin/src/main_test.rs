@@ -1084,6 +1084,40 @@ fn pdump_preserves_neo_term_generic_methods() {
 }
 
 #[test]
+fn neo_window_system_initialization_defers_neomacs_only_setup_until_window_setup_hook() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+
+    let rendered = eval
+        .eval_str(
+            r#"
+        (progn
+          (load "term/neo-win" nil t)
+          (setq neomacs-initialized nil
+                command-line-args '("neomacs" "-Q" "--")
+                window-setup-hook nil
+                interprogram-cut-function nil
+                interprogram-paste-function nil)
+          (let ((window-system 'neo))
+            (window-system-initialization))
+          (and (equal command-line-args '("neomacs" "-Q" "--"))
+               (memq #'neomacs--window-setup window-setup-hook)
+               (null interprogram-cut-function)
+               (null interprogram-paste-function)
+               (progn
+                 (run-hooks 'window-setup-hook)
+                 (eq interprogram-cut-function #'neomacs--clipboard-cut)
+                 (eq interprogram-paste-function #'neomacs--clipboard-paste)
+                 (not (memq #'neomacs--window-setup window-setup-hook)))))
+        "#,
+        )
+        .map(|value| print_value_with_eval(&mut eval, &value))
+        .unwrap_or_else(|err| format!("{err:?}"));
+
+    assert_eq!(rendered, "t");
+}
+
+#[test]
 fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
     let mut eval = Context::new();
     let startup = StartupOptions {
@@ -1251,10 +1285,8 @@ fn bootstrap_buffers_reuses_selected_startup_frame_when_one_already_exists() {
         selected.effective_window_system(),
         Some(Value::symbol("neo"))
     );
-    assert_eq!(
-        selected.title_runtime_string_owned().as_deref(),
-        Some("Neomacs")
-    );
+    assert_eq!(selected.name_runtime_string_owned(), "F1");
+    assert_eq!(selected.title_runtime_string_owned(), None);
     assert_eq!(selected.char_width, metrics.char_width);
     assert_eq!(selected.char_height, metrics.char_height);
     let minibuffer_height = selected
@@ -1615,7 +1647,7 @@ fn gnu_startup_runtime_load_path_finds_mail_rfc6068() {
         .eval_str("(locate-library \"rfc6068\")")
         .expect("locate-library startup probe should evaluate");
     let path = result
-        .as_str()
+        .as_runtime_string_owned()
         .expect("locate-library should return a resolved path string after startup");
     assert!(
         path.ends_with("/mail/rfc6068.el"),

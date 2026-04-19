@@ -258,6 +258,11 @@ impl LoadDecoder {
 
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
         for index in 0..self.state.objects.len() {
+            self.allocate_tagged_placeholder(TaggedHeapRef {
+                index: index as u32,
+            })?;
+        }
+        for index in 0..self.state.objects.len() {
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
@@ -266,7 +271,8 @@ impl LoadDecoder {
     }
 
     fn heap_ref_to_value(&mut self, id: TaggedHeapRef) -> Value {
-        self.load_tagged_object(id)
+        self.allocate_tagged_placeholder(id)
+            .expect("pdump placeholder allocation should succeed")
     }
 
     fn load_float_value(&mut self, id: u32, value: f64) -> Value {
@@ -506,14 +512,6 @@ impl LoadDecoder {
         Ok(())
     }
 
-    fn load_tagged_object(&mut self, id: TaggedHeapRef) -> Value {
-        self.allocate_tagged_placeholder(id)
-            .expect("pdump placeholder allocation should succeed");
-        self.populate_tagged_object(id)
-            .expect("pdump object population should succeed");
-        self.state.values[id.index as usize].expect("pdump object should exist")
-    }
-
     pub(crate) fn load_value(&mut self, v: &DumpValue) -> Value {
         match v {
             DumpValue::Nil => Value::NIL,
@@ -562,6 +560,43 @@ fn dump_heap_ref(id: TaggedHeapRef) -> DumpHeapRef {
 
 fn tagged_heap_ref(id: &DumpHeapRef) -> TaggedHeapRef {
     TaggedHeapRef { index: id.index }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preload_tagged_heap_handles_deep_cons_chains_without_recursive_population() {
+        crate::test_utils::init_test_tracing();
+
+        let chain_len = 4096usize;
+        let objects = (0..chain_len)
+            .map(|index| DumpHeapObject::Cons {
+                car: DumpValue::Int(index as i64),
+                cdr: if index + 1 == chain_len {
+                    DumpValue::Nil
+                } else {
+                    DumpValue::Cons(DumpHeapRef {
+                        index: (index + 1) as u32,
+                    })
+                },
+            })
+            .collect();
+        let heap = DumpTaggedHeap { objects };
+        let mut decoder = LoadDecoder::new(&heap);
+
+        decoder
+            .preload_tagged_heap()
+            .expect("deep cons chain should preload without recursive overflow");
+
+        let mut cursor = decoder.load_value(&DumpValue::Cons(DumpHeapRef { index: 0 }));
+        for index in 0..chain_len {
+            assert_eq!(cursor.cons_car(), Value::fixnum(index as i64));
+            cursor = cursor.cons_cdr();
+        }
+        assert!(cursor.is_nil());
+    }
 }
 
 // ===========================================================================

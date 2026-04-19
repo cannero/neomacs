@@ -77,7 +77,9 @@ pub(crate) struct SubrEntry {
 }
 
 thread_local! {
-    static GLOBAL_SUBR_TABLE: RefCell<HashMap<SymId, SubrEntry>> = RefCell::new(HashMap::new());
+    // Static subrs are encoded directly from `SymId`, so the registry should
+    // be indexed by that dense id rather than hashed again at dispatch time.
+    static GLOBAL_SUBR_TABLE: RefCell<Vec<Option<SubrEntry>>> = const { RefCell::new(Vec::new()) };
 
     /// Thread-local handle to the active `Context::quit_requested`
     /// atomic. Installed by `Context::setup_thread_locals`, read by
@@ -104,13 +106,23 @@ pub(crate) fn tls_quit_pending() -> bool {
 /// Register a subr entry in the global static table.
 pub(crate) fn register_global_subr_entry(sym_id: SymId, entry: SubrEntry) {
     GLOBAL_SUBR_TABLE.with(|table| {
-        table.borrow_mut().insert(sym_id, entry);
+        let idx = sym_id.0 as usize;
+        let mut table = table.borrow_mut();
+        if table.len() <= idx {
+            table.resize_with(idx + 1, || None);
+        }
+        table[idx] = Some(entry);
     });
 }
 
 /// Look up a subr entry by SymId.
 pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
-    GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(&sym_id).cloned())
+    GLOBAL_SUBR_TABLE.with(|table| {
+        table
+            .borrow()
+            .get(sym_id.0 as usize)
+            .and_then(|entry| entry.clone())
+    })
 }
 
 /// Access a subr entry by reference (avoids cloning).
@@ -118,7 +130,12 @@ pub(crate) fn with_global_subr_entry<R>(
     sym_id: SymId,
     f: impl FnOnce(&SubrEntry) -> R,
 ) -> Option<R> {
-    GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(&sym_id).map(f))
+    GLOBAL_SUBR_TABLE.with(|table| {
+        table
+            .borrow()
+            .get(sym_id.0 as usize)
+            .and_then(|entry| entry.as_ref().map(f))
+    })
 }
 
 /// Clear all subr entries (used during heap reset).
@@ -661,13 +678,15 @@ enum InterpretedClosureEnvEntry {
 
 #[derive(Clone, Debug)]
 pub(crate) struct RuntimeMacroExpansionCacheEntry {
+    function: Value,
     expanded: Value,
     fingerprint: u64,
 }
 
 impl RuntimeMacroExpansionCacheEntry {
-    fn new(expanded: Value, fingerprint: u64) -> Self {
+    fn new(function: Value, expanded: Value, fingerprint: u64) -> Self {
         Self {
+            function,
             expanded,
             fingerprint,
         }
@@ -4315,6 +4334,7 @@ impl Context {
         }
         visit(self.lexenv);
         for entry in self.runtime_macro_expansion_cache.values() {
+            visit(entry.function);
             visit(entry.expanded);
         }
         for bucket in self.interpreted_closure_trim_cache.values() {
@@ -6584,8 +6604,12 @@ impl Context {
             let expanded =
                 self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
             self.unbind_to(bt_count);
-            // Evaluate expansion directly.
-            return self.eval_sub(expanded?);
+            let expanded = expanded?;
+            let expanded_root_count = self.specpdl.len();
+            self.push_specpdl_root(expanded);
+            let result = self.eval_sub(expanded);
+            self.unbind_to(expanded_root_count);
+            return result;
         }
         if cons_head_symbol_id(&func) == Some(macro_symbol()) {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
@@ -6595,7 +6619,12 @@ impl Context {
             self.push_backtrace_frame(original_fun, &arg_values);
             let expanded = self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values));
             self.unbind_to(bt_count);
-            return self.eval_sub(expanded?);
+            let expanded = expanded?;
+            let expanded_root_count = self.specpdl.len();
+            self.push_specpdl_root(expanded);
+            let result = self.eval_sub(expanded);
+            self.unbind_to(expanded_root_count);
+            return result;
         }
 
         // GNU eval.c:2606-2614: for SUBRP `fun`, check arity
@@ -9969,7 +9998,8 @@ impl Context {
         let current_fp = runtime_tail_fingerprint(args);
         let context_key = self.macro_expansion_context_key_for_environment(environment);
         let cache_key = self.runtime_macro_expansion_cache_key(function, current_fp, context_key);
-        let cache_entry = RuntimeMacroExpansionCacheEntry::new(*expanded_value, current_fp);
+        let cache_entry =
+            RuntimeMacroExpansionCacheEntry::new(function, *expanded_value, current_fp);
         if self.macro_perf_enabled && expand_elapsed.as_millis() > 50 {
             let macro_head = if form.is_cons() {
                 form.cons_car().as_symbol_name().unwrap_or("<non-symbol>")

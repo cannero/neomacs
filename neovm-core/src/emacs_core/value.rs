@@ -886,21 +886,33 @@ impl TaggedValue {
 
     /// Build a proper list from a Vec.
     pub fn list(mut values: Vec<Value>) -> Self {
+        let saved_roots = super::eval::save_scratch_gc_roots();
+        for value in values.iter().copied() {
+            super::eval::push_scratch_gc_root(value);
+        }
         let mut acc = Value::NIL;
         while let Some(item) = values.pop() {
             acc = Value::cons(item, acc);
+            super::eval::push_scratch_gc_root(acc);
         }
+        super::eval::restore_scratch_gc_roots(saved_roots);
         acc
     }
 
     /// Build a proper list from a slice without first cloning into a `Vec`.
     pub fn list_from_slice(values: &[Value]) -> Self {
+        let saved_roots = super::eval::save_scratch_gc_roots();
+        for value in values.iter().copied() {
+            super::eval::push_scratch_gc_root(value);
+        }
         let mut acc = Value::NIL;
         let mut idx = values.len();
         while idx > 0 {
             idx -= 1;
             acc = Value::cons(values[idx], acc);
+            super::eval::push_scratch_gc_root(acc);
         }
+        super::eval::restore_scratch_gc_roots(saved_roots);
         acc
     }
 

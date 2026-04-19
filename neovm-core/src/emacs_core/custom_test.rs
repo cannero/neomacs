@@ -91,6 +91,28 @@ fn defcustom_with_group() {
 }
 
 #[test]
+fn custom_declare_variable_version_string_survives_gc_stress() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = bootstrap_context();
+    ev.gc_stress = true;
+
+    let result = ev
+        .eval_str(
+            r#"(progn
+                 (custom-declare-variable
+                   'vm-custom-version-gc
+                   nil
+                   "Docs."
+                   :type 'boolean
+                   :version "29.1")
+                 (get 'vm-custom-version-gc 'custom-version))"#,
+        )
+        .expect("custom-declare-variable should preserve :version string");
+
+    assert_eq!(result, Value::string("29.1"));
+}
+
+#[test]
 fn defcustom_does_not_override_existing() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(r#"(setq my-var 99) (defcustom my-var 42 "Docs.") my-var"#);

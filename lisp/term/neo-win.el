@@ -62,6 +62,24 @@
 (defvar x-display-name nil
   "The display name specifying the display to connect to.")
 
+(defun neomacs--window-setup ()
+  "Finish Neomacs GUI setup after GNU startup completes frame setup."
+  (remove-hook 'window-setup-hook #'neomacs--window-setup)
+
+  ;; Cursor blinking is handled by the render thread.  Sync blink state to
+  ;; the render thread and suppress the Emacs-side blink timer.
+  (neomacs--setup-cursor-blink)
+
+  ;; Enable render-thread animations and host clipboard integration only
+  ;; after GNU startup has finished its initial frame setup.
+  (neomacs--setup-animations)
+  (setq interprogram-cut-function #'neomacs--clipboard-cut)
+  (setq interprogram-paste-function #'neomacs--clipboard-paste)
+
+  ;; Enable pixel-precise scrolling for smooth touchpad support.
+  (when (fboundp 'pixel-scroll-precision-mode)
+    (pixel-scroll-precision-mode 1)))
+
 ;; Do the actual window system setup here.
 (cl-defmethod window-system-initialization (&context (window-system neo)
                                             &optional display)
@@ -69,9 +87,6 @@
 WINDOW-SYSTEM is, aptly, `neo'.
 DISPLAY is the name of the display Emacs should connect to."
   (cl-assert (not neomacs-initialized))
-
-  ;; Handle command line args
-  (setq command-line-args (x-handle-args command-line-args))
 
   ;; Make sure we have a valid resource name.
   (when (boundp 'x-resource-name)
@@ -114,22 +129,7 @@ DISPLAY is the name of the display Emacs should connect to."
       (push param default-frame-alist)))
 
   (add-hook 'suspend-hook #'neomacs-suspend-error)
-
-  ;; Cursor blinking is handled by the render thread.
-  ;; Sync blink-cursor-mode state to the render thread and suppress the
-  ;; Emacs-side blink timer (which would fight with the render-thread blink).
-  (neomacs--setup-cursor-blink)
-
-  ;; Set up animations (smooth cursor, crossfade, scroll slide)
-  (neomacs--setup-animations)
-
-  ;; Clipboard integration via Rust arboard crate
-  (setq interprogram-cut-function #'neomacs--clipboard-cut)
-  (setq interprogram-paste-function #'neomacs--clipboard-paste)
-
-  ;; Enable pixel-precise scrolling for smooth touchpad support
-  (when (fboundp 'pixel-scroll-precision-mode)
-    (pixel-scroll-precision-mode 1))
+  (add-hook 'window-setup-hook #'neomacs--window-setup)
 
   (setq neomacs-initialized t))
 

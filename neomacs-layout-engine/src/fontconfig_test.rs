@@ -8,11 +8,16 @@ use super::{
     wildcard_casefold_match,
 };
 use neovm_core::emacs_core::fontset::{FontRepertory, StoredFontSpec};
+use neovm_core::emacs_core::intern::{intern, resolve_sym};
 use neovm_core::face::{FontSlant, FontWeight, FontWidth};
 #[cfg(unix)]
 use std::ffi::CString;
 #[cfg(unix)]
 use std::ptr;
+
+fn font_sym(name: &str) -> neovm_core::emacs_core::SymId {
+    intern(name)
+}
 
 #[test]
 fn registry_hint_matches_wildcard_patterns() {
@@ -45,7 +50,7 @@ fn registry_query_chars_use_gnu_uniquifiers() {
 fn query_charset_ranges_follow_gnu_registry_uniquifiers_when_registry_is_present() {
     let spec = StoredFontSpec {
         family: None,
-        registry: Some("gb2312.1980-0".to_string()),
+        registry: Some(font_sym("gb2312.1980-0")),
         lang: None,
         weight: None,
         slant: None,
@@ -79,7 +84,7 @@ fn query_charset_ranges_skip_generic_gnu_registries() {
     for registry in ["ascii-0", "iso10646-1", "unicode-bmp"] {
         let spec = StoredFontSpec {
             family: None,
-            registry: Some(registry.to_string()),
+            registry: Some(font_sym(registry)),
             lang: None,
             weight: None,
             slant: None,
@@ -100,7 +105,7 @@ fn gb2312_registry_pattern() -> (
 ) {
     let spec = StoredFontSpec {
         family: None,
-        registry: Some("gb2312.1980-0".to_string()),
+        registry: Some(font_sym("gb2312.1980-0")),
         lang: None,
         weight: None,
         slant: None,
@@ -111,10 +116,10 @@ fn gb2312_registry_pattern() -> (
     let ranges = query_charset_ranges(&spec, representative);
     let langs = combined_query_langs(
         spec.registry
-            .as_deref()
+            .map(resolve_sym)
             .and_then(registry_hint)
             .and_then(|hint| hint.lang),
-        spec.lang.as_deref(),
+        spec.lang.map(resolve_sym),
     );
 
     let _ = fontconfig_handle().expect("fontconfig");
@@ -217,7 +222,7 @@ fn wildcard_match_handles_star_and_question() {
 fn registry_only_fontset_specs_try_requested_family_before_unspecified_fallback() {
     let spec = StoredFontSpec {
         family: None,
-        registry: Some("gb2312.1980-0".to_string()),
+        registry: Some(font_sym("gb2312.1980-0")),
         lang: None,
         weight: None,
         slant: None,
@@ -234,7 +239,7 @@ fn constrained_fontset_specs_without_family_try_requested_family_first() {
     let spec = StoredFontSpec {
         family: None,
         registry: None,
-        lang: Some("zh-cn".to_string()),
+        lang: Some(font_sym("zh-cn")),
         weight: Some(FontWeight(600)),
         slant: None,
         width: None,

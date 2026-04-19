@@ -7,6 +7,10 @@ fn eval_lisp(eval: &mut neovm_core::emacs_core::Context, source: &str) -> Value 
     eval.eval_str(source).expect("evaluate form")
 }
 
+fn test_buffer(id: u64, name: &str) -> neovm_core::buffer::Buffer {
+    neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(id), Value::string(name))
+}
+
 /// Create a minimal Context-like test fixture (FrameManager + BufferManager)
 /// and verify `collect_layout_params` produces correct output.
 #[test]
@@ -899,8 +903,7 @@ fn test_face_resolver_with_text_property() {
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
     // Create a buffer and set "face" text property to bold.
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(1), "*test*".to_string());
+    let mut buf = test_buffer(1, "*test*");
     buf.text.insert_str(0, "hello world");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -928,8 +931,7 @@ fn test_face_resolver_with_font_lock_face() {
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(2), "*fontlock*".to_string());
+    let mut buf = test_buffer(2, "*fontlock*");
     buf.text.insert_str(0, "defun myfunction");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -955,8 +957,7 @@ fn test_face_resolver_next_check() {
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(3), "*nextcheck*".to_string());
+    let mut buf = test_buffer(3, "*nextcheck*");
     buf.text.insert_str(0, "aabbccdd");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -1073,10 +1074,7 @@ fn test_face_resolver_face_ref_list_respects_gnu_precedence() {
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf = neovm_core::buffer::Buffer::new(
-        neovm_core::buffer::BufferId(51),
-        "*face-ref-list*".to_string(),
-    );
+    let mut buf = test_buffer(51, "*face-ref-list*");
     buf.text.insert_str(0, "x");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -1098,10 +1096,7 @@ fn test_face_resolver_buffer_local_default_remap_applies_to_plain_text() {
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf = neovm_core::buffer::Buffer::new(
-        neovm_core::buffer::BufferId(52),
-        "*default-remap*".to_string(),
-    );
+    let mut buf = test_buffer(52, "*default-remap*");
     buf.text.insert_str(0, "plain");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -1125,10 +1120,7 @@ fn test_face_resolver_buffer_local_named_face_remap_applies_to_face_prop() {
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf = neovm_core::buffer::Buffer::new(
-        neovm_core::buffer::BufferId(53),
-        "*named-remap*".to_string(),
-    );
+    let mut buf = test_buffer(53, "*named-remap*");
     buf.text.insert_str(0, "bold");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -1162,8 +1154,7 @@ fn test_face_resolver_inverse_video() {
 
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(6), "*inverse*".to_string());
+    let mut buf = test_buffer(6, "*inverse*");
     buf.text.insert_str(0, "inverted");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
@@ -1184,8 +1175,7 @@ fn test_face_resolver_multibyte_text_property_uses_byte_offsets() {
     let table = FaceTable::new();
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
 
-    let mut buf =
-        neovm_core::buffer::Buffer::new(neovm_core::buffer::BufferId(7), "*utf8*".to_string());
+    let mut buf = test_buffer(7, "*utf8*");
     buf.text.insert_str(0, "a好b");
     buf.zv_byte = buf.text.len();
     buf.zv = buf.text.char_count();
