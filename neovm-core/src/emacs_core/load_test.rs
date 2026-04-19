@@ -1602,9 +1602,11 @@ fn bootstrap_runtime_does_not_leak_eval_when_compile_cl_lib_side_effects() {
                (functionp (symbol-function 'emacs-lisp-mode)))",
     );
     // GNU loadup.el explicitly requires gv for the interpreted add-hook path,
-    // then loads cl-preloaded and leaves cl-lib/cl-loaddefs entry points visible.
+    // but `cl-lib` itself is still not a loaded runtime feature at `-Q`
+    // startup. The loaddefs entry points remain visible as autoloads.
     assert_eq!(
-        rendered, "OK (t nil nil nil nil t t t t t t t t t t t t t t t t t nil t)",
+        rendered,
+        "OK (nil nil nil nil nil t t nil nil nil nil nil nil nil nil nil nil t t t t t nil t)",
         "bootstrap runtime should match GNU -Q startup visibility for cl preload and loaddefs"
     );
 }
@@ -1726,7 +1728,7 @@ fn bootstrap_cache_parallel_creation_worker() {
         &mut eval,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (t t t)");
+    assert_eq!(rendered, "OK (nil t t)");
 }
 
 #[test]
@@ -1758,7 +1760,7 @@ fn bootstrap_cache_parallel_creation_is_safe() {
         &mut loaded,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (t t t)");
+    assert_eq!(rendered, "OK (nil t t)");
 }
 
 #[test]
@@ -1799,7 +1801,7 @@ fn bootstrap_cache_parallel_stale_repair_is_safe() {
         &mut loaded,
         "(list (featurep 'cl-lib) (fboundp 'setf) (autoloadp (symbol-function 'setf)))",
     );
-    assert_eq!(rendered, "OK (t t t)");
+    assert_eq!(rendered, "OK (nil t t)");
 }
 
 #[test]
