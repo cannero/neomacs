@@ -6013,6 +6013,24 @@ pub(crate) fn builtin_accept_process_output(
             outcome.any_process_activity
         };
         if got_output {
+            if request.target_id.is_some() {
+                // GNU's wait_reading_process_output keeps a target-process
+                // accept-process-output call alive for a minimum follow-up
+                // cycle after reading bytes, so a child that exits
+                // immediately after flushing output can run its sentinel
+                // before we return.
+                loop {
+                    let follow_up = eval.service_wait_path_once(
+                        request.target_id,
+                        request.just_this_one,
+                        request.allow_timers,
+                        false,
+                    )?;
+                    if !follow_up.target_process_activity {
+                        break;
+                    }
+                }
+            }
             return Ok(Value::T);
         }
 
