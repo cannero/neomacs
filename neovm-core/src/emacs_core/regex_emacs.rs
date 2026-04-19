@@ -3371,7 +3371,13 @@ pub(crate) fn re_search(
                     continue;
                 }
             }
-            if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+            // GNU `search.c:1195-1201` calls `re_search_2` for backward
+            // searches with STOP set to the point where the search began.
+            // That means a candidate may start before `start`, but it may
+            // not extend past it.  This prevents a repeated backward search
+            // from re-matching the same non-empty match that begins at
+            // point but ends after it.
+            if let Some(result) = re_match(pattern, text, pos, start, syntax, point) {
                 return Some((pos, result.1));
             }
         }

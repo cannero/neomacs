@@ -1561,6 +1561,18 @@ fn re_search_backward_basic() {
 }
 
 #[test]
+fn re_search_backward_rejects_match_extending_past_point() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = make_test_buffer("ab12cd");
+    buf.goto_byte(2); // point at the start of the current match
+    let mut md = None;
+    let result = re_search_backward(&mut buf, "[0-9]+", Some(0), true, false, &mut md);
+    assert_eq!(result, Ok(None));
+    assert!(md.is_none());
+    assert_eq!(buf.pt, 2);
+}
+
+#[test]
 fn re_search_backward_finds_nullable_match_at_point() {
     crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("abc\n");
