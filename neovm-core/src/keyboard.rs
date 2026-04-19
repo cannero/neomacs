@@ -2103,10 +2103,17 @@ impl crate::emacs_core::eval::Context {
 
     fn special_event_binding(&self, event: &Value) -> Option<Value> {
         let special_event_map = self.obarray.symbol_value("special-event-map").copied()?;
+        // GNU `read_char` calls `access_keymap` on the event head, so a
+        // full lispy event like `(focus-in FRAME)` must match a keymap entry
+        // stored under just `focus-in`.
+        let lookup_event = match event.kind() {
+            ValueKind::Cons => event.cons_car(),
+            _ => *event,
+        };
         let binding = crate::emacs_core::keymap::lookup_key_in_keymaps_in_obarray(
             self.obarray(),
             &[special_event_map],
-            &[*event],
+            &[lookup_event],
             true,
         );
         if binding.is_nil() || binding.is_fixnum() {
@@ -3190,7 +3197,19 @@ impl crate::emacs_core::eval::Context {
                     if self.execute_special_event_if_bound(event)? {
                         return Ok(None);
                     }
-                    return Ok(Some(event));
+                    if focused {
+                        // GNU `frame.el` routes `handle-focus-in` through the
+                        // C primitive `internal-handle-focus-in`. In source
+                        // bootstrap contexts that Lisp wrapper is not loaded
+                        // yet, but focus-in still should not surface as a
+                        // user event and must preserve the switch-frame side
+                        // effect for other frames.
+                        crate::emacs_core::builtins::symbols::builtin_internal_handle_focus_in(
+                            self,
+                            vec![event],
+                        )?;
+                    }
+                    return Ok(None);
                 }
                 Ok(None)
             }
@@ -3372,7 +3391,7 @@ impl crate::emacs_core::eval::Context {
                 return Err(crate::emacs_core::error::signal("quit", vec![]));
             }
 
-            if self.noninteractive() {
+            if self.noninteractive() && self.input_rx.is_none() {
                 self.timer_stop_idle();
                 return Ok(None);
             }
