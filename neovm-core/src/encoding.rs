@@ -618,11 +618,72 @@ fn decode_eol_text(bytes: &[u8], coding_system: &str) -> Vec<u8> {
 }
 
 fn coding_system_family(coding_system: &str) -> &str {
-    coding_system
+    match coding_system
         .strip_suffix("-unix")
         .or_else(|| coding_system.strip_suffix("-dos"))
         .or_else(|| coding_system.strip_suffix("-mac"))
         .unwrap_or(coding_system)
+    {
+        "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
+        "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        family => family,
+    }
+}
+
+fn decode_single_byte_family_char(family: &str, byte: u8) -> Option<char> {
+    match family {
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => Some(byte as char),
+        "iso-latin-5" => Some(match byte {
+            0xD0 => '\u{011E}',
+            0xDD => '\u{0130}',
+            0xDE => '\u{015E}',
+            0xF0 => '\u{011F}',
+            0xFD => '\u{0131}',
+            0xFE => '\u{015F}',
+            _ => byte as char,
+        }),
+        "iso-latin-9" => Some(match byte {
+            0xA4 => '\u{20AC}',
+            0xA6 => '\u{0160}',
+            0xA8 => '\u{0161}',
+            0xB4 => '\u{017D}',
+            0xB8 => '\u{017E}',
+            0xBC => '\u{0152}',
+            0xBD => '\u{0153}',
+            0xBE => '\u{0178}',
+            _ => byte as char,
+        }),
+        _ => None,
+    }
+}
+
+fn encode_single_byte_family_char(family: &str, code: u32) -> Option<u8> {
+    match family {
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => (code <= 0xFF).then_some(code as u8),
+        "iso-latin-5" => match code {
+            0x011E => Some(0xD0),
+            0x0130 => Some(0xDD),
+            0x015E => Some(0xDE),
+            0x011F => Some(0xF0),
+            0x0131 => Some(0xFD),
+            0x015F => Some(0xFE),
+            _ if code <= 0xFF => Some(code as u8),
+            _ => None,
+        },
+        "iso-latin-9" => match code {
+            0x20AC => Some(0xA4),
+            0x0160 => Some(0xA6),
+            0x0161 => Some(0xA8),
+            0x017D => Some(0xB4),
+            0x017E => Some(0xB8),
+            0x0152 => Some(0xBC),
+            0x0153 => Some(0xBD),
+            0x0178 => Some(0xBE),
+            _ if code <= 0xFF => Some(code as u8),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn push_emacs_utf8_decoded_char(out: &mut String, code: u32) {
@@ -803,9 +864,9 @@ pub fn encode_lisp_string(s: &crate::heap_types::LispString, coding_system: &str
 
     let mut out = Vec::with_capacity(s.sbytes());
     let mut push_encoded = |code: u32| match family {
-        "latin-1" | "iso-8859-1" | "iso-latin-1" => {
-            if code <= 0xFF {
-                out.push(code as u8);
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => {
+            if let Some(byte) = encode_single_byte_family_char(family, code) {
+                out.push(byte);
             } else if crate::emacs_core::emacs_char::char_byte8_p(code) {
                 out.push(crate::emacs_core::emacs_char::char_to_byte8(code));
             } else {
@@ -851,9 +912,12 @@ pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac" | "utf-8-emacs" => {
             encode_utf8_emacs_text(&eol_text)
         }
-        "latin-1" | "iso-8859-1" | "iso-latin-1" => eol_text
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => eol_text
             .chars()
-            .map(|c| if (c as u32) <= 0xff { c as u8 } else { b'?' })
+            .map(|c| {
+                encode_single_byte_family_char(coding_system_family(coding_system), c as u32)
+                    .unwrap_or(b'?')
+            })
             .collect(),
         "ascii" | "us-ascii" => eol_text
             .chars()
@@ -869,7 +933,13 @@ pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
     let bytes = decode_eol_text(bytes, coding_system);
     match coding_system_family(coding_system) {
         "utf-8" | "utf-8-emacs" => decode_utf8_emacs_bytes(&bytes),
-        "latin-1" | "iso-8859-1" | "iso-latin-1" => bytes.iter().map(|&b| b as char).collect(),
+        "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => bytes
+            .iter()
+            .map(|&b| {
+                decode_single_byte_family_char(coding_system_family(coding_system), b)
+                    .unwrap_or('\u{FFFD}')
+            })
+            .collect(),
         "ascii" | "us-ascii" => bytes
             .iter()
             .map(|&b| if b < 128 { b as char } else { '?' })
