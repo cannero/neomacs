@@ -295,7 +295,10 @@ fn resolve_lookup_keymaps_in_runtime(
     if value.is_nil() {
         return Ok(vec![Value::NIL]);
     }
-    if let Some(items) = list_to_vec(value) {
+    if value.is_cons()
+        && is_list_keymap(&maybe_keymap_in_runtime(eval, &value.cons_car(), true)?)
+        && let Some(items) = list_to_vec(value)
+    {
         if items.is_empty() {
             return Ok(vec![Value::NIL]);
         }
@@ -316,6 +319,9 @@ fn resolve_lookup_keymaps_in_runtime(
             return Ok(resolved);
         }
     }
+    if value.is_cons() {
+        return Ok(vec![*value]);
+    }
 
     Ok(vec![get_keymap_in_runtime(eval, value, true, true)?])
 }
@@ -327,7 +333,11 @@ fn resolve_lookup_keymaps_in_obarray(obarray: &Obarray, value: &Value) -> Result
     if value.is_nil() {
         return Ok(vec![Value::NIL]);
     }
-    if let Some(items) = list_to_vec(value) {
+    if value.is_cons()
+        && maybe_keymap_in_obarray(obarray, &value.cons_car())
+            .is_some_and(|keymap| is_list_keymap(&keymap))
+        && let Some(items) = list_to_vec(value)
+    {
         if items.is_empty() {
             return Ok(vec![Value::NIL]);
         }
@@ -346,6 +356,9 @@ fn resolve_lookup_keymaps_in_obarray(obarray: &Obarray, value: &Value) -> Result
         if !resolved.is_empty() {
             return Ok(resolved);
         }
+    }
+    if value.is_cons() {
+        return Ok(vec![*value]);
     }
 
     Ok(vec![expect_keymap_in_obarray(obarray, value)?])

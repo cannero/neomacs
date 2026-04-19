@@ -25,7 +25,11 @@ fn parses_ctrl_keypress() {
     );
     assert_eq!(parse_key_bytes(b"\t"), Some((XK_TAB, 0)));
     assert_eq!(parse_key_bytes(b"\n"), Some((XK_RETURN, 0)));
-    assert_eq!(parse_key_bytes(&[0x08]), Some((XK_BACKSPACE, 0)));
+    assert_eq!(
+        parse_key_bytes(&[0x08]),
+        Some((b'h' as u32, RENDER_CTRL_MASK))
+    );
+    assert_eq!(parse_key_bytes(&[0x7F]), Some((XK_BACKSPACE, 0)));
 }
 
 #[test]

@@ -630,17 +630,25 @@ pub fn list_keymap_lookup_one_noinherit(keymap: &Value, event: &Value) -> Value 
 ///
 /// When `t_ok` is true, a `(t . COMMAND)` entry is accepted as a
 /// default binding, matching GNU `access_keymap_1`'s `t_ok` parameter.
-fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<Value> {
+///
+/// GNU `access_keymap_1` accepts both full `(keymap ...)` objects and
+/// raw cons spines such as the running `tail` in `help.el:describe-map`.
+/// Neomacs must do the same so `lookup-key` works on canonicalized
+/// keymap tails during help rendering.
+fn keymap_binding_spine(keymap: &Value) -> Option<Value> {
     if !keymap.is_cons() {
-        return None;
-    };
-    let pair_car = keymap.cons_car();
-    let pair_cdr = keymap.cons_cdr();
-    if pair_car.as_symbol_name() != Some("keymap") {
         return None;
     }
 
-    let mut cursor = pair_cdr;
+    if keymap.cons_car().as_symbol_name() == Some("keymap") {
+        return Some(keymap.cons_cdr());
+    }
+
+    Some(*keymap)
+}
+
+fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<Value> {
+    let mut cursor = keymap_binding_spine(keymap)?;
     let mut entries = 0;
     let mut t_binding: Option<Value> = None;
     while cursor.is_cons() {
@@ -739,15 +747,9 @@ fn lookup_in_keymap_level(keymap: &Value, event: &Value, t_ok: bool) -> Option<V
 
 /// Get the parent keymap from a keymap (the tail after all alist entries).
 fn get_keymap_tail_parent(keymap: &Value) -> Value {
-    if !keymap.is_cons() {
+    let Some(mut cursor) = keymap_binding_spine(keymap) else {
         return Value::NIL;
     };
-    let pair_car = keymap.cons_car();
-    let pair_cdr = keymap.cons_cdr();
-    if pair_car.as_symbol_name() != Some("keymap") {
-        return Value::NIL;
-    }
-    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             return cursor;
@@ -1151,16 +1153,9 @@ fn store_in_keymap(keymap: Value, event: Value, def: Value, remove: bool) {
 
 /// Get the parent keymap (last CDR that is itself a keymap).
 pub fn list_keymap_parent(keymap: &Value) -> Value {
-    if !keymap.is_cons() {
+    let Some(mut cursor) = keymap_binding_spine(keymap) else {
         return Value::NIL;
     };
-    let pair_car = keymap.cons_car();
-    let pair_cdr = keymap.cons_cdr();
-    if pair_car.as_symbol_name() != Some("keymap") {
-        return Value::NIL;
-    }
-
-    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         // Check if cursor itself is a parent keymap before treating as alist entry
         if is_list_keymap(&cursor) {
@@ -1971,7 +1966,11 @@ fn where_is_explicit_keymaps_in_context(ctx: &Context, value: &Value) -> Result<
         return Ok(keymaps);
     }
 
-    if let Some(items) = list_to_vec(value) {
+    if value.is_cons()
+        && maybe_keymap_in_obarray(&ctx.obarray, &value.cons_car())
+            .is_some_and(|keymap| is_list_keymap(&keymap))
+        && let Some(items) = list_to_vec(value)
+    {
         let mut keymaps = Vec::with_capacity(items.len());
         for item in items {
             keymaps.push(where_is_expect_keymap_in_obarray(&ctx.obarray, &item)?);
@@ -1979,7 +1978,11 @@ fn where_is_explicit_keymaps_in_context(ctx: &Context, value: &Value) -> Result<
         return Ok(keymaps);
     }
 
-    let keymap = where_is_expect_keymap_in_obarray(&ctx.obarray, value)?;
+    let keymap = if value.is_cons() {
+        *value
+    } else {
+        where_is_expect_keymap_in_obarray(&ctx.obarray, value)?
+    };
     let mut keymaps = vec![keymap];
     let global_map = ctx
         .obarray
@@ -2766,16 +2769,9 @@ pub fn list_keymap_for_each_binding<F>(keymap: &Value, mut f: F)
 where
     F: FnMut(Value, Value),
 {
-    if !keymap.is_cons() {
+    let Some(mut cursor) = keymap_binding_spine(keymap) else {
         return;
     };
-    let pair_car = keymap.cons_car();
-    let pair_cdr = keymap.cons_cdr();
-    if pair_car.as_symbol_name() != Some("keymap") {
-        return;
-    }
-
-    let mut cursor = pair_cdr;
     while cursor.is_cons() {
         if is_list_keymap(&cursor) {
             break;

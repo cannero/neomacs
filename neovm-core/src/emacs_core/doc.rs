@@ -55,9 +55,18 @@ pub(crate) fn builtin_documentation(
     let raw = args.get(1).is_some_and(|v| v.is_truthy());
     let obarray = eval.obarray() as *const super::symbol::Obarray;
     // Safety: the evaluator owns the obarray for the duration of this call.
-    let plan = documentation_plan(unsafe { &*obarray }, args)?;
+    let (plan, lisp_directory) = documentation_plan(unsafe { &*obarray }, args)?;
     finish_documentation_result(
-        execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
+        execute_documentation_plan(
+            plan,
+            |execution| match execution {
+                DocumentationExecution::Eval(value) => eval.eval_value(&value),
+                DocumentationExecution::FunctionDoc(function) => {
+                    eval.apply(Value::symbol("function-documentation"), vec![function])
+                }
+            },
+            lisp_directory.as_deref(),
+        )?,
         raw,
         |value| maybe_substitute_command_keys(eval, value),
     )
@@ -66,15 +75,26 @@ pub(crate) fn builtin_documentation(
 enum DocumentationPlan {
     Final(Value),
     Eval(Value),
+    FunctionDoc(Value),
+}
+
+enum DocumentationExecution {
+    Eval(Value),
+    FunctionDoc(Value),
 }
 
 fn execute_documentation_plan(
     plan: DocumentationPlan,
-    mut eval_value: impl FnMut(Value) -> EvalResult,
+    mut execute: impl FnMut(DocumentationExecution) -> EvalResult,
+    lisp_directory: Option<&str>,
 ) -> EvalResult {
     match plan {
         DocumentationPlan::Final(value) => Ok(value),
-        DocumentationPlan::Eval(value) => eval_value(value),
+        DocumentationPlan::Eval(value) => execute(DocumentationExecution::Eval(value)),
+        DocumentationPlan::FunctionDoc(function) => {
+            let doc = execute(DocumentationExecution::FunctionDoc(function))?;
+            documentation_result_from_raw_doc(lisp_directory, doc)
+        }
     }
 }
 
@@ -108,7 +128,7 @@ fn maybe_substitute_command_keys(eval: &mut super::eval::Context, value: Value) 
 fn documentation_plan(
     obarray: &super::symbol::Obarray,
     args: Vec<Value>,
-) -> Result<DocumentationPlan, Flow> {
+) -> Result<(DocumentationPlan, Option<String>), Flow> {
     expect_min_max_args("documentation", &args, 1, 2)?;
     let lisp_directory = obarray
         .symbol_value("lisp-directory")
@@ -119,30 +139,21 @@ fn documentation_plan(
     if let Some(name) = args[0].as_symbol_name() {
         let name = name.to_string();
         if let Some(prop) = obarray.get_property(&name, "function-documentation") {
-            return documentation_plan_from_property_value(lisp_directory.as_deref(), prop);
+            let plan = documentation_plan_from_property_value(lisp_directory.as_deref(), prop)?;
+            return Ok((plan, lisp_directory));
         }
-
-        let mut func_val = super::builtins::symbols::symbol_function_impl(
-            obarray,
-            vec![Value::symbol(name.clone())],
-        )?;
-        if let Some(alias_name) = func_val.as_symbol_name() {
-            let indirect = super::builtins::symbols::indirect_function_impl(
-                obarray,
-                vec![Value::symbol(alias_name)],
-            )?;
-            if !indirect.is_nil() {
-                func_val = indirect;
-            }
-        }
-        if func_val.is_nil() {
-            return Err(signal("void-function", vec![Value::symbol(name)]));
-        }
-
-        return function_doc_or_error(func_val).map(DocumentationPlan::Final);
     }
 
-    function_doc_or_error(args[0]).map(DocumentationPlan::Final)
+    let function = resolve_documentation_function_value(obarray, args[0])?;
+    let plan = if obarray
+        .symbol_function_id(intern("function-documentation"))
+        .is_some()
+    {
+        DocumentationPlan::FunctionDoc(function)
+    } else {
+        DocumentationPlan::Final(function_doc_or_error(function)?)
+    };
+    Ok((plan, lisp_directory))
 }
 
 pub(crate) fn builtin_documentation_in_vm_runtime(
@@ -151,18 +162,30 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
 ) -> EvalResult {
     let raw = args.get(1).is_some_and(|v| v.is_truthy());
     let args_roots = args.clone();
-    let plan = documentation_plan(&shared.obarray, args)?;
+    let (plan, lisp_directory) = documentation_plan(&shared.obarray, args)?;
     finish_documentation_result(
-        execute_documentation_plan(plan, |value| {
-            let roots = shared.save_specpdl_roots();
-            for root in &args_roots {
-                shared.push_specpdl_root(*root);
-            }
-            shared.push_specpdl_root(value);
-            let result = shared.eval_value(&value);
-            shared.restore_specpdl_roots(roots);
-            result
-        })?,
+        execute_documentation_plan(
+            plan,
+            |execution| {
+                let roots = shared.save_specpdl_roots();
+                for root in &args_roots {
+                    shared.push_specpdl_root(*root);
+                }
+                let result = match execution {
+                    DocumentationExecution::Eval(value) => {
+                        shared.push_specpdl_root(value);
+                        shared.eval_value(&value)
+                    }
+                    DocumentationExecution::FunctionDoc(function) => {
+                        shared.push_specpdl_root(function);
+                        shared.apply(Value::symbol("function-documentation"), vec![function])
+                    }
+                };
+                shared.restore_specpdl_roots(roots);
+                result
+            },
+            lisp_directory.as_deref(),
+        )?,
         raw,
         |value| {
             if shared
@@ -185,6 +208,50 @@ pub(crate) fn builtin_documentation_in_vm_runtime(
             result
         },
     )
+}
+
+fn documentation_result_from_raw_doc(lisp_directory: Option<&str>, value: Value) -> EvalResult {
+    if value == Value::fixnum(0) {
+        return Ok(Value::NIL);
+    }
+
+    if let Some((file, position)) = compiled_doc_ref(&value) {
+        return load_compiled_doc_string(lisp_directory, &file, position);
+    }
+
+    Ok(value)
+}
+
+fn resolve_documentation_function_value(
+    obarray: &super::symbol::Obarray,
+    function: Value,
+) -> EvalResult {
+    let mut resolved = if let Some(name) = function.as_symbol_name() {
+        let func =
+            super::builtins::symbols::symbol_function_impl(obarray, vec![Value::symbol(name)])?;
+        if func.is_nil() {
+            return Err(signal("void-function", vec![function]));
+        }
+        func
+    } else {
+        function
+    };
+
+    if let Some(alias_name) = resolved.as_symbol_name() {
+        let indirect = super::builtins::symbols::indirect_function_impl(
+            obarray,
+            vec![Value::symbol(alias_name)],
+        )?;
+        if !indirect.is_nil() {
+            resolved = indirect;
+        }
+    }
+
+    if resolved.is_cons() && resolved.cons_car().as_symbol_name() == Some("macro") {
+        resolved = resolved.cons_cdr();
+    }
+
+    Ok(resolved)
 }
 
 fn function_doc_or_error(func_val: Value) -> EvalResult {
@@ -7914,7 +7981,14 @@ pub(crate) fn builtin_documentation_property(
     // Safety: the evaluator owns the obarray for the duration of this call.
     let plan = documentation_property_plan(unsafe { &*obarray }, args)?;
     finish_documentation_result(
-        execute_documentation_plan(plan, |value| eval.eval_value(&value))?,
+        execute_documentation_plan(
+            plan,
+            |execution| match execution {
+                DocumentationExecution::Eval(value) => eval.eval_value(&value),
+                DocumentationExecution::FunctionDoc(_) => unreachable!(),
+            },
+            None,
+        )?,
         raw,
         |value| maybe_substitute_command_keys(eval, value),
     )
@@ -8003,16 +8077,23 @@ pub(crate) fn builtin_documentation_property_in_vm_runtime(
     let args_roots = args.clone();
     let plan = documentation_property_plan(&shared.obarray, args)?;
     finish_documentation_result(
-        execute_documentation_plan(plan, |value| {
-            let roots = shared.save_specpdl_roots();
-            for root in &args_roots {
-                shared.push_specpdl_root(*root);
-            }
-            shared.push_specpdl_root(value);
-            let result = shared.eval_value(&value);
-            shared.restore_specpdl_roots(roots);
-            result
-        })?,
+        execute_documentation_plan(
+            plan,
+            |execution| {
+                let DocumentationExecution::Eval(value) = execution else {
+                    unreachable!()
+                };
+                let roots = shared.save_specpdl_roots();
+                for root in &args_roots {
+                    shared.push_specpdl_root(*root);
+                }
+                shared.push_specpdl_root(value);
+                let result = shared.eval_value(&value);
+                shared.restore_specpdl_roots(roots);
+                result
+            },
+            None,
+        )?,
         raw,
         |value| {
             if shared

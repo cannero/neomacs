@@ -2941,6 +2941,83 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
 }
 
 #[test]
+fn bootstrap_runtime_read_key_sequence_follows_help_command_keymap_prefix() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::fixnum(8));
+    eval.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::fixnum('m' as i64));
+
+    let (keys, binding) = eval.read_key_sequence().expect("read C-h m sequence");
+    assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('m' as i64)]);
+    assert_eq!(binding, Value::symbol("describe-mode"));
+}
+
+#[test]
+fn bootstrap_runtime_documentation_resolves_compiled_bytecode_doc_refs() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = format_eval_result(&eval.eval_str(
+        r#"(list (string-prefix-p
+                  "Major mode for typing and evaluating Lisp forms."
+                  (documentation 'lisp-interaction-mode t))
+                 (stringp (documentation 'emacs-lisp-mode t))
+                 (stringp (documentation 'fundamental-mode t)))"#,
+    ));
+
+    assert_eq!(rendered, "OK (t t t)");
+}
+
+#[test]
+fn bootstrap_runtime_lookup_key_accepts_keymap_spine_tails_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = format_eval_result(&eval.eval_str(
+        r#"(let ((tail (cdr lisp-interaction-mode-map)))
+             (list (lookup-key tail [10] t)
+                   (lookup-key tail [127] t)))"#,
+    ));
+
+    assert_eq!(
+        rendered,
+        "OK (eval-print-last-sexp backward-delete-char-untabify)"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_documentation_substitutes_lisp_interaction_mode_keymap_help() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = format_eval_result(&eval.eval_str(
+        r#"(let ((doc (documentation 'lisp-interaction-mode)))
+             (list (stringp doc)
+                   (string-prefix-p
+                    "Major mode for typing and evaluating Lisp forms."
+                    doc)
+                   (not (null (string-match-p
+                               "converts tabs to spaces as it moves back"
+                               doc)))))"#,
+    ));
+
+    assert_eq!(rendered, "OK (t t t)");
+}
+
+#[test]
 fn bootstrap_runtime_loads_gnu_window_split_entry_point() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

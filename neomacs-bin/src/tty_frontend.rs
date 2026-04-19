@@ -145,7 +145,11 @@ where
         0 => Some((b'@' as u32, RENDER_CTRL_MASK)),
         b'\r' | b'\n' => Some((XK_RETURN, 0)),
         b'\t' => Some((XK_TAB, 0)),
-        0x08 | 0x7F => Some((XK_BACKSPACE, 0)),
+        // Match GNU's TTY split between help-char (`C-h` == 0x08) and
+        // the physical Backspace keysym. GNU keeps raw 0x08 as a
+        // control character for `help-char` and maps `[backspace]`
+        // through `function-key-map` to `C-?` instead.
+        0x7F => Some((XK_BACKSPACE, 0)),
         0x01..=0x1A => Some((((first - 1) + b'a') as u32, RENDER_CTRL_MASK)),
         0x1C => Some((b'\\' as u32, RENDER_CTRL_MASK)),
         0x1D => Some((b']' as u32, RENDER_CTRL_MASK)),
