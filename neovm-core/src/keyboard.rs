@@ -1710,6 +1710,20 @@ fn apply_resize_input_event_in_keyboard_runtime(
     }
 }
 
+fn pending_live_gui_resize_target(
+    frames: &crate::window::FrameManager,
+    emacs_frame_id: u64,
+) -> Option<crate::window::FrameId> {
+    let target_fid = if emacs_frame_id == 0 {
+        frames.selected_frame().map(|frame| frame.id)
+    } else {
+        Some(crate::window::FrameId(emacs_frame_id))
+    }?;
+    frames
+        .get(target_fid)
+        .and_then(|frame| frame.pending_gui_resize.as_ref().map(|_| target_fid))
+}
+
 fn sync_pending_resize_events_in_keyboard_runtime(
     frames: &mut crate::window::FrameManager,
     input_rx: &mut Option<crossbeam_channel::Receiver<InputEvent>>,
@@ -1731,6 +1745,9 @@ fn sync_pending_resize_events_in_keyboard_runtime(
                 height,
                 emacs_frame_id,
             }) => {
+                if pending_live_gui_resize_target(frames, *emacs_frame_id).is_some() {
+                    break;
+                }
                 let (width, height, emacs_frame_id) = (*width, *height, *emacs_frame_id);
                 pending_input_events.pop_front();
                 apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
@@ -1761,6 +1778,16 @@ fn sync_pending_resize_events_in_keyboard_runtime(
                 height,
                 emacs_frame_id,
             }) => {
+                if pending_live_gui_resize_target(frames, emacs_frame_id).is_some() {
+                    // Preserve host resize acks until the geometry-query path
+                    // flushes the deferred live-GUI resize request.
+                    deferred.push_back(InputEvent::Resize {
+                        width,
+                        height,
+                        emacs_frame_id,
+                    });
+                    break;
+                }
                 apply_resize_input_event_in_keyboard_runtime(frames, width, height, emacs_frame_id);
                 applied_resize = true;
             }
