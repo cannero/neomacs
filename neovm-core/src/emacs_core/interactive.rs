@@ -306,6 +306,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
     finish_call_interactively_in_eval(
         eval,
         CallInteractivelyPlan {
+            invocation_function: func_val,
             resolved_symbol,
             func,
             context,
@@ -2606,6 +2607,7 @@ fn resolve_command_target_in_state(
 }
 
 pub(crate) struct CallInteractivelyPlan {
+    pub(crate) invocation_function: Value,
     resolved_symbol: Option<SymId>,
     pub(crate) func: Value,
     context: InteractiveInvocationContext,
@@ -2634,6 +2636,7 @@ pub(crate) fn plan_call_interactively_in_state(
     let context =
         InteractiveInvocationContext::from_keys_arg_in_state(read_command_keys, args.get(2));
     Ok(CallInteractivelyPlan {
+        invocation_function: func_val,
         resolved_symbol,
         func,
         context,
@@ -2644,9 +2647,9 @@ pub(crate) fn finish_call_interactively_in_eval(
     eval: &mut Context,
     mut plan: CallInteractivelyPlan,
 ) -> EvalResult {
-    let (func, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
+    let (_, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
     let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
-    funcall_args.push(func);
+    funcall_args.push(plan.invocation_function);
     funcall_args.extend(call_args);
     eval.apply(Value::symbol("funcall-interactively"), funcall_args)
 }

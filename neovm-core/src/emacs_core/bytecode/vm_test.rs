@@ -2483,6 +2483,27 @@ fn vm_call_interactively_uses_shared_runtime_planning() {
 }
 
 #[test]
+fn vm_call_interactively_honors_function_cell_mutation_during_interactive_spec_eval() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_eval_str(
+            r#"(progn
+                 (fset 'vm-ci-mutate
+                       '(lambda ()
+                          (interactive
+                           (progn
+                             (fset 'vm-ci-mutate (lambda () 42))
+                             (list)))
+                          7))
+                 (unwind-protect
+                     (call-interactively 'vm-ci-mutate)
+                   (fmakunbound 'vm-ci-mutate)))"#
+        ),
+        "OK 42"
+    );
+}
+
+#[test]
 fn vm_call_interactively_builtin_forward_char_uses_default_prefix_arg() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

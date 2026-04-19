@@ -3696,13 +3696,13 @@ impl<'a> Vm<'a> {
                 vm.push_dynamic_vm_root(value);
             }
             vm.push_dynamic_vm_root(plan.func);
-            let (function, call_args) =
+            let (_function, call_args) =
                 crate::emacs_core::interactive::resolve_call_interactively_target_and_args_with_vm_fallback(
                     &mut vm.ctx,
                     &mut plan,
                 )?;
             let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
-            funcall_args.push(function);
+            funcall_args.push(plan.invocation_function);
             funcall_args.extend(call_args);
             vm.call_function_with_roots(Value::symbol("funcall-interactively"), &funcall_args)
         })

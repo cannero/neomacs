@@ -5492,6 +5492,21 @@ fn fset_keyword_function_cell_controls_funcall_and_apply_behavior() {
 }
 
 #[test]
+fn fset_uninterned_symbol_function_cell_controls_funcall_and_apply_behavior() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(let ((fun (make-symbol "vm-uninterned-funcall")))
+                 (fset fun (lambda (x) (+ x 1)))
+                 (list (functionp fun)
+                       (funcall fun 41)
+                       (apply fun '(41))))"#
+        ),
+        "OK (t 42 42)"
+    );
+}
+
+#[test]
 fn named_call_cache_invalidates_on_function_cell_mutation() {
     crate::test_utils::init_test_tracing();
     let results = eval_all(
@@ -6601,6 +6616,40 @@ fn run_hook_with_args_roots_callbacks_and_args_across_exact_gc() {
     ));
     assert_eq!(result, "OK ((x . y) (x . y) (x . y))");
     assert!(ev.gc_count > 0, "hook callback GC should run");
+}
+
+#[test]
+fn run_hook_with_args_accepts_uninterned_symbol_after_same_eval_let_setup() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(progn
+                 (setq test-hook nil)
+                 (let ((fun (make-symbol "vm-hook-uninterned")))
+                   (fset fun (lambda (x) (setq test-hook-result x)))
+                   (setq test-hook (list fun)))
+                 (run-hook-with-args 'test-hook 42)
+                 test-hook-result)"#
+        ),
+        "OK 42"
+    );
+}
+
+#[test]
+fn run_hook_with_args_accepts_uninterned_symbol_after_same_eval_lexical_let_setup() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_lexical_binding(true);
+    let result = format_eval_result(&ev.eval_str(
+        r#"(progn
+             (setq test-hook nil)
+             (let ((fun (make-symbol "vm-hook-uninterned-lex")))
+               (fset fun (lambda (x) (setq test-hook-result x)))
+               (setq test-hook (list fun)))
+             (run-hook-with-args 'test-hook 42)
+             test-hook-result)"#,
+    ));
+    assert_eq!(result, "OK 42");
 }
 
 #[test]
@@ -8704,6 +8753,23 @@ fn direct_closure_call_uses_specpdl_for_rooting() {
         specpdl_before,
         "closure call should clean up all specpdl entries"
     );
+}
+
+#[test]
+fn direct_context_apply_accepts_uninterned_symbol_function_designators() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let fun = intern_uninterned("vm-apply-uninterned");
+    let callable = ev
+        .eval_str("(lambda (x) (+ x 1))")
+        .expect("lambda should evaluate");
+    ev.obarray.set_symbol_function_id(fun, callable);
+
+    let result = ev
+        .apply(Value::from_sym_id(fun), vec![Value::fixnum(41)])
+        .expect("Context::apply should funcall uninterned symbol");
+
+    assert_eq!(result, Value::fixnum(42));
 }
 
 #[test]

@@ -435,6 +435,27 @@ fn call_interactively_evaluates_registry_form_specs() {
 }
 
 #[test]
+fn call_interactively_honors_function_cell_mutation_during_interactive_spec_eval() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(progn
+                 (fset 'neovm-ci-mutate
+                       (lambda ()
+                         (interactive
+                          (progn
+                            (fset 'neovm-ci-mutate (lambda () 42))
+                            (list)))
+                         7))
+                 (unwind-protect
+                     (call-interactively 'neovm-ci-mutate)
+                   (fmakunbound 'neovm-ci-mutate)))"#
+        ),
+        "OK 42"
+    );
+}
+
+#[test]
 fn registry_interactive_call_stack() {
     crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();
