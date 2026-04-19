@@ -10,8 +10,19 @@ use std::time::Duration;
 fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
     let mut gnu = TuiSession::gnu_emacs(extra_args);
     let mut neo = TuiSession::neomacs(extra_args);
-    gnu.read(Duration::from_secs(8));
-    neo.read(Duration::from_secs(12));
+    let startup_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+    };
+    gnu.read_until(Duration::from_secs(8), startup_ready);
+    neo.read_until(Duration::from_secs(12), startup_ready);
+    // Startup can legitimately produce a later burst after the initial
+    // `*scratch*` screen becomes visible. Absorb that tail so the first input
+    // keystroke does not race the end of startup under parallel load.
+    gnu.read(Duration::from_secs(1));
+    neo.read(Duration::from_secs(2));
     (gnu, neo)
 }
 
@@ -25,6 +36,32 @@ fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
 fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
     gnu.read(timeout);
     neo.read(timeout);
+}
+
+fn grid_has_two_scratch_windows(grid: &[String]) -> bool {
+    grid.iter().filter(|row| row.contains("*scratch*")).count() >= 2
+}
+
+fn wait_for_split_window_below(gnu: &mut TuiSession, neo: &mut TuiSession) {
+    let timeout = Duration::from_secs(5);
+    gnu.read_until(timeout, grid_has_two_scratch_windows);
+    neo.read_until(timeout, grid_has_two_scratch_windows);
+}
+
+fn wait_for_other_window_after_split(gnu: &mut TuiSession, neo: &mut TuiSession) {
+    let timeout = Duration::from_secs(5);
+    gnu.read_until(timeout, |grid| {
+        grid_has_two_scratch_windows(grid)
+            && grid
+                .last()
+                .is_some_and(|row| !row.contains("No other window to select"))
+    });
+    neo.read_until(timeout, |grid| {
+        grid_has_two_scratch_windows(grid)
+            && grid
+                .last()
+                .is_some_and(|row| !row.contains("No other window to select"))
+    });
 }
 
 /// Filter out boot-info rows (welcome text, copyright) from diffs.
@@ -58,7 +95,7 @@ fn boot_screen_layout() {
 fn split_window_below() {
     let (mut gnu, mut neo) = boot_pair("");
     send_both(&mut gnu, &mut neo, "C-x 2");
-    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    wait_for_split_window_below(&mut gnu, &mut neo);
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();
@@ -250,9 +287,9 @@ fn isearch_forward() {
 fn other_window_after_split() {
     let (mut gnu, mut neo) = boot_pair("");
     send_both(&mut gnu, &mut neo, "C-x 2");
-    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    wait_for_split_window_below(&mut gnu, &mut neo);
     send_both(&mut gnu, &mut neo, "C-x o");
-    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    wait_for_other_window_after_split(&mut gnu, &mut neo);
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();

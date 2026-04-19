@@ -22,6 +22,7 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 // ── Session ──────────────────────────────────────────────────────────
@@ -35,10 +36,26 @@ pub struct TuiSession {
     pty: pty_process::blocking::Pty,
     _child: std::process::Child,
     parser: vt100::Parser,
+    home: PathBuf,
     pub name: String,
 }
 
 impl TuiSession {
+    fn unique_home_dir(name: &str) -> PathBuf {
+        static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+        let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        let home = std::env::temp_dir().join(format!(
+            "neomacs-tui-test-home-{}-{}-{}",
+            std::process::id(),
+            name.to_ascii_lowercase(),
+            session_id
+        ));
+        let emacs_d = home.join(".emacs.d");
+        std::fs::create_dir_all(&emacs_d).expect("create isolated tui test HOME");
+        home
+    }
+
     /// Spawn `cmd` (e.g. `"emacs -nw -Q"`) in a new PTY.
     pub fn spawn(cmd: &str, name: &str) -> Self {
         let (pty, pts) = pty_process::blocking::open().expect("open pty");
@@ -50,18 +67,14 @@ impl TuiSession {
         for arg in &parts[1..] {
             command = command.arg(arg);
         }
+        let home = Self::unique_home_dir(name);
         command = command
             .env("TERM", "xterm-256color")
             .env("COLUMNS", COLS.to_string())
             .env("LINES", ROWS.to_string())
-            // Prevent user config from interfering.
-            // Create the temp home so neither editor warns about missing dirs.
-            .env("HOME", {
-                let home = std::path::PathBuf::from("/tmp/neomacs-tui-test-home");
-                let emacs_d = home.join(".emacs.d");
-                let _ = std::fs::create_dir_all(&emacs_d);
-                home
-            });
+            // Prevent user config from interfering while also isolating
+            // concurrent TUI tests from one another.
+            .env("HOME", &home);
 
         let child = command.spawn(pts).expect("spawn");
 
@@ -71,6 +84,7 @@ impl TuiSession {
             pty,
             _child: child,
             parser,
+            home,
             name: name.to_string(),
         }
     }
@@ -227,6 +241,7 @@ impl Drop for TuiSession {
         // Best-effort kill
         let _ = self._child.kill();
         let _ = self._child.wait();
+        let _ = std::fs::remove_dir_all(&self.home);
     }
 }
 
