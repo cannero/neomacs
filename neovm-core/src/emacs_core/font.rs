@@ -1664,15 +1664,29 @@ fn public_live_frame_font_value(font_value: Value) -> Value {
             break;
         }
 
-        let keep = !elems[idx]
+        let key_name = elems[idx]
             .as_symbol_id()
             .or_else(|| elems[idx].as_keyword_id())
-            .map_or(false, |id_| {
-                resolve_sym(id_).trim_start_matches(':') == "height"
-            });
+            .map(|id_| resolve_sym(id_).trim_start_matches(':').to_string());
+        let keep = key_name.as_deref() != Some("height");
         if keep {
             filtered.push(elems[idx]);
-            filtered.push(elems[idx + 1]);
+            let value = match key_name.as_deref() {
+                Some("family") | Some("foundry")
+                    if elems[idx + 1]
+                        .as_symbol_name()
+                        .is_some_and(|name| !name.is_empty()) =>
+                {
+                    Value::string(
+                        elems[idx + 1]
+                            .as_symbol_name()
+                            .expect("checked above")
+                            .to_string(),
+                    )
+                }
+                _ => elems[idx + 1],
+            };
+            filtered.push(value);
         }
         idx += 2;
     }
