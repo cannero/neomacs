@@ -5606,6 +5606,13 @@ fn bootstrap_tool_bar_mode_comes_from_gnu_mode_macro_path() {
     let source = fs::read_to_string(&tool_bar_path).expect("read tool-bar source");
     let top_level_forms =
         crate::emacs_core::value_reader::read_all(&source).expect("parse tool-bar source");
+    // GNU `readevalloop` keeps each form live while it is being expanded and
+    // evaluated. This probe pre-parses the whole file, so root those forms
+    // across the later bootstrap/helper evaluation that can trigger GC.
+    let top_level_forms_root_scope = eval.save_specpdl_roots();
+    for form in &top_level_forms {
+        eval.push_specpdl_root(*form);
+    }
     for (label, src) in [
         (
             "pretty-name",
@@ -6554,17 +6561,29 @@ conveniently adding tool bar items."
     } else {
         panic!("macroexpand did not return a list for tool-bar define-minor-mode: {expanded:?}");
     }
-    for (idx, form) in top_level_forms.iter().enumerate().skip(1) {
-        tracing::info!("tool-bar probe: eval top-level form {}", idx + 1);
-        eval.eval_form(*form).unwrap_or_else(|err| {
-            panic!(
-                "failed evaluating tool-bar form {} from {}: {}",
-                idx + 1,
-                tool_bar_path.display(),
-                format_eval_error(&eval, &err)
-            )
-        });
-    }
+    let found = load_path_lisp_string(&tool_bar_path);
+    let lexical_binding = source_lexical_binding_for_load(
+        &mut eval,
+        &source,
+        Some(Value::heap_string(found.clone())),
+    )
+    .expect("tool-bar lexical-binding cookie");
+    with_load_context(&mut eval, &found, &found, lexical_binding, |eval| {
+        for (idx, form) in top_level_forms.iter().enumerate().skip(1) {
+            tracing::info!("tool-bar probe: eval top-level form {}", idx + 1);
+            eval.eval_form(*form).unwrap_or_else(|err| {
+                panic!(
+                    "failed evaluating tool-bar form {} from {}: {}",
+                    idx + 1,
+                    tool_bar_path.display(),
+                    format_eval_error(eval, &err)
+                )
+            });
+        }
+        Ok(Value::NIL)
+    })
+    .expect("evaluate tool-bar forms under load context");
+    eval.restore_specpdl_roots(top_level_forms_root_scope);
     tracing::info!("tool-bar probe: load complete");
     let result = eval
         .eval_str(

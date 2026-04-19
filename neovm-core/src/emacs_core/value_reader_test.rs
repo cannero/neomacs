@@ -500,6 +500,32 @@ fn read_all_multiple_forms() {
 }
 
 #[test]
+fn read_all_skips_autoload_cookie_comment_before_defun() {
+    crate::test_utils::init_test_tracing();
+    let forms = read_all_ok(
+        r#"(define-minor-mode tool-bar-mode "doc")
+;;;###autoload
+(defun toggle-tool-bar-mode-from-frame (&optional arg)
+  "doc"
+  (interactive (list (or current-prefix-arg 'toggle)))
+  (if (eq arg 'toggle)
+      (tool-bar-mode 1)
+    (tool-bar-mode arg)))"#,
+    );
+    assert_eq!(forms.len(), 2, "autoload cookie should be skipped");
+    assert!(
+        forms[1].is_cons(),
+        "expected defun form after autoload cookie, got {:?}",
+        forms[1]
+    );
+    assert!(
+        forms[1].cons_car().is_symbol_named("defun"),
+        "expected second top-level form to be defun, got {:?}",
+        forms[1].cons_car()
+    );
+}
+
+#[test]
 fn read_one_returns_position() {
     crate::test_utils::init_test_tracing();
     let (val, pos) = read_one("42 rest", 0).unwrap().unwrap();

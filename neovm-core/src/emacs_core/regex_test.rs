@@ -1170,6 +1170,17 @@ fn string_match_with_escaped_multibyte_literal() {
 }
 
 #[test]
+fn string_match_with_multibyte_literal_repetition() {
+    crate::test_utils::init_test_tracing();
+    let mut md = None;
+    let result = string_match_full("é+", "aééx", 0, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some(1));
+    let md = md.unwrap();
+    assert_eq!(md.groups[0], Some((1, 3)));
+}
+
+#[test]
 fn string_match_trivial_escaped_literal_uses_character_positions() {
     crate::test_utils::init_test_tracing();
     let mut md = None;

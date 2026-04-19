@@ -567,7 +567,7 @@ pub(crate) fn regex_compile_lisp(
             b'*' | b'+' | b'?' => {
                 let Some(mut last) = laststart else {
                     // No previous expression to repeat — treat as literal
-                    goto_normal_char(c, &mut buf, &mut pending_exact, &mut laststart);
+                    goto_normal_char(c as u32, &mut buf, &mut pending_exact, &mut laststart);
                     continue;
                 };
 
@@ -576,17 +576,35 @@ pub(crate) fn regex_compile_lisp(
                 // so that the repetition applies only to that character.
                 if buf.buffer[last] == RegexOp::Exactn as u8 {
                     let count_pos = last + 1;
-                    let count = buf.buffer[count_pos];
-                    if count > 1 {
-                        // Decrement the existing exactn's count
-                        buf.buffer[count_pos] = count - 1;
-                        // Remove the last char from the existing exactn
-                        let last_char = buf.buffer.pop().unwrap();
-                        // Insert a new single-char exactn for the split char
+                    let count = buf.buffer[count_pos] as usize;
+                    let exact_start = count_pos + 1;
+                    let exact_end = exact_start + count;
+                    let exact_bytes = &buf.buffer[exact_start..exact_end];
+                    let last_char_start = if buf.multibyte {
+                        let mut rel = 0;
+                        let mut previous = 0;
+                        let mut chars = 0;
+                        while rel < exact_bytes.len() {
+                            previous = rel;
+                            let (_, len) = emacs_char::string_char(&exact_bytes[rel..]);
+                            rel += len;
+                            chars += 1;
+                        }
+                        if chars > 1 { Some(previous) } else { None }
+                    } else if count > 1 {
+                        Some(count - 1)
+                    } else {
+                        None
+                    };
+
+                    if let Some(split_start) = last_char_start {
+                        let split_bytes = exact_bytes[split_start..].to_vec();
+                        buf.buffer.truncate(exact_start + split_start);
+                        buf.buffer[count_pos] = split_start as u8;
                         last = buf.buffer.len();
                         buf.buffer.push(RegexOp::Exactn as u8);
-                        buf.buffer.push(1);
-                        buf.buffer.push(last_char);
+                        buf.buffer.push(split_bytes.len() as u8);
+                        buf.buffer.extend_from_slice(&split_bytes);
                     }
                 }
 
@@ -837,7 +855,7 @@ pub(crate) fn regex_compile_lisp(
                                 _ => {
                                     // Not a valid symbol boundary — treat \_ as literal
                                     goto_normal_char(
-                                        b'_',
+                                        b'_' as u32,
                                         &mut buf,
                                         &mut pending_exact,
                                         &mut laststart,
@@ -978,13 +996,28 @@ pub(crate) fn regex_compile_lisp(
                     // Lisp reader, but callers from Rust may pass the
                     // backslash-letter form. Handle both.
                     b't' => {
-                        goto_normal_char(b'\t', &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            b'\t' as u32,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                        );
                     }
                     b'n' => {
-                        goto_normal_char(b'\n', &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            b'\n' as u32,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                        );
                     }
                     b'r' => {
-                        goto_normal_char(b'\r', &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            b'\r' as u32,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                        );
                     }
                     b'f' => {
                         goto_normal_char(0x0c, &mut buf, &mut pending_exact, &mut laststart);
@@ -1022,7 +1055,20 @@ pub(crate) fn regex_compile_lisp(
 
                     // Other escaped characters — treat as literal
                     _ => {
-                        goto_normal_char(c2, &mut buf, &mut pending_exact, &mut laststart);
+                        if buf.multibyte && c2 >= 0x80 {
+                            let char_start = p - 1;
+                            let (code, len) = decode_pattern_char(pattern_bytes, char_start, true)
+                                .unwrap_or((c2 as u32, 1));
+                            p = char_start + len;
+                            goto_normal_char(code, &mut buf, &mut pending_exact, &mut laststart);
+                        } else {
+                            goto_normal_char(
+                                c2 as u32,
+                                &mut buf,
+                                &mut pending_exact,
+                                &mut laststart,
+                            );
+                        }
                     }
                 }
             }
@@ -1031,7 +1077,15 @@ pub(crate) fn regex_compile_lisp(
             // Normal character — add to exactn
             // ----------------------------------------------------------
             _ => {
-                goto_normal_char(c, &mut buf, &mut pending_exact, &mut laststart);
+                if buf.multibyte && c >= 0x80 {
+                    let char_start = p - 1;
+                    let (code, len) = decode_pattern_char(pattern_bytes, char_start, true)
+                        .unwrap_or((c as u32, 1));
+                    p = char_start + len;
+                    goto_normal_char(code, &mut buf, &mut pending_exact, &mut laststart);
+                } else {
+                    goto_normal_char(c as u32, &mut buf, &mut pending_exact, &mut laststart);
+                }
             }
         }
     }
@@ -1089,24 +1143,36 @@ pub(crate) fn regex_compile_lisp(
 /// while the matched text byte becomes `'c'` and they fail to compare
 /// equal.
 fn goto_normal_char(
-    c: u8,
+    c: u32,
     buf: &mut CompiledPattern,
     pending_exact: &mut Option<usize>,
     laststart: &mut Option<usize>,
 ) {
     let c = if let Some(table) = buf.translate.as_ref() {
-        table[c as usize] as u32 as u8
+        if (c as usize) < table.len() {
+            table[c as usize] as u32
+        } else {
+            c
+        }
     } else {
         c
+    };
+
+    let mut encoded = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+    let encoded_len = if buf.multibyte {
+        emacs_char::char_string(c, &mut encoded)
+    } else {
+        encoded[0] = c as u8;
+        1
     };
 
     // If we have a pending exactn and it hasn't reached max length (255),
     // just append to it
     if let Some(exact_pos) = *pending_exact {
         let count = buf.buffer[exact_pos] as usize;
-        if count < 255 {
-            buf.buffer[exact_pos] += 1;
-            buf.buffer.push(c);
+        if count + encoded_len <= 255 {
+            buf.buffer[exact_pos] += encoded_len as u8;
+            buf.buffer.extend_from_slice(&encoded[..encoded_len]);
             return;
         }
     }
@@ -1115,8 +1181,8 @@ fn goto_normal_char(
     *laststart = Some(buf.buffer.len());
     buf.buffer.push(RegexOp::Exactn as u8);
     *pending_exact = Some(buf.buffer.len());
-    buf.buffer.push(1); // count = 1
-    buf.buffer.push(c);
+    buf.buffer.push(encoded_len as u8);
+    buf.buffer.extend_from_slice(&encoded[..encoded_len]);
 }
 
 /// Compile a repetition operator (*, +, ?).

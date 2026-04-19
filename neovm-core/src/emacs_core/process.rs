@@ -5304,8 +5304,10 @@ pub(crate) fn builtin_process_status_impl(
     }) else {
         return Ok(Value::NIL);
     };
-    // Check if child process has exited since last check.
-    processes.check_child_exit(id);
+    // Match GNU `Fprocess_status` (`src/process.c`): this reports the stored
+    // process status and does not synchronously reap the child. Short-lived
+    // subprocesses therefore remain `run` here until the wait path (for
+    // example `accept-process-output`) observes the exit and updates status.
     match processes.get_any(id) {
         Some(proc) => Ok(process_public_status_symbol(proc)),
         None => Ok(Value::NIL),
