@@ -163,6 +163,31 @@ fn switch_to_messages_buffer_via_cx_b() {
 }
 
 #[test]
+fn keyboard_quit_from_mx_via_cg() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"find-fil");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-g");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("keyboard_quit_from_mx_via_cg", &gnu, &neo, 2);
+}
+
+#[test]
 fn describe_mode_on_scratch_via_ch_m() {
     let (mut gnu, mut neo) = boot_pair("");
     send_both(&mut gnu, &mut neo, "C-h m");
@@ -175,6 +200,38 @@ fn describe_mode_on_scratch_via_ch_m() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("describe_mode_on_scratch_via_ch_m", &gnu, &neo, 2);
+}
+
+#[test]
+fn describe_key_find_file_via_chk() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_both(&mut gnu, &mut neo, "C-h k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| row.contains("find-file"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Help*")),
+            "{label} should show *Help* after C-h k"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("find-file")),
+            "{label} help buffer should mention find-file"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("C-x C-f")),
+            "{label} help buffer should mention C-x C-f"
+        );
+    }
 }
 
 #[test]
@@ -198,6 +255,35 @@ fn find_file_other_window_via_cx4_cf() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("find_file_other_window_via_cx4_cf", &gnu, &neo, 2);
+}
+
+#[test]
+fn delete_other_windows_after_find_file_other_window_via_cx1() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "single-window.txt",
+        "window collapse\n",
+        "C-x 4 C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 1");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("single-window.txt"))
+            && grid.iter().any(|row| row.contains("window collapse"))
+            && grid.iter().filter(|row| row.contains("*scratch*")).count() == 0
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_other_windows_after_find_file_other_window_via_cx1",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
@@ -236,6 +322,32 @@ fn save_buffer_after_edit_via_cx_cs() {
         "alpha line\nomega line\n"
     );
     assert_pair_nearly_matches("save_buffer_after_edit_via_cx_cs", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_buffer_after_find_file_via_cx_k() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-buffer.txt",
+        "temporary buffer\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && !grid.iter().any(|row| row.contains("kill-buffer.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_buffer_after_find_file_via_cx_k", &gnu, &neo, 2);
 }
 
 #[test]
