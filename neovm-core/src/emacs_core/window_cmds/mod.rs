@@ -3662,19 +3662,22 @@ fn note_selected_window_buffer_in_state(
 
 fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: BufferId) -> EvalResult {
     let display_time = super::timefns::builtin_current_time(vec![])?;
-    let Some(buffer) = buffers.get_mut(buffer_id) else {
-        return Ok(Value::NIL);
-    };
-    if let Some(count) = buffer
-        .buffer_local_value("buffer-display-count")
-        .and_then(|v| v.as_fixnum())
     {
-        buffer.set_buffer_local(
-            "buffer-display-count",
-            Value::fixnum(count.saturating_add(1)),
-        );
+        let Some(buffer) = buffers.get_mut(buffer_id) else {
+            return Ok(Value::NIL);
+        };
+        if let Some(count) = buffer
+            .buffer_local_value("buffer-display-count")
+            .and_then(|v| v.as_fixnum())
+        {
+            buffer.set_buffer_local(
+                "buffer-display-count",
+                Value::fixnum(count.saturating_add(1)),
+            );
+        }
+        buffer.set_buffer_local("buffer-display-time", display_time);
     }
-    buffer.set_buffer_local("buffer-display-time", display_time);
+    buffers.note_buffer_display(buffer_id);
     Ok(Value::NIL)
 }
 

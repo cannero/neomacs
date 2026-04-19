@@ -3416,6 +3416,59 @@ fn buffer_list_returns_live_buffers_in_creation_order() {
 }
 
 #[test]
+fn buffer_list_moves_selected_buffer_to_front_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::Context::new();
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch");
+    eval.frames.create_frame("F1", 800, 600, scratch);
+    let messages =
+        builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).expect("messages");
+    let target = builtin_get_buffer_create(&mut eval, vec![Value::string("buffer-list-target")])
+        .expect("target");
+
+    crate::emacs_core::window_cmds::builtin_switch_to_buffer(
+        &mut eval,
+        vec![Value::string("buffer-list-target")],
+    )
+    .expect("switch-to-buffer");
+
+    assert_eq!(
+        builtin_buffer_list(&mut eval, vec![]).expect("buffer-list"),
+        Value::list(vec![target, Value::make_buffer(scratch), messages])
+    );
+}
+
+#[test]
+fn buffer_list_frame_arg_moves_displayed_buffer_to_front_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::Context::new();
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch");
+    let fid = eval.frames.create_frame("F1", 800, 600, scratch);
+    let frame = Value::make_frame(fid.0);
+    let messages =
+        builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).expect("messages");
+    let target = builtin_get_buffer_create(&mut eval, vec![Value::string("buffer-list-target")])
+        .expect("target");
+
+    crate::emacs_core::window_cmds::builtin_switch_to_buffer(
+        &mut eval,
+        vec![Value::string("buffer-list-target")],
+    )
+    .expect("switch-to-buffer");
+
+    assert_eq!(
+        builtin_buffer_list(&mut eval, vec![frame]).expect("buffer-list"),
+        Value::list(vec![target, Value::make_buffer(scratch), messages])
+    );
+}
+
+#[test]
 fn featurep_accepts_optional_subfeature_arg() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

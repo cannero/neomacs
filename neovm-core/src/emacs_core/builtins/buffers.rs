@@ -3572,7 +3572,34 @@ pub(crate) fn builtin_set_buffer_auto_saved(
 
 pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("buffer-list", &args, 1)?;
-    let ids = eval.buffers.buffer_list();
+    let ids = args
+        .first()
+        .and_then(|value| match value.kind() {
+            ValueKind::Veclike(VecLikeType::Frame) => {
+                let fid = crate::window::FrameId(value.as_frame_id().unwrap());
+                let frame = eval.frames.get(fid)?;
+                let mut ids = Vec::new();
+                for window_id in frame.window_list() {
+                    let Some(buffer_id) = frame
+                        .find_window(window_id)
+                        .and_then(|window| window.buffer_id())
+                    else {
+                        continue;
+                    };
+                    if !ids.contains(&buffer_id) {
+                        ids.push(buffer_id);
+                    }
+                }
+                for buffer_id in eval.buffers.buffer_list() {
+                    if !ids.contains(&buffer_id) {
+                        ids.push(buffer_id);
+                    }
+                }
+                Some(ids)
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| eval.buffers.buffer_list());
     let vals: Vec<Value> = ids.into_iter().map(Value::make_buffer).collect();
     Ok(Value::list(vals))
 }

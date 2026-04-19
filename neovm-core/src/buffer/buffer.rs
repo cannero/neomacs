@@ -2641,6 +2641,7 @@ impl Buffer {
 #[derive(Clone)]
 pub struct BufferManager {
     buffers: HashMap<BufferId, Buffer>,
+    buffer_order: Vec<BufferId>,
     current: Option<BufferId>,
     next_id: u64,
     next_marker_id: u64,
@@ -2678,6 +2679,7 @@ impl BufferManager {
         }
         let mut mgr = Self {
             buffers: HashMap::new(),
+            buffer_order: Vec::new(),
             current: None,
             next_id: 1,
             next_marker_id: 1,
@@ -2687,6 +2689,7 @@ impl BufferManager {
         };
         let scratch = mgr.create_buffer("*scratch*");
         mgr.current = Some(scratch);
+        mgr.note_buffer_order_head(scratch);
         mgr
     }
 
@@ -2729,6 +2732,7 @@ impl BufferManager {
             buf.set_buffer_local("buffer-undo-list", crate::emacs_core::value::Value::T);
         }
         self.buffers.insert(id, buf);
+        self.buffer_order.push(id);
         id
     }
 
@@ -2797,9 +2801,21 @@ impl BufferManager {
         }
 
         self.buffers.insert(id, indirect);
+        self.buffer_order.push(id);
         let _ = self.ensure_buffer_state_markers(root_id);
         let _ = self.ensure_buffer_state_markers(id);
         Some(id)
+    }
+
+    fn note_buffer_order_head(&mut self, id: BufferId) {
+        self.buffer_order.retain(|existing| *existing != id);
+        self.buffer_order.insert(0, id);
+    }
+
+    pub fn note_buffer_display(&mut self, id: BufferId) {
+        if self.buffers.contains_key(&id) {
+            self.note_buffer_order_head(id);
+        }
     }
 
     /// Immutable access to a buffer by id.
@@ -2949,6 +2965,7 @@ impl BufferManager {
 
         let old_id = self.current;
         self.current = Some(id);
+        self.note_buffer_order_head(id);
 
         if let Some(old_id) = old_id {
             let _ = self.record_buffer_state_markers(old_id);
@@ -3011,6 +3028,8 @@ impl BufferManager {
             self.dead_buffer_last_names
                 .insert(*killed_id, buf.name_value());
         }
+        self.buffer_order
+            .retain(|buffer_id| !killed_set.contains(buffer_id));
 
         if self
             .current
@@ -3032,10 +3051,25 @@ impl BufferManager {
             .and_then(Value::as_runtime_string_owned)
     }
 
-    /// List all live buffer ids in stable creation order.
+    /// List all live buffer ids in buffer-list order, with the most recently
+    /// displayed or selected buffers first.
     pub fn buffer_list(&self) -> Vec<BufferId> {
-        let mut ids: Vec<BufferId> = self.buffers.keys().copied().collect();
-        ids.sort_by_key(|id| id.0);
+        let mut ids = Vec::with_capacity(self.buffers.len());
+        for id in &self.buffer_order {
+            if self.buffers.contains_key(id) {
+                ids.push(*id);
+            }
+        }
+        if ids.len() < self.buffers.len() {
+            let mut missing: Vec<BufferId> = self
+                .buffers
+                .keys()
+                .copied()
+                .filter(|id| !ids.contains(id))
+                .collect();
+            missing.sort_by_key(|id| id.0);
+            ids.extend(missing);
+        }
         ids
     }
 
@@ -4053,8 +4087,9 @@ impl BufferManager {
                 buffer_defaults[idx] = *value;
             }
         }
-        let manager = Self {
+        let mut manager = Self {
             buffers,
+            buffer_order: Vec::new(),
             current,
             next_id,
             next_marker_id,
@@ -4062,6 +4097,13 @@ impl BufferManager {
             dead_buffer_last_names: HashMap::new(),
             buffer_defaults,
         };
+        manager.buffer_order = manager.buffers.keys().copied().collect();
+        manager.buffer_order.sort_by_key(|id| id.0);
+        if let Some(current) = manager.current
+            && manager.buffers.contains_key(&current)
+        {
+            manager.note_buffer_order_head(current);
+        }
         manager
     }
 }
