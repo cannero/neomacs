@@ -492,7 +492,9 @@ impl<'a> Reader<'a> {
     fn read_string(&mut self) -> Result<Value, ReadError> {
         self.expect('"')?;
         let mut buf = Vec::new();
-        let mut unibyte_buf = (!self.source_multibyte).then(Vec::new);
+        // GNU `lread.c:3043-3142` keeps ASCII-only and raw-byte string literals
+        // unibyte unless a real multibyte character is forced while reading.
+        let mut unibyte_buf = Some(Vec::new());
         loop {
             let Some(ch) = self.current() else {
                 return Err(self.error("unterminated string"));
@@ -577,8 +579,7 @@ impl<'a> Reader<'a> {
                         's' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 23)?;
-                            Self::push_modified_char_bytes(&mut buf, val);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         's' => {
                             buf.push(b' ');
@@ -600,32 +601,27 @@ impl<'a> Reader<'a> {
                             } else {
                                 base_char | mods | (1u32 << 26)
                             };
-                            Self::push_modified_char_bytes(&mut buf, result);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, result)?;
                         }
                         'M' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 27)?;
-                            Self::push_modified_char_bytes(&mut buf, val);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         'S' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 25)?;
-                            Self::push_modified_char_bytes(&mut buf, val);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         'A' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 22)?;
-                            Self::push_modified_char_bytes(&mut buf, val);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         'H' if self.current() == Some('-') => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 24)?;
-                            Self::push_modified_char_bytes(&mut buf, val);
-                            unibyte_buf = None;
+                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         'd' => {
                             buf.push(0x7F);
@@ -749,13 +745,14 @@ impl<'a> Reader<'a> {
                             bytes.push(byte);
                         }
                     } else if (0xE080..=0xE0FF).contains(&cp) {
+                        let byte = (cp - 0xE000) as u8;
                         let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-                        let len = emacs_char::char_string(
-                            emacs_char::byte8_to_char((cp - 0xE000) as u8),
-                            &mut tmp,
-                        );
+                        let len =
+                            emacs_char::char_string(emacs_char::byte8_to_char(byte), &mut tmp);
                         buf.extend_from_slice(&tmp[..len]);
-                        unibyte_buf = None;
+                        if let Some(bytes) = unibyte_buf.as_mut() {
+                            bytes.push(byte);
+                        }
                     } else if !self.source_multibyte && cp >= 0x80 && cp <= 0xFF {
                         // Non-ASCII byte from .elc (unibyte) loading.
                         //
@@ -928,22 +925,73 @@ impl<'a> Reader<'a> {
         }
     }
 
-    /// Push a character value (possibly with modifier bits) into a byte buffer.
-    fn push_modified_char_bytes(buf: &mut Vec<u8>, val: u32) {
-        let meta = val & (1 << 27) != 0;
-        let base = val & !(1u32 << 27); // strip meta bit
-        if meta && base < 128 {
-            // Meta + ASCII: encode as raw byte (base | 0x80)
-            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-            let c = emacs_char::byte8_to_char((base | 0x80) as u8);
-            let len = emacs_char::char_string(c, &mut tmp);
-            buf.extend_from_slice(&tmp[..len]);
-        } else {
-            let code = val & 0x3FFFFF;
+    fn push_string_char(buf: &mut Vec<u8>, unibyte_buf: &mut Option<Vec<u8>>, code: u32) {
+        if emacs_char::char_byte8_p(code) {
+            let byte = emacs_char::char_to_byte8(code);
             let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
             let len = emacs_char::char_string(code, &mut tmp);
             buf.extend_from_slice(&tmp[..len]);
+            if let Some(bytes) = unibyte_buf.as_mut() {
+                bytes.push(byte);
+            }
+            return;
         }
+
+        if code < 0x80 {
+            buf.push(code as u8);
+            if let Some(bytes) = unibyte_buf.as_mut() {
+                bytes.push(code as u8);
+            }
+            return;
+        }
+
+        let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = emacs_char::char_string(code, &mut tmp);
+        buf.extend_from_slice(&tmp[..len]);
+        *unibyte_buf = None;
+    }
+
+    fn push_string_escape_value(
+        &self,
+        buf: &mut Vec<u8>,
+        unibyte_buf: &mut Option<Vec<u8>>,
+        val: u32,
+    ) -> Result<(), ReadError> {
+        const MODIFIER_MASK: u32 = 0x3F_FFFF;
+        const CTRL: u32 = 1 << 26;
+        const META: u32 = 1 << 27;
+        const SHIFT: u32 = 1 << 25;
+
+        let mut modifiers = val & !MODIFIER_MASK;
+        let mut code = val & MODIFIER_MASK;
+
+        if !emacs_char::char_byte8_p(code) && code < 0x80 {
+            if modifiers == CTRL && code == ' ' as u32 {
+                code = 0;
+                modifiers = 0;
+            }
+
+            if (modifiers & SHIFT) != 0 {
+                if ('A' as u32..='Z' as u32).contains(&code) {
+                    modifiers &= !SHIFT;
+                } else if ('a' as u32..='z' as u32).contains(&code) {
+                    code -= 'a' as u32 - 'A' as u32;
+                    modifiers &= !SHIFT;
+                }
+            }
+
+            if (modifiers & META) != 0 {
+                modifiers &= !META;
+                code = emacs_char::byte8_to_char((code as u8) | 0x80);
+            }
+        }
+
+        if modifiers != 0 {
+            return Err(self.error("Invalid modifier in string"));
+        }
+
+        Self::push_string_char(buf, unibyte_buf, code);
+        Ok(())
     }
 
     fn read_hex_digits(&mut self) -> Result<(u32, usize), ReadError> {

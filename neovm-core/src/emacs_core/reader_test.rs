@@ -126,6 +126,47 @@ fn read_from_string_string_value() {
 }
 
 #[test]
+fn read_from_string_ascii_string_literals_are_unibyte() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let result = builtin_read_from_string(&mut ev, vec![Value::string(r#""hello""#)]).unwrap();
+    match result.kind() {
+        ValueKind::Cons => {
+            let text = result
+                .cons_car()
+                .as_lisp_string()
+                .expect("reader should return a string object");
+            assert!(!text.is_multibyte());
+            assert_eq!(text.as_bytes(), b"hello");
+        }
+        _ => panic!("Expected cons"),
+    }
+}
+
+#[test]
+fn read_from_string_modifier_string_escapes_follow_gnu_rules() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let assert_string = |value: Value, expected: &[u8]| {
+        let text = value
+            .as_lisp_string()
+            .expect("reader should return a string object");
+        assert!(!text.is_multibyte());
+        assert_eq!(text.as_bytes(), expected);
+    };
+
+    let meta = builtin_read_from_string(&mut ev, vec![Value::string(r#""\M-x""#)]).unwrap();
+    assert_string(meta.cons_car(), &[0xF8]);
+
+    let ctrl = builtin_read_from_string(&mut ev, vec![Value::string(r#""\C-x""#)]).unwrap();
+    assert_string(ctrl.cons_car(), &[0x18]);
+
+    let shift = builtin_read_from_string(&mut ev, vec![Value::string(r#""\S-a""#)]).unwrap();
+    assert_string(shift.cons_car(), b"A");
+}
+
+#[test]
 fn read_from_string_preserves_unibyte_string_literals() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

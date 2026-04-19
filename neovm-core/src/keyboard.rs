@@ -4727,10 +4727,10 @@ impl crate::emacs_core::eval::Context {
         let mut idx = 0;
         while pos < key_bytes.len() {
             let (mut code, len) = crate::emacs_core::emacs_char::string_char(&key_bytes[pos..]);
-            // Translate sentinel codepoints to Emacs character codes.
+            // Match GNU `keyboard.c:12239-12252`: byte8 chars are normalized
+            // back to raw 8-bit bytes before the `M-x` special case runs.
             if (0xE080..=0xE0FF).contains(&code) {
-                let byte = (code - 0xE000) as u8;
-                code = crate::emacs_core::emacs_char::byte8_to_char(byte);
+                code = (code - 0xE000) as u8 as u32;
             } else if (0xE300..=0xE3FF).contains(&code) {
                 // Unibyte sentinel: raw byte value
                 code = (code - 0xE300) as u32;
