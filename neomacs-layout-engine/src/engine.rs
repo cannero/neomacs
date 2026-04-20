@@ -769,6 +769,21 @@ fn parse_image_scale(value: Value) -> Option<f32> {
     }
 }
 
+fn max_mini_window_lines(evaluator: &Context, frame_rows: f32) -> f32 {
+    let raw = evaluator
+        .obarray()
+        .symbol_value("max-mini-window-height")
+        .copied()
+        .unwrap_or_else(|| Value::make_float(0.25));
+    match raw.kind() {
+        neovm_core::emacs_core::value::ValueKind::Float => {
+            (frame_rows * raw.as_float().unwrap_or(0.25) as f32).max(1.0)
+        }
+        neovm_core::emacs_core::value::ValueKind::Fixnum(_) => raw.as_int().unwrap_or(1) as f32,
+        _ => 1.0,
+    }
+}
+
 fn parse_display_image_layout(prop_val: &Value) -> Option<DisplayImageLayout> {
     let items = list_to_vec(prop_val)?;
     if items.first()?.as_symbol_name() != Some("image") {
@@ -1951,6 +1966,8 @@ impl LayoutEngine {
                             let char_h = frame_params.char_height.max(1.0);
                             let allocated_rows =
                                 (mini_params.bounds.height / char_h).floor().max(1.0) as usize;
+                            let frame_rows = frame_params.height / char_h;
+                            let max_mini_lines = max_mini_window_lines(evaluator, frame_rows);
 
                             if mini_rows_used > allocated_rows {
                                 // --- Grow ---
@@ -1977,7 +1994,8 @@ impl LayoutEngine {
                                     if let Some(frame) =
                                         evaluator.frame_manager_mut().get_mut(frame_id)
                                     {
-                                        frame.grow_mini_window(delta);
+                                        frame
+                                            .grow_mini_window_with_max_lines(delta, max_mini_lines);
                                     }
                                     mini_resize_attempted = true;
                                     continue; // restart the layout loop
@@ -2378,7 +2396,7 @@ impl LayoutEngine {
                 })
                 .unwrap_or(1);
             let frame_rows = _frame_params.height / char_h;
-            let max_mini = (frame_rows * 0.25).ceil().max(1.0) as usize;
+            let max_mini = max_mini_window_lines(evaluator, frame_rows).ceil() as usize;
             content_lines.clamp(1, max_mini)
         } else {
             max_rows

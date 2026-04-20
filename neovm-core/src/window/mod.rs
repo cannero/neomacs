@@ -1933,12 +1933,20 @@ impl Frame {
     /// `sync_window_area_bounds` propagates the change to the root
     /// window tree (the root shrinks by the same delta).
     pub fn grow_mini_window(&mut self, delta_rows: i32) {
+        self.grow_mini_window_with_max_lines(delta_rows, 0.25);
+    }
+
+    /// Grow the minibuffer window using GNU's `max-mini-window-height`
+    /// semantics resolved by the caller.
+    ///
+    /// `max_lines` is either an absolute line count or a frame-height
+    /// fraction already converted into lines.
+    pub fn grow_mini_window_with_max_lines(&mut self, delta_rows: i32, max_lines: f32) {
         // Snapshot scalar values before taking mutable borrow of minibuffer_leaf.
         let char_h = self.char_height.max(1.0);
         let unit = char_h;
         let frame_inner_h = (self.height as f32) - self.chrome_top_height();
-        // GNU default: max-mini-window-height = 0.25
-        let max_h = (frame_inner_h * 0.25).max(unit);
+        let max_h = (unit * max_lines.max(1.0)).min(frame_inner_h).max(unit);
 
         let Some(mini) = self.minibuffer_leaf.as_mut() else {
             return;

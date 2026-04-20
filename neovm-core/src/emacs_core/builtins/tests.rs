@@ -7122,6 +7122,24 @@ fn string_match_inhibit_modify_preserves_match_data() {
 }
 
 #[test]
+fn string_match_handles_gnu_flex_regex_with_repeated_nongreedy_segments() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+    let result = builtin_string_match(
+        &mut eval,
+        vec![
+            Value::string("\\`[^z-a]*?f[^z-a]*?i[^z-a]*?n[^z-a]*?d[^z-a]*?-[^z-a]*?f[^z-a]*?"),
+            Value::string("find-file"),
+        ],
+    )
+    .expect("flex-style string-match should succeed");
+
+    assert_eq!(result, Value::fixnum(0));
+}
+
+#[test]
 fn replace_match_missing_subexp_signals_error() {
     crate::test_utils::init_test_tracing();
     use crate::emacs_core::eval::Context;

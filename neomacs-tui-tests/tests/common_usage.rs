@@ -30,6 +30,21 @@ fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
     (gnu, neo)
 }
 
+fn boot_fido_vertical_pair() -> (TuiSession, TuiSession) {
+    let init = std::env::temp_dir().join("neomacs-common-usage-fido-vertical.el");
+    fs::write(
+        &init,
+        ";;; -*- lexical-binding: t; -*-\n\
+         (setq max-mini-window-height 8\n\
+               resize-mini-windows t\n\
+               icomplete-prospects-height 8)\n\
+         (fido-vertical-mode 1)\n",
+    )
+    .expect("write fido vertical init file");
+    let extra_args = format!("-l {}", init.display());
+    boot_pair(&extra_args)
+}
+
 fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
     gnu.send_keys(keys);
     neo.send_keys(keys);
@@ -38,6 +53,13 @@ fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
 fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
     gnu.read(timeout);
     neo.read(timeout);
+}
+
+fn scratch_ready(grid: &[String]) -> bool {
+    grid.iter().any(|row| row.contains("*scratch*"))
+        && grid
+            .iter()
+            .any(|row| row.contains("This buffer is for text that is not saved"))
 }
 
 fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
@@ -88,6 +110,94 @@ fn assert_pair_nearly_matches(
     );
 }
 
+fn assert_bottom_rows_nearly_match(
+    label: &str,
+    gnu: &TuiSession,
+    neo: &TuiSession,
+    first_row: usize,
+    allowed_rows: usize,
+) {
+    let gl = gnu.text_grid();
+    let nl = neo.text_grid();
+    let diffs = diff_text_grids(&gl[first_row..], &nl[first_row..])
+        .into_iter()
+        .map(|mut diff| {
+            diff.row += first_row;
+            diff
+        })
+        .collect::<Vec<_>>();
+    if !diffs.is_empty() {
+        eprintln!("{label}: {} bottom rows differ", diffs.len());
+        print_row_diffs(&diffs);
+    }
+    assert!(
+        diffs.len() <= allowed_rows,
+        "{label} bottom rows differ in {} rows",
+        diffs.len()
+    );
+}
+
+fn bottom_nonempty_rows(session: &TuiSession, first_row: usize) -> Vec<String> {
+    session
+        .text_grid()
+        .into_iter()
+        .skip(first_row)
+        .map(|row| row.trim().to_string())
+        .filter(|row| !row.is_empty())
+        .collect()
+}
+
+fn assert_fido_prompt_matches_stable_behavior(label: &str, gnu: &TuiSession, neo: &TuiSession) {
+    let gnu_rows = bottom_nonempty_rows(gnu, 16);
+    let neo_rows = bottom_nonempty_rows(neo, 16);
+
+    assert!(
+        !gnu_rows.is_empty() && !neo_rows.is_empty(),
+        "{label} should show non-empty minibuffer rows"
+    );
+    assert_eq!(
+        gnu_rows[0], neo_rows[0],
+        "{label} should show the same prompt header"
+    );
+    assert_eq!(
+        gnu_rows.len(),
+        neo_rows.len(),
+        "{label} should use the same number of visible minibuffer rows"
+    );
+
+    let gnu_find_file = gnu_rows
+        .iter()
+        .find(|row| row.contains("find-file"))
+        .cloned()
+        .expect("GNU should show find-file");
+    let neo_find_file = neo_rows
+        .iter()
+        .find(|row| row.contains("find-file"))
+        .cloned()
+        .expect("NEO should show find-file");
+    assert_eq!(
+        gnu_find_file, neo_find_file,
+        "{label} should agree on the top find-file candidate"
+    );
+
+    for stable in [
+        "find-file",
+        "ido-find-file",
+        "find-function",
+        "hexl-find-file",
+        "woman-find-file",
+    ] {
+        assert!(
+            gnu_rows.iter().any(|row| row.contains(stable)),
+            "{label} GNU should show {stable}"
+        );
+        assert!(
+            neo_rows.iter().any(|row| row.contains(stable)),
+            "{label} NEO should show {stable}"
+        );
+    }
+}
+
 fn dump_pair_grids(label: &str, gnu: &TuiSession, neo: &TuiSession) {
     eprintln!("{label}: GNU grid");
     for (row, text) in gnu.text_grid().iter().enumerate() {
@@ -102,6 +212,35 @@ fn dump_pair_grids(label: &str, gnu: &TuiSession, neo: &TuiSession) {
         eprintln!("{label}: {} differing rows", diffs.len());
         print_row_diffs(&diffs);
     }
+}
+
+fn wait_for_fido_mx_candidates(gnu: &mut TuiSession, neo: &mut TuiSession, query: &str) {
+    send_both(gnu, neo, "M-x");
+    let prompt_ready = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(gnu, neo, Duration::from_millis(300));
+
+    gnu.send(query.as_bytes());
+    neo.send(query.as_bytes());
+    let candidates_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("find-file"))
+            && grid[16..24]
+                .iter()
+                .filter(|row| !row.trim().is_empty())
+                .count()
+                >= 3
+    };
+    gnu.read_until(Duration::from_secs(6), candidates_ready);
+    neo.read_until(Duration::from_secs(8), candidates_ready);
+    read_both(gnu, neo, Duration::from_secs(1));
+}
+
+fn abort_minibuffer_and_wait_for_scratch(gnu: &mut TuiSession, neo: &mut TuiSession) {
+    send_both(gnu, neo, "C-g");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(gnu, neo, Duration::from_secs(1));
 }
 
 fn write_home_file(session: &TuiSession, name: &str, contents: &str) {
@@ -228,6 +367,95 @@ fn keyboard_quit_from_mx_via_cg() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("keyboard_quit_from_mx_via_cg", &gnu, &neo, 2);
+}
+
+#[test]
+fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
+    let (mut gnu, mut neo) = boot_fido_vertical_pair();
+
+    wait_for_fido_mx_candidates(&mut gnu, &mut neo, "find-f");
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("find-file")),
+            "{label} should show find-file in fido candidates"
+        );
+        assert!(
+            grid[16..24]
+                .iter()
+                .filter(|row| !row.trim().is_empty())
+                .count()
+                >= 3,
+            "{label} should expand the minibuffer into a vertical candidate list"
+        );
+    }
+    assert_bottom_rows_nearly_match(
+        "fido_vertical_mode_mx_find_f_matches_gnu_then_cg/prompt-layout",
+        &gnu,
+        &neo,
+        16,
+        3,
+    );
+    assert_fido_prompt_matches_stable_behavior(
+        "fido_vertical_mode_mx_find_f_matches_gnu_then_cg/prompt",
+        &gnu,
+        &neo,
+    );
+
+    abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
+    assert_pair_nearly_matches(
+        "fido_vertical_mode_mx_find_f_matches_gnu_then_cg/abort",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu() {
+    let (mut gnu, mut neo) = boot_fido_vertical_pair();
+
+    wait_for_fido_mx_candidates(&mut gnu, &mut neo, "find-f");
+    assert_bottom_rows_nearly_match(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/first-prompt-layout",
+        &gnu,
+        &neo,
+        16,
+        3,
+    );
+    assert_fido_prompt_matches_stable_behavior(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/first-prompt",
+        &gnu,
+        &neo,
+    );
+    abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
+    assert_pair_nearly_matches(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/first-abort",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    wait_for_fido_mx_candidates(&mut gnu, &mut neo, "find-f");
+    assert_bottom_rows_nearly_match(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/second-prompt-layout",
+        &gnu,
+        &neo,
+        16,
+        3,
+    );
+    assert_fido_prompt_matches_stable_behavior(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/second-prompt",
+        &gnu,
+        &neo,
+    );
+    abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
+    assert_pair_nearly_matches(
+        "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/second-abort",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]

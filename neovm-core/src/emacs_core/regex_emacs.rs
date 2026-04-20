@@ -1235,29 +1235,50 @@ fn compile_repetition(
                 let jump_offset = laststart as i16 - (jpos as i16 + 2);
                 store_number(&mut buf.buffer, jpos, jump_offset);
             } else {
-                // Non-greedy *?
-                // Layout:
-                //   [laststart] OFKSJ  offset(2)  <expr>  OFJ  offset(2)
-                //   OFKSJ fail target → past the OFJ instruction
-                //   OFJ target → back to OFKSJ opcode
-                buf.buffer.splice(
-                    laststart..laststart,
-                    [RegexOp::OnFailureKeepStringJump as u8, 0, 0],
-                );
-                let expr_len = after_last - laststart;
+                // GNU `regex-emacs.c` compiles non-greedy `*?` as:
+                //
+                //   jump cond
+                // loop:
+                //   <expr>
+                //   [no-op when expr may match empty]
+                // cond:
+                //   on_failure_jump[_nastyloop] loop
+                //
+                // This tries zero iterations first and only falls back
+                // into the loop body when a later piece fails.
+                let expr_bytes = buf.buffer[laststart..after_last].to_vec();
+                let body_may_be_empty = repeated_body_may_match_empty(&expr_bytes);
 
-                buf.buffer.push(RegexOp::OnFailureJump as u8);
-                let jpos = buf.buffer.len();
+                buf.buffer.truncate(laststart);
+
+                buf.buffer.push(RegexOp::Jump as u8);
+                let jump_pos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
 
-                // OFKSJ fail target: from (laststart+3) → past OFJ = (jpos+2)
-                let ofksj_offset = (expr_len + 3) as i16;
-                store_number(&mut buf.buffer, laststart + 1, ofksj_offset);
+                let expr_start = buf.buffer.len();
+                buf.buffer.extend_from_slice(&expr_bytes);
+                if body_may_be_empty {
+                    buf.buffer.push(RegexOp::NoOp as u8);
+                }
 
-                // OFJ target: from (jpos+2) → OFKSJ opcode at laststart
-                let ofj_offset = laststart as i16 - (jpos as i16 + 2);
-                store_number(&mut buf.buffer, jpos, ofj_offset);
+                let cond_pos = buf.buffer.len();
+                buf.buffer.push(if body_may_be_empty {
+                    RegexOp::OnFailureJumpNastyloop as u8
+                } else {
+                    RegexOp::OnFailureJump as u8
+                });
+                let cond_arg_pos = buf.buffer.len();
+                buf.buffer.push(0);
+                buf.buffer.push(0);
+
+                // Initial jump skips directly to the conditional branch.
+                let jump_offset = cond_pos as i16 - (jump_pos as i16 + 2);
+                store_number(&mut buf.buffer, jump_pos, jump_offset);
+
+                // The conditional branch backtracks into the loop body.
+                let cond_offset = expr_start as i16 - (cond_arg_pos as i16 + 2);
+                store_number(&mut buf.buffer, cond_arg_pos, cond_offset);
             }
         }
         b'+' => {
@@ -1282,14 +1303,30 @@ fn compile_repetition(
                 let jump_offset = laststart as i16 - (jpos as i16 + 2);
                 store_number(&mut buf.buffer, jpos, jump_offset);
             } else {
-                // Non-greedy +?
-                buf.buffer.push(RegexOp::OnFailureJump as u8);
-                let jpos = buf.buffer.len();
+                // GNU `regex-emacs.c:1987-1999`: non-greedy `+?`
+                // matches one body copy, then uses the same
+                // "repeat until fail" conditional jump as `*?`.
+                let expr_bytes = buf.buffer[laststart..after_last].to_vec();
+                let body_may_be_empty = repeated_body_may_match_empty(&expr_bytes);
+
+                buf.buffer.truncate(laststart);
+                let expr_start = buf.buffer.len();
+                buf.buffer.extend_from_slice(&expr_bytes);
+                if body_may_be_empty {
+                    buf.buffer.push(RegexOp::NoOp as u8);
+                }
+
+                buf.buffer.push(if body_may_be_empty {
+                    RegexOp::OnFailureJumpNastyloop as u8
+                } else {
+                    RegexOp::OnFailureJump as u8
+                });
+                let cond_arg_pos = buf.buffer.len();
                 buf.buffer.push(0);
                 buf.buffer.push(0);
-                // OFJ target: from (jpos+2) → laststart
-                let jump_offset = laststart as i16 - (jpos as i16 + 2);
-                store_number(&mut buf.buffer, jpos, jump_offset);
+
+                let cond_offset = expr_start as i16 - (cond_arg_pos as i16 + 2);
+                store_number(&mut buf.buffer, cond_arg_pos, cond_offset);
             }
         }
         b'?' => {
@@ -1315,6 +1352,37 @@ fn compile_repetition(
         _ => unreachable!(),
     }
     Ok(())
+}
+
+/// GNU's non-greedy `*?` / `+?` loops use the "repeat until fail"
+/// layout from `src/regex-emacs.c:1980-2006`, not the eager
+/// `on_failure_keep_string_jump` prefix form used for some greedy
+/// optimizations. We only need to know whether the repeated body
+/// could match the empty string in order to pick between
+/// `on_failure_jump` and `on_failure_jump_nastyloop`.
+///
+/// A full `analyze_first` port would be ideal, but a conservative
+/// first-opcode check is sufficient here: return `false` only for
+/// obviously consuming atoms. Everything else falls back to the
+/// nastyloop opcode, which is slower but semantics-safe.
+fn repeated_body_may_match_empty(body: &[u8]) -> bool {
+    let Some(&op) = body.first() else {
+        return true;
+    };
+
+    !matches!(
+        RegexOp::from_byte(op),
+        Some(
+            RegexOp::Exactn
+                | RegexOp::AnyChar
+                | RegexOp::Charset
+                | RegexOp::CharsetNot
+                | RegexOp::SyntaxSpec
+                | RegexOp::NotSyntaxSpec
+                | RegexOp::CategorySpec
+                | RegexOp::NotCategorySpec
+        )
+    )
 }
 
 /// Decode one Emacs character from a pattern byte slice starting at `pos`.

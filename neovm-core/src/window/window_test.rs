@@ -1461,3 +1461,38 @@ fn grow_and_shrink_mini_window_adjusts_bounds() {
         "minibuffer should shrink: grown={grown_h} shrunk={shrunk_h}"
     );
 }
+
+#[test]
+fn grow_mini_window_with_explicit_max_lines_honors_integer_limit() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = FrameManager::new();
+    let fid = mgr.create_frame("F1", 80, 24, BufferId(1));
+    {
+        let frame = mgr.get_mut(fid).unwrap();
+        frame.char_height = 1.0;
+        frame.char_width = 1.0;
+        if let Some(mini) = frame.minibuffer_leaf.as_mut() {
+            let mut b = *mini.bounds();
+            b.height = 1.0;
+            mini.set_bounds(b);
+        }
+        frame.sync_window_area_bounds();
+    }
+
+    mgr.get_mut(fid)
+        .unwrap()
+        .grow_mini_window_with_max_lines(20, 8.0);
+    let grown_h = mgr
+        .get(fid)
+        .unwrap()
+        .minibuffer_leaf
+        .as_ref()
+        .unwrap()
+        .bounds()
+        .height;
+
+    assert_eq!(
+        grown_h, 8.0,
+        "explicit integer max-mini-window-height should win"
+    );
+}
