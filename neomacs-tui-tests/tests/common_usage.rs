@@ -16,11 +16,17 @@ fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
             && grid
                 .iter()
                 .any(|row| row.contains("This buffer is for text that is not saved"))
+            && grid
+                .iter()
+                .any(|row| row.contains("For information about GNU Emacs and the GNU system"))
     };
-    gnu.read_until(Duration::from_secs(8), startup_ready);
-    neo.read_until(Duration::from_secs(12), startup_ready);
+    gnu.read_until(Duration::from_secs(10), startup_ready);
+    neo.read_until(Duration::from_secs(16), startup_ready);
+    settle_session(&mut gnu, Duration::from_secs(1), 2);
+    settle_session(&mut neo, Duration::from_secs(1), 5);
+    std::thread::sleep(Duration::from_secs(3));
     gnu.read(Duration::from_secs(1));
-    neo.read(Duration::from_secs(2));
+    neo.read(Duration::from_secs(1));
     (gnu, neo)
 }
 
@@ -32,6 +38,27 @@ fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
 fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
     gnu.read(timeout);
     neo.read(timeout);
+}
+
+fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
+    send_both(gnu, neo, "C-h");
+    let prefix_ready = |grid: &[String]| grid.iter().any(|row| row.contains("C-h-"));
+    gnu.read_until(Duration::from_secs(6), prefix_ready);
+    neo.read_until(Duration::from_secs(8), prefix_ready);
+    read_both(gnu, neo, Duration::from_millis(300));
+    send_both(gnu, neo, key);
+}
+
+fn settle_session(session: &mut TuiSession, timeout: Duration, max_rounds: usize) {
+    let mut previous = session.text_grid();
+    for _ in 0..max_rounds {
+        session.read(timeout);
+        let current = session.text_grid();
+        if current == previous {
+            return;
+        }
+        previous = current;
+    }
 }
 
 fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
@@ -91,8 +118,8 @@ fn open_home_file(
                     .is_some_and(|line| row.contains(line))
             })
     };
-    gnu.read_until(Duration::from_secs(6), ready);
-    neo.read_until(Duration::from_secs(8), ready);
+    gnu.read_until(Duration::from_secs(10), ready);
+    neo.read_until(Duration::from_secs(20), ready);
     read_both(gnu, neo, Duration::from_secs(1));
 }
 
@@ -190,7 +217,7 @@ fn keyboard_quit_from_mx_via_cg() {
 #[test]
 fn describe_mode_on_scratch_via_ch_m() {
     let (mut gnu, mut neo) = boot_pair("");
-    send_both(&mut gnu, &mut neo, "C-h m");
+    send_help_sequence(&mut gnu, &mut neo, "m");
     let ready = |grid: &[String]| {
         grid.iter().any(|row| row.contains("*Help*"))
             && grid.iter().any(|row| row.contains("Fundamental mode"))
@@ -205,7 +232,7 @@ fn describe_mode_on_scratch_via_ch_m() {
 #[test]
 fn describe_mode_outline_heading_via_ch_m() {
     let (mut gnu, mut neo) = boot_pair("");
-    send_both(&mut gnu, &mut neo, "C-h m");
+    send_help_sequence(&mut gnu, &mut neo, "m");
     let ready = |grid: &[String]| {
         grid.iter().any(|row| row.contains("*Help*"))
             && grid
@@ -222,10 +249,10 @@ fn describe_mode_outline_heading_via_ch_m() {
 #[test]
 fn quit_help_buffer_via_q() {
     let (mut gnu, mut neo) = boot_pair("");
-    send_both(&mut gnu, &mut neo, "C-h m");
+    send_help_sequence(&mut gnu, &mut neo, "m");
     let help_ready = |grid: &[String]| grid.iter().any(|row| row.contains("*Help*"));
-    gnu.read_until(Duration::from_secs(6), help_ready);
-    neo.read_until(Duration::from_secs(8), help_ready);
+    gnu.read_until(Duration::from_secs(10), help_ready);
+    neo.read_until(Duration::from_secs(20), help_ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     send_both(&mut gnu, &mut neo, "q");
@@ -245,8 +272,7 @@ fn quit_help_buffer_via_q() {
 #[test]
 fn describe_key_find_file_via_chk() {
     let (mut gnu, mut neo) = boot_pair("");
-    send_both(&mut gnu, &mut neo, "C-h k");
-    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_help_sequence(&mut gnu, &mut neo, "k");
     send_both(&mut gnu, &mut neo, "C-x C-f");
 
     let ready = |grid: &[String]| {
@@ -626,4 +652,171 @@ fn kill_word_via_md() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("kill_word_via_md", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_line_twice_then_yank_via_ck_ck_cy() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-line.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-y");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha line"))
+            && grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_line_twice_then_yank_via_ck_ck_cy", &gnu, &neo, 2);
+}
+
+#[test]
+fn describe_bindings_via_ch_b() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "b");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| {
+                row.contains("Key translations")
+                    || row.contains("Major Mode Bindings")
+                    || row.contains("lisp-interaction-mode")
+            })
+    };
+    gnu.read_until(Duration::from_secs(15), ready);
+    neo.read_until(Duration::from_secs(30), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Help*")),
+            "{label} should show *Help* after C-h b\n{}",
+            grid.join("\n")
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Key translations")
+                || row.contains("Major Mode Bindings")
+                || row.contains("lisp-interaction-mode")),
+            "{label} describe-bindings should show a GNU-visible heading\n{}",
+            grid.join("\n")
+        );
+    }
+}
+
+#[test]
+fn quit_describe_bindings_via_q() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "b");
+    let help_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| {
+                row.contains("Key translations")
+                    || row.contains("Major Mode Bindings")
+                    || row.contains("lisp-interaction-mode")
+            })
+    };
+    gnu.read_until(Duration::from_secs(15), help_ready);
+    neo.read_until(Duration::from_secs(30), help_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "q");
+    let scratch_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+    };
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*scratch*")),
+            "{label} should return to *scratch* after q"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("This buffer is for text that is not saved")),
+            "{label} should show the scratch buffer contents after q"
+        );
+    }
+}
+
+#[test]
+fn describe_function_find_file_via_ch_f() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "f");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Describe function"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"find-file");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| row.contains("find-file is"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Help*")),
+            "{label} should show *Help* after C-h f"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("find-file is")),
+            "{label} describe-function should mention find-file"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("C-x C-f")),
+            "{label} describe-function should mention C-x C-f"
+        );
+    }
+}
+
+#[test]
+fn describe_key_briefly_find_file_via_ch_c() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "c");
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("C-x C-f"))
+            && grid.iter().any(|row| row.contains("find-file"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("C-x C-f")),
+            "{label} should show the described key after C-h c"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("find-file")),
+            "{label} describe-key-briefly should mention find-file"
+        );
+    }
 }

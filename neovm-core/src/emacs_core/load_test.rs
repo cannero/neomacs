@@ -2712,6 +2712,78 @@ fn bootstrap_runtime_command_loop_executes_meta_x_command_on_ret() {
 }
 
 #[test]
+fn bootstrap_runtime_command_loop_executes_help_describe_function_on_ret() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*help-f-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop help test should have a selected frame"
+    );
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-help-f-log nil)
+             (defun neo--capture-describe-function (&rest _args)
+               (setq neo-help-f-log
+                     (list
+                      (bufferp (get-buffer "*Help*"))
+                      (with-current-buffer "*Help*"
+                        (not (null (save-excursion
+                                     (goto-char (point-min))
+                                     (search-forward "find-file is" nil t)))))
+                      (with-current-buffer "*Help*"
+                        (not (null (save-excursion
+                                     (goto-char (point-min))
+                                     (search-forward "C-x C-f" nil t))))))
+               (exit-recursive-edit))
+             (advice-add 'describe-function :after #'neo--capture-describe-function))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('f'),
+    ))
+    .expect("queue f");
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("C-h f command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+    assert_eq!(
+        format_eval_result(&eval.eval_str(
+            r#"(prog1 neo-help-f-log
+                 (advice-remove 'describe-function #'neo--capture-describe-function)
+                 (fmakunbound 'neo--capture-describe-function)
+                 (makunbound 'neo-help-f-log))"#
+        )),
+        "OK (t t t)",
+        "expected C-h f keyboard path to populate *Help* like GNU"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -2987,6 +3059,328 @@ fn bootstrap_runtime_read_key_sequence_follows_help_command_keymap_prefix() {
     let (keys, binding) = eval.read_key_sequence().expect("read C-h m sequence");
     assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('m' as i64)]);
     assert_eq!(binding, Value::symbol("describe-mode"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_follows_help_describe_function_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::fixnum(8));
+    eval.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::fixnum('f' as i64));
+
+    let (keys, binding) = eval.read_key_sequence().expect("read C-h f sequence");
+    assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('f' as i64)]);
+    assert_eq!(binding, Value::symbol("describe-function"));
+}
+
+#[test]
+fn bootstrap_runtime_read_char_from_input_rx_preserves_ctrl_h_help_char() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let event = eval.read_char().expect("read queued C-h");
+    assert_eq!(event, Value::fixnum(8));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_from_input_rx_follows_help_describe_function_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('f'),
+    ))
+    .expect("queue f");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let (keys, binding) = eval
+        .read_key_sequence()
+        .expect("read C-h f sequence from input_rx");
+    assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('f' as i64)]);
+    assert_eq!(binding, Value::symbol("describe-function"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_from_input_rx_follows_help_describe_bindings_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('b'),
+    ))
+    .expect("queue b");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let (keys, binding) = eval
+        .read_key_sequence()
+        .expect("read C-h b sequence from input_rx");
+    assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('b' as i64)]);
+    assert_eq!(binding, Value::symbol("describe-bindings"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_from_input_rx_leaves_following_minibuffer_input() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('f'),
+    ))
+    .expect("queue f");
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let (keys, binding) = eval
+        .read_key_sequence()
+        .expect("read C-h f sequence from input_rx");
+    assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('f' as i64)]);
+    assert_eq!(binding, Value::symbol("describe-function"));
+
+    let mut remaining = Vec::new();
+    for _ in 0.."find-file".chars().count() {
+        remaining.push(eval.read_char().expect("read queued minibuffer char"));
+    }
+    remaining.push(eval.read_char().expect("read queued minibuffer RET"));
+    assert_eq!(
+        remaining,
+        "find-file"
+            .chars()
+            .map(|ch| Value::fixnum(ch as i64))
+            .chain(std::iter::once(
+                crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return)
+                    .to_emacs_event_value(),
+            ))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_logs_help_route_for_ch_f() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*help-f-route-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop help route test should have a selected frame"
+    );
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-help-route-log nil)
+             (defun neo--capture-prefix-help (&rest _args)
+               (setq neo-help-route-log (append neo-help-route-log '(describe-prefix-bindings)))
+               (exit-recursive-edit))
+             (defun neo--capture-describe-function (&rest _args)
+               (setq neo-help-route-log (append neo-help-route-log '(describe-function)))
+               (exit-recursive-edit))
+             (advice-add 'describe-prefix-bindings :before #'neo--capture-prefix-help)
+             (advice-add 'describe-function :before #'neo--capture-describe-function))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('f'),
+    ))
+    .expect("queue f");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let _ = eval.recursive_edit_inner();
+    assert_eq!(
+        format_eval_result(&eval.eval_str(
+            r#"(prog1 neo-help-route-log
+                 (advice-remove 'describe-prefix-bindings #'neo--capture-prefix-help)
+                 (advice-remove 'describe-function #'neo--capture-describe-function)
+                 (fmakunbound 'neo--capture-prefix-help)
+                 (fmakunbound 'neo--capture-describe-function)
+                 (makunbound 'neo-help-route-log))"#
+        )),
+        "OK (describe-function)",
+        "expected C-h f command-loop path to dispatch describe-function, not prefix help"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_logs_help_route_for_ch_b() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*help-b-route-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop help route test should have a selected frame"
+    );
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-help-b-route-log nil)
+             (defun neo--capture-prefix-help-b (&rest _args)
+               (setq neo-help-b-route-log
+                     (append neo-help-b-route-log '(describe-prefix-bindings)))
+               (exit-recursive-edit))
+             (defun neo--capture-describe-bindings (&rest _args)
+               (setq neo-help-b-route-log
+                     (append neo-help-b-route-log '(describe-bindings)))
+               (exit-recursive-edit))
+             (advice-add 'describe-prefix-bindings :before #'neo--capture-prefix-help-b)
+             (advice-add 'describe-bindings :before #'neo--capture-describe-bindings))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('b'),
+    ))
+    .expect("queue b");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let _ = eval.recursive_edit_inner();
+    assert_eq!(
+        format_eval_result(&eval.eval_str(
+            r#"(prog1 neo-help-b-route-log
+                 (advice-remove 'describe-prefix-bindings #'neo--capture-prefix-help-b)
+                 (advice-remove 'describe-bindings #'neo--capture-describe-bindings)
+                 (fmakunbound 'neo--capture-prefix-help-b)
+                 (fmakunbound 'neo--capture-describe-bindings)
+                 (makunbound 'neo-help-b-route-log))"#
+        )),
+        "OK (describe-bindings)",
+        "expected C-h b command-loop path to dispatch describe-bindings, not prefix help"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_traces_describe_function_body_for_ch_f() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*help-f-trace-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-help-f-trace nil)
+             (defun neo--trace-describe-function (orig &rest args)
+               (setq neo-help-f-trace (append neo-help-f-trace '(entered)))
+               (condition-case err
+                   (prog1 (apply orig args)
+                     (setq neo-help-f-trace (append neo-help-f-trace '(returned)))
+                     (exit-recursive-edit))
+                 (error
+                  (setq neo-help-f-trace
+                        (append neo-help-f-trace (list (list 'error err))))
+                  (exit-recursive-edit)
+                  nil)))
+             (advice-add 'describe-function :around #'neo--trace-describe-function))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('h', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('f'),
+    ))
+    .expect("queue f");
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit via trace advice");
+    assert_eq!(result, Value::NIL);
+
+    let rendered = format_eval_result(&eval.eval_str(
+        r#"(prog1 neo-help-f-trace
+             (advice-remove 'describe-function #'neo--trace-describe-function)
+             (fmakunbound 'neo--trace-describe-function)
+             (makunbound 'neo-help-f-trace))"#,
+    ));
+
+    assert_eq!(
+        rendered, "OK (entered returned)",
+        "expected C-h f command-loop path to enter and return from describe-function"
+    );
 }
 
 #[test]
@@ -3655,6 +4049,330 @@ fn bootstrap_runtime_describe_function_autoloads_help_fns() {
     );
 
     assert_eq!(rendered, "OK (t t nil t)");
+}
+
+#[test]
+fn bootstrap_runtime_call_interactively_autoloaded_describe_function_reads_prompt() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    for ch in "find-file".chars() {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(Value::fixnum(ch as i64));
+    }
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
+    );
+
+    let result = eval
+        .apply(
+            Value::symbol("call-interactively"),
+            vec![Value::symbol("describe-function")],
+        )
+        .expect("call-interactively should read describe-function args");
+    assert!(
+        result.is_string(),
+        "describe-function should still return its help buffer string, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (autoloadp (symbol-function 'describe-function))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "find-file is" nil t)))))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "C-x C-f" nil t))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_runtime_command_execute_autoloaded_describe_function_reads_prompt() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    for ch in "find-file".chars() {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(Value::fixnum(ch as i64));
+    }
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
+    );
+
+    let result = eval
+        .apply(
+            Value::symbol("command-execute"),
+            vec![Value::symbol("describe-function")],
+        )
+        .expect("command-execute should read describe-function args");
+    assert!(
+        result.is_string(),
+        "describe-function should still return its help buffer string, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (autoloadp (symbol-function 'describe-function))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "find-file is" nil t)))))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "C-x C-f" nil t))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_runtime_call_interactively_autoloaded_describe_function_reads_prompt_from_input_rx() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .apply(
+            Value::symbol("call-interactively"),
+            vec![Value::symbol("describe-function")],
+        )
+        .expect("call-interactively should read describe-function args from input_rx");
+    assert!(
+        result.is_string(),
+        "describe-function should still return its help buffer string, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (autoloadp (symbol-function 'describe-function))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "find-file is" nil t)))))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "C-x C-f" nil t))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_runtime_command_execute_autoloaded_describe_function_reads_prompt_from_input_rx() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .apply(
+            Value::symbol("command-execute"),
+            vec![Value::symbol("describe-function")],
+        )
+        .expect("command-execute should read describe-function args from input_rx");
+    assert!(
+        result.is_string(),
+        "describe-function should still return its help buffer string, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (autoloadp (symbol-function 'describe-function))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "find-file is" nil t)))))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "C-x C-f" nil t))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil t t)");
+}
+
+#[test]
+fn bootstrap_runtime_call_interactively_describe_function_with_outer_command_state() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let scratch = eval
+        .buffers
+        .create_buffer("*describe-function-state-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+    let help_keys = vec![Value::fixnum(8), Value::fixnum('f' as i64)];
+    eval.set_command_key_sequences(help_keys.clone(), help_keys);
+    eval.assign("this-command", Value::symbol("describe-function"));
+    eval.assign("real-this-command", Value::symbol("describe-function"));
+    eval.assign("this-original-command", Value::symbol("describe-function"));
+    eval.assign("last-command-event", Value::fixnum('f' as i64));
+
+    let result = eval
+        .apply(
+            Value::symbol("call-interactively"),
+            vec![Value::symbol("describe-function")],
+        )
+        .expect("call-interactively should succeed with outer command state");
+    assert!(
+        result.is_string(),
+        "describe-function should still return its help buffer string, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "find-file is" nil t)))))
+             (with-current-buffer "*Help*"
+               (not (null (save-excursion
+                            (goto-char (point-min))
+                            (search-forward "C-x C-f" nil t))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (t t)");
+}
+
+#[test]
+fn bootstrap_runtime_describe_bindings_includes_major_mode_section() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (describe-bindings)
+             (with-current-buffer "*Help*"
+               (list
+                (not (null (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "Major Mode Bindings" nil t))))
+                (not (null (save-excursion
+                             (goto-char (point-min))
+                             (search-forward "lisp-interaction-mode" nil t)))))))"#,
+    );
+
+    assert_eq!(rendered, "OK (t t)");
+}
+
+#[test]
+fn bootstrap_runtime_describe_bindings_window_starts_at_visible_heading() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (describe-bindings)
+             (let* ((w (get-buffer-window "*Help*"))
+                    (ws (window-start w))
+                    (visible
+                     (with-current-buffer "*Help*"
+                       (save-excursion
+                         (goto-char ws)
+                         (while (and (< (point) (point-max))
+                                     (or (get-text-property (point) 'invisible)
+                                         (memq (char-after) '(?\n ?\r ?\t ?\f ? ))))
+                           (forward-char 1))
+                         (buffer-substring-no-properties
+                          (point)
+                          (min (point-max) (+ (point) 160)))))))
+               (list
+                (windowp w)
+                ws
+                visible)))"#,
+    );
+
+    assert!(
+        rendered.starts_with("OK (t "),
+        "describe-bindings should display in a live help window, got {rendered}"
+    );
+    assert!(
+        rendered.contains("Key translations"),
+        "describe-bindings should start at the GNU key-translations heading, got {rendered}"
+    );
 }
 
 #[test]

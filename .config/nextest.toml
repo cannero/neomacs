@@ -1,5 +1,8 @@
 experimental = ["wrapper-scripts"]
 
+[test-groups]
+tui-serial = { max-threads = 1 }
+
 # Memory-limited wrapper: each test process gets an 8GB virtual address space limit.
 # Uses prlimit (RLIMIT_AS) so allocation failures produce a Rust abort with
 # backtrace instead of a silent SIGKILL from cgroup OOM killer.
@@ -12,6 +15,10 @@ command = 'prlimit --as=8589934592 --'
 # creation can take over 300s on this tree, so the old 180s cap still causes
 # false timeouts for healthy cache-writer/bootstrap-heavy tests.
 slow-timeout = { period = "480s", terminate-after = 1, grace-period = "0s" }
+
+[[profile.default.overrides]]
+filter = 'package(neomacs-tui-tests)'
+test-group = 'tui-serial'
 
 # Apply memory limit to all tests
 [[profile.default.scripts]]
