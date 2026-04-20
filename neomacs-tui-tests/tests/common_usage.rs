@@ -203,6 +203,46 @@ fn describe_mode_on_scratch_via_ch_m() {
 }
 
 #[test]
+fn describe_mode_outline_heading_via_ch_m() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_both(&mut gnu, &mut neo, "C-h m");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("Major mode fundamental-mode"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("describe_mode_outline_heading_via_ch_m", &gnu, &neo, 2);
+}
+
+#[test]
+fn quit_help_buffer_via_q() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_both(&mut gnu, &mut neo, "C-h m");
+    let help_ready = |grid: &[String]| grid.iter().any(|row| row.contains("*Help*"));
+    gnu.read_until(Duration::from_secs(6), help_ready);
+    neo.read_until(Duration::from_secs(8), help_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "q");
+    let scratch_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+    };
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("quit_help_buffer_via_q", &gnu, &neo, 2);
+}
+
+#[test]
 fn describe_key_find_file_via_chk() {
     let (mut gnu, mut neo) = boot_pair("");
     send_both(&mut gnu, &mut neo, "C-h k");
@@ -255,6 +295,40 @@ fn find_file_other_window_via_cx4_cf() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("find_file_other_window_via_cx4_cf", &gnu, &neo, 2);
+}
+
+#[test]
+fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "split-window.txt", "split line 1\nsplit line 2\n");
+    write_home_file(&neo, "split-window.txt", "split line 1\nsplit line 2\n");
+
+    send_both(&mut gnu, &mut neo, "C-x 2");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let minibuffer_path = "~/split-window.txt";
+    gnu.send(minibuffer_path.as_bytes());
+    neo.send(minibuffer_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("split line 1"))
+            && grid.iter().any(|row| row.contains("split-window.txt"))
+            && grid.iter().any(|row| row.contains("*scratch*"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
