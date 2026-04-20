@@ -6627,6 +6627,55 @@ fn bootstrap_runtime_set_match_data_restores_multibyte_buffer_positions_like_gnu
 }
 
 #[test]
+fn replace_match_after_set_match_data_uses_gnu_buffer_char_positions() {
+    crate::test_utils::init_test_tracing();
+    use crate::emacs_core::builtins::search::{
+        builtin_match_data, builtin_replace_match, builtin_search_forward, builtin_set_match_data,
+    };
+    use crate::emacs_core::eval::Context;
+
+    let mut eval = Context::new();
+    {
+        let buffer = eval.buffers.current_buffer_mut().expect("scratch buffer");
+        buffer.insert("alpha one");
+        buffer.goto_char(0);
+    }
+
+    builtin_search_forward(&mut eval, vec![Value::string("alpha")])
+        .expect("seed buffer match data");
+    let saved = builtin_match_data(&mut eval, vec![Value::T])
+        .expect("read match data with integer positions");
+    builtin_set_match_data(&mut eval, vec![saved]).expect("restore GNU-style buffer positions");
+    let restored = eval.match_data.as_ref().expect("restored match data");
+    assert_eq!(restored.groups.first().copied().flatten(), Some((1, 6)));
+    assert!(restored.searched_buffer.is_some());
+    assert!(!restored.buffer_positions_are_bytes);
+    let (start, end, replacement) =
+        crate::emacs_core::regex::compute_buffer_replacement_with_syntax(
+            eval.buffers.current_buffer().expect("current buffer"),
+            "omega",
+            true,
+            true,
+            0,
+            &eval.match_data,
+            false,
+        )
+        .expect("compute replacement span");
+    assert_eq!((start, end), (0, 5));
+    assert_eq!(
+        replacement
+            .as_utf8_str()
+            .expect("replacement should stay utf-8"),
+        "omega"
+    );
+    builtin_replace_match(&mut eval, vec![Value::string("omega"), Value::T, Value::T])
+        .expect("replace-match should honor restored buffer match positions");
+
+    let buffer = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buffer.text.text_range(0, buffer.text.len()), "omega one");
+}
+
+#[test]
 fn match_beginning_end_return_nil_without_match_data() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

@@ -50,6 +50,11 @@ fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
     neo.send_keys(keys);
 }
 
+fn send_both_raw(gnu: &mut TuiSession, neo: &mut TuiSession, bytes: &[u8]) {
+    gnu.send(bytes);
+    neo.send(bytes);
+}
+
 fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
     gnu.read(timeout);
     neo.read(timeout);
@@ -726,6 +731,97 @@ fn delete_selected_other_window_via_cx0() {
 }
 
 #[test]
+fn write_file_after_edit_via_cx_cw() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "write-file-source.txt",
+        "alpha line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omega line");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-w");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Write file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/write-file-dest.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("write-file-dest.txt"))
+            && grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    let expected_dest = "alpha line\nomega line\n";
+    let gnu_dest = gnu.home_dir().join("write-file-dest.txt");
+    let neo_dest = neo.home_dir().join("write-file-dest.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        let gnu_saved = fs::read_to_string(&gnu_dest).ok().as_deref() == Some(expected_dest);
+        let neo_saved = fs::read_to_string(&neo_dest).ok().as_deref() == Some(expected_dest);
+        if gnu_saved && neo_saved {
+            break;
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(gnu.home_dir().join("write-file-source.txt"))
+            .expect("read GNU source file"),
+        "alpha line\n"
+    );
+    assert_eq!(
+        fs::read_to_string(neo.home_dir().join("write-file-source.txt"))
+            .expect("read Neo source file"),
+        "alpha line\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&gnu_dest).expect("read GNU write-file dest"),
+        expected_dest
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_dest).expect("read Neo write-file dest"),
+        expected_dest
+    );
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("Wrote ")),
+            "{label} screen missing save completion message:\n{}",
+            grid.join("\n")
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("write-file-dest.txt")),
+            "{label} screen missing destination file name after write-file:\n{}",
+            grid.join("\n")
+        );
+    }
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    let recentered = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("write-file-dest.txt"))
+            && grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), recentered);
+    neo.read_until(Duration::from_secs(8), recentered);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("write_file_after_edit_via_cx_cw", &gnu, &neo, 2);
+}
+
+#[test]
 fn save_buffer_after_edit_via_cx_cs() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1210,6 +1306,32 @@ fn forward_and_backward_word_via_mf_mb() {
 }
 
 #[test]
+fn backward_kill_word_via_esc_del() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "backward-kill-word.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f M-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, &[0x1b, 0x7f]);
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("backward_kill_word_via_esc_del", &gnu, &neo, 2);
+}
+
+#[test]
 fn forward_and_backward_sentence_via_me_ma() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1462,6 +1584,35 @@ fn kill_sentence_via_mk() {
 }
 
 #[test]
+fn kill_ring_save_region_then_yank_via_mw_cy() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-ring-save.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-@");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-w");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "SPC C-y");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("alpha beta alpha"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_ring_save_region_then_yank_via_mw_cy", &gnu, &neo, 2);
+}
+
+#[test]
 fn kill_word_via_md() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1687,4 +1838,58 @@ fn describe_key_briefly_find_file_via_ch_c() {
             "{label} describe-key-briefly should mention find-file"
         );
     }
+}
+
+#[test]
+fn query_replace_via_mpercent_bang() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "query-replace.txt",
+        "alpha one\nalpha two\nalpha three\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-%");
+    let from_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Query replace"));
+    gnu.read_until(Duration::from_secs(6), from_ready);
+    neo.read_until(Duration::from_secs(8), from_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"alpha");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let to_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("with:")) || grid.iter().any(|row| row.contains("with "))
+    };
+    gnu.read_until(Duration::from_secs(6), to_ready);
+    neo.read_until(Duration::from_secs(8), to_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omega");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let query_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Query replacing"))
+            && grid.iter().any(|row| row.contains("(y/n/!/q/?)"))
+    };
+    gnu.read_until(Duration::from_secs(6), query_ready);
+    neo.read_until(Duration::from_secs(8), query_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("omega one"))
+            && grid.iter().any(|row| row.contains("omega two"))
+            && grid.iter().any(|row| row.contains("omega three"))
+            && !grid.iter().any(|row| row.contains("alpha one"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("query_replace_via_mpercent_bang", &gnu, &neo, 2);
 }

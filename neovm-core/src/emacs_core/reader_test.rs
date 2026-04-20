@@ -3068,6 +3068,30 @@ fn read_key_sequence_vector_accepts_nil_prompt() {
 }
 
 #[test]
+fn read_key_sequence_vector_blocks_for_interactive_input_when_receiver_present() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('!'),
+    ))
+    .expect("queue !");
+    drop(tx);
+    ev.input_rx = Some(rx);
+
+    let result = builtin_read_key_sequence_vector(&mut ev, vec![Value::string("key: ")])
+        .expect("interactive read-key-sequence-vector should block for input");
+    match result.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) => {
+            let items = result.as_vector_data().unwrap().clone();
+            assert_eq!(items, vec![Value::fixnum('!' as i64)]);
+        }
+        other => panic!("expected vector, got {other:?}"),
+    }
+    assert_eq!(ev.read_command_keys(), &[Value::fixnum('!' as i64)]);
+}
+
+#[test]
 fn read_key_sequence_vector_rejects_more_than_six_args() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

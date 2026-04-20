@@ -3652,6 +3652,7 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     let out_str = out_path.to_string_lossy().to_string();
 
     let mut eval = Context::new();
+    eval.set_variable("noninteractive", Value::NIL);
     eval.buffers.current_buffer_mut().unwrap().insert("neo");
     assert!(eval.buffers.current_buffer().unwrap().is_modified());
 
@@ -3674,6 +3675,11 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     );
     assert!(!buf.is_modified());
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");
+    let expected_message = format!("Wrote {}", out_str);
+    assert_eq!(
+        eval.current_message_text().as_deref(),
+        Some(expected_message.as_str())
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

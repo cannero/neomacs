@@ -2838,10 +2838,10 @@ fn validate_optional_buffer_arg_in_state(
 
 fn validate_set_visited_file_modtime_arg(arg: &Value) -> Result<(), Flow> {
     match arg.kind() {
-        ValueKind::Fixnum(_) => Err(signal(
-            "args-out-of-range",
-            vec![*arg, Value::fixnum(-1), Value::fixnum(0)],
-        )),
+        // GNU Lisp uses `(set-visited-file-modtime 0)` via
+        // `clear-visited-file-modtime` during `set-visited-file-name`
+        // and `write-file`, so integer flags are valid inputs here.
+        ValueKind::Fixnum(_) => Ok(()),
         ValueKind::String => Err(signal(
             "error",
             vec![Value::string("Invalid time specification")],
@@ -4375,6 +4375,7 @@ pub(crate) fn builtin_write_region(
     }
     drop(file);
 
+    let wrote_message_path = visit_file.clone();
     if let Some(visit_path) = visit_file {
         let _ = eval
             .buffers
@@ -4383,6 +4384,12 @@ pub(crate) fn builtin_write_region(
     }
 
     eval.set_variable("last-coding-system-used", Value::symbol(&coding_system));
+    if let Some(path) = wrote_message_path.filter(|_| !eval.noninteractive()) {
+        crate::emacs_core::builtins::builtin_message(
+            eval,
+            vec![Value::string("Wrote %s"), Value::heap_string(path)],
+        )?;
+    }
     Ok(Value::NIL)
 }
 

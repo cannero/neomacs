@@ -2784,6 +2784,87 @@ fn bootstrap_runtime_command_loop_executes_help_describe_function_on_ret() {
 }
 
 #[test]
+fn bootstrap_runtime_read_key_after_two_minibuffers_consumes_fresh_key() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*read-key-after-minibuffers*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop read-key test should have a selected frame"
+    );
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-read-key-after-minibuffers-log nil)
+             (defun neo-read-key-after-minibuffers ()
+               (interactive)
+               (let ((a (read-from-minibuffer "A: "))
+                     (b (read-from-minibuffer "B: "))
+                     (k (read-key "K: ")))
+                 (setq neo-read-key-after-minibuffers-log
+                       (list a b k unread-command-events))
+                 (exit-recursive-edit))))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-read-key-after-minibuffers".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET to run command");
+    for ch in "alpha".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue first minibuffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET for first minibuffer");
+    for ch in "beta".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue second minibuffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET for second minibuffer");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('!'),
+    ))
+    .expect("queue fresh read-key input");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("read-key test command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+    assert_eq!(
+        eval_rendered(&mut eval, "neo-read-key-after-minibuffers-log"),
+        r#"OK ("alpha" "beta" 33 nil)"#,
+        "expected read-key to consume the fresh ! event after the minibuffer exits"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_window_close_routes_through_handle_delete_frame() {
     init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

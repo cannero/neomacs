@@ -1896,8 +1896,12 @@ pub(crate) fn builtin_read_key_sequence_vector_in_runtime(
         return Ok(Some(Value::vector(vec![event])));
     }
 
-    runtime.clear_read_command_keys();
-    Ok(Some(Value::vector(vec![])))
+    if runtime.has_input_receiver() {
+        Ok(None)
+    } else {
+        runtime.clear_read_command_keys();
+        Ok(Some(Value::vector(vec![])))
+    }
 }
 
 /// `(set-input-meta-mode META)`

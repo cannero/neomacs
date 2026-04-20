@@ -2105,7 +2105,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         None => return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string()),
     };
 
-    let (match_start, match_end) = match md.groups.get(subexp) {
+    let (_match_start, _match_end) = match md.groups.get(subexp) {
         Some(Some(pair)) => *pair,
         _ => return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string()),
     };
@@ -2115,7 +2115,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         buf.get_multibyte(),
     );
     let buf_syntax = crate::emacs_core::syntax::SyntaxTable::for_buffer(buf);
-    let (_, _, replacement) = compute_replacement_with_syntax(
+    let (byte_start, byte_end, replacement) = compute_replacement_with_syntax(
         newtext,
         fixedcase,
         literal,
@@ -2135,7 +2135,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         crate::heap_types::LispString::from_unibyte(replacement_bytes)
     };
 
-    Ok((match_start, match_end, replacement))
+    Ok((byte_start, byte_end, replacement))
 }
 
 /// Replace the last match in SOURCE and return the resulting string.
@@ -2253,13 +2253,22 @@ fn compute_replacement_with_syntax(
     // String searches, and GNU-style `set-match-data` restores on buffers,
     // expose character positions. Engine-produced buffer match data stays on
     // Emacs byte positions until the Lisp boundary.
-    let positions_are_chars = md.searched_string.is_some()
-        || (md.searched_buffer.is_some() && !md.buffer_positions_are_bytes);
+    let string_positions_are_chars = md.searched_string.is_some();
+    let buffer_positions_are_lisp_chars =
+        md.searched_buffer.is_some() && !md.buffer_positions_are_bytes;
     let uses_buffer_byte_positions = md.uses_buffer_byte_positions();
-    let (byte_start, byte_end) = if positions_are_chars {
+    let (byte_start, byte_end) = if string_positions_are_chars {
         (
             char_pos_to_byte(source, match_start),
             char_pos_to_byte(source, match_end),
+        )
+    } else if buffer_positions_are_lisp_chars {
+        // `set-match-data` restores buffer positions in Lisp character
+        // coordinates, which are 1-based. Convert them back to 0-based
+        // character offsets before slicing the storage string.
+        (
+            char_pos_to_byte(source, match_start.saturating_sub(1)),
+            char_pos_to_byte(source, match_end.saturating_sub(1)),
         )
     } else if uses_buffer_byte_positions {
         (
@@ -2282,7 +2291,7 @@ fn compute_replacement_with_syntax(
     let mut replacement = if literal {
         newtext.to_string()
     } else {
-        build_replacement(newtext, md, source, positions_are_chars)?
+        build_replacement(newtext, md, source, string_positions_are_chars)?
     };
 
     if !fixedcase {
