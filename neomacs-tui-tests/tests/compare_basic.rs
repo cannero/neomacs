@@ -277,12 +277,22 @@ fn echo_area_message() {
 fn isearch_forward() {
     let (mut gnu, mut neo) = boot_pair("");
     send_both(&mut gnu, &mut neo, "C-s");
-    std::thread::sleep(Duration::from_millis(500));
-    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    let prompt_ready = |grid: &[String]| {
+        grid.last()
+            .is_some_and(|row| row.contains("search") || row.contains("I-search"))
+    };
+    gnu.read_until(Duration::from_secs(4), prompt_ready);
+    neo.read_until(Duration::from_secs(6), prompt_ready);
     for s in [&mut gnu, &mut neo] {
         s.send(b"buffer");
     }
-    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    let query_ready = |grid: &[String]| {
+        grid.last()
+            .is_some_and(|row| row.contains("search") || row.contains("buffer"))
+    };
+    gnu.read_until(Duration::from_secs(4), query_ready);
+    neo.read_until(Duration::from_secs(6), query_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();

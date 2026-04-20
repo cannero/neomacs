@@ -632,6 +632,44 @@ fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
 }
 
 #[test]
+fn other_window_via_cxo() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "other-window-hop.txt",
+        "window body\n",
+        "C-x 2 C-x o C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"BOTTOM ");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"TOP ");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("TOP ;; This buffer is for text that is not saved"))
+            && grid.iter().any(|row| row.contains("BOTTOM window body"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("other_window_via_cxo", &gnu, &neo, 2);
+}
+
+#[test]
 fn delete_other_windows_after_find_file_other_window_via_cx1() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -658,6 +696,33 @@ fn delete_other_windows_after_find_file_other_window_via_cx1() {
         &neo,
         2,
     );
+}
+
+#[test]
+fn delete_selected_other_window_via_cx0() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-window.txt",
+        "delete me window\n",
+        "C-x 2 C-x o C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 0");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+            && !grid.iter().any(|row| row.contains("delete-window.txt"))
+            && !grid.iter().any(|row| row.contains("delete me window"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("delete_selected_other_window_via_cx0", &gnu, &neo, 2);
 }
 
 #[test]
@@ -1085,6 +1150,31 @@ fn forward_and_backward_char_via_cf_cb() {
 }
 
 #[test]
+fn transpose_chars_via_ct() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "transpose-chars.txt",
+        "acb\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-t");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("abc")) && !grid.iter().any(|row| row.contains("acb"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("transpose_chars_via_ct", &gnu, &neo, 2);
+}
+
+#[test]
 fn forward_and_backward_word_via_mf_mb() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1152,6 +1242,35 @@ fn forward_and_backward_sentence_via_me_ma() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("forward_and_backward_sentence_via_me_ma", &gnu, &neo, 2);
+}
+
+#[test]
+fn open_line_via_co() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "open-line.txt",
+        "beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"alpha");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha"))
+            && grid.iter().any(|row| row.contains("beta gamma"))
+            && !grid.iter().any(|row| row.contains("alphabeta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("open_line_via_co", &gnu, &neo, 2);
 }
 
 #[test]
