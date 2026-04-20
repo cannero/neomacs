@@ -1893,3 +1893,136 @@ fn query_replace_via_mpercent_bang() {
 
     assert_pair_nearly_matches("query_replace_via_mpercent_bang", &gnu, &neo, 2);
 }
+
+#[test]
+fn upcase_word_via_mu() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "upcase-word.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-u");
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("ALPHA beta gamma"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("upcase_word_via_mu", &gnu, &neo, 2);
+}
+
+#[test]
+fn downcase_word_via_ml() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "downcase-word.txt",
+        "ALPHA beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-l");
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("alpha beta gamma"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("downcase_word_via_ml", &gnu, &neo, 2);
+}
+
+#[test]
+fn capitalize_word_via_mc() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "capitalize-word.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-c");
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Alpha beta gamma"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("capitalize_word_via_mc", &gnu, &neo, 2);
+}
+
+#[test]
+fn exchange_point_and_mark_via_cx_cx() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "exchange-point-and-mark.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-@");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-f M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("alphaX beta gamma"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("exchange_point_and_mark_via_cx_cx", &gnu, &neo, 2);
+}
+
+#[test]
+fn mark_paragraph_then_kill_and_yank_via_mh_cw_cy() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-paragraph.txt",
+        "alpha one\nalpha two\n\nbeta one\nbeta two\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+
+    let killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta one"))
+            && grid.iter().any(|row| row.contains("beta two"))
+            && !grid.iter().any(|row| row.contains("alpha one"))
+            && !grid.iter().any(|row| row.contains("alpha two"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-y");
+    let restored = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha one"))
+            && grid.iter().any(|row| row.contains("alpha two"))
+            && grid.iter().any(|row| row.contains("beta one"))
+            && grid.iter().any(|row| row.contains("beta two"))
+    };
+    gnu.read_until(Duration::from_secs(6), restored);
+    neo.read_until(Duration::from_secs(8), restored);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "mark_paragraph_then_kill_and_yank_via_mh_cw_cy",
+        &gnu,
+        &neo,
+        2,
+    );
+}
