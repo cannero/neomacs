@@ -8047,6 +8047,23 @@ fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
 }
 
 #[test]
+fn window_and_minibuffer_defvars_are_bound_and_special_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(list (boundp 'minibuffer-scroll-window)
+               (special-variable-p 'minibuffer-scroll-window)
+               (boundp 'other-window-scroll-buffer)
+               (special-variable-p 'other-window-scroll-buffer)
+               (boundp 'other-window-scroll-default)
+               (special-variable-p 'other-window-scroll-default)
+               (boundp 'scroll-minibuffer-conservatively)
+               (special-variable-p 'scroll-minibuffer-conservatively)
+               scroll-minibuffer-conservatively)",
+    );
+    assert_eq!(results[0], "OK (t t t t t t t t t)");
+}
+
+#[test]
 fn input_pending_p_filters_default_ignored_events_like_gnu() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

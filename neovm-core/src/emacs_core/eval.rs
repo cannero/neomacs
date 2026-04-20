@@ -3490,6 +3490,11 @@ impl Context {
         );
         obarray.set_symbol_value("minibuffer-allow-text-properties", Value::NIL);
         obarray.set_symbol_value("minibuffer-scroll-window", Value::NIL);
+        obarray.make_special("minibuffer-scroll-window");
+        obarray.set_symbol_value("other-window-scroll-buffer", Value::NIL);
+        obarray.make_special("other-window-scroll-buffer");
+        obarray.set_symbol_value("other-window-scroll-default", Value::NIL);
+        obarray.make_special("other-window-scroll-default");
         obarray.set_symbol_value("minibuffer-visible-completions", Value::NIL);
         obarray.set_symbol_value("minibuffer-visible-completions--always-bind", Value::NIL);
         obarray.set_symbol_value("minibuffer-depth-indicate-mode", Value::NIL);
@@ -8510,6 +8515,17 @@ impl Context {
             } => {
                 self.apply(hook, vec![symbol_value, definition])?;
             }
+        }
+        if let Some(symbol) = result.as_symbol_id() {
+            let definition = self
+                .obarray
+                .symbol_function_id(symbol)
+                .unwrap_or(Value::NIL);
+            crate::emacs_core::interactive::sync_interactive_registry_for_symbol_definition(
+                &mut self.interactive,
+                symbol,
+                definition,
+            );
         }
         Ok(result)
     }

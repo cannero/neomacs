@@ -3204,6 +3204,285 @@ fn bootstrap_runtime_read_key_sequence_from_input_rx_leaves_following_minibuffer
 }
 
 #[test]
+fn bootstrap_runtime_save_some_buffers_space_saves_modified_file() {
+    init_test_tracing();
+    let dir = tempdir().expect("save-some tempdir");
+    let file_path = dir.path().join("save-some-probe.txt");
+    fs::write(&file_path, "alpha line\n").expect("write probe file");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*save-some-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime save-some-buffers test should have a selected frame"
+    );
+
+    let path_literal = format!("{:?}", file_path.to_string_lossy());
+    eval.eval_str(&format!(
+        r#"(progn
+             (setq neo-save-some-error nil)
+             (setq neo-save-some-save-buffer-ran nil)
+             (advice-add
+              'save-buffer :before
+              (lambda (&rest _)
+                (setq neo-save-some-save-buffer-ran t)))
+             (defun neo-save-some-probe ()
+               (interactive)
+               (setq neo-save-some-error
+                     (condition-case err
+                         (list :ok (save-some-buffers nil))
+                       (error
+                        (list :error
+                              err
+                              last-command-event
+                              this-command
+                              real-this-command
+                              last-input-event
+                              last-nonmenu-event
+                              (ignore-errors (selected-window))
+                              (ignore-errors (frame-selected-window))
+                              (ignore-errors (minibuffer-selected-window))
+                              (ignore-errors (active-minibuffer-window))))))
+               (setq neo-save-some-buffer-modified (buffer-modified-p))
+               (exit-recursive-edit))
+             (let ((buf (find-file-noselect {path_literal})))
+               (switch-to-buffer buf)
+               (goto-char (point-max))
+               (insert "omega line\n")))"#
+    ))
+    .expect("setup save-some-buffers probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-save-some-probe".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue SPC");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let saved = fs::read_to_string(&file_path).expect("read probe file after save-some-buffers");
+    let save_buffer_ran = eval
+        .eval_symbol("neo-save-some-save-buffer-ran")
+        .expect("save-buffer trace var should exist");
+    let save_error = eval
+        .eval_symbol("neo-save-some-error")
+        .expect("save-some error var should exist");
+    let modified = eval
+        .eval_symbol("neo-save-some-buffer-modified")
+        .expect("buffer modified trace var should exist");
+
+    assert_eq!(
+        saved, "alpha line\nomega line\n",
+        "error={save_error} save-buffer-ran={save_buffer_ran} modified={modified}"
+    );
+    assert_eq!(
+        save_buffer_ran,
+        Value::T,
+        "error={save_error} saved={saved:?} modified={modified}"
+    );
+    assert_eq!(
+        modified,
+        Value::NIL,
+        "error={save_error} save-buffer-ran={save_buffer_ran} saved={saved:?}"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_sets_last_nonmenu_event_for_keyboard_invocation() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*last-nonmenu-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (setq neo-last-nonmenu-observed nil)
+             (defun neo-last-nonmenu-probe ()
+               (interactive)
+               (setq neo-last-nonmenu-observed
+                     (list last-command-event last-input-event last-nonmenu-event))
+               (exit-recursive-edit)))"#,
+    )
+    .expect("define last-nonmenu probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-last-nonmenu-probe".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval
+        .eval_symbol("neo-last-nonmenu-observed")
+        .expect("probe var should exist");
+    assert_eq!(
+        observed,
+        Value::list(vec![
+            Value::fixnum('\r' as i64),
+            Value::fixnum('\r' as i64),
+            Value::fixnum('\r' as i64),
+        ]),
+    );
+}
+
+#[test]
+fn bootstrap_runtime_cx_s_space_saves_typed_edit_from_command_loop() {
+    init_test_tracing();
+    let dir = tempdir().expect("save-some typed tempdir");
+    let file_path = dir.path().join("save-some-typed.txt");
+    fs::write(&file_path, "alpha line\n").expect("write typed probe file");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*save-some-typed-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let path_literal = format!("{:?}", file_path.to_string_lossy());
+    eval.eval_str(&format!(
+        r#"(progn
+             (setq neo-save-some-typed-finish nil)
+             (setq neo-save-some-typed-save-buffer-ran nil)
+             (advice-add
+              'save-buffer :before
+              (lambda (&rest _)
+                (setq neo-save-some-typed-save-buffer-ran t)))
+             (defun neo-save-some-typed-finish ()
+               (interactive)
+               (setq neo-save-some-typed-finish
+                     (list
+                      (buffer-name)
+                      (buffer-modified-p)
+                      last-command-event
+                      this-command
+                      real-this-command
+                      last-input-event
+                      last-nonmenu-event))
+               (exit-recursive-edit))
+             (let ((buf (find-file-noselect {path_literal})))
+               (switch-to-buffer buf)
+               (goto-char (point-max))))"#
+    ))
+    .expect("setup typed save-some probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "omega line\n".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue typed chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('s'),
+    ))
+    .expect("queue s");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue SPC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-save-some-typed-finish".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue finish chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue finish RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("typed save-some command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let saved = fs::read_to_string(&file_path).expect("read typed probe file after save-some");
+    let save_buffer_ran = eval
+        .eval_symbol("neo-save-some-typed-save-buffer-ran")
+        .expect("typed save-buffer trace var should exist");
+    let finish = eval
+        .eval_symbol("neo-save-some-typed-finish")
+        .expect("typed finish var should exist");
+    let modified = eval
+        .buffers
+        .current_buffer()
+        .expect("current buffer after typed save-some")
+        .is_modified();
+
+    assert_eq!(
+        saved, "alpha line\nomega line\n",
+        "finish={finish} save-buffer-ran={save_buffer_ran} modified={modified}"
+    );
+    assert_eq!(
+        save_buffer_ran,
+        Value::T,
+        "finish={finish} saved={saved:?} modified={modified}"
+    );
+    assert!(
+        !modified,
+        "finish={finish} save-buffer-ran={save_buffer_ran} saved={saved:?}"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_command_loop_logs_help_route_for_ch_f() {
     init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

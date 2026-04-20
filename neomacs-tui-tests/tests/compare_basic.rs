@@ -72,6 +72,25 @@ fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
         .collect()
 }
 
+fn normalize_hello_vc_row(row: &str) -> String {
+    let Some(start) = row.find("Git-") else {
+        return row.to_string();
+    };
+    let Some(rest) = row.get(start..) else {
+        return row.to_string();
+    };
+    let end = rest
+        .find("  (")
+        .map(|offset| start + offset)
+        .unwrap_or(row.len());
+    let target_width = row.chars().count();
+    let mut normalized = String::with_capacity(row.len());
+    normalized.push_str(&row[..start]);
+    normalized.push_str("Git-REV1234");
+    normalized.push_str(&row[end..]);
+    normalized.chars().take(target_width).collect()
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 #[test]
@@ -469,13 +488,23 @@ fn mx_view_hello_file_strict_match() {
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();
-    let diffs = diff_text_grids(&gl, &nl);
+    assert!(
+        gl.iter().any(|row| row.contains("Git-")),
+        "GNU HELLO mode line should show VC status"
+    );
+    assert!(
+        nl.iter().any(|row| row.contains("Git-")),
+        "NEO HELLO mode line should show VC status"
+    );
+    let gl_normalized: Vec<String> = gl.iter().map(|row| normalize_hello_vc_row(row)).collect();
+    let nl_normalized: Vec<String> = nl.iter().map(|row| normalize_hello_vc_row(row)).collect();
+    let diffs = diff_text_grids(&gl_normalized, &nl_normalized);
 
     if !diffs.is_empty() {
         eprintln!(
             "mx_view_hello_file_strict_match: {} of {} rows differ",
             diffs.len(),
-            gl.len().min(nl.len())
+            gl_normalized.len().min(nl_normalized.len())
         );
         print_row_diffs(&diffs);
     }

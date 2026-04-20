@@ -2416,16 +2416,7 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
     validate_optional_window_designator_in_state(&eval.frames, args.first(), "window-live-p")?;
 
     let frame = eval.frames.selected_frame();
-    // GNU batch/TTY startup has no meaningful pixel geometry for this
-    // query. Our synthetic fallback frame uses 1x1 character metrics to
-    // keep char-cell window geometry helpers working; treat that frame as
-    // "no pixel metrics" here so callers observe GNU's `(0 . 0)`.
-    if frame.is_none_or(|frame| {
-        frame.window_system.is_none()
-            && frame.char_width <= 1.0
-            && frame.char_height <= 1.0
-            && frame.font_pixel_size <= 1.0
-    }) {
+    if frame.is_none() {
         return Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)));
     }
 
@@ -3648,6 +3639,10 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     obarray.set_symbol_value("message-truncate-lines", Value::NIL);
     obarray.set_symbol_value("scroll-step", Value::fixnum(0));
     obarray.set_symbol_value("scroll-conservatively", Value::fixnum(0));
+    // GNU `src/xdisp.c:37835-37841` installs this as a DEFVAR_BOOL with a
+    // default of true so lexical GNU Lisp can read it as a dynamic variable.
+    obarray.set_symbol_value("scroll-minibuffer-conservatively", Value::T);
+    obarray.make_special("scroll-minibuffer-conservatively");
     obarray.set_symbol_value("scroll-margin", Value::fixnum(0));
     obarray.set_symbol_value("hscroll-margin", Value::fixnum(5));
     obarray.set_symbol_value("hscroll-step", Value::fixnum(0));

@@ -807,14 +807,45 @@ impl<'a> Vm<'a> {
                 Op::SaveWindowExcursion => {
                     // GNU bytecode.c Bsave_window_excursion (opcode 139):
                     // Pop body form list, evaluate with Fprogn inside
-                    // save-window-excursion, push result.
-                    // Neomacs doesn't have full window configuration save/restore,
-                    // so we evaluate (progn . body) via eval_sub. This matches
-                    // the semantics for TUI where window configs are trivial.
+                    // a real window-configuration save/restore.
+                    //
+                    // GNU `src/bytecode.c:945-952`:
+                    //
+                    //   record_unwind_protect (restore_window_configuration,
+                    //                          Fcurrent_window_configuration (Qnil));
+                    //   TOP = Fprogn (TOP);
+                    //   unbind_to (count1, TOP);
+                    //
+                    // `save-some-buffers`, `map-y-or-n-p`, and other
+                    // byte-compiled Lisp still rely on this obsolete opcode.
+                    // Evaluating the body without restoring the window
+                    // configuration leaves minibuffer/window state corrupted.
                     let body = stk!().pop().unwrap_or(Value::NIL);
                     let progn_form = Value::cons(Value::symbol("progn"), body);
-                    let result = vm_try!(self.ctx.eval_sub(progn_form));
-                    stk_push!(result);
+                    let saved = vm_try!(
+                        crate::emacs_core::window_cmds::builtin_current_window_configuration(
+                            self.ctx,
+                            vec![Value::NIL],
+                        )
+                    );
+                    let body_result = self.ctx.eval_sub(progn_form);
+                    let restore_result =
+                        crate::emacs_core::window_cmds::builtin_set_window_configuration(
+                            self.ctx,
+                            vec![saved],
+                        );
+
+                    match body_result {
+                        Ok(result) => {
+                            vm_try!(restore_result);
+                            stk_push!(result);
+                        }
+                        Err(flow) => {
+                            vm_try!(restore_result);
+                            self.resume_nonlocal(func, pc, handlers, bind_stack, flow)?;
+                            continue;
+                        }
+                    }
                 }
 
                 // -- Arithmetic --
@@ -2460,6 +2491,18 @@ impl<'a> Vm<'a> {
             } => {
                 let _ = self.call_function_with_roots(hook, &[symbol_value, definition])?;
             }
+        }
+        if let Some(symbol) = result.as_symbol_id() {
+            let definition = self
+                .ctx
+                .obarray
+                .symbol_function_id(symbol)
+                .unwrap_or(Value::NIL);
+            crate::emacs_core::interactive::sync_interactive_registry_for_symbol_definition(
+                &mut self.ctx.interactive,
+                symbol,
+                definition,
+            );
         }
         if let Some(docstring) = docstring {
             crate::emacs_core::builtins::symbols::builtin_put(

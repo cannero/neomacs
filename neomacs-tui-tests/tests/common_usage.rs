@@ -88,6 +88,22 @@ fn assert_pair_nearly_matches(
     );
 }
 
+fn dump_pair_grids(label: &str, gnu: &TuiSession, neo: &TuiSession) {
+    eprintln!("{label}: GNU grid");
+    for (row, text) in gnu.text_grid().iter().enumerate() {
+        eprintln!("  {row:02}: |{}|", text.trim_end());
+    }
+    eprintln!("{label}: NEO grid");
+    for (row, text) in neo.text_grid().iter().enumerate() {
+        eprintln!("  {row:02}: |{}|", text.trim_end());
+    }
+    let diffs = meaningful_diffs(diff_text_grids(&gnu.text_grid(), &neo.text_grid()));
+    if !diffs.is_empty() {
+        eprintln!("{label}: {} differing rows", diffs.len());
+        print_row_diffs(&diffs);
+    }
+}
+
 fn write_home_file(session: &TuiSession, name: &str, contents: &str) {
     let path = session.home_dir().join(name);
     fs::write(path, contents).expect("write test file in isolated HOME");
@@ -212,6 +228,36 @@ fn keyboard_quit_from_mx_via_cg() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("keyboard_quit_from_mx_via_cg", &gnu, &neo, 2);
+}
+
+#[test]
+fn keyboard_escape_quit_from_mx_via_esc_esc_esc() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"find-fil");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "ESC ESC ESC");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("This buffer is for text that is not saved"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "keyboard_escape_quit_from_mx_via_esc_esc_esc",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
@@ -422,6 +468,67 @@ fn save_buffer_after_edit_via_cx_cs() {
         "alpha line\nomega line\n"
     );
     assert_pair_nearly_matches("save_buffer_after_edit_via_cx_cs", &gnu, &neo, 2);
+}
+
+#[test]
+fn save_some_buffers_after_edit_via_cx_s() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "save-some-usage.txt",
+        "alpha line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omega line");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x s");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Save file"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "SPC");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("save-some-usage.txt"))
+            && grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    let expected = "alpha line\nomega line\n";
+    let gnu_path = gnu.home_dir().join("save-some-usage.txt");
+    let neo_path = neo.home_dir().join("save-some-usage.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        let gnu_saved = fs::read_to_string(&gnu_path).ok().as_deref() == Some(expected);
+        let neo_saved = fs::read_to_string(&neo_path).ok().as_deref() == Some(expected);
+        if gnu_saved && neo_saved {
+            break;
+        }
+    }
+
+    let gnu_saved = fs::read_to_string(&gnu_path).expect("read GNU save-some file");
+    let neo_saved = fs::read_to_string(&neo_path).expect("read Neo save-some file");
+    if gnu_saved != expected || neo_saved != expected {
+        eprintln!(
+            "save_some_buffers_after_edit_via_cx_s: GNU file = {:?}",
+            gnu_saved
+        );
+        eprintln!(
+            "save_some_buffers_after_edit_via_cx_s: NEO file = {:?}",
+            neo_saved
+        );
+        dump_pair_grids("save_some_buffers_after_edit_via_cx_s", &gnu, &neo);
+    }
+    assert_eq!(gnu_saved, expected);
+    assert_eq!(neo_saved, expected);
+    assert_pair_nearly_matches("save_some_buffers_after_edit_via_cx_s", &gnu, &neo, 2);
 }
 
 #[test]
@@ -680,6 +787,39 @@ fn kill_line_twice_then_yank_via_ck_ck_cy() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("kill_line_twice_then_yank_via_ck_ck_cy", &gnu, &neo, 2);
+}
+
+#[test]
+fn yank_pop_after_yank_via_my() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "yank-pop.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-n");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-y");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-y");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta line"))
+            && grid.iter().any(|row| row.contains("alpha line"))
+            && !grid.iter().any(|row| row.contains("gamma line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("yank_pop_after_yank_via_my", &gnu, &neo, 2);
 }
 
 #[test]
