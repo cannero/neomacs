@@ -1286,22 +1286,22 @@ fn partial_bootstrap_eval_until(stop_before: &str, prefer_compiled: bool) -> Con
     let etc_dir = project_root.join("etc");
     eval.set_variable(
         "data-directory",
-        Value::string(format!("{}/", etc_dir.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", etc_dir.to_string_lossy())),
     );
     eval.set_variable(
         "source-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
     );
     eval.set_variable(
         "installation-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
     );
 
     let path_dirs: Vec<Value> = std::env::var("PATH")
         .unwrap_or_default()
         .split(':')
         .filter(|s| !s.is_empty())
-        .map(|s| Value::string(s.to_string()))
+        .map(|s| Value::unibyte_string(s.to_string()))
         .collect();
     eval.set_variable("exec-path", Value::list(path_dirs));
     eval.set_variable("exec-suffixes", Value::NIL);
@@ -2854,6 +2854,31 @@ fn bootstrap_runtime_view_hello_file_command_path_matches_gnu() {
     );
 
     assert_eq!(rendered, "OK (\"HELLO\" fundamental-mode nil t)");
+}
+
+#[test]
+fn bootstrap_runtime_file_directories_are_unibyte_and_vc_mode_matches_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (view-hello-file)
+             (list
+              (multibyte-string-p invocation-directory)
+              (multibyte-string-p default-directory)
+              (multibyte-string-p buffer-file-name)
+              (multibyte-string-p (car exec-path))
+              (and (memq 'vc-refresh-state find-file-hook) t)
+              (vc-registered buffer-file-name)
+              (vc-file-getprop buffer-file-name 'vc-backend)
+              (and buffer-file-name (vc-backend buffer-file-name))
+              (and vc-mode (string-prefix-p " Git-" vc-mode))))"#,
+    );
+
+    assert_eq!(rendered, "OK (nil nil nil nil t t Git Git t)");
 }
 
 #[test]

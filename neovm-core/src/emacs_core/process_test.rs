@@ -115,6 +115,16 @@ fn tmp_file(label: &str) -> String {
     format!("/tmp/neovm-{label}-{}-{nonce}.txt", std::process::id())
 }
 
+fn tmp_dir(label: &str) -> String {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("time should be monotonic")
+        .as_nanos();
+    let dir = format!("/tmp/neovm-{label}-{}-{nonce}", std::process::id());
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    dir
+}
+
 fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
     let when = SystemTime::now()
         .checked_sub(delay)
@@ -135,6 +145,22 @@ fn gnu_timer_before(delay: Duration, callback: &str) -> Value {
         Value::fixnum(0),
         Value::NIL,
     ])
+}
+
+#[test]
+fn process_file_runs_in_default_directory_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let sh = find_bin("sh");
+    let dir = tmp_dir("process-file-default-directory");
+    let dir_with_slash = format!("{dir}/");
+    let rendered = eval_one(&format!(
+        r#"(let ((default-directory "{dir_with_slash}"))
+             (with-temp-buffer
+               (process-file "{sh}" nil t nil "-c" "pwd")
+               (buffer-string)))"#
+    ));
+    assert_eq!(rendered, format!("OK \"{dir}\n\""));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // -- ProcessManager unit tests ------------------------------------------

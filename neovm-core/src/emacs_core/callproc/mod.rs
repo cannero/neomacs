@@ -5,6 +5,7 @@ use std::fs::OpenOptions;
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 use super::error::{EvalResult, Flow, signal};
@@ -94,6 +95,30 @@ fn lisp_string_to_os_string(string: &LispString) -> OsString {
 
 fn lisp_string_to_output_path(string: &LispString) -> std::path::PathBuf {
     super::fileio::lisp_file_name_to_path_buf(string)
+}
+
+fn fallback_subprocess_directory() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_dir())
+        .or_else(|| std::env::current_dir().ok())
+}
+
+fn subprocess_default_directory(eval: &super::eval::Context) -> Option<PathBuf> {
+    let default_dir =
+        super::fileio::default_directory_lisp_in_state(&eval.obarray, &[], &eval.buffers)?;
+    let path = super::fileio::lisp_file_name_to_path_buf(&default_dir);
+    if path.is_dir() {
+        Some(path)
+    } else {
+        fallback_subprocess_directory()
+    }
+}
+
+fn configure_subprocess_current_dir(eval: &super::eval::Context, command: &mut Command) {
+    if let Some(dir) = subprocess_default_directory(eval) {
+        command.current_dir(dir);
+    }
 }
 
 fn is_file_keyword(value: &Value) -> bool {
@@ -317,13 +342,13 @@ fn configure_call_process_stdin(
 }
 
 fn run_process_command_in_state(
-    buffers: &mut BufferManager,
+    eval: &mut super::eval::Context,
     program: &LispString,
     infile: Option<LispString>,
     destination: &Value,
     cmd_args: &[LispString],
 ) -> EvalResult {
-    let destination_spec = parse_call_process_destination(buffers, destination)?;
+    let destination_spec = parse_call_process_destination(&mut eval.buffers, destination)?;
     let program_os = lisp_string_to_os_string(program);
     let cmd_args_os = cmd_args
         .iter()
@@ -333,6 +358,7 @@ fn run_process_command_in_state(
     if destination_spec.no_wait {
         let mut command = Command::new(&program_os);
         command.args(&cmd_args_os).stdout(Stdio::null());
+        configure_subprocess_current_dir(eval, &mut command);
         configure_call_process_stdin(&mut command, infile.as_ref())?;
         match destination_spec.stderr {
             StderrTarget::Discard | StderrTarget::ToStdoutTarget => {
@@ -369,17 +395,24 @@ fn run_process_command_in_state(
         .args(&cmd_args_os)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    configure_subprocess_current_dir(eval, &mut command);
     configure_call_process_stdin(&mut command, infile.as_ref())?;
     let output = command
         .output()
         .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
 
     let exit_code = output.status.code().unwrap_or(-1);
-    route_captured_output_in_state(buffers, &destination_spec, &output.stdout, &output.stderr)?;
+    route_captured_output_in_state(
+        &mut eval.buffers,
+        &destination_spec,
+        &output.stdout,
+        &output.stderr,
+    )?;
     Ok(Value::fixnum(exit_code as i64))
 }
 
 fn run_process_capture_output(
+    eval: &super::eval::Context,
     program: &LispString,
     cmd_args: &[LispString],
 ) -> Result<(i32, Vec<u8>), Flow> {
@@ -389,6 +422,7 @@ fn run_process_capture_output(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    configure_subprocess_current_dir(eval, &mut command);
     let output = command
         .output()
         .map_err(|e| super::process::signal_process_io("Searching for program", None, e))?;
@@ -474,7 +508,7 @@ fn shell_command_with_legacy_args(command: &Value, args: &[Value]) -> Result<Lis
     Ok(mapconcat_identity_lisp_strings(&parts, b" "))
 }
 
-fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> EvalResult {
+fn builtin_call_process_impl(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("call-process", &args, 1)?;
     let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let infile = parse_optional_infile(&args, 1)?;
@@ -484,7 +518,7 @@ fn builtin_call_process_impl(buffers: &mut BufferManager, args: Vec<Value>) -> E
     } else {
         Vec::new()
     };
-    run_process_command_in_state(buffers, &program, infile, destination, &cmd_args)
+    run_process_command_in_state(eval, &program, infile, destination, &cmd_args)
 }
 
 fn builtin_call_process_region_impl(buffers: &mut BufferManager, args: Vec<Value>) -> EvalResult {
@@ -634,7 +668,7 @@ pub(crate) fn builtin_call_process(
 ) -> EvalResult {
     let destination = args.get(2).copied().unwrap_or(Value::NIL);
     let display = args.get(3).is_some_and(|v| v.is_truthy());
-    let result = builtin_call_process_impl(&mut eval.buffers, args)?;
+    let result = builtin_call_process_impl(eval, args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
@@ -651,13 +685,8 @@ pub(crate) fn builtin_call_process_shell_command(
     let shell_program = obarray_lisp_string_variable(eval.obarray(), "shell-file-name", "sh")?;
     let shell_switch = obarray_lisp_string_variable(eval.obarray(), "shell-command-switch", "-c")?;
     let shell_args = vec![shell_switch, shell_command];
-    let result = run_process_command_in_state(
-        &mut eval.buffers,
-        &shell_program,
-        infile,
-        &destination,
-        &shell_args,
-    )?;
+    let result =
+        run_process_command_in_state(eval, &shell_program, infile, &destination, &shell_args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
@@ -676,8 +705,7 @@ pub(crate) fn builtin_process_file(
     } else {
         Vec::new()
     };
-    let result =
-        run_process_command_in_state(&mut eval.buffers, &program, infile, &destination, &cmd_args)?;
+    let result = run_process_command_in_state(eval, &program, infile, &destination, &cmd_args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
@@ -694,25 +722,20 @@ pub(crate) fn builtin_process_file_shell_command(
     let shell_program = obarray_lisp_string_variable(eval.obarray(), "shell-file-name", "sh")?;
     let shell_switch = obarray_lisp_string_variable(eval.obarray(), "shell-command-switch", "-c")?;
     let shell_args = vec![shell_switch, shell_command];
-    let result = run_process_command_in_state(
-        &mut eval.buffers,
-        &shell_program,
-        infile,
-        &destination,
-        &shell_args,
-    )?;
+    let result =
+        run_process_command_in_state(eval, &shell_program, infile, &destination, &shell_args)?;
     maybe_redisplay_sync_output(eval, &destination, display)?;
     Ok(result)
 }
 
 pub(crate) fn builtin_process_lines(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines", &args, 1)?;
     let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let cmd_args = super::process::parse_lisp_string_args_strict(&args[1..])?;
-    let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
+    let (status, stdout) = run_process_capture_output(eval, &program, &cmd_args)?;
     if status != 0 {
         return Err(signal_process_lines_status_error(&program, status));
     }
@@ -720,13 +743,13 @@ pub(crate) fn builtin_process_lines(
 }
 
 pub(crate) fn builtin_process_lines_ignore_status(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("process-lines-ignore-status", &args, 1)?;
     let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let cmd_args = super::process::parse_lisp_string_args_strict(&args[1..])?;
-    let (_, stdout) = run_process_capture_output(&program, &cmd_args)?;
+    let (_, stdout) = run_process_capture_output(eval, &program, &cmd_args)?;
     Ok(parse_output_lines(&stdout))
 }
 
@@ -738,7 +761,7 @@ pub(crate) fn builtin_process_lines_handling_status(
     let program = super::builtins::expect_lisp_string(&args[0])?.clone();
     let status_handler = args[1];
     let cmd_args = super::process::parse_lisp_string_args_strict(&args[2..])?;
-    let (status, stdout) = run_process_capture_output(&program, &cmd_args)?;
+    let (status, stdout) = run_process_capture_output(eval, &program, &cmd_args)?;
     let lines = parse_output_lines(&stdout);
 
     if !status_handler.is_nil() {

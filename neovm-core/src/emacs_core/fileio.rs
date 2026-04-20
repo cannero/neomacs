@@ -1914,7 +1914,7 @@ pub(crate) fn default_directory_in_state(
     }
 }
 
-fn default_directory_lisp_in_state(
+pub(crate) fn default_directory_lisp_in_state(
     obarray: &Obarray,
     _dynamic: &[OrderedRuntimeBindingMap],
     buffers: &crate::buffer::BufferManager,

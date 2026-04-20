@@ -2385,11 +2385,14 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
         }
     };
     eval.set_variable("invocation-name", Value::string(invocation_name));
-    eval.set_variable("invocation-directory", Value::string(invocation_directory));
+    eval.set_variable(
+        "invocation-directory",
+        Value::unibyte_string(invocation_directory),
+    );
     let cwd = std::env::current_dir()
         .map(|p| ensure_dir_string(&p))
         .unwrap_or_else(|_| "/".to_string());
-    eval.set_variable("default-directory", Value::string(&cwd));
+    eval.set_variable("default-directory", Value::unibyte_string(cwd));
     eval.set_variable("terminal-frame", terminal_frame);
     eval.set_variable("frame-initial-frame", frame_initial_frame);
     eval.set_variable("default-minibuffer-frame", default_minibuffer_frame);

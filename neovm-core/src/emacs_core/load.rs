@@ -2509,10 +2509,13 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
         super::builtins_extra::system_configuration_features_value();
     let operating_system_release = super::builtins_extra::operating_system_release_value();
     let defaults = [
-        ("data-directory", Value::string(etc_dir.clone())),
-        ("doc-directory", Value::string(etc_dir)),
-        ("source-directory", Value::string(source_dir.clone())),
-        ("installation-directory", Value::string(source_dir)),
+        ("data-directory", Value::unibyte_string(etc_dir.clone())),
+        ("doc-directory", Value::unibyte_string(etc_dir)),
+        (
+            "source-directory",
+            Value::unibyte_string(source_dir.clone()),
+        ),
+        ("installation-directory", Value::unibyte_string(source_dir)),
         ("exec-directory", Value::NIL),
         ("configure-info-directory", Value::NIL),
         ("charset-map-path", Value::NIL),
@@ -3416,15 +3419,15 @@ fn finalize_cached_bootstrap_eval(
     let etc_dir = project_root.join("etc");
     eval.set_variable(
         "data-directory",
-        Value::string(format!("{}/", etc_dir.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", etc_dir.to_string_lossy())),
     );
     eval.set_variable(
         "source-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
     );
     eval.set_variable(
         "installation-directory",
-        Value::string(format!("{}/", project_root.to_string_lossy())),
+        Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
     );
 
     // Mirror GNU `init_buffer` (`src/buffer.c:4923`): after loading
@@ -3440,7 +3443,7 @@ fn finalize_cached_bootstrap_eval(
         if !cwd_string.ends_with('/') {
             cwd_string.push('/');
         }
-        eval.set_variable("default-directory", Value::string(cwd_string));
+        eval.set_variable("default-directory", Value::unibyte_string(cwd_string));
     }
 
     eval.clear_top_level_eval_state();
@@ -3694,16 +3697,16 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
         let etc_dir = project_root.join("etc");
         eval.set_variable(
             "data-directory",
-            Value::string(format!("{}/", etc_dir.to_string_lossy())),
+            Value::unibyte_string(format!("{}/", etc_dir.to_string_lossy())),
         );
         // source-directory: top-level source tree
         eval.set_variable(
             "source-directory",
-            Value::string(format!("{}/", project_root.to_string_lossy())),
+            Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
         );
         eval.set_variable(
             "installation-directory",
-            Value::string(format!("{}/", project_root.to_string_lossy())),
+            Value::unibyte_string(format!("{}/", project_root.to_string_lossy())),
         );
 
         // exec-path: list of dirs from PATH env var (C: callproc.c init_callproc_1)
@@ -3711,7 +3714,7 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
             .unwrap_or_default()
             .split(':')
             .filter(|s| !s.is_empty())
-            .map(|s| Value::string(s.to_string()))
+            .map(|s| Value::unibyte_string(s.to_string()))
             .collect();
         eval.set_variable("exec-path", Value::list(path_dirs));
         eval.set_variable("exec-suffixes", Value::NIL);
@@ -3719,9 +3722,9 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
 
         // shell-file-name: GNU callproc.c:2041 — $SHELL or /bin/sh
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-        eval.set_variable("shell-file-name", Value::string(shell));
+        eval.set_variable("shell-file-name", Value::unibyte_string(shell));
         // shell-command-switch: GNU simple.el — defaults to "-c"
-        eval.set_variable("shell-command-switch", Value::string("-c"));
+        eval.set_variable("shell-command-switch", Value::unibyte_string("-c"));
 
         // menu-bar-final-items: list of menu-bar items to put at end (C: xmenu.c)
         eval.set_variable(
