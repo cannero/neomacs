@@ -1059,6 +1059,97 @@ fn next_and_previous_line_via_cn_cp() {
 }
 
 #[test]
+fn forward_and_backward_char_via_cf_cb() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "char-motion.txt", "alpha\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"X");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-b C-b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"Y");
+    }
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("aYlXpha"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_and_backward_char_via_cf_cb", &gnu, &neo, 2);
+}
+
+#[test]
+fn forward_and_backward_word_via_mf_mb() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "word-motion.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b" END");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-b M-b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"MID ");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("alpha MID beta END gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_and_backward_word_via_mf_mb", &gnu, &neo, 2);
+}
+
+#[test]
+fn newline_via_cm() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "newline-usage.txt",
+        "alpha gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-m");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"beta");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha"))
+            && grid.iter().any(|row| row.contains("beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("newline_via_cm", &gnu, &neo, 2);
+}
+
+#[test]
 fn recenter_top_bottom_cycle_via_cl() {
     let (mut gnu, mut neo) = boot_pair("");
     let mut contents = String::new();
@@ -1097,6 +1188,49 @@ fn recenter_top_bottom_cycle_via_cl() {
     send_both(&mut gnu, &mut neo, "C-l");
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     assert_pair_nearly_matches("recenter_top_bottom_cycle_via_cl/bottom", &gnu, &neo, 2);
+}
+
+#[test]
+fn scroll_other_window_via_cmv() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=80 {
+        contents.push_str(&format!("other scroll {line:02}\n"));
+    }
+    write_home_file(&gnu, "other-scroll.txt", &contents);
+    write_home_file(&neo, "other-scroll.txt", &contents);
+
+    send_both(&mut gnu, &mut neo, "C-x 2");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let minibuffer_path = "~/other-scroll.txt";
+    gnu.send(minibuffer_path.as_bytes());
+    neo.send(minibuffer_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let opened = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("other scroll 01"))
+            && grid.iter().any(|row| row.contains("*scratch*"))
+    };
+    gnu.read_until(Duration::from_secs(6), opened);
+    neo.read_until(Duration::from_secs(8), opened);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-M-v");
+
+    let scrolled = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid.iter().any(|row| row.contains("other scroll 20"))
+    };
+    gnu.read_until(Duration::from_secs(6), scrolled);
+    neo.read_until(Duration::from_secs(8), scrolled);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("scroll_other_window_via_cmv", &gnu, &neo, 2);
 }
 
 #[test]
