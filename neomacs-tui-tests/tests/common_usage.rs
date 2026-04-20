@@ -1120,6 +1120,41 @@ fn forward_and_backward_word_via_mf_mb() {
 }
 
 #[test]
+fn forward_and_backward_sentence_via_me_ma() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sentence-motion.txt",
+        "Alpha one. Beta two. Gamma three.\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"[[E]]");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"[[A]]");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("[[A]]") && row.contains("[[E]]"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_and_backward_sentence_via_me_ma", &gnu, &neo, 2);
+}
+
+#[test]
 fn newline_via_cm() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1147,6 +1182,57 @@ fn newline_via_cm() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("newline_via_cm", &gnu, &neo, 2);
+}
+
+#[test]
+fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "fill-paragraph.txt",
+        "alpha beta gamma delta epsilon zeta eta theta iota kappa\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x f");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Change fill-column from"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "set_fill_column_then_fill_paragraph_via_cx_f_mq/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"20");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-q");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta gamma"))
+            && grid.iter().any(|row| row.contains("delta epsilon zeta"))
+            && grid.iter().any(|row| row.contains("eta theta iota kappa"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "set_fill_column_then_fill_paragraph_via_cx_f_mq",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
@@ -1231,6 +1317,29 @@ fn scroll_other_window_via_cmv() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("scroll_other_window_via_cmv", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_sentence_via_mk() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-sentence.txt",
+        "Alpha one. Beta two.\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-k");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Beta two."))
+            && !grid.iter().any(|row| row.contains("Alpha one."))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_sentence_via_mk", &gnu, &neo, 2);
 }
 
 #[test]
