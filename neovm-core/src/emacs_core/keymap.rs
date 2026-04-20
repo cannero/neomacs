@@ -1371,6 +1371,56 @@ fn collect_maps_from_alist_in_state(
     }
 }
 
+fn collect_map_entries_from_alist_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
+    alist: &Value,
+    skip_if_in: Option<&Value>,
+    maps: &mut Vec<(SymId, Value)>,
+) {
+    let Some(entries) = list_to_vec(alist) else {
+        return;
+    };
+    for entry in entries {
+        if !entry.is_cons() {
+            continue;
+        };
+        let (mode_var, keymap_val) = {
+            let pair_car = entry.cons_car();
+            let pair_cdr = entry.cons_cdr();
+            (pair_car, pair_cdr)
+        };
+        let Some(mode_name) = mode_var.as_symbol_id() else {
+            continue;
+        };
+
+        if let Some(skip_alist) = skip_if_in
+            && assq_in_alist(skip_alist, &mode_var)
+        {
+            continue;
+        }
+
+        let mode_active = dynamic_buffer_or_global_symbol_value_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            buffer_id,
+            resolve_sym(mode_name),
+        )
+        .map(|value| value.is_truthy())
+        .unwrap_or(false);
+        if !mode_active {
+            continue;
+        }
+
+        if let Some(resolved) = maybe_keymap_in_obarray(obarray, &keymap_val) {
+            maps.push((mode_name, resolved));
+        }
+    }
+}
+
 fn assq_in_alist(alist: &Value, key: &Value) -> bool {
     let Some(entries) = list_to_vec(alist) else {
         return false;
@@ -1454,6 +1504,83 @@ pub(crate) fn collect_minor_mode_maps_in_state(
         "minor-mode-map-alist",
     ) {
         collect_maps_from_alist_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            buffer_id,
+            &regular,
+            overriding.as_ref(),
+            &mut maps,
+        );
+    }
+
+    maps
+}
+
+pub(crate) fn collect_minor_mode_map_entries_in_state(
+    obarray: &Obarray,
+    dynamic: &[OrderedRuntimeBindingMap],
+    buffers: &crate::buffer::BufferManager,
+    buffer_id: Option<crate::buffer::BufferId>,
+) -> Vec<(SymId, Value)> {
+    let mut maps = Vec::new();
+
+    if let Some(emulation_raw) = dynamic_buffer_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        buffer_id,
+        "emulation-mode-map-alists",
+    ) {
+        if let Some(emulation_entries) = list_to_vec(&emulation_raw) {
+            for entry in emulation_entries {
+                let alist_value = match entry.as_symbol_name() {
+                    Some(name) => dynamic_buffer_or_global_symbol_value_in_state(
+                        obarray, dynamic, buffers, buffer_id, name,
+                    )
+                    .unwrap_or(Value::NIL),
+                    None => entry,
+                };
+                collect_map_entries_from_alist_in_state(
+                    obarray,
+                    dynamic,
+                    buffers,
+                    buffer_id,
+                    &alist_value,
+                    None,
+                    &mut maps,
+                );
+            }
+        }
+    }
+
+    let overriding = dynamic_buffer_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        buffer_id,
+        "minor-mode-overriding-map-alist",
+    );
+    if let Some(ref overriding_maps) = overriding {
+        collect_map_entries_from_alist_in_state(
+            obarray,
+            dynamic,
+            buffers,
+            buffer_id,
+            overriding_maps,
+            None,
+            &mut maps,
+        );
+    }
+
+    if let Some(regular) = dynamic_buffer_or_global_symbol_value_in_state(
+        obarray,
+        dynamic,
+        buffers,
+        buffer_id,
+        "minor-mode-map-alist",
+    ) {
+        collect_map_entries_from_alist_in_state(
             obarray,
             dynamic,
             buffers,

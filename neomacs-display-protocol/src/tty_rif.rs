@@ -439,41 +439,42 @@ impl TtyRif {
         let mut last_attrs: Option<CellAttrs> = None;
 
         for row in 0..self.desired.height {
-            for col in 0..self.desired.width {
-                let idx = row * self.desired.width + col;
-                let desired = &self.desired.cells[idx];
-                let current = &self.current.cells[idx];
+            let row_start = row * self.desired.width;
+            let desired_row = &self.desired.cells[row_start..row_start + self.desired.width];
+            let current_row = &self.current.cells[row_start..row_start + self.desired.width];
 
-                if desired == current {
-                    continue;
-                }
+            let Some(first_changed) = desired_row
+                .iter()
+                .zip(current_row.iter())
+                .position(|(desired, current)| !desired.padding && desired != current)
+            else {
+                continue;
+            };
 
-                // Skip padding cells -- they were drawn by the wide character.
+            let last_changed = desired_row
+                .iter()
+                .zip(current_row.iter())
+                .rposition(|(desired, current)| !desired.padding && desired != current)
+                .expect("row with first changed cell must also have a last changed cell");
+
+            // GNU term.c writes contiguous glyph runs with a single cursor
+            // position update, then lets the terminal advance naturally.
+            // Repaint the changed row span the same way so wide glyphs and
+            // composed clusters are emitted as adjacent terminal text rather
+            // than broken up by per-cell cursor moves.
+            write_cursor_goto(&mut self.output, row as u16 + 1, first_changed as u16 + 1);
+
+            for desired in &desired_row[first_changed..=last_changed] {
                 if desired.padding {
                     continue;
                 }
 
-                // Move cursor to (row, col). ANSI is 1-based.
-                write_cursor_goto(&mut self.output, row as u16 + 1, col as u16 + 1);
-
-                // Set attributes if changed from what we last emitted.
                 if last_attrs.as_ref() != Some(&desired.attrs) {
                     write_sgr(&mut self.output, &desired.attrs);
                     last_attrs = Some(desired.attrs);
                 }
 
-                // Write the character.
-                let mut buf = [0u8; 4];
-                let s = desired.ch.encode_utf8(&mut buf);
-                self.output.extend_from_slice(s.as_bytes());
-                // If this cell is a composed cluster, emit the
-                // combining-mark / ZWJ extenders immediately after the
-                // base char so the terminal stacks them on the same
-                // cell (matches GNU's COMPOSITE_GLYPH output path in
-                // `term.c::write_glyphs`).
-                if let Some(ext) = desired.extenders.as_deref() {
-                    self.output.extend_from_slice(ext.as_bytes());
-                }
+                write_cell_contents(&mut self.output, desired);
             }
         }
 
@@ -544,7 +545,10 @@ impl TtyRif {
         let mut col = screen_col_start;
 
         for area_idx in 0..3 {
-            for glyph in &glyph_row.glyphs[area_idx] {
+            let glyphs = &glyph_row.glyphs[area_idx];
+            let mut glyph_idx = 0;
+            while glyph_idx < glyphs.len() {
+                let glyph = &glyphs[glyph_idx];
                 if col >= self.desired.width {
                     break;
                 }
@@ -553,6 +557,7 @@ impl TtyRif {
                     let attrs = self.resolve_attrs(glyph.face_id);
                     self.desired.set(screen_row, col, ' ', attrs, true);
                     col += 1;
+                    glyph_idx += 1;
                     continue;
                 }
 
@@ -567,18 +572,34 @@ impl TtyRif {
                         let rest: String = iter.collect();
                         self.desired
                             .set_cluster(screen_row, col, base, &rest, attrs, false);
+                        col += 1;
+                    }
+                    GlyphType::Stretch { width_cols } => {
+                        let width_cols = usize::from((*width_cols).max(1));
+                        for _ in 0..width_cols {
+                            if col >= self.desired.width {
+                                break;
+                            }
+                            self.desired.set(screen_row, col, ' ', attrs, false);
+                            col += 1;
+                        }
                     }
                     _ => {
                         let ch = glyph_to_char(glyph);
                         self.desired.set(screen_row, col, ch, attrs, false);
+                        col += 1;
+
+                        let next_is_explicit_padding = glyph.wide
+                            && glyphs
+                                .get(glyph_idx + 1)
+                                .is_some_and(|next_glyph| next_glyph.padding);
+                        if glyph.wide && !next_is_explicit_padding && col < self.desired.width {
+                            self.desired.set(screen_row, col, ' ', attrs, true);
+                            col += 1;
+                        }
                     }
                 }
-                col += 1;
-
-                if glyph.wide && col < self.desired.width {
-                    self.desired.set(screen_row, col, ' ', attrs, true);
-                    col += 1;
-                }
+                glyph_idx += 1;
             }
         }
 
@@ -701,6 +722,15 @@ fn write_sgr(buf: &mut Vec<u8>, attrs: &CellAttrs) {
         "\x1b[48;2;{};{};{}m",
         attrs.bg.0, attrs.bg.1, attrs.bg.2
     );
+}
+
+fn write_cell_contents(buf: &mut Vec<u8>, cell: &TtyCell) {
+    let mut bytes = [0u8; 4];
+    let s = cell.ch.encode_utf8(&mut bytes);
+    buf.extend_from_slice(s.as_bytes());
+    if let Some(ext) = cell.extenders.as_deref() {
+        buf.extend_from_slice(ext.as_bytes());
+    }
 }
 
 /// Convert a `Glyph` to its display character.

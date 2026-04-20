@@ -115,6 +115,20 @@ fn slot_char_width(ch: char, face_char_w: f32) -> f32 {
     }
 }
 
+fn control_char_display_pair(ch: char, ctl_arrow: bool) -> Option<(char, char)> {
+    if !ctl_arrow {
+        return None;
+    }
+
+    let code = ch as u32;
+    if code <= 0x1f || code == 0x7f {
+        let suffix = char::from_u32(code ^ 0x40).unwrap_or('?');
+        Some(('^', suffix))
+    } else {
+        None
+    }
+}
+
 fn finish_text_row(
     builder: &mut crate::matrix_builder::GlyphMatrixBuilder,
     output_emitter: &mut WindowOutputEmitter,
@@ -4131,19 +4145,28 @@ impl LayoutEngine {
 
             // Check for line wrap / truncation using per-face char width
 
+            let control_display = control_char_display_pair(
+                ch,
+                super::neovm_bridge::buffer_local_bool(buffer, "ctl-arrow"),
+            );
+
             // Grapheme-cluster extenders (combining marks, ZWJ,
             // variation selectors) share the preceding base char's
             // cell — zero columns, zero advance. CJK chars occupy 2
             // columns. Everything else occupies 1.
             let is_extender = is_cluster_extender(ch);
-            let char_cols = if is_extender {
+            let char_cols = if control_display.is_some() {
+                2
+            } else if is_extender {
                 0
             } else if is_wide_char(ch) {
                 2
             } else {
                 1
             };
-            let advance = if is_extender {
+            let advance = if control_display.is_some() {
+                2.0 * face_char_w
+            } else if is_extender {
                 0.0
             } else {
                 unsafe {
@@ -4434,21 +4457,35 @@ impl LayoutEngine {
             let glyph_x = x;
             let glyph_col = col;
             let buffer_pos = charpos as i64 + 1;
-            self.run_buf.push(ch, advance);
-
-            // Record character into GlyphMatrix builder
-            if char_cols == 2 {
-                self.matrix_builder.push_wide_char(
-                    ch,
+            if let Some((prefix, suffix)) = control_display {
+                self.run_buf.push(prefix, face_char_w);
+                self.run_buf.push(suffix, face_char_w);
+                self.matrix_builder.push_char(
+                    prefix,
+                    current_face_id.saturating_sub(1),
+                    charpos as usize,
+                );
+                self.matrix_builder.push_char(
+                    suffix,
                     current_face_id.saturating_sub(1),
                     charpos as usize,
                 );
             } else {
-                self.matrix_builder.push_char(
-                    ch,
-                    current_face_id.saturating_sub(1),
-                    charpos as usize,
-                );
+                self.run_buf.push(ch, advance);
+                // Record character into GlyphMatrix builder
+                if char_cols == 2 {
+                    self.matrix_builder.push_wide_char(
+                        ch,
+                        current_face_id.saturating_sub(1),
+                        charpos as usize,
+                    );
+                } else {
+                    self.matrix_builder.push_char(
+                        ch,
+                        current_face_id.saturating_sub(1),
+                        charpos as usize,
+                    );
+                }
             }
 
             // Flush if run is too long

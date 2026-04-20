@@ -2393,6 +2393,17 @@ fn split_window_in_tree(
     new_buffer_id: BufferId,
     size: Option<i64>,
 ) -> Option<()> {
+    fn split_sizes(total: f32, requested_new_size: Option<i64>) -> (f32, f32) {
+        let total_px = total.round().max(0.0) as i64;
+        let new_size_px = match requested_new_size {
+            Some(n) if n > 0 => n.clamp(1, total_px.saturating_sub(1)),
+            Some(n) if n < 0 => (total_px - (-n)).clamp(1, total_px.saturating_sub(1)),
+            _ => total_px / 2,
+        };
+        let old_size_px = total_px - new_size_px;
+        (old_size_px as f32, new_size_px as f32)
+    }
+
     if tree.id() == target {
         let old_id = tree.id();
         let old_bounds = *tree.bounds();
@@ -2404,14 +2415,7 @@ fn split_window_in_tree(
         {
             let (left_bounds, right_bounds) = match direction {
                 SplitDirection::Horizontal => {
-                    let total = old_bounds.width;
-                    // Compute size for the NEW window (right pane).
-                    let new_size = match size {
-                        Some(n) if n > 0 => (n as f32).min(total - 1.0).max(1.0),
-                        Some(n) if n < 0 => (total - (-n) as f32).max(1.0).min(total - 1.0),
-                        _ => total / 2.0,
-                    };
-                    let old_size = total - new_size;
+                    let (old_size, new_size) = split_sizes(old_bounds.width, size);
                     (
                         Rect::new(old_bounds.x, old_bounds.y, old_size, old_bounds.height),
                         Rect::new(
@@ -2423,14 +2427,7 @@ fn split_window_in_tree(
                     )
                 }
                 SplitDirection::Vertical => {
-                    let total = old_bounds.height;
-                    // Compute size for the NEW window (bottom pane).
-                    let new_size = match size {
-                        Some(n) if n > 0 => (n as f32).min(total - 1.0).max(1.0),
-                        Some(n) if n < 0 => (total - (-n) as f32).max(1.0).min(total - 1.0),
-                        _ => total / 2.0,
-                    };
-                    let old_size = total - new_size;
+                    let (old_size, new_size) = split_sizes(old_bounds.height, size);
                     (
                         Rect::new(old_bounds.x, old_bounds.y, old_bounds.width, old_size),
                         Rect::new(
@@ -2921,7 +2918,15 @@ fn redistribute_bounds(children: &mut [Window], parent: Rect) {
         return;
     }
 
-    let n = children.len() as f32;
+    fn distributed_sizes(total: f32, n: usize) -> Vec<f32> {
+        let total_px = total.round().max(0.0) as i64;
+        let n = n as i64;
+        let base = total_px / n;
+        let remainder = total_px % n;
+        (0..n)
+            .map(|idx| (base + if idx < remainder { 1 } else { 0 }) as f32)
+            .collect()
+    }
 
     // Detect direction from first two children if possible.
     if children.len() >= 2 {
@@ -2930,25 +2935,29 @@ fn redistribute_bounds(children: &mut [Window], parent: Rect) {
 
         if (first.x - second.x).abs() > 0.1 {
             // Horizontal split
-            let w = parent.width / n;
-            for (i, child) in children.iter_mut().enumerate() {
+            let widths = distributed_sizes(parent.width, children.len());
+            let mut edge = parent.x.round();
+            for (child, width) in children.iter_mut().zip(widths.into_iter()) {
                 child.set_bounds(Rect::new(
-                    parent.x + i as f32 * w,
-                    parent.y,
-                    w,
-                    parent.height,
+                    edge,
+                    parent.y.round(),
+                    width,
+                    parent.height.round(),
                 ));
+                edge += width;
             }
         } else {
             // Vertical split
-            let h = parent.height / n;
-            for (i, child) in children.iter_mut().enumerate() {
+            let heights = distributed_sizes(parent.height, children.len());
+            let mut edge = parent.y.round();
+            for (child, height) in children.iter_mut().zip(heights.into_iter()) {
                 child.set_bounds(Rect::new(
-                    parent.x,
-                    parent.y + i as f32 * h,
-                    parent.width,
-                    h,
+                    parent.x.round(),
+                    edge,
+                    parent.width.round(),
+                    height,
                 ));
+                edge += height;
             }
         }
     } else {

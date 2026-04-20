@@ -411,6 +411,17 @@ pub(crate) fn builtin_defalias(eval: &mut super::eval::Context, args: Vec<Value>
             eval.apply(hook, vec![symbol_value, definition])?;
         }
     }
+    if let Some(symbol) = result.as_symbol_id() {
+        let definition = eval
+            .obarray
+            .symbol_function_id(symbol)
+            .unwrap_or(Value::NIL);
+        crate::emacs_core::interactive::sync_interactive_registry_for_symbol_definition(
+            &mut eval.interactive,
+            symbol,
+            definition,
+        );
+    }
     if let Some(docstring) = docstring {
         super::symbols::builtin_put(
             eval,

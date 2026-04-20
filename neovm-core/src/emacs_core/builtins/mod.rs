@@ -4577,7 +4577,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "describe-buffer-bindings",
-        |_ctx, args| builtin_describe_buffer_bindings(args),
+        |ctx, args| keymaps::builtin_describe_buffer_bindings(ctx, args),
         1,
         Some(3),
     );
@@ -5509,7 +5509,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-buffer-major-mode",
-        |_ctx, args| builtin_set_buffer_major_mode(args),
+        builtin_set_buffer_major_mode,
         1,
         Some(1),
     );

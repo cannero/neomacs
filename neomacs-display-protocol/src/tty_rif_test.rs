@@ -305,6 +305,66 @@ fn rasterize_wide_char_creates_padding() {
     assert!(!rif.desired.cells[2].padding);
 }
 
+#[test]
+fn rasterize_explicit_padding_glyph_is_not_duplicated() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    let mut wide = Glyph::char('\u{4f60}', 0, 0);
+    wide.wide = true;
+    row.glyphs[GlyphArea::Text as usize].push(wide);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::padding_for(0, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('!', 0, 1));
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert_eq!(rif.desired.cells[0].ch, '\u{4f60}');
+    assert!(rif.desired.cells[1].padding);
+    assert_eq!(rif.desired.cells[2].ch, '!');
+    assert!(!rif.desired.cells[2].padding);
+}
+
+#[test]
+fn rasterize_stretch_glyph_uses_declared_width() {
+    let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
+    state.background = Color::BLACK;
+
+    let mut matrix = GlyphMatrix::new(5, 10);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('A', 0, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::stretch(4, 0));
+    row.glyphs[GlyphArea::Text as usize].push(Glyph::char('B', 0, 1));
+    matrix.rows[0] = row;
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, 80.0, 80.0),
+        selected: true,
+    });
+
+    let mut rif = TtyRif::new(10, 5);
+    rif.rasterize(&state);
+
+    assert_eq!(rif.desired.cells[0].ch, 'A');
+    assert_eq!(rif.desired.cells[1].ch, ' ');
+    assert_eq!(rif.desired.cells[2].ch, ' ');
+    assert_eq!(rif.desired.cells[3].ch, ' ');
+    assert_eq!(rif.desired.cells[4].ch, ' ');
+    assert_eq!(rif.desired.cells[5].ch, 'B');
+}
+
 // ---------------------------------------------------------------------------
 // Cursor tracking
 // ---------------------------------------------------------------------------
@@ -834,6 +894,52 @@ fn diff_with_changes_produces_ansi_sequences() {
     assert!(s.contains('A'), "Missing character A: {}", s);
     // Should contain true-color foreground sequence for red.
     assert!(s.contains("\x1b[38;2;255;0;0m"), "Missing fg color: {}", s);
+}
+
+#[test]
+fn diff_and_render_emits_wide_glyphs_as_one_row_run() {
+    let mut rif = TtyRif::new(10, 5);
+    let attrs = CellAttrs::default();
+
+    rif.desired.set(0, 0, '你', attrs, false);
+    rif.desired.set(0, 1, ' ', attrs, true);
+    rif.desired.set(0, 2, '好', attrs, false);
+    rif.desired.set(0, 3, ' ', attrs, true);
+    rif.desired.set(0, 4, ',', attrs, false);
+
+    rif.diff_and_render();
+    let output = String::from_utf8(rif.take_output()).expect("utf8 output");
+
+    assert!(output.contains("\x1b[1;1H"));
+    assert!(output.contains("你好,"));
+    assert!(!output.contains("\x1b[1;3H"));
+    assert!(!output.contains("\x1b[1;5H"));
+}
+
+#[test]
+fn diff_and_render_rewrites_changed_row_span_contiguously() {
+    let mut rif = TtyRif::new(10, 5);
+    let attrs = CellAttrs::default();
+
+    for (col, ch) in ['A', 'B', 'C', 'D', 'E'].into_iter().enumerate() {
+        rif.desired.set(0, col, ch, attrs, false);
+    }
+    rif.diff_and_render();
+    let _ = rif.take_output();
+
+    rif.desired = rif.current.clone();
+    rif.desired.set(0, 0, 'X', attrs, false);
+    rif.desired.set(0, 4, 'Y', attrs, false);
+    rif.diff_and_render();
+    let output = String::from_utf8(rif.take_output()).expect("utf8 output");
+
+    assert!(output.contains("\x1b[1;1H"));
+    assert!(output.contains("XBCDY"));
+    assert_eq!(
+        output.matches("\x1b[1;").count(),
+        1,
+        "expected a single CUP run"
+    );
 }
 
 #[test]

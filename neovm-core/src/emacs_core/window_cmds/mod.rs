@@ -4165,6 +4165,11 @@ pub(crate) fn builtin_display_buffer(
 
     // Collect the ACTION argument to check for specific display functions.
     let action = args.get(1).copied().unwrap_or(Value::NIL);
+    let display_in_window =
+        |eval: &mut super::eval::Context, wid: WindowId, buf_id: BufferId| -> Result<(), Flow> {
+            builtin_set_window_buffer(eval, vec![window_value(wid), Value::make_buffer(buf_id)])?;
+            Ok(())
+        };
 
     // Helper: check whether a particular display-function symbol appears in
     // the ACTION value.  ACTION can be:
@@ -4223,13 +4228,7 @@ pub(crate) fn builtin_display_buffer(
 
     // --- Strategy 2: `display-buffer-same-window` ---------------------------
     if action_contains("display-buffer-same-window") {
-        if let Some(w) = eval
-            .frames
-            .get_mut(fid)
-            .and_then(|f| f.find_window_mut(sel_wid))
-        {
-            w.set_buffer(buf_id);
-        }
+        display_in_window(eval, sel_wid, buf_id)?;
         return Ok(window_value(sel_wid));
     }
 
@@ -4239,6 +4238,7 @@ pub(crate) fn builtin_display_buffer(
             .frames
             .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
             .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
+        display_in_window(eval, new_wid, buf_id)?;
         return Ok(window_value(new_wid));
     }
 
@@ -4252,13 +4252,7 @@ pub(crate) fn builtin_display_buffer(
 
         // Prefer a different window from the selected one.
         if let Some(&other_wid) = window_list.iter().find(|&&wid| wid != sel_wid) {
-            if let Some(w) = eval
-                .frames
-                .get_mut(fid)
-                .and_then(|f| f.find_window_mut(other_wid))
-            {
-                w.set_buffer(buf_id);
-            }
+            display_in_window(eval, other_wid, buf_id)?;
             return Ok(window_value(other_wid));
         }
 
@@ -4267,6 +4261,7 @@ pub(crate) fn builtin_display_buffer(
             .frames
             .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
             .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
+        display_in_window(eval, new_wid, buf_id)?;
         Ok(window_value(new_wid))
     }
 }
@@ -6989,6 +6984,103 @@ fn resize_selected_window(
     Ok(Value::NIL)
 }
 
+/// Resize TARGET within FRAME by DELTA_PX while preserving a contiguous split.
+///
+/// This is a narrower helper than GNU's full window-resize machinery, but it
+/// keeps sibling bounds consistent for common two-pane temporary/help window
+/// flows. Returns false when TARGET cannot be resized in the requested axis.
+fn resize_window_by_delta_px(
+    frame: &mut crate::window::Frame,
+    target: WindowId,
+    delta_px: f32,
+    horizontal: bool,
+) -> bool {
+    if delta_px.abs() < 0.5 {
+        return true;
+    }
+
+    fn resize_in_tree(
+        node: &mut Window,
+        target: WindowId,
+        delta_px: f32,
+        horizontal: bool,
+    ) -> bool {
+        let parent_bounds = *node.bounds();
+        let Window::Internal {
+            direction,
+            children,
+            ..
+        } = node
+        else {
+            return false;
+        };
+
+        if let Some(target_idx) = children.iter().position(|child| child.id() == target) {
+            let dir_matches = (*direction == SplitDirection::Horizontal) == horizontal;
+            if !dir_matches || children.len() < 2 {
+                return false;
+            }
+
+            let parent_size = if horizontal {
+                parent_bounds.width
+            } else {
+                parent_bounds.height
+            };
+            let current_target_size = if horizontal {
+                children[target_idx].bounds().width
+            } else {
+                children[target_idx].bounds().height
+            };
+            let min_target_size = MIN_WINDOW_PIXEL_SIZE;
+            let min_other_total = MIN_WINDOW_PIXEL_SIZE * (children.len() - 1) as f32;
+            let desired_target_size = (current_target_size + delta_px).clamp(
+                min_target_size,
+                (parent_size - min_other_total).max(min_target_size),
+            );
+            let remaining = (parent_size - desired_target_size).max(min_other_total);
+            let sibling_size = remaining / (children.len() - 1) as f32;
+
+            let mut edge = if horizontal {
+                parent_bounds.x
+            } else {
+                parent_bounds.y
+            };
+            for (idx, child) in children.iter_mut().enumerate() {
+                let size = if idx == target_idx {
+                    desired_target_size
+                } else {
+                    sibling_size
+                };
+                let bounds = *child.bounds();
+                if horizontal {
+                    child.set_bounds(Rect::new(edge, bounds.y, size, bounds.height));
+                    edge += size;
+                } else {
+                    child.set_bounds(Rect::new(bounds.x, edge, bounds.width, size));
+                    edge += size;
+                }
+            }
+            return true;
+        }
+
+        for child in children.iter_mut() {
+            if resize_in_tree(child, target, delta_px, horizontal) {
+                return true;
+            }
+        }
+        false
+    }
+
+    let resized = resize_in_tree(&mut frame.root_window, target, delta_px, horizontal);
+    if resized {
+        frame.root_window.invalidate_display_state();
+        if let Some(mini) = frame.minibuffer_leaf.as_mut() {
+            mini.invalidate_display_state();
+        }
+    }
+    resized
+}
+
 // ===========================================================================
 // window-tree
 // ===========================================================================
@@ -7112,9 +7204,7 @@ pub(crate) fn builtin_fit_window_to_buffer(
     let current_height = bounds.height;
     if (new_pixel_height - current_height).abs() > 0.5 {
         if let Some(frame) = eval.frames.get_mut(fid) {
-            if let Some(Window::Leaf { bounds, .. }) = frame.find_window_mut(wid) {
-                bounds.height = new_pixel_height;
-            }
+            let _ = resize_window_by_delta_px(frame, wid, new_pixel_height - current_height, false);
         }
     }
 

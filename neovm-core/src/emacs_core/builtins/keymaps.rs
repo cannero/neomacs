@@ -5,14 +5,14 @@ use crate::emacs_core::symbol::Obarray;
 // Keymap builtins
 // ===========================================================================
 use super::keymap::{
-    KeyEvent, collect_minor_mode_maps_in_state, current_active_maps_for_position,
-    current_active_maps_for_position_read_only, ensure_global_keymap_in_obarray,
-    expand_meta_prefix_char_events_in_obarray, get_keymap_in_obarray, get_keymap_in_runtime,
-    is_list_keymap, key_event_to_emacs_event, list_keymap_accessible, list_keymap_copy,
-    list_keymap_define_seq_in_obarray, list_keymap_define_seq_in_obarray_ex,
-    list_keymap_inherits_from, list_keymap_parent, list_keymap_set_parent,
-    lookup_key_in_keymaps_in_obarray, make_list_keymap, make_sparse_list_keymap,
-    maybe_keymap_in_obarray, maybe_keymap_in_runtime,
+    KeyEvent, collect_minor_mode_map_entries_in_state, collect_minor_mode_maps_in_state,
+    current_active_maps_for_position, current_active_maps_for_position_read_only,
+    ensure_global_keymap_in_obarray, expand_meta_prefix_char_events_in_obarray,
+    get_keymap_in_obarray, get_keymap_in_runtime, is_list_keymap, key_event_to_emacs_event,
+    list_keymap_accessible, list_keymap_copy, list_keymap_define_seq_in_obarray,
+    list_keymap_define_seq_in_obarray_ex, list_keymap_inherits_from, list_keymap_parent,
+    list_keymap_set_parent, lookup_key_in_keymaps_in_obarray, make_list_keymap,
+    make_sparse_list_keymap, maybe_keymap_in_obarray, maybe_keymap_in_runtime,
 };
 
 /// Validate that a value is a keymap, returning it if so.
@@ -30,6 +30,36 @@ fn expect_keymap(eval: &mut super::eval::Context, value: &Value) -> EvalResult {
 /// Get the global keymap from obarray, creating one if needed.
 fn ensure_global_keymap(eval: &mut super::eval::Context) -> Value {
     ensure_global_keymap_in_obarray(&mut eval.obarray)
+}
+
+fn call_help_describe_map_tree(
+    eval: &mut super::eval::Context,
+    startmap: Value,
+    partial: Value,
+    shadow: Value,
+    prefix: Value,
+    title: Value,
+    nomenu: Value,
+    transl: Value,
+    always_title: Value,
+    mention_shadow: Value,
+    buffer: Value,
+) -> Result<Value, Flow> {
+    eval.apply(
+        Value::symbol("help--describe-map-tree"),
+        vec![
+            startmap,
+            partial,
+            shadow,
+            prefix,
+            title,
+            nomenu,
+            transl,
+            always_title,
+            mention_shadow,
+            buffer,
+        ],
+    )
 }
 
 /// Parse a key description from a Value, returning emacs event values.
@@ -456,6 +486,136 @@ pub(super) fn builtin_current_global_map(
 ) -> EvalResult {
     expect_args("current-global-map", &args, 0)?;
     Ok(ensure_global_keymap(eval))
+}
+
+pub(super) fn builtin_describe_buffer_bindings(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("describe-buffer-bindings", &args, 1, 3)?;
+    if !args[0].is_buffer() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("bufferp"), args[0]],
+        ));
+    }
+    if let Some(prefixes) = args.get(1) {
+        if !prefixes.is_nil()
+            && !(prefixes.is_cons()
+                || prefixes.is_vector()
+                || prefixes.is_string()
+                || prefixes.is_nil())
+        {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("sequencep"), *prefixes],
+            ));
+        }
+    }
+
+    let buffer = args[0];
+    let prefix = args.get(1).copied().unwrap_or(Value::NIL);
+    let nomenu = if args.get(2).is_some_and(|v| !v.is_nil()) {
+        Value::NIL
+    } else {
+        Value::T
+    };
+
+    let Some(buffer_id) = buffer.as_buffer_id() else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("bufferp"), buffer],
+        ));
+    };
+    let Some(buf) = eval.buffers.get(buffer_id) else {
+        return Err(signal(
+            "error",
+            vec![Value::string("Selecting deleted buffer")],
+        ));
+    };
+
+    let local_map = buf.local_map();
+    let major_mode_name = buf
+        .get_buffer_local("major-mode")
+        .and_then(|value| value.as_symbol_name())
+        .unwrap_or("fundamental-mode");
+    let minor_maps =
+        collect_minor_mode_map_entries_in_state(&eval.obarray, &[], &eval.buffers, Some(buffer_id));
+
+    let mut shadow = Value::NIL;
+
+    if let Some(key_translation_map) = eval.obarray.symbol_value("key-translation-map").copied() {
+        call_help_describe_map_tree(
+            eval,
+            key_translation_map,
+            Value::NIL,
+            shadow,
+            prefix,
+            Value::string("Key translations"),
+            nomenu,
+            Value::T,
+            Value::NIL,
+            Value::NIL,
+            buffer,
+        )?;
+        shadow = Value::cons(key_translation_map, shadow);
+    }
+
+    for (mode, keymap) in minor_maps {
+        let title = Value::string(format!(
+            "\u{c}\n`{}' Minor Mode Bindings",
+            resolve_sym(mode)
+        ));
+        call_help_describe_map_tree(
+            eval,
+            keymap,
+            Value::T,
+            shadow,
+            prefix,
+            title,
+            nomenu,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            buffer,
+        )?;
+        shadow = Value::cons(keymap, shadow);
+    }
+
+    if !local_map.is_nil() {
+        let title = Value::string(format!("\u{c}\n`{major_mode_name}' Major Mode Bindings"));
+        call_help_describe_map_tree(
+            eval,
+            local_map,
+            Value::T,
+            shadow,
+            prefix,
+            title,
+            nomenu,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            buffer,
+        )?;
+        shadow = Value::cons(local_map, shadow);
+    }
+
+    let global_map = ensure_global_keymap(eval);
+    call_help_describe_map_tree(
+        eval,
+        global_map,
+        Value::T,
+        shadow,
+        prefix,
+        Value::string("\u{c}\nGlobal Bindings"),
+        nomenu,
+        Value::NIL,
+        Value::T,
+        Value::NIL,
+        buffer,
+    )?;
+
+    Ok(Value::NIL)
 }
 
 /// `(current-active-maps &optional OLP POSITION)` -> list of active keymaps.

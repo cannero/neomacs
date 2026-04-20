@@ -534,6 +534,11 @@ pub(crate) fn builtin_fset(eval: &mut super::eval::Context, args: Vec<Value>) ->
     }
     eval.note_macro_expansion_mutation();
     eval.obarray_mut().set_symbol_function_id(symbol, def);
+    crate::emacs_core::interactive::sync_interactive_registry_for_symbol_definition(
+        &mut eval.interactive,
+        symbol,
+        def,
+    );
     Ok(def)
 }
 
@@ -1609,10 +1614,56 @@ pub(crate) fn builtin_rename_buffer(
     Ok(Value::string(new_name))
 }
 
-pub(crate) fn builtin_set_buffer_major_mode(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_buffer_major_mode(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-buffer-major-mode", &args, 1)?;
-    let _ = expect_buffer_id(&args[0])?;
-    Ok(Value::NIL)
+    let buffer_id = expect_buffer_id(&args[0])?;
+    let Some(target_buf) = eval.buffers.get(buffer_id) else {
+        return Err(signal(
+            "error",
+            vec![Value::string("Attempt to set major mode for a dead buffer")],
+        ));
+    };
+
+    let mut function = if target_buf.name_value() == Value::string("*scratch*") {
+        eval.visible_variable_value_or_nil("initial-major-mode")
+    } else {
+        crate::buffer::buffer::lookup_buffer_slot("major-mode")
+            .map(|info| eval.buffers.buffer_defaults[info.offset])
+            .unwrap_or(Value::NIL)
+    };
+
+    if function.is_nil() {
+        let current_major_mode = eval.visible_variable_value_or_nil("major-mode");
+        if !current_major_mode.is_nil() {
+            let mode_class = eval.funcall_general(
+                Value::symbol("get"),
+                vec![current_major_mode, Value::symbol("mode-class")],
+            )?;
+            if mode_class.is_nil() {
+                function = current_major_mode;
+            }
+        }
+    }
+
+    if function.is_nil() {
+        return Ok(Value::NIL);
+    }
+
+    let saved_current = eval.buffers.current_buffer_id();
+    let mode_result = (|| -> EvalResult {
+        eval.switch_current_buffer(buffer_id)?;
+        let _ = eval.funcall_general(function, vec![])?;
+        Ok(Value::NIL)
+    })();
+
+    if let Some(prev_id) = saved_current {
+        eval.restore_current_buffer_if_live(prev_id);
+    }
+
+    mode_result
 }
 
 pub(crate) fn builtin_set_buffer_redisplay(args: Vec<Value>) -> EvalResult {

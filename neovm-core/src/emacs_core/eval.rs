@@ -4659,6 +4659,16 @@ impl Context {
             return Ok(Value::NIL);
         }
 
+        // Recursive edits and minibuffer readers enter the command loop even
+        // when the outer loop has not been started through init_input_system().
+        // GNU's recursive/minibuffer entry points do not consult an external
+        // "running" gate before dispatching the first key. Preserve the
+        // previous flag so explicit shutdown still unwinds correctly.
+        let saved_running = self.command_loop.running;
+        if !saved_running {
+            self.command_loop.running = true;
+        }
+
         if increment_depth {
             self.command_loop.recursive_depth += 1;
         }
@@ -4675,6 +4685,9 @@ impl Context {
         self.pop_condition_frame();
         if increment_depth {
             self.command_loop.recursive_depth -= 1;
+        }
+        if !saved_running {
+            self.command_loop.running = false;
         }
 
         match result {

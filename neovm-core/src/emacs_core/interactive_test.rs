@@ -456,6 +456,28 @@ fn call_interactively_honors_function_cell_mutation_during_interactive_spec_eval
 }
 
 #[test]
+fn defalias_replaces_stale_noarg_registry_spec_with_live_interactive_form() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = eval_with_interactive_shims();
+    let sym = crate::emacs_core::intern::intern("vm-stale-interactive-form");
+    ev.interactive
+        .register_interactive(sym, InteractiveSpec::no_args());
+
+    ev.eval_str(
+        r#"(defalias 'vm-stale-interactive-form
+                      (lambda (x)
+                        (interactive (list 7))
+                        x))"#,
+    )
+    .expect("install live interactive form");
+
+    let result =
+        builtin_call_interactively(&mut ev, vec![Value::symbol("vm-stale-interactive-form")])
+            .expect("call-interactively should use the live interactive form");
+    assert_eq!(result, Value::fixnum(7));
+}
+
+#[test]
 fn registry_interactive_call_stack() {
     crate::test_utils::init_test_tracing();
     let mut reg = InteractiveRegistry::new();

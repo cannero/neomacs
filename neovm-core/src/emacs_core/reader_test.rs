@@ -787,6 +787,40 @@ fn shared_read_from_minibuffer_runtime_converts_unibyte_initial_input_to_buffer_
 }
 
 #[test]
+fn read_from_minibuffer_custom_keymap_lambda_sees_last_command_event() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue space");
+    drop(tx);
+    ev.input_rx = Some(rx);
+
+    let result = ev
+        .eval_str(
+            r#"(let ((seen nil)
+                 (minibuffer-setup-hook nil)
+                 (minibuffer-exit-hook nil)
+                 (map (make-sparse-keymap)))
+             (define-key map " "
+               (lambda ()
+                 (interactive)
+                 (setq seen last-command-event)
+                 (exit-minibuffer)))
+             (condition-case err
+                 (list (read-from-minibuffer "Prompt: " nil map)
+                       seen
+                       last-command-event)
+               (error
+                (list :error (car err) (cdr err) seen last-command-event))))"#,
+        )
+        .expect("eval should return condition-case payload");
+    assert_eq!(format!("{result}"), r#"("" 32 32)"#);
+}
+
+#[test]
 fn activate_minibuffer_window_switches_displayed_buffer_and_restores_state() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

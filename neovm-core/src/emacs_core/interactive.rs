@@ -99,6 +99,10 @@ impl InteractiveRegistry {
         self.specs.insert(symbol, spec);
     }
 
+    pub fn unregister_interactive(&mut self, symbol: SymId) {
+        self.specs.remove(&symbol);
+    }
+
     /// Check if a function symbol is registered as interactive.
     pub fn is_interactive(&self, symbol: SymId) -> bool {
         self.specs.contains_key(&symbol)
@@ -161,6 +165,51 @@ pub(crate) fn registry_interactive_form(
     registry
         .get_spec(symbol)
         .map(|spec| interactive_form_from_spec_value(spec.spec))
+}
+
+fn interactive_spec_from_interactive_form(form: Value) -> Option<InteractiveSpec> {
+    let items = value_list_to_vec(&form)?;
+    if items.first().copied() != Some(Value::symbol("interactive")) {
+        return None;
+    }
+    Some(InteractiveSpec::from_value(
+        items.get(1).copied().unwrap_or(Value::NIL),
+    ))
+}
+
+fn direct_subr_interactive_spec(
+    interactive: &InteractiveRegistry,
+    symbol: SymId,
+) -> Option<InteractiveSpec> {
+    interactive.get_spec(symbol).cloned().or_else(|| {
+        builtin_subr_interactive_form(resolve_sym(symbol))
+            .and_then(interactive_spec_from_interactive_form)
+    })
+}
+
+pub(crate) fn sync_interactive_registry_for_symbol_definition(
+    interactive: &mut InteractiveRegistry,
+    symbol: SymId,
+    definition: Value,
+) {
+    let replacement = if value_is_interactive_autoload(&definition) {
+        Some(InteractiveSpec::no_args())
+    } else {
+        match definition.kind() {
+            ValueKind::Subr(id) => direct_subr_interactive_spec(interactive, id),
+            ValueKind::Veclike(VecLikeType::Subr) => {
+                let id = definition.as_subr_id().unwrap();
+                direct_subr_interactive_spec(interactive, id)
+            }
+            _ => None,
+        }
+    };
+
+    if let Some(spec) = replacement {
+        interactive.register_interactive(symbol, spec);
+    } else {
+        interactive.unregister_interactive(symbol);
+    }
 }
 
 pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
@@ -2382,11 +2431,20 @@ fn interactive_args_from_string_code(
 
 fn resolve_interactive_invocation_args(
     eval: &mut Context,
+    invocation_function: Value,
     resolved_symbol: Option<SymId>,
     func: &Value,
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
 ) -> Result<Vec<Value>, Flow> {
+    if value_is_interactive_autoload(func) {
+        if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![invocation_function])
+            && let Some(args) = interactive_args_from_interactive_form(eval, iform, kind, context)?
+        {
+            return Ok(args);
+        }
+    }
+
     if let Some(spec_value) = resolved_symbol
         .and_then(|symbol| eval.interactive.get_spec(symbol))
         .map(|spec| spec.spec)
@@ -2492,27 +2550,10 @@ fn resolve_interactive_invocation_args(
     // GNU Emacs genfun fallback: call `(interactive-form func)` which handles
     // oclosures, advice wrappers, and other cl-generic dispatched interactivity.
     // This mirrors GNU callint.c which calls Finteractive_form to get the spec.
-    if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![*func]) {
-        if iform.is_cons() {
-            // iform = (interactive SPEC)
-            let spec_val = iform.cons_cdr();
-            if spec_val.is_cons() {
-                let spec = spec_val.cons_car();
-                if let Some(s) = spec.as_lisp_string() {
-                    if let Some(args) = interactive_args_from_string_code(eval, s, kind, context)? {
-                        return Ok(args);
-                    }
-                } else if spec.is_nil() {
-                    return Ok(Vec::new());
-                } else {
-                    let value = eval.eval_value(&spec)?;
-                    return Ok(interactive_form_value_to_args(value)?);
-                }
-            } else {
-                // (interactive) with no spec
-                return Ok(Vec::new());
-            }
-        }
+    if let Ok(iform) = eval.apply(Value::symbol("interactive-form"), vec![invocation_function])
+        && let Some(args) = interactive_args_from_interactive_form(eval, iform, kind, context)?
+    {
+        return Ok(args);
     }
 
     match kind {
@@ -2523,6 +2564,33 @@ fn resolve_interactive_invocation_args(
             default_command_execute_args(eval, resolved_symbol)
         }
     }
+}
+
+fn interactive_args_from_interactive_form(
+    eval: &mut Context,
+    iform: Value,
+    kind: CommandInvocationKind,
+    context: &mut InteractiveInvocationContext,
+) -> Result<Option<Vec<Value>>, Flow> {
+    if !iform.is_cons() {
+        return Ok(None);
+    }
+
+    let spec_tail = iform.cons_cdr();
+    if !spec_tail.is_cons() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let spec = spec_tail.cons_car();
+    if let Some(code) = spec.as_lisp_string() {
+        return interactive_args_from_string_code(eval, code, kind, context);
+    }
+    if spec.is_nil() {
+        return Ok(Some(Vec::new()));
+    }
+
+    let value = eval.eval_value(&spec)?;
+    Ok(Some(interactive_form_value_to_args(value)?))
 }
 
 fn eval_interactive_form_value_in_vm_runtime(
@@ -2661,6 +2729,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_eval(
     let func = normalize_command_callable(eval, plan.func)?;
     let call_args = resolve_interactive_invocation_args(
         eval,
+        plan.invocation_function,
         plan.resolved_symbol,
         &func,
         CommandInvocationKind::CallInteractively,
@@ -2680,6 +2749,9 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     plan: &mut CallInteractivelyPlan,
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
+    if value_is_interactive_autoload(&func) {
+        return Ok(None);
+    }
     if let Some(spec_value) = plan
         .resolved_symbol
         .and_then(|symbol| interactive.get_spec(symbol))
@@ -2802,6 +2874,9 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     plan: &mut CallInteractivelyPlan,
 ) -> Result<Option<(Value, Vec<Value>)>, Flow> {
     let func = plan.func;
+    if value_is_interactive_autoload(&func) {
+        return Ok(None);
+    }
     if let Some(spec_value) = plan
         .resolved_symbol
         .and_then(|symbol| shared.interactive.get_spec(symbol))

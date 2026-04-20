@@ -1311,6 +1311,42 @@ fn test_window_text_pixel_size_eval_window_validation() {
 }
 
 #[test]
+fn test_window_text_pixel_size_tty_frame_uses_char_cell_metrics() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        frame.char_width = 1.0;
+        frame.char_height = 1.0;
+        frame.font_pixel_size = 1.0;
+        frame.set_window_system(None);
+    }
+    {
+        let buffer = eval.buffers.get_mut(buf_id).expect("buffer");
+        buffer.insert("tiny\n");
+    }
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
+
+    let result = builtin_window_text_pixel_size_ctx(
+        &mut eval,
+        vec![
+            Value::fixnum(selected_window),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
+            Value::fixnum(24),
+            Value::T,
+        ],
+    )
+    .unwrap();
+    assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
+    assert_eq!(result.cons_car(), Value::fixnum(4));
+    assert_eq!(result.cons_cdr(), Value::fixnum(2));
+}
+
+#[test]
 fn test_pos_visible_in_window_p() {
     crate::test_utils::init_test_tracing();
     let result = builtin_pos_visible_in_window_p(vec![Value::fixnum(1)]).unwrap();
