@@ -962,6 +962,144 @@ fn goto_buffer_end_and_beginning_via_mgt_mlt() {
 }
 
 #[test]
+fn move_beginning_and_end_of_line_via_ca_ce() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "line-motion.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b" END");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"BEGIN ");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("BEGIN alpha beta gamma END"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("move_beginning_and_end_of_line_via_ca_ce", &gnu, &neo, 2);
+}
+
+#[test]
+fn delete_char_and_delete_backward_char_via_cd_del() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "delete-char.txt", "alpha\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-d");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "DEL");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aha")) && !grid.iter().any(|row| row.contains("alpha"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_char_and_delete_backward_char_via_cd_del",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn next_and_previous_line_via_cn_cp() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "line-step.txt",
+        "line one\nline two\nline three\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-n C-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"THREE ");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-p C-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"TWO ");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("line one"))
+            && grid.iter().any(|row| row.contains("TWO line two"))
+            && grid.iter().any(|row| row.contains("THREE line three"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("next_and_previous_line_via_cn_cp", &gnu, &neo, 2);
+}
+
+#[test]
+fn recenter_top_bottom_cycle_via_cl() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=80 {
+        contents.push_str(&format!("recenter line {line:02}\n"));
+    }
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "recenter-usage.txt",
+        &contents,
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-s");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"recenter line 40");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let found = |grid: &[String]| grid.iter().any(|row| row.contains("recenter line 40"));
+    gnu.read_until(Duration::from_secs(6), found);
+    neo.read_until(Duration::from_secs(8), found);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("recenter_top_bottom_cycle_via_cl/middle", &gnu, &neo, 2);
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("recenter_top_bottom_cycle_via_cl/top", &gnu, &neo, 2);
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("recenter_top_bottom_cycle_via_cl/bottom", &gnu, &neo, 2);
+}
+
+#[test]
 fn kill_word_via_md() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
