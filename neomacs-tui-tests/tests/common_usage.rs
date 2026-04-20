@@ -1895,6 +1895,194 @@ fn query_replace_via_mpercent_bang() {
 }
 
 #[test]
+fn mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-whole-buffer.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+
+    let killed = |grid: &[String]| {
+        !grid.iter().any(|row| row.contains("alpha line"))
+            && !grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-y");
+    let restored = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha line"))
+            && grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), restored);
+    neo.read_until(Duration::from_secs(8), restored);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn forward_paragraph_via_m_close_brace() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "forward-paragraph.txt",
+        "alpha one\nalpha two\n\nbeta one\nbeta two\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-}");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Xbeta one"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_paragraph_via_m_close_brace", &gnu, &neo, 2);
+}
+
+#[test]
+fn backward_paragraph_via_m_open_brace() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "backward-paragraph.txt",
+        "alpha one\nalpha two\n\nbeta one\nbeta two\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-{");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Xbeta one"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("backward_paragraph_via_m_open_brace", &gnu, &neo, 2);
+}
+
+#[test]
+fn downcase_region_once_via_disabled_cx_cl() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "downcase-region.txt",
+        "ALPHA BETA\nGAMMA DELTA\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-l");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Use this command?"))
+            || grid
+                .iter()
+                .any(|row| row.contains("disabled command downcase-region"))
+    };
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(12), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("downcase-region")),
+            "{label} should show disabled-command help for downcase-region"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Use this command?")),
+            "{label} should show disabled-command prompt for downcase-region"
+        );
+    }
+
+    send_both_raw(&mut gnu, &mut neo, b" ");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta"))
+            && grid.iter().any(|row| row.contains("gamma delta"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    settle_session(&mut gnu, Duration::from_secs(1), 2);
+    settle_session(&mut neo, Duration::from_secs(1), 6);
+
+    assert_pair_nearly_matches("downcase_region_once_via_disabled_cx_cl", &gnu, &neo, 2);
+}
+
+#[test]
+fn upcase_region_once_via_disabled_cx_cu() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "upcase-region.txt",
+        "alpha beta\ngamma delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-u");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Use this command?"))
+            || grid
+                .iter()
+                .any(|row| row.contains("disabled command upcase-region"))
+    };
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(12), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("upcase-region")),
+            "{label} should show disabled-command help for upcase-region"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Use this command?")),
+            "{label} should show disabled-command prompt for upcase-region"
+        );
+    }
+
+    send_both_raw(&mut gnu, &mut neo, b" ");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("ALPHA BETA"))
+            && grid.iter().any(|row| row.contains("GAMMA DELTA"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    settle_session(&mut gnu, Duration::from_secs(1), 2);
+    settle_session(&mut neo, Duration::from_secs(1), 6);
+
+    assert_pair_nearly_matches("upcase_region_once_via_disabled_cx_cu", &gnu, &neo, 2);
+}
+
+#[test]
 fn upcase_word_via_mu() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

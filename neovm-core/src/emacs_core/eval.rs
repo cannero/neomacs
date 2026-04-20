@@ -4991,18 +4991,16 @@ impl Context {
                 return Ok(Value::NIL);
             }
 
-            // Transfer prefix-arg → current-prefix-arg, saving the
-            // outgoing current-prefix-arg into last-prefix-arg
-            // first. Mirrors GNU `keyboard.c:1329`:
+            // Save the outgoing `current-prefix-arg` into
+            // `last-prefix-arg` before reading the next command.
             //
-            //   Vlast_prefix_arg = Vcurrent_prefix_arg;
-            //
-            // Keyboard audit Finding 15.
+            // Do NOT also transfer `prefix-arg` here: GNU's Lisp
+            // `command-execute` does that itself right before it
+            // calls `call-interactively`, and prefix commands such as
+            // `universal-argument` rely on `prefix-arg` surviving
+            // until that point.
             let outgoing_prefix_arg = self.eval_symbol("current-prefix-arg").unwrap_or(Value::NIL);
             self.assign("last-prefix-arg", outgoing_prefix_arg);
-            let prefix_arg = self.eval_symbol("prefix-arg").unwrap_or(Value::NIL);
-            self.assign("current-prefix-arg", prefix_arg);
-            self.assign("prefix-arg", Value::NIL);
 
             // Read a complete key sequence (may be multi-key, e.g. C-x C-f).
             let (keys, binding) = self.read_key_sequence()?;
@@ -5088,11 +5086,11 @@ impl Context {
                 let _ = self.apply(Value::symbol("undo-auto--add-boundary"), vec![]);
             }
 
-            // Execute the command. Finding 13: GNU calls
-            // `Fcall_interactively` directly from the loop. We do
-            // the same by routing through the call-interactively
-            // builtin instead of the Lisp-side command-execute
-            // wrapper.
+            // Execute the command. GNU keyboard.c dispatches through
+            // `command-execute` from the loop, so we do the same here
+            // instead of bypassing the Lisp-side wrapper. That keeps
+            // disabled-command handling and related command-execute
+            // behavior aligned with GNU for real keyboard invocations.
             let exec_result = self.dispatch_command_in_loop(binding);
 
             // Keep the selected window's point and current buffer/runtime view
@@ -5253,15 +5251,8 @@ impl Context {
         }
     }
 
-    /// Dispatch the current `this-command` via `call-interactively`,
-    /// matching GNU's direct `Fcall_interactively (cmd, ...)` call
-    /// at `keyboard.c:1449-1457`.
-    ///
-    /// Routing through the Rust builtin (instead of the Lisp
-    /// `command-execute` wrapper) removes a layer of indirection
-    /// and prevents user-side advice on `command-execute` from
-    /// silently changing command-loop behavior. Keyboard audit
-    /// Finding 13.
+    /// Dispatch the current `this-command` via GNU's
+    /// `command-execute` command-loop path.
     fn dispatch_command_in_loop(&mut self, command: Value) -> EvalResult {
         // Re-resolve `this-command` from the obarray so a
         // pre-command-hook that mutated the symbol takes effect.
@@ -5269,11 +5260,7 @@ impl Context {
         if cmd.is_nil() {
             return Ok(Value::NIL);
         }
-        // GNU `Fcall_interactively (cmd, Qnil, Qnil)` —
-        // `record-flag = nil`, `keys = nil`. The first arg is the
-        // command, the optional record-flag selects whether to
-        // record into command-history.
-        self.apply(Value::symbol("call-interactively"), vec![cmd])
+        self.apply(Value::symbol("command-execute"), vec![cmd])
     }
 
     /// Run a hook with `safe-run-hooks` semantics: each hook

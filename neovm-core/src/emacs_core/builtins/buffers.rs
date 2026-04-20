@@ -47,6 +47,73 @@ fn find_buffer_by_name_arg(
     Ok(buffers.find_buffer_by_name(&name))
 }
 
+fn delete_quit_restore_popup_windows_showing_buffer(
+    frames: &mut FrameManager,
+    buffer_id: BufferId,
+) -> bool {
+    let mut deleted_any = false;
+    let quit_restore_key = Value::symbol("quit-restore");
+    let buffer_value = Value::make_buffer(buffer_id);
+
+    for frame_id in frames.frame_list() {
+        let Some(window_ids) = frames.get(frame_id).map(|frame| frame.window_list()) else {
+            continue;
+        };
+
+        for window_id in window_ids {
+            let should_delete = {
+                let Some(frame) = frames.get(frame_id) else {
+                    continue;
+                };
+                if frame.minibuffer_window == Some(window_id) || frame.window_list().len() <= 1 {
+                    false
+                } else if frame
+                    .find_window(window_id)
+                    .and_then(|window| window.buffer_id())
+                    != Some(buffer_id)
+                {
+                    false
+                } else {
+                    match frames.window_parameter(window_id, &quit_restore_key) {
+                        Some(quit_restore) => {
+                            match crate::emacs_core::value::list_to_vec(&quit_restore) {
+                                Some(items) => {
+                                    items.len() >= 4
+                                        && items[0].as_symbol_name() == Some("window")
+                                        && items[1].as_symbol_name() == Some("window")
+                                        && eq_value(&items[3], &buffer_value)
+                                }
+                                None => false,
+                            }
+                        }
+                        None => false,
+                    }
+                }
+            };
+
+            if should_delete && frames.delete_window(frame_id, window_id) {
+                deleted_any = true;
+            }
+        }
+    }
+
+    deleted_any
+}
+
+fn sync_current_buffer_to_selected_window(eval: &mut super::eval::Context) {
+    let Some(frame_id) = eval.frames.selected_frame().map(|frame| frame.id) else {
+        return;
+    };
+    let selected_buffer_id = eval
+        .frames
+        .get(frame_id)
+        .and_then(|frame| frame.find_window(frame.selected_window))
+        .and_then(|window| window.buffer_id());
+    if let Some(buffer_id) = selected_buffer_id {
+        let _ = eval.buffers.switch_current(buffer_id);
+    }
+}
+
 fn point_char_pos(buf: &crate::buffer::Buffer, byte_pos: usize) -> i64 {
     buf.text.emacs_byte_to_char(byte_pos) as i64 + 1
 }
@@ -120,18 +187,23 @@ pub(crate) fn builtin_get_buffer_create(
 ) -> EvalResult {
     expect_min_args("get-buffer-create", &args, 1)?;
     expect_max_args("get-buffer-create", &args, 2)?;
-    let name = expect_string(&args[0])?;
-    if let Some(id) = eval.buffers.find_buffer_by_name(&name) {
-        Ok(Value::make_buffer(id))
-    } else {
-        let inhibit_buffer_hooks = args.get(1).is_some_and(|value| !value.is_nil());
-        let id = eval
-            .buffers
-            .create_buffer_with_hook_inhibition(&name, inhibit_buffer_hooks);
-        if !inhibit_buffer_hooks {
-            run_buffer_list_update_hook(eval)?;
+    match args[0].kind() {
+        ValueKind::Veclike(VecLikeType::Buffer) => Ok(args[0]),
+        _ => {
+            let name = expect_string(&args[0])?;
+            if let Some(id) = eval.buffers.find_buffer_by_name(&name) {
+                Ok(Value::make_buffer(id))
+            } else {
+                let inhibit_buffer_hooks = args.get(1).is_some_and(|value| !value.is_nil());
+                let id = eval
+                    .buffers
+                    .create_buffer_with_hook_inhibition(&name, inhibit_buffer_hooks);
+                if !inhibit_buffer_hooks {
+                    run_buffer_list_update_hook(eval)?;
+                }
+                Ok(Value::make_buffer(id))
+            }
         }
-        Ok(Value::make_buffer(id))
     }
 }
 
@@ -450,6 +522,14 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
     }
     if eval.buffers.get(id).is_none() {
         return Ok(Value::T);
+    }
+
+    if eval
+        .visible_variable_value_or_nil("kill-buffer-quit-windows")
+        .is_truthy()
+        && delete_quit_restore_popup_windows_showing_buffer(&mut eval.frames, id)
+    {
+        sync_current_buffer_to_selected_window(eval);
     }
 
     let current_before = eval.buffers.current_buffer().map(|buf| buf.id);

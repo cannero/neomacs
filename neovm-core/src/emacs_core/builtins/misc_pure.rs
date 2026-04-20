@@ -62,6 +62,33 @@ fn message_dolog(ctx: &mut super::eval::Context, msg: &crate::heap_types::LispSt
     }
 }
 
+fn message_echo_result(
+    ctx: &mut super::eval::Context,
+    msg: &crate::heap_types::LispString,
+) -> Result<Option<crate::heap_types::LispString>, crate::emacs_core::error::Flow> {
+    if ctx
+        .visible_variable_value_or_nil("inhibit-message")
+        .is_truthy()
+    {
+        return Ok(None);
+    }
+
+    let set_message_function = ctx.visible_variable_value_or_nil("set-message-function");
+    if set_message_function.is_nil() {
+        return Ok(Some(msg.clone()));
+    }
+
+    let result =
+        ctx.funcall_general(set_message_function, vec![Value::heap_string(msg.clone())])?;
+    if result.is_nil() {
+        return Ok(Some(msg.clone()));
+    }
+    if let Some(string) = result.as_lisp_string() {
+        return Ok(Some(string.clone()));
+    }
+    Ok(None)
+}
+
 pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("message", &args, 1)?;
     // GNU Emacs: nil or empty string clears the echo area and returns as-is.
@@ -88,7 +115,10 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
         Some(string) => string.clone(),
         None => crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
     };
-    ctx.set_current_message(Some(msg.clone()));
+    match message_echo_result(ctx, &msg)? {
+        Some(displayed) => ctx.set_current_message(Some(displayed.clone())),
+        None => ctx.clear_current_message(),
+    }
     // GNU Emacs message_dolog: log to *Messages* buffer
     message_dolog(ctx, &msg);
     tracing::info!(msg = %super::runtime_string_from_lisp_string(&msg));

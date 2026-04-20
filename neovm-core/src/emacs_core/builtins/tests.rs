@@ -1263,6 +1263,21 @@ fn get_buffer_create_accepts_optional_second_arg() {
 }
 
 #[test]
+fn get_buffer_create_accepts_live_and_killed_buffer_designators_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let live = builtin_get_buffer_create(&mut eval, vec![Value::string("*gbc-live*")]).unwrap();
+    let live_again = builtin_get_buffer_create(&mut eval, vec![live]).unwrap();
+    assert_eq!(live_again, live);
+
+    let dead = create_unique_test_buffer(&mut eval, "*gbc-dead*");
+    let _ = builtin_kill_buffer(&mut eval, vec![dead]).unwrap();
+    let dead_again = builtin_get_buffer_create(&mut eval, vec![dead]).unwrap();
+    assert_eq!(dead_again, dead);
+}
+
+#[test]
 fn buffer_creation_helpers_reject_missing_required_name_arg() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -9932,6 +9947,54 @@ fn current_message_preserves_raw_unibyte_payload() {
     let current = current.as_lisp_string().expect("current-message string");
     assert!(!current.is_multibyte());
     assert_eq!(current.as_bytes(), &[0xFF]);
+}
+
+#[test]
+fn message_respects_inhibit_message_and_clears_echo_area() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    builtin_message(&mut eval, vec![Value::string("visible")]).expect("seed visible message");
+    assert_eq!(eval.current_message_text(), Some("visible".to_string()));
+
+    eval.eval_str("(let ((inhibit-message t)) (message \"hidden\"))")
+        .expect("message with inhibit-message should evaluate");
+
+    assert_eq!(eval.current_message_text(), None);
+}
+
+#[test]
+fn message_uses_set_message_function_string_and_suppression_results() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    eval.eval_str(
+        r#"(progn
+             (fset 'neomacs-test-message-prefix
+                   (lambda (message) (concat "prefix:" message)))
+             (fset 'neomacs-test-message-suppress
+                   (lambda (_message) t)))"#,
+    )
+    .expect("install set-message-function stubs");
+
+    eval.assign(
+        "set-message-function",
+        Value::symbol("neomacs-test-message-prefix"),
+    );
+    builtin_message(&mut eval, vec![Value::string("hello")])
+        .expect("message should use string rewriting set-message-function");
+    assert_eq!(
+        eval.current_message_text(),
+        Some("prefix:hello".to_string())
+    );
+
+    eval.assign(
+        "set-message-function",
+        Value::symbol("neomacs-test-message-suppress"),
+    );
+    builtin_message(&mut eval, vec![Value::string("suppressed")])
+        .expect("message should allow set-message-function to suppress echo");
+    assert_eq!(eval.current_message_text(), None);
 }
 
 #[test]

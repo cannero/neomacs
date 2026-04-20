@@ -7860,6 +7860,42 @@ fn save_window_excursion_restores_window_layout_after_split() {
 }
 
 #[test]
+fn save_window_excursion_with_help_window_restores_original_window_buffer() {
+    crate::test_utils::init_test_tracing();
+    let results = bootstrap_eval_all(
+        r#"(let* ((orig (generate-new-buffer "*neo-help-orig*"))
+                  (help (get-buffer-create "*neo-help-test*")))
+             (unwind-protect
+                 (progn
+                   (switch-to-buffer orig)
+                   (with-current-buffer orig
+                     (erase-buffer)
+                     (insert "alpha\nbeta\n"))
+                   (list
+                    (buffer-name (current-buffer))
+                    (buffer-name (window-buffer (selected-window)))
+                    (save-window-excursion
+                      (save-excursion
+                        (help--window-setup
+                         help
+                         (lambda ()
+                           (with-current-buffer standard-output
+                             (insert "help body")))))
+                      (list
+                       (buffer-name (current-buffer))
+                       (buffer-name (window-buffer (selected-window)))))
+                    (buffer-name (current-buffer))
+                    (buffer-name (window-buffer (selected-window)))))
+               (ignore-errors (kill-buffer help))
+               (ignore-errors (kill-buffer orig))))"#,
+    );
+    assert_eq!(
+        results[0],
+        r#"OK ("*neo-help-orig*" "*neo-help-orig*" ("*neo-help-orig*" "*neo-help-orig*") "*neo-help-orig*" "*neo-help-orig*")"#
+    );
+}
+
+#[test]
 fn save_window_excursion_restores_selected_window_point_and_requests_final_redisplay() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

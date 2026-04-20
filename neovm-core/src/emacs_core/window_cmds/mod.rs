@@ -4239,6 +4239,16 @@ pub(crate) fn builtin_display_buffer(
             .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
             .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
         display_in_window(eval, new_wid, buf_id)?;
+        eval.frames.set_window_parameter(
+            new_wid,
+            Value::symbol("quit-restore"),
+            Value::list(vec![
+                Value::symbol("window"),
+                Value::symbol("window"),
+                window_value(sel_wid),
+                Value::make_buffer(buf_id),
+            ]),
+        );
         return Ok(window_value(new_wid));
     }
 
@@ -4262,6 +4272,16 @@ pub(crate) fn builtin_display_buffer(
             .split_window(fid, sel_wid, SplitDirection::Vertical, buf_id, None)
             .ok_or_else(|| signal("error", vec![Value::string("Cannot split window")]))?;
         display_in_window(eval, new_wid, buf_id)?;
+        eval.frames.set_window_parameter(
+            new_wid,
+            Value::symbol("quit-restore"),
+            Value::list(vec![
+                Value::symbol("window"),
+                Value::symbol("window"),
+                window_value(sel_wid),
+                Value::make_buffer(buf_id),
+            ]),
+        );
         Ok(window_value(new_wid))
     }
 }

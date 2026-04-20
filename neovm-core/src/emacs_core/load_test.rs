@@ -3452,6 +3452,259 @@ fn bootstrap_runtime_command_loop_sets_last_nonmenu_event_for_keyboard_invocatio
 }
 
 #[test]
+fn bootstrap_runtime_command_loop_disabled_command_consumes_space_reply_once() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*disabled-command-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*disabled-command-target*")
+             (erase-buffer)
+             (insert "ALPHA LINE\nBETA LINE\n")
+             (goto-char (point-min))
+             (setq neo-disabled-command-finish nil))"#,
+    )
+    .expect("setup disabled-command probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('h'),
+    ))
+    .expect("queue h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('l', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-l");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue SPC reply");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("disabled-command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(list
+             (with-current-buffer "*disabled-command-target*"
+               (buffer-string))
+             (buffer-name (current-buffer))
+             (buffer-name (window-buffer (selected-window)))
+             (not (null (get-buffer "*Disabled Command*"))))"#,
+    );
+    assert_eq!(
+        observed,
+        "OK (\"alpha line\nbeta line\n\" \"*disabled-command-target*\" \"*disabled-command-target*\" nil)",
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_universal_argument_prefix_reaches_following_command() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*universal-argument-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*universal-argument-target*")
+             (erase-buffer)
+             (setq neo-universal-argument-finish nil))"#,
+    )
+    .expect("setup universal argument probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('u', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-u");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('8'),
+    ))
+    .expect("queue 8");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('a'),
+    ))
+    .expect("queue a");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("universal argument loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(list
+             (with-current-buffer "*universal-argument-target*"
+               (buffer-string))
+             prefix-arg)"#,
+    );
+    assert_eq!(observed, r#"OK ("aaaaaaaa" nil)"#);
+}
+
+#[test]
+fn bootstrap_runtime_disabled_command_from_visited_file_restores_single_selected_file_window() {
+    init_test_tracing();
+    let dir = tempdir().expect("visited-file disabled-command tempdir");
+    let file_path = dir.path().join("disabled-command-file.txt");
+    fs::write(&file_path, "ALPHA LINE\nBETA LINE\n").expect("write disabled-command file");
+
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(&format!(
+        r#"(progn
+             (switch-to-buffer "*scratch*")
+             (let ((buf (find-file-noselect {path:?})))
+               (switch-to-buffer buf))
+             (goto-char (point-min))
+             (setq neo-disabled-command-finish nil))"#,
+        path = file_path.to_string_lossy(),
+    ))
+    .expect("setup visited-file disabled-command probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('h'),
+    ))
+    .expect("queue h");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('l', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-l");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue SPC reply");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("disabled-command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(list
+             (buffer-name (current-buffer))
+             (buffer-name (window-buffer (selected-window)))
+             (mapcar (lambda (w) (buffer-name (window-buffer w))) (window-list))
+             (with-current-buffer "disabled-command-file.txt"
+               (buffer-string))
+             (not (null (get-buffer "*Disabled Command*"))))"#,
+    );
+    assert_eq!(
+        observed,
+        "OK (\"disabled-command-file.txt\" \"disabled-command-file.txt\" (\"disabled-command-file.txt\") \"alpha line\nbeta line\n\" nil)",
+    );
+}
+
+#[test]
+fn bootstrap_runtime_display_buffer_pop_up_window_records_quit_restore_window_metadata() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(let* ((orig (generate-new-buffer "*qr-orig*"))
+                  (target (get-buffer-create "*qr-target*")))
+             (switch-to-buffer orig)
+             (let* ((window (display-buffer target '(display-buffer-pop-up-window)))
+                    (quit-restore (window-parameter window 'quit-restore)))
+               (list (car quit-restore)
+                     (nth 1 quit-restore)
+                     (eq (nth 2 quit-restore) (selected-window))
+                     (buffer-name (nth 3 quit-restore)))))"#,
+    );
+    assert_eq!(observed, r#"OK (window window t "*qr-target*")"#);
+}
+
+#[test]
+fn bootstrap_runtime_kill_buffer_quit_windows_deletes_pop_up_help_window() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(let* ((orig (generate-new-buffer "*qr-kill-orig*"))
+                  (help (get-buffer-create "*qr-kill-help*")))
+             (switch-to-buffer orig)
+             (display-buffer help '(display-buffer-pop-up-window))
+             (let ((kill-buffer-quit-windows t))
+               (kill-buffer help))
+             (list (count-windows)
+                   (buffer-name (current-buffer))
+                   (buffer-name (window-buffer (selected-window)))
+                   (mapcar (lambda (w) (buffer-name (window-buffer w))) (window-list))
+                   (get-buffer "*qr-kill-help*")))"#,
+    );
+    assert_eq!(
+        observed,
+        r#"OK (1 "*qr-kill-orig*" "*qr-kill-orig*" ("*qr-kill-orig*") nil)"#
+    );
+}
+
+#[test]
 fn bootstrap_runtime_cx_s_space_saves_typed_edit_from_command_loop() {
     init_test_tracing();
     let dir = tempdir().expect("save-some typed tempdir");
