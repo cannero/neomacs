@@ -1,4 +1,5 @@
 use super::*;
+use crate::buffer::buffer::BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM;
 use crate::emacs_core::Context;
 use crate::emacs_core::value::{
     StringTextPropertyRun, ValueKind, get_string_text_properties_table_for_value,
@@ -998,6 +999,36 @@ fn test_format_mode_line_tty_z_uses_live_coding_manager_state() {
 }
 
 #[test]
+fn test_format_mode_line_tty_z_reads_visible_buffer_file_coding_value_without_local_flag() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("tty-coding-visible-slot-test");
+    eval.buffers.set_current(buffer_id);
+    eval.frames
+        .create_frame("tty-coding-frame", 80, 24, buffer_id);
+
+    eval.buffers
+        .set_buffer_local_property(
+            buffer_id,
+            "buffer-file-coding-system",
+            Value::symbol("utf-8-unix"),
+        )
+        .expect("set coding");
+    eval.buffers
+        .get_mut(buffer_id)
+        .expect("buffer")
+        .set_slot_local_flag(BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM, false);
+    eval.obarray
+        .set_symbol_value("terminal-coding-system", Value::NIL);
+    eval.obarray
+        .set_symbol_value("keyboard-coding-system", Value::NIL);
+
+    let rendered =
+        builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%z")]).expect("tty coding z");
+    assert_eq!(rendered, Value::string("UUU"));
+}
+
+#[test]
 fn test_format_mode_line_tty_big_z_uses_live_coding_manager_state_and_eol_indicator() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -1021,6 +1052,25 @@ fn test_format_mode_line_tty_big_z_uses_live_coding_manager_state_and_eol_indica
     let rendered =
         builtin_format_mode_line_ctx(&mut eval, vec![Value::string("%Z")]).expect("tty coding Z");
     assert_eq!(rendered, Value::string("UUU:"));
+}
+
+#[test]
+fn test_format_mode_line_propertize_display_min_width_matches_gnu_spacing() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let display = Value::list(vec![
+        Value::symbol("min-width"),
+        Value::list(vec![Value::make_float(6.0)]),
+    ]);
+    let format = Value::list(vec![
+        Value::symbol(":propertize"),
+        Value::string("All"),
+        Value::symbol("display"),
+        display,
+    ]);
+
+    let rendered = builtin_format_mode_line_ctx(&mut eval, vec![format]).expect("mode-line");
+    assert_eq!(rendered, Value::string("All   "));
 }
 
 #[test]

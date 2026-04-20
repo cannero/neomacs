@@ -3115,6 +3115,40 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
+    crate::test_utils::init_test_tracing();
+
+    let (unix_text, unix_coding) =
+        super::decode_insert_file_contents(b"alpha line\nbeta line\n", true, false, None)
+            .expect("decode ascii unix text");
+    assert_eq!(unix_text, "alpha line\nbeta line\n");
+    assert_eq!(unix_coding, "undecided-unix");
+
+    let (dos_text, dos_coding) =
+        super::decode_insert_file_contents(b"alpha line\r\nbeta line\r\n", true, false, None)
+            .expect("decode ascii dos text");
+    assert_eq!(dos_text, "alpha line\r\nbeta line\r\n");
+    assert_eq!(dos_coding, "undecided-dos");
+}
+
+#[test]
+fn decode_insert_file_contents_defaults_to_gnu_utf8_coding_for_non_ascii_text() {
+    crate::test_utils::init_test_tracing();
+
+    let (text, coding) =
+        super::decode_insert_file_contents("alpha cafe\n".as_bytes(), true, false, None)
+            .expect("decode utf-8 text");
+    assert_eq!(text, "alpha cafe\n");
+    assert_eq!(coding, "undecided-unix");
+
+    let (text, coding) =
+        super::decode_insert_file_contents("alpha caf\u{00E9}\n".as_bytes(), true, false, None)
+            .expect("decode utf-8 accented text");
+    assert_eq!(text, "alpha caf\u{00E9}\n");
+    assert_eq!(coding, "utf-8-unix");
+}
+
 #[cfg(unix)]
 #[test]
 fn builtin_insert_file_contents_handles_raw_unibyte_filename() {

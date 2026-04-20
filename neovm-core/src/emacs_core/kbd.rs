@@ -90,79 +90,10 @@ pub(crate) fn key_events_from_designator(
         ValueKind::String => {
             // For strings used as key sequences (define-key, lookup-key, etc.),
             // each character IS a key event — no kbd-style text parsing.
-            // This matches official Emacs behavior where "\C-x8" is two events:
-            // char 24 (C-x) and char 56 (8).
-            let s = match designator.as_utf8_str() {
-                Some(s) => s.to_owned(),
-                None => {
-                    let ls = designator.as_lisp_string().unwrap();
-                    super::emacs_char::to_utf8_lossy(ls.as_bytes())
-                }
-            };
-            Ok(s.chars()
-                .map(|ch| {
-                    let code_u32 = ch as u32;
-                    // NeoVM unibyte sentinel range: our string_escape module
-                    // stores unibyte chars 0x80..0xFF as U+E300..U+E3FF.
-                    // Decode back to the raw byte, then apply meta logic.
-                    let raw_byte = if (0xE300..=0xE3FF).contains(&code_u32) {
-                        Some((code_u32 - 0xE300) as u8)
-                    } else {
-                        None
-                    };
-
-                    if let Some(byte) = raw_byte {
-                        // Unibyte sentinel: byte 128-255 = Meta + (byte - 128)
-                        if byte >= 0x80 {
-                            let base_byte = byte - 0x80;
-                            let base =
-                                char::from_u32(base_byte as u32).expect("ASCII byte must decode");
-                            KeyEvent::Char {
-                                code: base,
-                                ctrl: false,
-                                meta: true,
-                                shift: false,
-                                super_: false,
-                                hyper: false,
-                                alt: false,
-                            }
-                        } else {
-                            let base = char::from_u32(byte as u32).expect("byte must decode");
-                            KeyEvent::Char {
-                                code: base,
-                                ctrl: false,
-                                meta: false,
-                                shift: false,
-                                super_: false,
-                                hyper: false,
-                                alt: false,
-                            }
-                        }
-                    } else if (0x80..=0xFF).contains(&code_u32) {
-                        // Direct unibyte: chars 128-255 = Meta + (char - 128)
-                        let base = char::from_u32(code_u32 - 0x80).expect("ASCII byte must decode");
-                        KeyEvent::Char {
-                            code: base,
-                            ctrl: false,
-                            meta: true,
-                            shift: false,
-                            super_: false,
-                            hyper: false,
-                            alt: false,
-                        }
-                    } else {
-                        KeyEvent::Char {
-                            code: ch,
-                            ctrl: false,
-                            meta: false,
-                            shift: false,
-                            super_: false,
-                            hyper: false,
-                            alt: false,
-                        }
-                    }
-                })
-                .collect())
+            // Decode the original Lisp-string bytes directly so raw unibyte
+            // meta bytes like "\M-v" survive intact instead of turning into
+            // U+FFFD via lossy UTF-8 conversion.
+            decode_string_key_events(designator).map_err(KeyDesignatorError::Parse)
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             decode_encoded_key_events(designator).map_err(KeyDesignatorError::Parse)
@@ -173,76 +104,7 @@ pub(crate) fn key_events_from_designator(
 
 fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
     match encoded.kind() {
-        ValueKind::String => {
-            let s = match encoded.as_utf8_str() {
-                Some(s) => s.to_owned(),
-                None => {
-                    let ls = encoded.as_lisp_string().unwrap();
-                    super::emacs_char::to_utf8_lossy(ls.as_bytes())
-                }
-            };
-            Ok(s.chars()
-                .map(|ch| {
-                    let code_u32 = ch as u32;
-                    // NeoVM unibyte sentinel range (0xE300..0xE3FF)
-                    let raw_byte = if (0xE300..=0xE3FF).contains(&code_u32) {
-                        Some((code_u32 - 0xE300) as u8)
-                    } else {
-                        None
-                    };
-
-                    if let Some(byte) = raw_byte {
-                        if byte >= 0x80 {
-                            let base = (byte - 0x80) as u32;
-                            let base_char = char::from_u32(base).expect("ASCII byte must decode");
-                            KeyEvent::Char {
-                                code: base_char,
-                                ctrl: false,
-                                meta: true,
-                                shift: false,
-                                super_: false,
-                                hyper: false,
-                                alt: false,
-                            }
-                        } else {
-                            let base_char = char::from_u32(byte as u32).expect("byte must decode");
-                            KeyEvent::Char {
-                                code: base_char,
-                                ctrl: false,
-                                meta: false,
-                                shift: false,
-                                super_: false,
-                                hyper: false,
-                                alt: false,
-                            }
-                        }
-                    } else if (0x80..=0xFF).contains(&code_u32) {
-                        // Direct unibyte: chars 128-255 encode Meta + (char - 128)
-                        let base = code_u32 - 0x80;
-                        let base_char = char::from_u32(base).expect("ASCII byte must decode");
-                        KeyEvent::Char {
-                            code: base_char,
-                            ctrl: false,
-                            meta: true,
-                            shift: false,
-                            super_: false,
-                            hyper: false,
-                            alt: false,
-                        }
-                    } else {
-                        KeyEvent::Char {
-                            code: ch,
-                            ctrl: false,
-                            meta: false,
-                            shift: false,
-                            super_: false,
-                            hyper: false,
-                            alt: false,
-                        }
-                    }
-                })
-                .collect())
-        }
+        ValueKind::String => decode_string_key_events(encoded),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = encoded.as_vector_data().unwrap().clone();
             items.iter().map(decode_vector_event).collect()
@@ -251,6 +113,78 @@ fn decode_encoded_key_events(encoded: &Value) -> Result<Vec<KeyEvent>, String> {
             "expected kbd-encoded string or vector, got {}",
             encoded.type_name()
         )),
+    }
+}
+
+fn decode_string_key_events(value: &Value) -> Result<Vec<KeyEvent>, String> {
+    let ls = value
+        .as_lisp_string()
+        .ok_or_else(|| format!("expected string key designator, got {}", value.type_name()))?;
+    let mut out = Vec::with_capacity(ls.schars());
+
+    if ls.is_multibyte() {
+        let mut pos = 0usize;
+        while pos < ls.as_bytes().len() {
+            let (code, len) = super::emacs_char::string_char(&ls.as_bytes()[pos..]);
+            out.push(key_event_from_char_code(code));
+            pos += len;
+        }
+    } else {
+        for &byte in ls.as_bytes() {
+            out.push(key_event_from_char_code(super::emacs_char::byte8_to_char(
+                byte,
+            )));
+        }
+    }
+
+    Ok(out)
+}
+
+fn key_event_from_char_code(code: u32) -> KeyEvent {
+    if super::emacs_char::char_byte8_p(code) {
+        let byte = super::emacs_char::char_to_byte8(code);
+        return key_event_from_unibyte(byte);
+    }
+
+    // Key sequence strings treat character codes 128..255 as Meta + low 7 bits.
+    if (0x80..=0xFF).contains(&code) {
+        return key_event_from_unibyte(code as u8);
+    }
+
+    KeyEvent::Char {
+        code: char::from_u32(code).unwrap_or('\u{FFFD}'),
+        ctrl: false,
+        meta: false,
+        shift: false,
+        super_: false,
+        hyper: false,
+        alt: false,
+    }
+}
+
+fn key_event_from_unibyte(byte: u8) -> KeyEvent {
+    if byte >= 0x80 {
+        let base = char::from_u32((byte - 0x80) as u32).expect("ASCII byte must decode");
+        KeyEvent::Char {
+            code: base,
+            ctrl: false,
+            meta: true,
+            shift: false,
+            super_: false,
+            hyper: false,
+            alt: false,
+        }
+    } else {
+        let base = char::from_u32(byte as u32).expect("byte must decode");
+        KeyEvent::Char {
+            code: base,
+            ctrl: false,
+            meta: false,
+            shift: false,
+            super_: false,
+            hyper: false,
+            alt: false,
+        }
     }
 }
 

@@ -645,7 +645,7 @@ fn build_mode_line_percent_context(
 
     // --- Coding system mnemonic (GNU: decode_mode_spec_coding) ---
     let cs_name = context_buffer
-        .and_then(|b| b.get_buffer_local("buffer-file-coding-system"))
+        .and_then(|b| b.buffer_local_value("buffer-file-coding-system"))
         .and_then(|v| v.as_symbol_id());
     if let Some(name) = cs_name {
         ctx.coding_mnemonic = coding_system_mnemonic_char(name);
@@ -924,6 +924,16 @@ impl ModeLineRendered {
         self.text.extend(std::iter::repeat_n(' ', padding_chars));
     }
 
+    fn apply_display_min_width(&mut self, props: Value) {
+        let Some(min_width) = mode_line_display_min_width_chars(props) else {
+            return;
+        };
+        let current_width = self.char_len();
+        if current_width < min_width {
+            self.pad_plain_spaces(min_width - current_width);
+        }
+    }
+
     fn overlay_properties(&mut self, props: Value) {
         if self.text.is_empty() {
             return;
@@ -1015,6 +1025,39 @@ impl ModeLineRendered {
         }
         value
     }
+}
+
+fn mode_line_display_min_width_chars(props: Value) -> Option<usize> {
+    let items = list_to_vec(&props)?;
+    for chunk in items.chunks(2) {
+        if chunk.len() != 2 || !chunk[0].is_symbol_named("display") {
+            continue;
+        }
+        if let Some(width) = mode_line_display_spec_min_width_chars(chunk[1]) {
+            return Some(width);
+        }
+    }
+    None
+}
+
+fn mode_line_display_spec_min_width_chars(value: Value) -> Option<usize> {
+    if !value.is_cons() || !value.cons_car().is_symbol_named("min-width") {
+        return None;
+    }
+    mode_line_display_width_chars(value.cons_cdr().cons_car())
+}
+
+fn mode_line_display_width_chars(value: Value) -> Option<usize> {
+    if let Some(width) = value.as_fixnum().filter(|width| *width > 0) {
+        return Some(width as usize);
+    }
+    if let Some(width) = value.as_float().filter(|width| *width > 0.0) {
+        return Some(width.ceil() as usize);
+    }
+    if value.is_cons() {
+        return mode_line_display_width_chars(value.cons_car());
+    }
+    None
 }
 
 fn resolve_mode_line_face_spec(args: &[Value]) -> ModeLineFaceSpec {
@@ -1208,6 +1251,7 @@ fn format_mode_line_recursive(
                     let elt = cdr.cons_car();
                     let mut nested = ModeLineRendered::default();
                     format_mode_line_recursive(eval, pctx, &elt, &mut nested, depth + 1, risky);
+                    nested.apply_display_min_width(cdr.cons_cdr());
                     nested.overlay_properties(cdr.cons_cdr());
                     result.append_rendered(&nested);
                 }
@@ -1335,6 +1379,7 @@ fn format_mode_line_recursive_in_state(
                         depth + 1,
                         risky,
                     );
+                    nested.apply_display_min_width(cdr.cons_cdr());
                     nested.overlay_properties(cdr.cons_cdr());
                     result.append_rendered(&nested);
                     return needs_eval;
@@ -1518,6 +1563,7 @@ fn format_mode_line_recursive_in_state_with_eval(
                         risky,
                         eval_form,
                     )?;
+                    nested.apply_display_min_width(cdr.cons_cdr());
                     nested.overlay_properties(cdr.cons_cdr());
                     result.append_rendered(&nested);
                 }
@@ -1718,6 +1764,7 @@ fn format_mode_line_recursive_in_vm_runtime(
                         depth + 1,
                         risky,
                     )?;
+                    nested.apply_display_min_width(cdr.cons_cdr());
                     nested.overlay_properties(cdr.cons_cdr());
                     result.append_rendered(&nested);
                 }

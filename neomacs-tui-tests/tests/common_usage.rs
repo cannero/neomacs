@@ -477,3 +477,79 @@ fn undo_edit_via_cx_u() {
 
     assert_pair_nearly_matches("undo_edit_via_cx_u", &gnu, &neo, 2);
 }
+
+#[test]
+fn scroll_page_down_and_up_via_cv_mv() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=80 {
+        contents.push_str(&format!("scroll line {line:02}\n"));
+    }
+    open_home_file(&mut gnu, &mut neo, "scroll-usage.txt", &contents, "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-v");
+    let paged = |grid: &[String]| grid.iter().any(|row| row.contains("scroll line 20"));
+    gnu.read_until(Duration::from_secs(6), paged);
+    neo.read_until(Duration::from_secs(8), paged);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-v");
+    let returned = |grid: &[String]| grid.iter().any(|row| row.contains("scroll line 01"));
+    gnu.read_until(Duration::from_secs(6), returned);
+    neo.read_until(Duration::from_secs(8), returned);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("scroll_page_down_and_up_via_cv_mv", &gnu, &neo, 2);
+}
+
+#[test]
+fn goto_buffer_end_and_beginning_via_mgt_mlt() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=60 {
+        contents.push_str(&format!("edge line {line:02}\n"));
+    }
+    open_home_file(&mut gnu, &mut neo, "edge-usage.txt", &contents, "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "M->");
+    let at_end = |grid: &[String]| grid.iter().any(|row| row.contains("edge line 60"));
+    gnu.read_until(Duration::from_secs(6), at_end);
+    neo.read_until(Duration::from_secs(8), at_end);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    let at_start = |grid: &[String]| grid.iter().any(|row| row.contains("edge line 01"));
+    gnu.read_until(Duration::from_secs(6), at_start);
+    neo.read_until(Duration::from_secs(8), at_start);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("goto_buffer_end_and_beginning_via_mgt_mlt", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_word_via_md() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-word.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "SPC");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-d");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_word_via_md", &gnu, &neo, 2);
+}

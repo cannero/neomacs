@@ -8494,6 +8494,7 @@ impl Context {
     pub(crate) fn defalias_value(&mut self, sym: Value, def: Value) -> EvalResult {
         let plan = builtins::plan_defalias_in_obarray(self.obarray(), &[sym, def])?;
         let builtins::DefaliasPlan { action, result, .. } = plan;
+        self.loadhist_attach(Value::cons(Value::symbol("defun"), result));
         match action {
             builtins::DefaliasAction::SetFunction { symbol, definition } => {
                 self.note_macro_expansion_mutation();
@@ -8510,6 +8511,48 @@ impl Context {
         Ok(result)
     }
 
+    fn current_load_list_is_file_context(current_load_list: Value) -> bool {
+        let mut tail = current_load_list;
+        while tail.is_cons() {
+            if tail.cons_cdr().is_nil() && tail.cons_car().is_string() {
+                return true;
+            }
+            tail = tail.cons_cdr();
+        }
+        false
+    }
+
+    pub(crate) fn loadhist_attach(&mut self, entry: Value) {
+        self.loadhist_attach_inner(entry, false);
+    }
+
+    pub(crate) fn loadhist_attach_once(&mut self, entry: Value) {
+        self.loadhist_attach_inner(entry, true);
+    }
+
+    fn loadhist_attach_inner(&mut self, entry: Value, dedup: bool) {
+        let current_load_list = self.visible_variable_value_or_nil("current-load-list");
+        if !Self::current_load_list_is_file_context(current_load_list) {
+            return;
+        }
+
+        if dedup {
+            let mut cursor = current_load_list;
+            while cursor.is_cons() {
+                if equal_value(&cursor.cons_car(), &entry, 0) {
+                    return;
+                }
+                cursor = cursor.cons_cdr();
+            }
+        }
+
+        let roots = self.save_specpdl_roots();
+        self.push_specpdl_root(current_load_list);
+        self.push_specpdl_root(entry);
+        self.set_variable("current-load-list", Value::cons(entry, current_load_list));
+        self.restore_specpdl_roots(roots);
+    }
+
     #[tracing::instrument(level = "info", skip(self, subfeatures))]
     pub(crate) fn provide_value(
         &mut self,
@@ -8518,6 +8561,7 @@ impl Context {
     ) -> EvalResult {
         self.note_macro_expansion_mutation();
         provide_value_in_state(&mut self.obarray, &mut self.features, feature, subfeatures)?;
+        self.loadhist_attach(Value::cons(Value::symbol("provide"), feature));
         // GNU Emacs Fprovide (fns.c): after adding the feature, run any
         // load-hooks registered in `after-load-alist`.
         //   tem = Fassq(feature, Vafter_load_alist);
@@ -8603,29 +8647,33 @@ impl Context {
                 );
                 return Err(e);
             }
-            Ok(plan) => match plan {
-                RequirePlan::Return(value) => Ok(value),
-                RequirePlan::Load { sym_id, name, path } => {
-                    self.require_stack.push(sym_id);
-                    let result = (|| -> EvalResult {
-                        self.load_file_internal(&path)?;
-                        self.refresh_features_from_variable();
-                        finish_require_in_state(&self.features, sym_id, &name)
-                    })();
-                    let _ = self.require_stack.pop();
-                    if let Err(ref e) = result {
-                        let noerror_val = noerror.as_ref().map(|v| !v.is_nil()).unwrap_or(false);
-                        let path_str = path.display().to_string();
-                        tracing::error!(
-                            feature_name = ?feature_name,
-                            path = %path_str,
-                            noerror = noerror_val,
-                            "require failed: {:?}", e
-                        );
+            Ok(plan) => {
+                self.loadhist_attach_once(Value::cons(Value::symbol("require"), feature));
+                match plan {
+                    RequirePlan::Return(value) => Ok(value),
+                    RequirePlan::Load { sym_id, name, path } => {
+                        self.require_stack.push(sym_id);
+                        let result = (|| -> EvalResult {
+                            self.load_file_internal(&path)?;
+                            self.refresh_features_from_variable();
+                            finish_require_in_state(&self.features, sym_id, &name)
+                        })();
+                        let _ = self.require_stack.pop();
+                        if let Err(ref e) = result {
+                            let noerror_val =
+                                noerror.as_ref().map(|v| !v.is_nil()).unwrap_or(false);
+                            let path_str = path.display().to_string();
+                            tracing::error!(
+                                feature_name = ?feature_name,
+                                path = %path_str,
+                                noerror = noerror_val,
+                                "require failed: {:?}", e
+                            );
+                        }
+                        result
                     }
-                    result
                 }
-            },
+            }
         }
     }
 

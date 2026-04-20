@@ -165,6 +165,25 @@ fn key_events_from_designator_accepts_kbd_string_and_vector() {
 }
 
 #[test]
+fn key_events_from_designator_preserves_raw_unibyte_meta_bytes() {
+    crate::test_utils::init_test_tracing();
+    let raw = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xF6]));
+    let events = key_events_from_designator(&raw).expect("decode raw unibyte meta-v");
+    assert_eq!(
+        events,
+        vec![KeyEvent::Char {
+            code: 'v',
+            ctrl: false,
+            meta: true,
+            shift: false,
+            super_: false,
+            hyper: false,
+            alt: false,
+        }]
+    );
+}
+
+#[test]
 fn key_events_from_designator_decodes_symbol_events() {
     crate::test_utils::init_test_tracing();
     let events = key_events_from_designator(&Value::vector(vec![Value::symbol("C-f1")]))

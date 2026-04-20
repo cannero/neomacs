@@ -397,6 +397,7 @@ pub(crate) fn builtin_defalias(eval: &mut super::eval::Context, args: Vec<Value>
         docstring,
         result,
     } = plan;
+    eval.loadhist_attach(Value::cons(Value::symbol("defun"), result));
     match action {
         DefaliasAction::SetFunction { symbol, definition } => {
             eval.obarray_mut()

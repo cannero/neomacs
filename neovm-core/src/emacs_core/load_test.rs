@@ -6,7 +6,7 @@ use crate::emacs_core::fontset::{
 use crate::emacs_core::format_eval_result;
 use crate::emacs_core::intern::{intern, resolve_sym};
 use crate::emacs_core::value::{
-    HashKey, HashTableTest, Value, ValueKind, VecLikeType, list_to_vec,
+    HashKey, HashTableTest, Value, ValueKind, VecLikeType, equal_value, list_to_vec,
 };
 use crate::test_utils::load_minimal_gnu_help_runtime;
 use std::fs;
@@ -2394,6 +2394,7 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
         r#"(list
              (lookup-key (current-global-map) "\e")
              (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\ev")
              (lookup-key (current-global-map) "\C-x")
              (lookup-key ctl-x-map "2")
              (lookup-key ctl-x-map "3")
@@ -2402,7 +2403,7 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command scroll-down-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
     );
 }
 
@@ -2462,6 +2463,7 @@ fn partial_bootstrap_subr_defines_gnu_prefix_maps_before_bindings() {
         r#"(list
              (lookup-key (current-global-map) "\e")
              (lookup-key esc-map "x")
+             (lookup-key (current-global-map) "\ev")
              (lookup-key (current-global-map) "\C-x")
              (lookup-key ctl-x-map "4")
              (lookup-key ctl-x-map "5")
@@ -2469,7 +2471,7 @@ fn partial_bootstrap_subr_defines_gnu_prefix_maps_before_bindings() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap))"
+        "OK (ESC-prefix execute-extended-command scroll-down-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap))"
     );
 }
 
@@ -4333,6 +4335,78 @@ fn load_file_records_load_history() {
         eval.obarray().symbol_value("load-file-name").cloned(),
         Some(Value::NIL)
     );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn load_file_records_gnu_style_defalias_provide_and_require_history_items() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-history-defs-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+
+    let dep = dir.join("dep.el");
+    fs::write(&dep, "(provide 'vm-loadhist-dep)\n").expect("write dependency");
+
+    let main = dir.join("main.el");
+    fs::write(
+        &main,
+        &format!(
+            "(require 'vm-loadhist-dep {:?})\n\
+         (defalias 'vm-loadhist-main-fn #'ignore)\n\
+         (provide 'vm-loadhist-main)\n",
+            dep.to_string_lossy().to_string()
+        ),
+    )
+    .expect("write main fixture");
+
+    let mut eval = Context::new();
+    let loaded = load_file(&mut eval, &main).expect("load file");
+    assert_eq!(loaded, Value::T);
+
+    let history = eval
+        .obarray()
+        .symbol_value("load-history")
+        .cloned()
+        .unwrap_or(Value::NIL);
+    let entries = list_to_vec(&history).expect("load-history is a list");
+
+    let entry_for = |path: &std::path::Path| {
+        entries.iter().find_map(|entry| {
+            let items = list_to_vec(entry)?;
+            (items.first().and_then(|value| value.as_utf8_str())
+                == Some(path.to_string_lossy().as_ref()))
+            .then_some(items)
+        })
+    };
+
+    let dep_entry = entry_for(&dep).expect("dependency load-history entry");
+    assert!(dep_entry.iter().skip(1).any(|item| equal_value(
+        item,
+        &Value::cons(Value::symbol("provide"), Value::symbol("vm-loadhist-dep")),
+        0
+    )));
+
+    let main_entry = entry_for(&main).expect("main load-history entry");
+    assert!(main_entry.iter().skip(1).any(|item| equal_value(
+        item,
+        &Value::cons(Value::symbol("require"), Value::symbol("vm-loadhist-dep")),
+        0
+    )));
+    assert!(main_entry.iter().skip(1).any(|item| equal_value(
+        item,
+        &Value::cons(Value::symbol("defun"), Value::symbol("vm-loadhist-main-fn")),
+        0
+    )));
+    assert!(main_entry.iter().skip(1).any(|item| equal_value(
+        item,
+        &Value::cons(Value::symbol("provide"), Value::symbol("vm-loadhist-main")),
+        0
+    )));
 
     let _ = fs::remove_dir_all(&dir);
 }

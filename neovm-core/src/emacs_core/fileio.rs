@@ -3783,6 +3783,30 @@ fn decode_insert_file_contents(
     source_load_context: bool,
     coding_system_for_read: Option<&str>,
 ) -> Result<(String, String), Flow> {
+    let detected_default_eol_suffix = |bytes: &[u8]| {
+        let mut saw_crlf = false;
+        let mut saw_lone_cr = false;
+        let mut idx = 0;
+        while idx < bytes.len() {
+            if bytes[idx] == b'\r' {
+                if bytes.get(idx + 1) == Some(&b'\n') {
+                    saw_crlf = true;
+                    idx += 1;
+                } else {
+                    saw_lone_cr = true;
+                }
+            }
+            idx += 1;
+        }
+        if saw_crlf && !saw_lone_cr {
+            "-dos"
+        } else if saw_lone_cr && !saw_crlf {
+            "-mac"
+        } else {
+            "-unix"
+        }
+    };
+
     let is_utf8_like_source_coding = |coding: &str| {
         let family = coding
             .strip_suffix("-unix")
@@ -3806,6 +3830,20 @@ fn decode_insert_file_contents(
             return Ok((
                 crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes),
                 "no-conversion".to_string(),
+            ));
+        }
+
+        let eol_suffix = detected_default_eol_suffix(bytes);
+        if bytes.is_ascii() {
+            return Ok((
+                crate::encoding::decode_bytes(bytes, "utf-8-emacs"),
+                format!("undecided{eol_suffix}"),
+            ));
+        }
+        if std::str::from_utf8(bytes).is_ok() {
+            return Ok((
+                crate::encoding::decode_bytes(bytes, "utf-8-emacs"),
+                format!("utf-8{eol_suffix}"),
             ));
         }
 
