@@ -1702,6 +1702,98 @@ fn yank_pop_after_yank_via_my() {
 }
 
 #[test]
+fn universal_argument_insert_via_cu_8_a() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_both(&mut gnu, &mut neo, "C-u 8 a");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("aaaaaaaa"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("universal_argument_insert_via_cu_8_a", &gnu, &neo, 2);
+}
+
+#[test]
+fn transpose_words_via_mt() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "transpose-words.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-t");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta alpha gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("transpose_words_via_mt", &gnu, &neo, 2);
+}
+
+#[test]
+fn transpose_lines_via_cx_ct() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "transpose-lines.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-t");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta line"))
+            && grid.iter().any(|row| row.contains("alpha line"))
+            && grid.iter().any(|row| row.contains("gamma line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("transpose_lines_via_cx_ct", &gnu, &neo, 2);
+}
+
+#[test]
+fn just_one_space_via_mspc() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "just-one-space.txt",
+        "alpha   beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-SPC");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha   beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("just_one_space_via_mspc", &gnu, &neo, 2);
+}
+
+#[test]
 fn describe_bindings_via_ch_b() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "b");
