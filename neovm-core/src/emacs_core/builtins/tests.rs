@@ -4317,6 +4317,85 @@ fn intern_and_intern_soft_preserve_raw_unibyte_symbol_names() {
 }
 
 #[test]
+fn custom_obarray_intern_reuses_ascii_multibyte_symbol_names() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let obarray = dispatch_builtin(&mut eval, "obarray-make", vec![Value::fixnum(17)])
+        .expect("builtin obarray-make should resolve")
+        .expect("builtin obarray-make should evaluate");
+    let ascii_multibyte = Value::multibyte_string("/tmp/HELLO");
+
+    let first = dispatch_builtin(&mut eval, "intern", vec![ascii_multibyte, obarray])
+        .expect("builtin intern should resolve")
+        .expect("builtin intern should evaluate");
+    let second = dispatch_builtin(
+        &mut eval,
+        "intern",
+        vec![Value::multibyte_string("/tmp/HELLO"), obarray],
+    )
+    .expect("builtin intern should resolve")
+    .expect("builtin intern should evaluate");
+    let soft = dispatch_builtin(
+        &mut eval,
+        "intern-soft",
+        vec![Value::string("/tmp/HELLO"), obarray],
+    )
+    .expect("builtin intern-soft should resolve")
+    .expect("builtin intern-soft should evaluate");
+
+    assert_eq!(first, second);
+    assert_eq!(soft, first);
+
+    let stored_name = dispatch_builtin(&mut eval, "symbol-name", vec![first])
+        .expect("builtin symbol-name should resolve")
+        .expect("builtin symbol-name should evaluate")
+        .as_lisp_string()
+        .expect("symbol-name should return a string")
+        .clone();
+    assert_eq!(stored_name.as_bytes(), b"/tmp/HELLO");
+    assert!(!stored_name.is_multibyte());
+}
+
+#[test]
+fn custom_obarray_symbol_properties_roundtrip_for_ascii_multibyte_names() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let obarray = dispatch_builtin(&mut eval, "obarray-make", vec![Value::fixnum(17)])
+        .expect("builtin obarray-make should resolve")
+        .expect("builtin obarray-make should evaluate");
+    let first = dispatch_builtin(
+        &mut eval,
+        "intern",
+        vec![Value::multibyte_string("/tmp/HELLO"), obarray],
+    )
+    .expect("builtin intern should resolve")
+    .expect("builtin intern should evaluate");
+
+    let set = dispatch_builtin(
+        &mut eval,
+        "put",
+        vec![first, Value::symbol("vc-backend"), Value::symbol("Git")],
+    )
+    .expect("builtin put should resolve")
+    .expect("builtin put should evaluate");
+    assert_eq!(set, Value::symbol("Git"));
+
+    let second = dispatch_builtin(
+        &mut eval,
+        "intern",
+        vec![Value::multibyte_string("/tmp/HELLO"), obarray],
+    )
+    .expect("builtin intern should resolve")
+    .expect("builtin intern should evaluate");
+    let got = dispatch_builtin(&mut eval, "get", vec![second, Value::symbol("vc-backend")])
+        .expect("builtin get should resolve")
+        .expect("builtin get should evaluate");
+
+    assert_eq!(second, first);
+    assert_eq!(got, Value::symbol("Git"));
+}
+
+#[test]
 fn pure_dispatch_typed_math_ops_work() {
     crate::test_utils::init_test_tracing();
     let sqrt = dispatch_builtin_pure("sqrt", vec![Value::fixnum(4)])

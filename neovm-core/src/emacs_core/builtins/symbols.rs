@@ -1069,12 +1069,21 @@ pub(crate) fn builtin_macrop(eval: &mut super::eval::Context, args: Vec<Value>) 
 
 /// Hash a string for custom obarray bucket index.
 pub(crate) fn obarray_hash_lisp_string(s: &crate::heap_types::LispString, len: usize) -> usize {
-    let hash = s
-        .as_bytes()
-        .iter()
-        .fold(if s.is_multibyte() { 1u64 } else { 0u64 }, |h, b| {
-            h.wrapping_mul(31).wrapping_add(*b as u64)
-        });
+    let normalized = if s.is_ascii() && s.is_multibyte() {
+        std::borrow::Cow::Owned(crate::heap_types::LispString::from_unibyte(
+            s.as_bytes().to_vec(),
+        ))
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    };
+    let hash = normalized.as_bytes().iter().fold(
+        if normalized.is_multibyte() {
+            1u64
+        } else {
+            0u64
+        },
+        |h, b| h.wrapping_mul(31).wrapping_add(*b as u64),
+    );
     hash as usize % len
 }
 
@@ -1091,6 +1100,13 @@ pub(crate) fn obarray_bucket_find(
     bucket: Value,
     name: &crate::heap_types::LispString,
 ) -> Option<Value> {
+    let normalized = if name.is_ascii() && name.is_multibyte() {
+        std::borrow::Cow::Owned(crate::heap_types::LispString::from_unibyte(
+            name.as_bytes().to_vec(),
+        ))
+    } else {
+        std::borrow::Cow::Borrowed(name)
+    };
     let mut current = bucket;
     loop {
         match current.kind() {
@@ -1099,7 +1115,7 @@ pub(crate) fn obarray_bucket_find(
                 let car = current.cons_car();
                 let cdr = current.cons_cdr();
                 if let Some(sym_name) = car.as_symbol_lisp_string() {
-                    if sym_name == name {
+                    if sym_name == normalized.as_ref() {
                         return Some(car);
                     }
                 }
