@@ -465,7 +465,7 @@ pub(crate) fn builtin_hash_table_test(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-test", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = args[0].as_hash_table().unwrap().clone();
+            let table = args[0].as_hash_table().unwrap();
             if let Some(id) = table.test_name {
                 Ok(Value::from_sym_id(id))
             } else {
@@ -489,7 +489,7 @@ pub(crate) fn builtin_hash_table_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-size", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = args[0].as_hash_table().unwrap().clone();
+            let table = args[0].as_hash_table().unwrap();
             Ok(Value::fixnum(table.size))
         }
         _ => Err(signal(
@@ -504,7 +504,7 @@ pub(crate) fn builtin_hash_table_rehash_size(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-rehash-size", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = args[0].as_hash_table().unwrap().clone();
+            let table = args[0].as_hash_table().unwrap();
             Ok(Value::make_float(table.rehash_size))
         }
         _ => Err(signal(
@@ -519,7 +519,7 @@ pub(crate) fn builtin_hash_table_rehash_threshold(args: Vec<Value>) -> EvalResul
     expect_args("hash-table-rehash-threshold", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = args[0].as_hash_table().unwrap().clone();
+            let table = args[0].as_hash_table().unwrap();
             Ok(Value::make_float(table.rehash_threshold))
         }
         _ => Err(signal(
@@ -534,7 +534,7 @@ pub(crate) fn builtin_hash_table_weakness(args: Vec<Value>) -> EvalResult {
     expect_args("hash-table-weakness", &args, 1)?;
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let table = args[0].as_hash_table().unwrap().clone();
+            let table = args[0].as_hash_table().unwrap();
             Ok(match table.weakness {
                 None => Value::NIL,
                 Some(HashTableWeakness::Key) => Value::symbol("key"),

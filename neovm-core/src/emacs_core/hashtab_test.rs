@@ -93,6 +93,29 @@ fn hash_table_rehash_options_are_ignored() {
 }
 
 #[test]
+fn gethash_large_table_lookup_does_not_copy_table() {
+    crate::test_utils::init_test_tracing();
+    let table = Value::hash_table(HashTableTest::Eq);
+    let entries = 20_000;
+
+    for i in 0..entries {
+        builtin_puthash(vec![Value::fixnum(i), Value::fixnum(i * 2), table]).unwrap();
+    }
+
+    let start = std::time::Instant::now();
+    for i in 0..entries {
+        let value = builtin_gethash(vec![Value::fixnum(i), table]).unwrap();
+        assert_eq!(value, Value::fixnum(i * 2));
+    }
+
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "gethash on a large table should borrow the table, not copy it; elapsed={elapsed:?}"
+    );
+}
+
+#[test]
 fn sxhash_variants_return_fixnums_and_preserve_hash_contracts() {
     crate::test_utils::init_test_tracing();
     assert!(

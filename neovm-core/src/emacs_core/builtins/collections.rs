@@ -541,7 +541,7 @@ pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
     let default = if args.len() > 2 { args[2] } else { Value::NIL };
     match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let ht = args[1].as_hash_table().unwrap().clone();
+            let ht = args[1].as_hash_table().unwrap();
             let key = args[0].to_hash_key(&ht.test);
             Ok(ht.data.get(&key).cloned().unwrap_or(default))
         }
