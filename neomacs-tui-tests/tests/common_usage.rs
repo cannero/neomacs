@@ -1882,6 +1882,81 @@ fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
 }
 
 #[test]
+fn delete_indentation_via_mcaret() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-indentation.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-^");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha line beta line"))
+            && !grid.iter().any(|row| row.contains("alpha line\n"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("delete_indentation_via_mcaret", &gnu, &neo, 2);
+}
+
+#[test]
+fn back_to_indentation_then_insert_via_mm() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "back-to-indentation.txt",
+        "    alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-m");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("    Xalpha beta"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("back_to_indentation_then_insert_via_mm", &gnu, &neo, 2);
+}
+
+#[test]
+fn zap_to_char_via_mz_spc() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "zap-to-char.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-z SPC");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("zap_to_char_via_mz_spc", &gnu, &neo, 2);
+}
+
+#[test]
 fn describe_bindings_via_ch_b() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "b");

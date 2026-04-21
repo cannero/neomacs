@@ -3285,6 +3285,35 @@ fn bootstrap_runtime_read_key_sequence_from_input_rx_leaves_following_minibuffer
 }
 
 #[test]
+fn bootstrap_runtime_read_char_from_minibuffer_exits_after_first_self_insert() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char(' '),
+    ))
+    .expect("queue space");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let result = eval
+        .eval_str(
+            r#"(condition-case err
+                  (list
+                   (read-char-from-minibuffer "Zap to char: " nil 'read-char-history)
+                   last-command-event
+                   minibuffer-depth)
+                (error
+                 (list :error (car err) (cdr err) last-command-event minibuffer-depth)))"#,
+        )
+        .expect("read-char-from-minibuffer should return after the first self-insert");
+
+    assert_eq!(format!("{result}"), "(32 32 0)");
+}
+
+#[test]
 fn bootstrap_runtime_save_some_buffers_space_saves_modified_file() {
     init_test_tracing();
     let dir = tempdir().expect("save-some tempdir");

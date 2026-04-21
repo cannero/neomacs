@@ -5076,7 +5076,7 @@ impl Context {
             // hook function is removed instead of re-firing on every
             // command. Finding 7 — GNU `keyboard.c:1361`
             // (`safe_run_hooks (Qpre_command_hook)`).
-            self.safe_run_hook_if_bound("pre-command-hook");
+            self.safe_run_hook_if_bound("pre-command-hook")?;
 
             // GNU `keyboard.c:1530-1534` adds undo boundaries here, after
             // `pre-command-hook` and before command execution, so the
@@ -5153,7 +5153,7 @@ impl Context {
             let _ = self.update_active_region_selection_after_command();
 
             // Run post-command-hook via safe-run-hooks (Finding 7).
-            self.safe_run_hook_if_bound("post-command-hook");
+            self.safe_run_hook_if_bound("post-command-hook")?;
 
             // Reset this-original-command for the next iteration so
             // a fresh command starts the cycle clean (mirroring
@@ -5270,7 +5270,7 @@ impl Context {
     /// `safe_run_hooks (Qhook_name)` at
     /// `src/keyboard.c:1361,1485` and `src/eval.c:2779-2830`.
     /// Keyboard audit Finding 7.
-    fn safe_run_hook_if_bound(&mut self, hook_name: &str) {
+    fn safe_run_hook_if_bound(&mut self, hook_name: &str) -> EvalResult {
         // GNU `keyboard.c:1970-1978` (`safe_run_hooks`):
         //
         //   void safe_run_hooks (Lisp_Object hook) {
@@ -5293,7 +5293,12 @@ impl Context {
         // through Lisp — matching GNU's keyboard.c which calls the
         // C function, not the Lisp wrapper.
         let hook_sym = super::intern::intern(hook_name);
-        let _ = super::hook_runtime::safe_run_named_hook(self, hook_sym, &[]);
+        // `safe_run_hook_funcall` only swallows ordinary `error`
+        // signals.  Nonlocal exits like `throw`/`quit` still escape
+        // the command loop, and `read-char-from-minibuffer` relies on
+        // that when its local `post-command-hook` calls
+        // `exit-minibuffer`.
+        super::hook_runtime::safe_run_named_hook(self, hook_sym, &[])
     }
 
     fn executing_kbd_macro_iteration_complete_for_command_loop(&self) -> bool {
