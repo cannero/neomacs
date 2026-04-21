@@ -1377,6 +1377,10 @@ impl Frame {
                 params.insert(Value::symbol("foreground-color"), Value::string("black"));
                 params.insert(Value::symbol("background-color"), Value::string("white"));
                 params.insert(Value::symbol("cursor-color"), Value::string("black"));
+                // GNU terminal frames expose a numeric tab-bar-lines frame
+                // parameter even when the tab bar is disabled. Lisp window
+                // deletion code compares it with `>`, so nil is not compatible.
+                params.insert(Value::symbol("tab-bar-lines"), Value::fixnum(0));
                 params
             },
             visible: true,

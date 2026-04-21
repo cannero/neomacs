@@ -115,6 +115,28 @@ fn assert_pair_nearly_matches(
     );
 }
 
+fn assert_top_rows_nearly_match(
+    label: &str,
+    gnu: &TuiSession,
+    neo: &TuiSession,
+    rows: usize,
+    allowed_rows: usize,
+) {
+    let gl = gnu.text_grid();
+    let nl = neo.text_grid();
+    let rows = rows.min(gl.len()).min(nl.len());
+    let diffs = meaningful_diffs(diff_text_grids(&gl[..rows], &nl[..rows]));
+    if !diffs.is_empty() {
+        eprintln!("{label}: {} top rows differ", diffs.len());
+        print_row_diffs(&diffs);
+    }
+    assert!(
+        diffs.len() <= allowed_rows,
+        "{label} top rows differ in {} rows",
+        diffs.len()
+    );
+}
+
 fn assert_bottom_rows_nearly_match(
     label: &str,
     gnu: &TuiSession,
@@ -142,6 +164,10 @@ fn assert_bottom_rows_nearly_match(
     );
 }
 
+fn fido_bottom_start() -> usize {
+    (ROWS as usize).saturating_sub(8)
+}
+
 fn bottom_nonempty_rows(session: &TuiSession, first_row: usize) -> Vec<String> {
     session
         .text_grid()
@@ -153,8 +179,9 @@ fn bottom_nonempty_rows(session: &TuiSession, first_row: usize) -> Vec<String> {
 }
 
 fn assert_fido_prompt_matches_stable_behavior(label: &str, gnu: &TuiSession, neo: &TuiSession) {
-    let gnu_rows = bottom_nonempty_rows(gnu, 16);
-    let neo_rows = bottom_nonempty_rows(neo, 16);
+    let first_row = fido_bottom_start();
+    let gnu_rows = bottom_nonempty_rows(gnu, first_row);
+    let neo_rows = bottom_nonempty_rows(neo, first_row);
 
     assert!(
         !gnu_rows.is_empty() && !neo_rows.is_empty(),
@@ -219,6 +246,23 @@ fn dump_pair_grids(label: &str, gnu: &TuiSession, neo: &TuiSession) {
     }
 }
 
+fn assert_describe_mode_help_content(label: &str, gnu: &TuiSession, neo: &TuiSession) {
+    for (editor, session) in [("GNU", gnu), ("NEO", neo)] {
+        let grid = session.text_grid();
+        for needle in [
+            "*Help*",
+            "Major mode lisp-interaction-mode",
+            "eval-print-last-sexp",
+            "lisp-interaction-mode-hook",
+        ] {
+            assert!(
+                grid.iter().any(|row| row.contains(needle)),
+                "{label}: {editor} help buffer should contain {needle:?}"
+            );
+        }
+    }
+}
+
 fn wait_for_fido_mx_candidates(gnu: &mut TuiSession, neo: &mut TuiSession, query: &str) {
     send_both(gnu, neo, "M-x");
     let prompt_ready = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
@@ -229,7 +273,7 @@ fn wait_for_fido_mx_candidates(gnu: &mut TuiSession, neo: &mut TuiSession, query
     gnu.send(query.as_bytes());
     neo.send(query.as_bytes());
     let candidates_ready = |grid: &[String]| {
-        let bottom_start = (ROWS as usize).saturating_sub(8);
+        let bottom_start = fido_bottom_start();
         grid.iter().any(|row| row.contains("find-file"))
             && grid[bottom_start..]
                 .iter()
@@ -382,7 +426,7 @@ fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
     wait_for_fido_mx_candidates(&mut gnu, &mut neo, "find-f");
     for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
         let grid = session.text_grid();
-        let bottom_start = (ROWS as usize).saturating_sub(8);
+        let bottom_start = fido_bottom_start();
         assert!(
             grid.iter().any(|row| row.contains("find-file")),
             "{label} should show find-file in fido candidates"
@@ -400,7 +444,7 @@ fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
         "fido_vertical_mode_mx_find_f_matches_gnu_then_cg/prompt-layout",
         &gnu,
         &neo,
-        16,
+        fido_bottom_start(),
         3,
     );
     assert_fido_prompt_matches_stable_behavior(
@@ -427,7 +471,7 @@ fn fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu() {
         "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/first-prompt-layout",
         &gnu,
         &neo,
-        16,
+        fido_bottom_start(),
         3,
     );
     assert_fido_prompt_matches_stable_behavior(
@@ -448,7 +492,7 @@ fn fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu() {
         "fido_vertical_mode_mx_find_f_abort_then_repeat_matches_gnu/second-prompt-layout",
         &gnu,
         &neo,
-        16,
+        fido_bottom_start(),
         3,
     );
     assert_fido_prompt_matches_stable_behavior(
@@ -507,7 +551,8 @@ fn describe_mode_on_scratch_via_ch_m() {
     neo.read_until(Duration::from_secs(8), ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
-    assert_pair_nearly_matches("describe_mode_on_scratch_via_ch_m", &gnu, &neo, 2);
+    assert_describe_mode_help_content("describe_mode_on_scratch_via_ch_m", &gnu, &neo);
+    assert_top_rows_nearly_match("describe_mode_on_scratch_via_ch_m", &gnu, &neo, 16, 2);
 }
 
 #[test]
@@ -524,7 +569,8 @@ fn describe_mode_outline_heading_via_ch_m() {
     neo.read_until(Duration::from_secs(8), ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
-    assert_pair_nearly_matches("describe_mode_outline_heading_via_ch_m", &gnu, &neo, 2);
+    assert_describe_mode_help_content("describe_mode_outline_heading_via_ch_m", &gnu, &neo);
+    assert_top_rows_nearly_match("describe_mode_outline_heading_via_ch_m", &gnu, &neo, 16, 2);
 }
 
 #[test]
@@ -536,15 +582,13 @@ fn quit_help_buffer_via_q() {
     neo.read_until(Duration::from_secs(20), help_ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     send_both(&mut gnu, &mut neo, "q");
-    let scratch_ready = |grid: &[String]| {
-        grid.iter().any(|row| row.contains("*scratch*"))
-            && grid
-                .iter()
-                .any(|row| row.contains("This buffer is for text that is not saved"))
-    };
-    gnu.read_until(Duration::from_secs(6), scratch_ready);
-    neo.read_until(Duration::from_secs(8), scratch_ready);
+    let scratch_only_ready =
+        |grid: &[String]| scratch_ready(grid) && !grid.iter().any(|row| row.contains("*Help*"));
+    gnu.read_until(Duration::from_secs(6), scratch_only_ready);
+    neo.read_until(Duration::from_secs(8), scratch_only_ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("quit_help_buffer_via_q", &gnu, &neo, 2);

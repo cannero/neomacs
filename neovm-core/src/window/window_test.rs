@@ -10,6 +10,7 @@ fn create_frame_and_window() {
     assert_eq!(frame.window_count(), 1);
     assert!(frame.selected_window().is_some());
     assert!(frame.selected_window().unwrap().is_leaf());
+    assert_eq!(frame.parameter("tab-bar-lines"), Some(Value::fixnum(0)));
 }
 
 #[test]
