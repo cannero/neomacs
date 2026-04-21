@@ -519,10 +519,7 @@ fn eval_error_to_flow(e: super::error::EvalError) -> Flow {
             selected_resume: None,
             search_complete: false,
         }),
-        super::error::EvalError::UncaughtThrow { tag, value } => {
-            // The throw was uncaught in the sub-evaluation — surface as no-catch signal.
-            super::error::signal("no-catch", vec![tag, value])
-        }
+        super::error::EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
     }
 }
 

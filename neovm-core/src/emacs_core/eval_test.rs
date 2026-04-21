@@ -8246,7 +8246,7 @@ fn throw_on_input_is_special_and_dynamically_bound() {
 #[test]
 fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
     crate::test_utils::init_test_tracing();
-    let results = eval_all(
+    let results = bootstrap_eval_all(
         "(memq 'monitors-changed while-no-input-ignore-events)
          (special-variable-p 'while-no-input-ignore-events)
          input-pending-p-filter-events",
@@ -8254,6 +8254,101 @@ fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
     assert_eq!(results[0], "OK (monitors-changed)");
     assert_eq!(results[1], "OK t");
     assert_eq!(results[2], "OK t");
+}
+
+#[test]
+fn while_no_input_catches_pending_key_queued_during_body() {
+    crate::test_utils::init_test_tracing();
+
+    fn queue_key_for_while_no_input_test(ctx: &mut Context, args: Vec<Value>) -> EvalResult {
+        assert!(args.is_empty(), "queue helper should not receive arguments");
+        ctx.command_loop.keyboard.pending_input_events.push_back(
+            crate::keyboard::InputEvent::KeyPress {
+                key: crate::keyboard::KeyEvent::char('k'),
+                emacs_frame_id: 0,
+            },
+        );
+        Ok(Value::NIL)
+    }
+
+    let mut ev = runtime_startup_context();
+    ev.set_variable("noninteractive", Value::NIL);
+    ev.defsubr(
+        "neo-queue-key-for-while-no-input-test",
+        queue_key_for_while_no_input_test,
+        0,
+        Some(0),
+    );
+
+    let result = ev.eval_str(
+        "(condition-case err
+             (while-no-input
+               (neo-queue-key-for-while-no-input-test)
+               (eval '(ignore nil) t)
+               'missed)
+           (error err))",
+    );
+
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&result),
+        "OK t"
+    );
+}
+
+#[test]
+fn while_no_input_catches_pending_key_across_load_boundary() {
+    crate::test_utils::init_test_tracing();
+
+    fn queue_key_for_while_no_input_test(ctx: &mut Context, args: Vec<Value>) -> EvalResult {
+        assert!(args.is_empty(), "queue helper should not receive arguments");
+        ctx.command_loop.keyboard.pending_input_events.push_back(
+            crate::keyboard::InputEvent::KeyPress {
+                key: crate::keyboard::KeyEvent::char('k'),
+                emacs_frame_id: 0,
+            },
+        );
+        Ok(Value::NIL)
+    }
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let load_path = dir.path().join("while-no-input-load.el");
+    std::fs::write(
+        &load_path,
+        "(neo-queue-key-for-while-no-input-test)\n\
+         (eval '(ignore nil) t)\n\
+         (setq neo-loaded-after-input t)\n",
+    )
+    .expect("write load fixture");
+
+    let mut ev = runtime_startup_context();
+    ev.set_variable("noninteractive", Value::NIL);
+    ev.set_variable(
+        "neo-while-no-input-load-file",
+        Value::string(load_path.to_string_lossy().into_owned()),
+    );
+    ev.defsubr(
+        "neo-queue-key-for-while-no-input-test",
+        queue_key_for_while_no_input_test,
+        0,
+        Some(0),
+    );
+
+    let result = ev.eval_str(
+        "(progn
+           (setq neo-loaded-after-input nil)
+           (list
+            (condition-case err
+                (while-no-input
+                  (load neo-while-no-input-load-file nil t)
+                  'missed)
+              (error err))
+            neo-loaded-after-input))",
+    );
+
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&result),
+        "OK (t nil)"
+    );
 }
 
 #[test]

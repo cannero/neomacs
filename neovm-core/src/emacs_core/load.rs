@@ -724,9 +724,7 @@ pub(crate) fn builtin_load_in_vm_runtime(
                     selected_resume: None,
                     search_complete: false,
                 }),
-                EvalError::UncaughtThrow { tag, value } => {
-                    crate::emacs_core::error::signal("no-catch", vec![tag, value])
-                }
+                EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
             });
             shared.restore_specpdl_roots(root_scope);
             result

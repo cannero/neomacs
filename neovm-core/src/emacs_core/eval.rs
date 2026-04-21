@@ -5956,6 +5956,15 @@ impl Context {
         }
 
         if !throw_on_input.is_nil() && equal_value(&flag, &throw_on_input, 0) {
+            tracing::debug!(
+                target: "neomacs::throw_on_input",
+                ?flag,
+                ?throw_on_input,
+                condition_stack_len = self.condition_stack.len(),
+                specpdl_len = self.specpdl.len(),
+                has_matching_catch = self.has_active_catch(&throw_on_input),
+                "process_quit_flag: throwing for pending input"
+            );
             return Err(Flow::Throw {
                 tag: throw_on_input,
                 value: Value::T,
@@ -6153,6 +6162,15 @@ impl Context {
             .iter()
             .any(|event| self.input_event_counts_as_pending(event, true))
         {
+            tracing::debug!(
+                target: "neomacs::throw_on_input",
+                ?throw_on_input,
+                condition_stack_len = self.condition_stack.len(),
+                specpdl_len = self.specpdl.len(),
+                has_matching_catch = self.has_active_catch(&throw_on_input),
+                pending_input_events = self.command_loop.keyboard.pending_input_events.len(),
+                "poll_pending_input_for_throw_on_input: setting quit-flag"
+            );
             self.obarray
                 .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
         }
@@ -6425,7 +6443,7 @@ impl Context {
                     signal(resolve_sym(symbol), data)
                 }
             }
-            EvalError::UncaughtThrow { tag, value } => signal("no-catch", vec![tag, value]),
+            EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
         })
     }
 

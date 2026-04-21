@@ -3623,6 +3623,14 @@ impl<'a> Vm<'a> {
                 if selected_resume.is_some() {
                     return Err(Flow::Throw { tag, value });
                 }
+                tracing::debug!(
+                    target: "neomacs::throw_on_input",
+                    ?tag,
+                    ?value,
+                    condition_stack_len = self.ctx.condition_stack.len(),
+                    handler_stack_len = handlers.len(),
+                    "vm resume_nonlocal: no matching catch for throw"
+                );
                 Err(signal("no-catch", vec![tag, value]))
             }
             Flow::Signal(sig) => {
