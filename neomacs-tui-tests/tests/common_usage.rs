@@ -2469,3 +2469,88 @@ fn mark_paragraph_then_kill_and_yank_via_mh_cw_cy() {
         2,
     );
 }
+
+#[test]
+fn goto_line_via_mg_g() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "goto-line.txt",
+        "alpha line\nbeta line\ngamma line\ndelta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-g g 3 RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Xgamma line"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("goto_line_via_mg_g", &gnu, &neo, 2);
+}
+
+#[test]
+fn goto_char_via_mg_c() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "goto-char.txt", "abcdefg\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "M-g c 4 RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("abcXdefg"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("goto_char_via_mg_c", &gnu, &neo, 2);
+}
+
+#[test]
+fn count_words_region_via_mequals() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "count-words.txt",
+        "alpha beta\ngamma delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC M-> M-=");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Region has"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("count_words_region_via_mequals", &gnu, &neo, 2);
+}
+
+#[test]
+fn what_cursor_position_via_cx_equals() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "what-cursor-position.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-x =");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Char:"))
+            || grid.iter().any(|row| row.contains("character:"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("what_cursor_position_via_cx_equals", &gnu, &neo, 2);
+}
