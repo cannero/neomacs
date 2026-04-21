@@ -14,6 +14,110 @@ use neovm_core::keyboard::{
 
 const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
 const INPUT_POLL_INTERVAL_MS: i32 = 100;
+const RESIZE_POLL_INTERVAL_MS: u64 = 100;
+
+#[cfg(unix)]
+static TTY_RESIZE_PENDING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(unix)]
+static INSTALL_SIGWINCH_HANDLER: std::sync::Once = std::sync::Once::new();
+
+#[cfg(unix)]
+extern "C" fn handle_sigwinch(_: libc::c_int) {
+    TTY_RESIZE_PENDING.store(true, Ordering::Relaxed);
+}
+
+#[cfg(unix)]
+fn install_tty_resize_handler() {
+    INSTALL_SIGWINCH_HANDLER.call_once(|| unsafe {
+        let mut action: libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = handle_sigwinch as *const () as usize;
+        libc::sigemptyset(&mut action.sa_mask);
+        action.sa_flags = 0;
+        if libc::sigaction(libc::SIGWINCH, &action, std::ptr::null_mut()) != 0 {
+            tracing::warn!(
+                "tty_resize: failed to install SIGWINCH handler: {}",
+                io::Error::last_os_error()
+            );
+        }
+    });
+}
+
+#[cfg(unix)]
+fn query_terminal_size_cells() -> Option<(u32, u32)> {
+    use std::mem::MaybeUninit;
+
+    unsafe {
+        let mut winsize = MaybeUninit::<libc::winsize>::uninit();
+        if libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, winsize.as_mut_ptr()) == 0 {
+            let winsize = winsize.assume_init();
+            if winsize.ws_col > 0 && winsize.ws_row > 0 {
+                return Some((u32::from(winsize.ws_col), u32::from(winsize.ws_row)));
+            }
+        }
+    }
+    None
+}
+
+fn tty_resize_event_for_size(
+    last_size: &mut Option<(u32, u32)>,
+    current_size: Option<(u32, u32)>,
+    signal_pending: bool,
+) -> Option<InputEvent> {
+    let (width, height) = current_size?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    let changed = *last_size != Some((width, height));
+    if !signal_pending && !changed {
+        return None;
+    }
+
+    *last_size = Some((width, height));
+    Some(InputEvent::WindowResize {
+        width,
+        height,
+        emacs_frame_id: 0,
+    })
+}
+
+#[cfg(unix)]
+fn spawn_tty_resize_watcher(
+    tx: crossbeam_channel::Sender<InputEvent>,
+    stop: Arc<AtomicBool>,
+) -> Option<JoinHandle<()>> {
+    install_tty_resize_handler();
+    let handle = thread::Builder::new()
+        .name("tty-resize-watch".to_string())
+        .spawn(move || {
+            let mut last_size = query_terminal_size_cells();
+            while !stop.load(Ordering::Relaxed) {
+                let signal_pending = TTY_RESIZE_PENDING.swap(false, Ordering::Relaxed);
+                if let Some(event) = tty_resize_event_for_size(
+                    &mut last_size,
+                    query_terminal_size_cells(),
+                    signal_pending,
+                ) {
+                    tracing::debug!("tty_resize: forwarding resize event {:?}", event);
+                    if tx.send(event).is_err() {
+                        break;
+                    }
+                }
+                thread::sleep(Duration::from_millis(RESIZE_POLL_INTERVAL_MS));
+            }
+        })
+        .ok()?;
+    Some(handle)
+}
+
+#[cfg(not(unix))]
+fn spawn_tty_resize_watcher(
+    _tx: crossbeam_channel::Sender<InputEvent>,
+    _stop: Arc<AtomicBool>,
+) -> Option<JoinHandle<()>> {
+    None
+}
 
 fn read_tty_input(
     tx: crossbeam_channel::Sender<InputEvent>,
@@ -323,6 +427,7 @@ impl TtyInputReader {
                 let (tx, rx) = unbounded();
                 let reader_stop = Arc::clone(&input_stop);
                 let reader_pause = Arc::clone(&pause);
+                let resize_handle = spawn_tty_resize_watcher(tx.clone(), Arc::clone(&input_stop));
                 let reader_handle = thread::Builder::new()
                     .name("tty-input-raw".to_string())
                     .spawn(move || read_tty_input(tx, reader_stop, reader_pause))
@@ -350,6 +455,9 @@ impl TtyInputReader {
 
                 input_stop.store(true, Ordering::Relaxed);
                 if let Some(h) = reader_handle {
+                    let _ = h.join();
+                }
+                if let Some(h) = resize_handle {
                     let _ = h.join();
                 }
             })

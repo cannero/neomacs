@@ -60,11 +60,61 @@ fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
     neo.read(timeout);
 }
 
+fn resize_both(gnu: &mut TuiSession, neo: &mut TuiSession, rows: u16, cols: u16) {
+    gnu.resize(rows, cols);
+    neo.resize(rows, cols);
+}
+
 fn scratch_ready(grid: &[String]) -> bool {
     grid.iter().any(|row| row.contains("*scratch*"))
         && grid
             .iter()
             .any(|row| row.contains("This buffer is for text that is not saved"))
+}
+
+#[test]
+fn terminal_resize_updates_frame_geometry() {
+    const TARGET_ROWS: u16 = 30;
+    const TARGET_COLS: u16 = 100;
+
+    let (mut gnu, mut neo) = boot_pair("");
+    resize_both(&mut gnu, &mut neo, TARGET_ROWS, TARGET_COLS);
+
+    // Let GNU's SIGWINCH path and Neomacs' TTY resize watcher enqueue the
+    // resize before the next input command reads pending events.
+    std::thread::sleep(Duration::from_millis(500));
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "resize-test %sx%s" (frame-width) (frame-height))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let expected_frame_height = TARGET_ROWS - 1;
+    let expected = format!("resize-test {TARGET_COLS}x{expected_frame_height}");
+    gnu.read_until(Duration::from_secs(8), |grid| {
+        grid.iter().any(|row| row.contains(&expected))
+    });
+    neo.read_until(Duration::from_secs(12), |grid| {
+        grid.iter().any(|row| row.contains(&expected))
+    });
+
+    assert_eq!(gnu.screen_size(), (TARGET_ROWS, TARGET_COLS));
+    assert_eq!(neo.screen_size(), (TARGET_ROWS, TARGET_COLS));
+    let gnu_grid = gnu.text_grid();
+    let neo_grid = neo.text_grid();
+    assert!(
+        gnu_grid.iter().any(|row| row.contains(&expected)),
+        "GNU should report resized frame geometry {expected}\n{}",
+        gnu_grid.join("\n")
+    );
+    assert!(
+        neo_grid.iter().any(|row| row.contains(&expected)),
+        "Neomacs should report resized frame geometry {expected}\n{}",
+        neo_grid.join("\n")
+    );
 }
 
 fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {

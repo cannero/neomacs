@@ -70,3 +70,36 @@ fn parses_tilde_sequences() {
         Some((XK_PAGE_UP, 0))
     );
 }
+
+#[test]
+fn tty_resize_event_tracks_signal_and_dimension_changes() {
+    let mut last_size = Some((160, 50));
+
+    assert!(tty_resize_event_for_size(&mut last_size, Some((160, 50)), false).is_none());
+
+    let signal_event = tty_resize_event_for_size(&mut last_size, Some((160, 50)), true)
+        .expect("SIGWINCH should forward the current size");
+    assert!(matches!(
+        signal_event,
+        InputEvent::WindowResize {
+            width: 160,
+            height: 50,
+            emacs_frame_id: 0,
+        }
+    ));
+
+    let changed_event = tty_resize_event_for_size(&mut last_size, Some((100, 30)), false)
+        .expect("dimension change should forward a resize");
+    assert!(matches!(
+        changed_event,
+        InputEvent::WindowResize {
+            width: 100,
+            height: 30,
+            emacs_frame_id: 0,
+        }
+    ));
+    assert_eq!(last_size, Some((100, 30)));
+
+    assert!(tty_resize_event_for_size(&mut last_size, None, true).is_none());
+    assert!(tty_resize_event_for_size(&mut last_size, Some((0, 30)), true).is_none());
+}

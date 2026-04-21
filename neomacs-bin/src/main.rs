@@ -795,6 +795,13 @@ fn maybe_install_tty_redisplay_callback(evaluator: &mut Context, startup: &Start
     });
     evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
         eval.setup_thread_locals();
+        if let Some((cols, rows)) = query_terminal_size_cells() {
+            let cols = usize::from(cols);
+            let rows = usize::from(rows);
+            if tty_rif.width() != cols || tty_rif.height() != rows {
+                tty_rif.resize(cols, rows);
+            }
+        }
         run_layout(eval);
         // Extract FrameDisplayState from the layout engine's thread-local
         run_tty_rif_redisplay(&mut tty_rif);

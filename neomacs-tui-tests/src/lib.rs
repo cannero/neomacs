@@ -212,6 +212,14 @@ impl TuiSession {
         }
     }
 
+    /// Resize the underlying PTY and the virtual terminal parser.
+    pub fn resize(&mut self, rows: u16, cols: u16) {
+        self.pty
+            .resize(pty_process::Size::new(rows, cols))
+            .expect("resize pty");
+        self.parser.set_size(rows, cols);
+    }
+
     /// Send an Emacs key description (e.g. `"C-x"`, `"M-x"`, `"RET"`).
     pub fn send_key(&mut self, key: &str) {
         self.send(&emacs_key(key));
@@ -230,14 +238,21 @@ impl TuiSession {
         self.parser.screen()
     }
 
+    /// Get the current virtual terminal dimensions as `(rows, cols)`.
+    pub fn screen_size(&self) -> (u16, u16) {
+        self.screen().size()
+    }
+
     /// Get the text content of a single row (0-indexed).
     pub fn row_text(&self, row: u16) -> String {
-        self.screen().contents_between(row, 0, row, COLS)
+        let (_, cols) = self.screen_size();
+        self.screen().contents_between(row, 0, row, cols)
     }
 
     /// Get all rows as a Vec of strings.
     pub fn text_grid(&self) -> Vec<String> {
-        (0..ROWS).map(|r| self.row_text(r)).collect()
+        let (rows, _) = self.screen_size();
+        (0..rows).map(|r| self.row_text(r)).collect()
     }
 
     /// Return the isolated HOME directory used for this session.
