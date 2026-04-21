@@ -1690,16 +1690,7 @@ pub fn run(mode: RuntimeMode) {
         }
     };
 
-    // 6. Allocate the glyph buffer, but do not publish a pre-startup frame.
-    //
-    // GNU's outer command loop evaluates `top-level` before blocking for the
-    // first input, and `read_char` performs the first redisplay only after
-    // that startup work finishes.  Publishing a frame here paints stale
-    // pre-startup face state (notably chrome faces like mode-line) and leaves
-    // it visible until some later input or timer happens to trigger a
-    // redisplay.  Keep the frontend window alive, but let the first real frame
-    // come from the command loop's redisplay path.
-    // 7. Create input bridge: convert display runtime events → keyboard events.
+    // 6. Create input bridge: convert display runtime events → keyboard events.
     //
     // GNU Emacs does NOT initialize terminal I/O in --batch mode.
     // The evaluator runs without any input receiver, so
@@ -1739,12 +1730,12 @@ pub fn run(mode: RuntimeMode) {
             })
             .expect("Failed to spawn input bridge thread");
 
-        // 8. Connect evaluator to input system
+        // 7. Connect evaluator to input system
         let wakeup_fd = emacs_comms.wakeup_read_fd;
         evaluator.init_input_system(input_rx, wakeup_fd);
     }
 
-    // 9. Set up redisplay callback (layout engine + send frame)
+    // 8. Set up redisplay callback (layout engine + send frame)
     match startup.frontend {
         FrontendKind::Gui => {
             // GUI mode: enable cosmic-text font metrics on the layout
@@ -1754,20 +1745,18 @@ pub fn run(mode: RuntimeMode) {
                 engine.borrow_mut().enable_cosmic_metrics();
             });
             let frame_tx = emacs_comms.frame_tx;
+            let initial_frame_tx = frame_tx.clone();
             evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
-                eval.setup_thread_locals();
-                sync_selected_gui_chrome_state(eval);
-                run_layout(eval);
-                sync_live_gui_frame_titles(eval);
-                // Take the complete FrameDisplayState produced by the layout
-                // engine's GlyphMatrixBuilder.
-                let display_state = LAYOUT_ENGINE
-                    .with(|engine| engine.borrow_mut().last_frame_display_state.take());
-                let Some(display_state) = display_state else {
-                    return;
-                };
-                let _ = frame_tx.try_send(display_state);
+                publish_gui_frame(eval, &frame_tx);
             }));
+
+            // GNU creates and maps its initial X frame before loading the user
+            // init file; expose events can repaint that opening frame while
+            // startup Lisp runs. NeoMacs' render thread has no retained frame
+            // matrices until Lisp publishes one, so send the current opening
+            // frame once here. The normal command-loop redisplay will replace
+            // it after startup finishes.
+            publish_gui_frame(&mut evaluator, &initial_frame_tx);
         }
         FrontendKind::Tty => {
             maybe_install_tty_redisplay_callback(&mut evaluator, &startup);
@@ -1781,7 +1770,7 @@ pub fn run(mode: RuntimeMode) {
         buf.set_undo_list(ul);
     }
 
-    // 10. Enter GNU's outer command loop. This mirrors src/emacs.c, which
+    // 9. Enter GNU's outer command loop. This mirrors src/emacs.c, which
     //     enters recursive-edit and lets the outer command loop evaluate the
     //     `top-level` startup form before reading interactive input.
     neovm_core::emacs_core::load::maybe_run_after_pdump_load_hook(&mut evaluator);
@@ -2591,6 +2580,25 @@ fn current_layout_frame_id(evaluator: &Context) -> Option<FrameId> {
         .frame_manager()
         .selected_frame()
         .map(|frame| frame.id)
+}
+
+fn publish_gui_frame(
+    evaluator: &mut Context,
+    frame_tx: &crossbeam_channel::Sender<neomacs_display_protocol::glyph_matrix::FrameDisplayState>,
+) {
+    evaluator.setup_thread_locals();
+    sync_selected_gui_chrome_state(evaluator);
+    run_layout(evaluator);
+    sync_live_gui_frame_titles(evaluator);
+
+    // Take the complete FrameDisplayState produced by the layout engine's
+    // GlyphMatrixBuilder and hand it to the render thread.
+    let display_state =
+        LAYOUT_ENGINE.with(|engine| engine.borrow_mut().last_frame_display_state.take());
+    let Some(display_state) = display_state else {
+        return;
+    };
+    let _ = frame_tx.try_send(display_state);
 }
 
 thread_local! {

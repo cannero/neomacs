@@ -1,13 +1,14 @@
 use super::{
     BOOTSTRAP_CORE_FEATURES, BootstrapDisplayConfig, DumpImageKind, EarlyCliAction, FrontendKind,
-    PrimaryWindowDisplayHost, PrimaryWindowSize, RuntimeMode, StartupOptions, TtyTerminalHost,
-    adopt_existing_primary_gui_frame, bootstrap_buffers, bootstrap_default_font_name,
-    bootstrap_display_config, bootstrap_frame_metrics, classify_early_cli_action,
-    configure_gnu_startup_state, current_layout_frame_id, face_height_to_pixels,
-    maybe_install_tty_redisplay_callback, parse_startup_options, raw_loadup_command_line,
-    raw_loadup_startup_surface, render_fingerprint_text, render_help_text,
-    render_startup_image_error, render_version_text, run_gnu_startup, should_enable_live_tty_io,
-    startup_dimensions, sync_live_gui_frame_titles, sync_selected_gui_chrome_state,
+    LAYOUT_ENGINE, PrimaryWindowDisplayHost, PrimaryWindowSize, RuntimeMode, StartupOptions,
+    TtyTerminalHost, adopt_existing_primary_gui_frame, bootstrap_buffers,
+    bootstrap_default_font_name, bootstrap_display_config, bootstrap_frame_metrics,
+    classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
+    face_height_to_pixels, maybe_install_tty_redisplay_callback, parse_startup_options,
+    publish_gui_frame, raw_loadup_command_line, raw_loadup_startup_surface,
+    render_fingerprint_text, render_help_text, render_startup_image_error, render_version_text,
+    run_gnu_startup, should_enable_live_tty_io, startup_dimensions, sync_live_gui_frame_titles,
+    sync_selected_gui_chrome_state,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -783,6 +784,38 @@ fn current_layout_frame_tracks_surrogate_after_bootstrap_frame_deletion() {
     assert_eq!(current_layout_frame_id(&eval), Some(f1));
     assert!(eval.frame_manager_mut().delete_frame(f1));
     assert_eq!(current_layout_frame_id(&eval), Some(f2));
+}
+
+#[test]
+fn publish_gui_frame_sends_opening_frame_before_startup_lisp() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(&["neomacs"])
+        .expect("cached bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(&mut eval, 960, 640, gui_display());
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap")
+        .id;
+    configure_gnu_startup_state(&mut eval, frame_id, &gui_startup());
+
+    LAYOUT_ENGINE.with(|engine| {
+        engine.borrow_mut().enable_cosmic_metrics();
+    });
+    let (frame_tx, frame_rx) = crossbeam_channel::unbounded();
+
+    publish_gui_frame(&mut eval, &frame_tx);
+
+    let display_state = frame_rx
+        .try_recv()
+        .expect("opening GUI frame should be published");
+    assert_eq!(current_layout_frame_id(&eval), Some(frame_id));
+    assert_eq!(display_state.parent_id, 0);
+    assert!(display_state.frame_cols > 0);
+    assert!(display_state.frame_rows > 0);
+    assert!(
+        !display_state.window_matrices.is_empty(),
+        "opening GUI frame should carry at least one window matrix"
+    );
 }
 
 #[test]
