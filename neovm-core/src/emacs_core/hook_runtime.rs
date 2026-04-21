@@ -9,6 +9,7 @@ use crate::emacs_core::value::ValueKind;
 pub(crate) trait HookRuntime {
     fn hook_context(&self) -> &Context;
     fn call_hook_callable(&mut self, function: Value, args: &[Value]) -> EvalResult;
+    fn remove_hook_function_after_error(&mut self, hook_sym: SymId, function: Value);
     fn with_hook_root_scope<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
@@ -23,6 +24,10 @@ impl HookRuntime for Context {
 
     fn call_hook_callable(&mut self, function: Value, args: &[Value]) -> EvalResult {
         self.apply(function, args.to_vec())
+    }
+
+    fn remove_hook_function_after_error(&mut self, hook_sym: SymId, function: Value) {
+        remove_hook_function_after_error_in_context(self, hook_sym, function);
     }
 
     fn with_hook_root_scope<T>(
@@ -133,14 +138,74 @@ pub(crate) fn run_hook_value<R: HookRuntime>(
     })
 }
 
+fn remove_eq_from_hook_list(hook_value: Value, function: Value) -> Option<Value> {
+    let mut cursor = hook_value;
+    let mut kept = Vec::new();
+    let mut found = false;
+
+    while cursor.is_cons() {
+        let item = cursor.cons_car();
+        if eq_value(&item, &function) {
+            found = true;
+        } else {
+            kept.push(item);
+        }
+        cursor = cursor.cons_cdr();
+    }
+
+    found.then(|| Value::list(kept))
+}
+
+fn remove_hook_function_after_error_in_context(
+    ctx: &mut Context,
+    hook_sym: SymId,
+    function: Value,
+) {
+    if let Some(hook_value) = hook_value_by_id(ctx, hook_sym)
+        && let Some(new_value) = remove_eq_from_hook_list(hook_value, function)
+    {
+        ctx.set_runtime_binding_by_id(hook_sym, new_value);
+        return;
+    }
+
+    let default_value = ctx
+        .obarray
+        .default_value_id(hook_sym)
+        .copied()
+        .unwrap_or(Value::NIL);
+    if let Some(new_value) = remove_eq_from_hook_list(default_value, function) {
+        let symbol = Value::from_sym_id(hook_sym);
+        if let Err(flow) = super::custom::builtin_set_default(ctx, vec![symbol, new_value]) {
+            tracing::warn!(
+                "failed to remove broken hook function {} from default {}: {:?}",
+                function,
+                super::intern::resolve_sym(hook_sym),
+                flow
+            );
+        }
+    }
+}
+
+fn log_safe_hook_error(hook_sym: SymId, function: Value, sig: &super::error::SignalData) {
+    let hook_name = super::intern::resolve_sym(hook_sym);
+    tracing::warn!(
+        "Error in {} ({}): ({} {})",
+        hook_name,
+        function,
+        sig.symbol_name(),
+        sig.data
+            .iter()
+            .map(|v| format!("{}", v))
+            .collect::<Vec<_>>()
+            .join(" "),
+    );
+}
+
 /// Run a hook with error recovery. Mirrors GNU
 /// `keyboard.c:1908-1941` (`safe_run_hooks_error`) which logs
-/// the error via `(message "Error in %s (%S): %S" hook fun error)`
-/// and removes the broken function from the hook list. neomacs
-/// currently logs via tracing::warn and does NOT remove the broken
-/// function (that requires per-function error wrapping which is
-/// tracked as future work). The important contract: the error is
-/// VISIBLE, not silently swallowed.
+/// the error via `(message "Error in %s (%S): %S" hook fun error)`,
+/// removes the broken function from the visible hook value or default
+/// hook value, then continues running later hook functions.
 pub(crate) fn safe_run_hook_value<R: HookRuntime>(
     runtime: &mut R,
     hook_sym: SymId,
@@ -148,26 +213,31 @@ pub(crate) fn safe_run_hook_value<R: HookRuntime>(
     hook_args: &[Value],
     inherit_global: bool,
 ) -> EvalResult {
-    match run_hook_value(runtime, hook_sym, hook_value, hook_args, inherit_global) {
-        Ok(value) => Ok(value),
-        Err(Flow::Signal(ref sig)) => {
-            // GNU keyboard.c:1911-1914 logs:
-            //   (message "Error in %s (%S): %S" hook fun error)
-            let hook_name = super::intern::resolve_sym(hook_sym);
-            tracing::warn!(
-                "Error in {}: ({} {})",
-                hook_name,
-                sig.symbol_name(),
-                sig.data
-                    .iter()
-                    .map(|v| format!("{}", v))
-                    .collect::<Vec<_>>()
-                    .join(" "),
-            );
-            Ok(Value::NIL)
+    let funcs = collect_hook_functions_in_state(
+        runtime.hook_context(),
+        hook_sym,
+        hook_value,
+        inherit_global,
+    );
+    runtime.with_hook_root_scope(|runtime| {
+        for func in funcs.iter().copied() {
+            runtime.push_hook_root(func);
         }
-        Err(flow) => Err(flow),
-    }
+        for arg in hook_args.iter().copied() {
+            runtime.push_hook_root(arg);
+        }
+        for func in funcs {
+            match runtime.call_hook_callable(func, hook_args) {
+                Ok(_) => {}
+                Err(Flow::Signal(ref sig)) => {
+                    log_safe_hook_error(hook_sym, func, sig);
+                    runtime.remove_hook_function_after_error(hook_sym, func);
+                }
+                Err(flow) => return Err(flow),
+            }
+        }
+        Ok(Value::NIL)
+    })
 }
 
 pub(crate) fn run_hook_value_until_success<R: HookRuntime>(

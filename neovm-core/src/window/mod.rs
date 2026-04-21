@@ -338,6 +338,31 @@ impl Default for WindowHistoryState {
 
 pub(crate) type WindowParameters = Vec<(Value, Value)>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WindowRedisplayState {
+    pub id: WindowId,
+    pub buffer_id: BufferId,
+    pub bounds: (u32, u32, u32, u32),
+    pub window_start: usize,
+    pub window_end_pos: usize,
+    pub window_end_bytepos: usize,
+    pub window_end_vpos: usize,
+    pub window_end_valid: bool,
+    pub point: usize,
+    pub old_point: usize,
+    pub hscroll: usize,
+    pub vscroll: i32,
+    pub preserve_vscroll_p: bool,
+}
+
+fn redisplay_f32_bits(value: f32) -> u32 {
+    if value == 0.0 {
+        0.0f32.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -598,6 +623,47 @@ impl Window {
     pub fn set_point(&mut self, pos: usize) {
         if let Window::Leaf { point, .. } = self {
             *point = pos;
+        }
+    }
+
+    pub fn redisplay_state(&self) -> Option<WindowRedisplayState> {
+        match self {
+            Window::Leaf {
+                id,
+                buffer_id,
+                bounds,
+                window_start,
+                window_end_pos,
+                window_end_bytepos,
+                window_end_vpos,
+                window_end_valid,
+                point,
+                old_point,
+                hscroll,
+                vscroll,
+                preserve_vscroll_p,
+                ..
+            } => Some(WindowRedisplayState {
+                id: *id,
+                buffer_id: *buffer_id,
+                bounds: (
+                    redisplay_f32_bits(bounds.x),
+                    redisplay_f32_bits(bounds.y),
+                    redisplay_f32_bits(bounds.width),
+                    redisplay_f32_bits(bounds.height),
+                ),
+                window_start: *window_start,
+                window_end_pos: *window_end_pos,
+                window_end_bytepos: *window_end_bytepos,
+                window_end_vpos: *window_end_vpos,
+                window_end_valid: *window_end_valid,
+                point: *point,
+                old_point: *old_point,
+                hscroll: *hscroll,
+                vscroll: *vscroll,
+                preserve_vscroll_p: *preserve_vscroll_p,
+            }),
+            Window::Internal { .. } => None,
         }
     }
 
@@ -1950,7 +2016,12 @@ impl Frame {
         let char_h = self.char_height.max(1.0);
         let unit = char_h;
         let frame_inner_h = (self.height as f32) - self.chrome_top_height();
-        let max_h = (unit * max_lines.max(1.0)).min(frame_inner_h).max(unit);
+        let requested_max_h = if max_lines <= 1.0 {
+            frame_inner_h * max_lines.max(0.0)
+        } else {
+            unit * max_lines
+        };
+        let max_h = requested_max_h.min(frame_inner_h).max(unit);
 
         let Some(mini) = self.minibuffer_leaf.as_mut() else {
             return;

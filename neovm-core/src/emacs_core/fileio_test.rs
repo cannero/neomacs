@@ -3162,8 +3162,73 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
     let (dos_text, dos_coding) =
         super::decode_insert_file_contents(b"alpha line\r\nbeta line\r\n", true, false, None)
             .expect("decode ascii dos text");
-    assert_eq!(dos_text, "alpha line\r\nbeta line\r\n");
+    assert_eq!(dos_text, "alpha line\nbeta line\n");
     assert_eq!(dos_coding, "undecided-dos");
+
+    let (mac_text, mac_coding) =
+        super::decode_insert_file_contents(b"alpha line\rbeta line\r", true, false, None)
+            .expect("decode ascii mac text");
+    assert_eq!(mac_text, "alpha line\nbeta line\n");
+    assert_eq!(mac_coding, "undecided-mac");
+}
+
+#[test]
+fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
+    crate::test_utils::init_test_tracing();
+
+    let (text, coding) = super::decode_insert_file_contents(
+        b"(message \"alpha\")\r(message \"beta\")\r",
+        true,
+        true,
+        None,
+    )
+    .expect("decode source-loaded mac-eol text");
+
+    assert_eq!(text, "(message \"alpha\")\n(message \"beta\")\n");
+    assert_eq!(coding, "utf-8-emacs-mac");
+}
+
+#[test]
+fn insert_file_contents_sets_last_coding_before_after_insert_file_set_coding() {
+    crate::test_utils::init_test_tracing();
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::current_dir()
+        .unwrap()
+        .join("target")
+        .join("neovm-test")
+        .join(format!(
+            "insert-file-coding-order-{}-{unique}",
+            std::process::id()
+        ));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("dos.txt");
+    fs::write(&path, b"alpha\r\nbeta\r\n").expect("write dos fixture");
+    let path_str = path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    eval.eval_str(
+        r#"(progn
+             (setq neovm-seen-insert-file-coding nil)
+             (defalias 'after-insert-file-set-coding
+               (lambda (inserted visit)
+                 (setq neovm-seen-insert-file-coding last-coding-system-used)
+                 inserted)))"#,
+    )
+    .expect("install after-insert-file-set-coding probe");
+
+    builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str)])
+        .expect("insert-file-contents should decode dos fixture");
+
+    assert_eq!(
+        format_eval_result(&eval.eval_str("neovm-seen-insert-file-coding")),
+        "OK undecided-dos"
+    );
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "alpha\nbeta\n");
 }
 
 #[test]

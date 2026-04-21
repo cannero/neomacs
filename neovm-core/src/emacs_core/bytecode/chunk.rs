@@ -1,13 +1,15 @@
 //! ByteCode chunk — compiled function representation.
 
 use std::collections::HashMap;
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::opcode::Op;
 use crate::emacs_core::value::{LambdaParams, Value, ValueKind};
 use crate::heap_types::LispString;
 
 /// A compiled bytecode function.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ByteCodeFunction {
     /// The bytecode instructions.
     pub ops: Vec<Op>,
@@ -39,6 +41,40 @@ pub struct ByteCodeFunction {
     /// Interactive spec from GNU closure slot 5 (CLOSURE_INTERACTIVE).
     /// Can be a string code, a form to evaluate, or a vector [spec, modes].
     pub interactive: Option<Value>,
+}
+
+#[cfg(test)]
+static BYTECODE_FUNCTION_CLONE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) fn reset_bytecode_function_clone_count_for_test() {
+    BYTECODE_FUNCTION_CLONE_COUNT.store(0, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(crate) fn bytecode_function_clone_count_for_test() -> usize {
+    BYTECODE_FUNCTION_CLONE_COUNT.load(Ordering::Relaxed)
+}
+
+impl Clone for ByteCodeFunction {
+    fn clone(&self) -> Self {
+        #[cfg(test)]
+        BYTECODE_FUNCTION_CLONE_COUNT.fetch_add(1, Ordering::Relaxed);
+
+        Self {
+            ops: self.ops.clone(),
+            constants: self.constants.clone(),
+            max_stack: self.max_stack,
+            params: self.params.clone(),
+            lexical: self.lexical,
+            env: self.env,
+            gnu_byte_offset_map: self.gnu_byte_offset_map.clone(),
+            gnu_bytecode_bytes: self.gnu_bytecode_bytes.clone(),
+            docstring: self.docstring.clone(),
+            doc_form: self.doc_form,
+            interactive: self.interactive,
+        }
+    }
 }
 
 impl ByteCodeFunction {

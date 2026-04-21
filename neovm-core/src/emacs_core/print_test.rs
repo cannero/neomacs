@@ -270,6 +270,19 @@ fn print_vector() {
 }
 
 #[test]
+fn print_circle_handles_self_referential_records() {
+    crate::test_utils::init_test_tracing();
+    let record = Value::make_record(vec![Value::symbol("foo"), Value::NIL]);
+    record.with_record_data_mut(|slots| slots[1] = record);
+
+    let options = PrintOptions::new(false, true, None, None);
+    assert_eq!(
+        print_value_stateful_with_buffers(&record, None, options),
+        "#1=#s(foo #1#)"
+    );
+}
+
+#[test]
 fn print_lambda() {
     crate::test_utils::init_test_tracing();
     let lam = Value::make_lambda(LambdaData {

@@ -6299,7 +6299,9 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
         "make-byte-code",
         vec![
             Value::fixnum(0),
-            Value::string("\u{00C0}\u{0087}"),
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+                0xC0, 0x87,
+            ])),
             Value::vector(vec![hash_literal]),
             Value::fixnum(1),
         ],
@@ -8782,27 +8784,13 @@ fn dispatch_builtin_pure_handles_frame_placeholder_accessors() {
 #[test]
 fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
     crate::test_utils::init_test_tracing();
-    let bindings = dispatch_builtin_pure(
-        "describe-buffer-bindings",
-        vec![Value::make_buffer(crate::buffer::BufferId(0))],
-    )
-    .expect("describe-buffer-bindings should resolve")
-    .expect("describe-buffer-bindings should evaluate");
-    assert_eq!(bindings, Value::NIL);
-
-    let seq_err = dispatch_builtin_pure(
-        "describe-buffer-bindings",
-        vec![
-            Value::make_buffer(crate::buffer::BufferId(0)),
-            Value::fixnum(1),
-        ],
-    )
-    .expect("describe-buffer-bindings should resolve")
-    .unwrap_err();
-    match seq_err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "wrong-type-argument"),
-        other => panic!("expected signal, got {other:?}"),
-    }
+    assert!(
+        dispatch_builtin_pure(
+            "describe-buffer-bindings",
+            vec![Value::make_buffer(crate::buffer::BufferId(0))],
+        )
+        .is_none()
+    );
 
     let vec_err = dispatch_builtin_pure(
         "describe-vector",
@@ -10673,6 +10661,9 @@ fn char_queries_return_nonunicode_emacs_character_codes() {
 fn delete_char_handles_nonunicode_storage_units() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
+    crate::test_utils::load_gnu_undo_auto_runtime(&mut eval);
+    let test_buffer = create_unique_test_buffer(&mut eval, "*delete-char-nonunicode*");
+    builtin_set_buffer(&mut eval, vec![test_buffer]).unwrap();
 
     builtin_insert_char(&mut eval, vec![Value::fixnum(0x20_0000), Value::fixnum(1)]).unwrap();
     builtin_insert(&mut eval, vec![Value::string("A")]).unwrap();
@@ -10687,6 +10678,9 @@ fn delete_char_handles_nonunicode_storage_units() {
 fn delete_char_handles_unibyte_high_bytes() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();
+    crate::test_utils::load_gnu_undo_auto_runtime(&mut eval);
+    let test_buffer = create_unique_test_buffer(&mut eval, "*delete-char-unibyte*");
+    builtin_set_buffer(&mut eval, vec![test_buffer]).unwrap();
 
     let current_id = eval.buffers.current_buffer_id().expect("current buffer");
     eval.buffers

@@ -56,6 +56,276 @@ pub fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
     }
 }
 
+/// Load GNU `macroexp.el` after the early `subr.el` layer, mirroring the
+/// loadup phase before later Lisp files such as `simple.el` are evaluated.
+pub fn load_gnu_macroexp_runtime(eval: &mut Context) {
+    if eval.obarray().symbol_function("macroexp-progn").is_some() {
+        return;
+    }
+    let load_path = get_load_path(&eval.obarray());
+    for name in &["emacs-lisp/macroexp", "emacs-lisp/pcase"] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+}
+
+/// Load the GNU `simple.el` undo auto-amalgamation surface needed by
+/// primitives such as `delete-char` and `self-insert-command`.
+///
+/// GNU cmds.c calls `undo-auto-amalgamate` unconditionally; that function is
+/// Lisp-defined by `simple.el` during loadup. Some focused unit tests do not
+/// run loadup, so this evaluates only the real source forms that provide that
+/// function and its helper variables instead of guarding the primitive. It does
+/// not install `undo-auto--undoable-change`, which also requires `timer.el`.
+pub fn load_gnu_undo_auto_runtime(eval: &mut Context) {
+    if eval
+        .obarray()
+        .symbol_function("undo-auto-amalgamate")
+        .is_some()
+    {
+        return;
+    }
+    if eval.obarray().symbol_function("defvar-local").is_none() {
+        load_minimal_gnu_backquote_runtime(eval);
+    }
+    load_gnu_macroexp_runtime(eval);
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source =
+        std::fs::read_to_string(&simple_path).unwrap_or_else(|err| panic!("read simple.el: {err}"));
+    let limit_start = simple_source
+        .find("(defvar amalgamating-undo-limit ")
+        .expect("simple.el amalgamating-undo-limit form");
+    let limit_form = crate::emacs_core::value_reader::read_one(&simple_source, limit_start)
+        .expect("parse simple.el amalgamating-undo-limit")
+        .map(|(form, _)| form)
+        .expect("read simple.el amalgamating-undo-limit");
+
+    let start = simple_source
+        .find("(defvar-local undo-auto--last-boundary-cause ")
+        .expect("simple.el undo auto section start");
+    let end = simple_source[start..]
+        .find("(defun undo-auto--undoable-change ")
+        .map(|offset| start + offset)
+        .expect("simple.el undo auto section end");
+    let mut forms = vec![limit_form];
+    forms.extend(
+        crate::emacs_core::value_reader::read_all(&simple_source[start..end])
+            .expect("parse simple.el undo auto section"),
+    );
+
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    for (index, form) in forms.into_iter().enumerate() {
+        eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+            panic!(
+                "eval simple.el undo auto section form #{index} {}: {err}",
+                crate::emacs_core::print::print_value(&form)
+            )
+        });
+    }
+    eval.restore_specpdl_roots(roots);
+}
+
+/// Load the real GNU `simple.el` special-mode surface required by help buffers.
+pub fn load_gnu_special_mode_runtime(eval: &mut Context) {
+    if eval.obarray().symbol_value("special-mode-map").is_some()
+        && eval.obarray().symbol_function("special-mode").is_some()
+    {
+        return;
+    }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source =
+        std::fs::read_to_string(&simple_path).unwrap_or_else(|err| panic!("read simple.el: {err}"));
+    let start = simple_source
+        .find("(defun fundamental-mode ()")
+        .expect("simple.el fundamental-mode form");
+    let end = simple_source[start..]
+        .find(";; Making and deleting lines.")
+        .map(|offset| start + offset)
+        .expect("simple.el special-mode section end");
+    let forms = crate::emacs_core::value_reader::read_all(&simple_source[start..end])
+        .expect("parse simple.el special-mode section");
+
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    for (index, form) in forms.into_iter().enumerate() {
+        eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+            panic!(
+                "eval simple.el special-mode section form #{index} {}: {err}",
+                crate::emacs_core::print::print_value(&form)
+            )
+        });
+    }
+    eval.restore_specpdl_roots(roots);
+}
+
+/// Load the real GNU display predicate used by help separators.
+pub fn load_gnu_display_graphic_runtime(eval: &mut Context) {
+    if eval
+        .obarray()
+        .symbol_function("display-graphic-p")
+        .is_some()
+    {
+        return;
+    }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let frame_path = project_root.join("lisp/frame.el");
+    let frame_source =
+        std::fs::read_to_string(&frame_path).unwrap_or_else(|err| panic!("read frame.el: {err}"));
+    let framep_start = frame_source
+        .find("(defun framep-on-display ")
+        .expect("frame.el framep-on-display form");
+    let framep_form = crate::emacs_core::value_reader::read_one(&frame_source, framep_start)
+        .expect("parse frame.el framep-on-display")
+        .map(|(form, _)| form)
+        .expect("read frame.el framep-on-display");
+    let display_start = frame_source
+        .find("(defun display-graphic-p ")
+        .expect("frame.el display-graphic-p form");
+    let display_form = crate::emacs_core::value_reader::read_one(&frame_source, display_start)
+        .expect("parse frame.el display-graphic-p")
+        .map(|(form, _)| form)
+        .expect("read frame.el display-graphic-p");
+    let forms = vec![framep_form, display_form];
+
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    for (index, form) in forms.into_iter().enumerate() {
+        eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+            panic!(
+                "eval frame.el display predicate form #{index} {}: {err}",
+                crate::emacs_core::print::print_value(&form)
+            )
+        });
+    }
+    eval.restore_specpdl_roots(roots);
+}
+
+/// Load GNU aliases from `window.el` for C-defined window primitives.
+pub fn load_gnu_window_alias_runtime(eval: &mut Context) {
+    if eval.obarray().symbol_function("window-width").is_some() {
+        return;
+    }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let window_path = project_root.join("lisp/window.el");
+    let window_source =
+        std::fs::read_to_string(&window_path).unwrap_or_else(|err| panic!("read window.el: {err}"));
+    let start = window_source
+        .find("(defalias 'window-height ")
+        .expect("window.el window primitive alias block");
+    let end = window_source[start..]
+        .find("(defun window-full-height-p ")
+        .map(|offset| start + offset)
+        .expect("window.el window primitive alias block end");
+    let forms = crate::emacs_core::value_reader::read_all(&window_source[start..end])
+        .expect("parse window.el window primitive alias block");
+
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    for (index, form) in forms.into_iter().enumerate() {
+        eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+            panic!(
+                "eval window.el primitive alias form #{index} {}: {err}",
+                crate::emacs_core::print::print_value(&form)
+            )
+        });
+    }
+    eval.restore_specpdl_roots(roots);
+}
+
+/// Load the real GNU separator-line helper used by help buffers.
+pub fn load_gnu_separator_line_runtime(eval: &mut Context) {
+    if eval
+        .obarray()
+        .symbol_function("make-separator-line")
+        .is_some()
+    {
+        return;
+    }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let simple_path = project_root.join("lisp/simple.el");
+    let simple_source =
+        std::fs::read_to_string(&simple_path).unwrap_or_else(|err| panic!("read simple.el: {err}"));
+    let start = simple_source
+        .find("(defface separator-line")
+        .expect("simple.el separator-line face form");
+    let end = simple_source[start..]
+        .find("(defun delete-indentation ")
+        .map(|offset| start + offset)
+        .expect("simple.el make-separator-line section end");
+    let forms = crate::emacs_core::value_reader::read_all(&simple_source[start..end])
+        .expect("parse simple.el make-separator-line section");
+
+    let roots = eval.save_specpdl_roots();
+    for form in &forms {
+        eval.push_specpdl_root(*form);
+    }
+    for (index, form) in forms.into_iter().enumerate() {
+        eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+            panic!(
+                "eval simple.el make-separator-line section form #{index} {}: {err}",
+                crate::emacs_core::print::print_value(&form)
+            )
+        });
+    }
+    eval.restore_specpdl_roots(roots);
+}
+
+/// Load the real GNU Emacs Lisp syntax table used by help-mode.
+pub fn load_gnu_elisp_syntax_table_runtime(eval: &mut Context) {
+    if eval
+        .obarray()
+        .symbol_value("emacs-lisp-mode-syntax-table")
+        .is_some()
+    {
+        return;
+    }
+
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let elisp_mode_path = project_root.join("lisp/progmodes/elisp-mode.el");
+    let elisp_mode_source = std::fs::read_to_string(&elisp_mode_path)
+        .unwrap_or_else(|err| panic!("read elisp-mode.el: {err}"));
+    let start = elisp_mode_source
+        .find("(defvar emacs-lisp-mode-syntax-table")
+        .expect("elisp-mode.el emacs-lisp-mode-syntax-table form");
+    let form = crate::emacs_core::value_reader::read_one(&elisp_mode_source, start)
+        .expect("parse elisp-mode.el emacs-lisp-mode-syntax-table")
+        .map(|(form, _)| form)
+        .expect("read elisp-mode.el emacs-lisp-mode-syntax-table");
+
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(form);
+    eval.eval_sub(form).map_err(map_flow).unwrap_or_else(|err| {
+        panic!(
+            "eval elisp-mode.el emacs-lisp-mode-syntax-table {}: {err}",
+            crate::emacs_core::print::print_value(&form)
+        )
+    });
+    eval.restore_specpdl_roots(roots);
+}
+
 /// Load a small GNU Lisp runtime that is sufficient for `help.el`
 /// semantics such as `substitute-command-keys`, without paying for
 /// full `loadup.el` startup.
@@ -70,13 +340,35 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         "faces",
         "emacs-lisp/macroexp",
         "emacs-lisp/pcase",
+        "emacs-lisp/gv",
+        "emacs-lisp/cl-preloaded",
+        "emacs-lisp/oclosure",
+        "obarray",
+        "abbrev",
+        "emacs-lisp/cl-generic",
+        "emacs-lisp/seq",
         "emacs-lisp/easy-mmode",
+        "emacs-lisp/derived",
+        "emacs-lisp/easymenu",
+        "button",
         "help-macro",
     ] {
         let path = find_file_in_load_path(name, &load_path)
             .unwrap_or_else(|| panic!("cannot find {name}"));
         load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
     }
+    load_gnu_special_mode_runtime(eval);
+    load_gnu_display_graphic_runtime(eval);
+    load_gnu_window_alias_runtime(eval);
+    load_gnu_separator_line_runtime(eval);
+    for name in &["progmodes/prog-mode", "emacs-lisp/lisp-mode", "tool-bar"] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+    load_gnu_elisp_syntax_table_runtime(eval);
+    apply_ldefs_boot_autoloads_for_names(eval, &["help-fns-function-name"])
+        .expect("ldefs-boot help-fns-function-name autoload");
 
     // Force the .el source — `find_file_in_load_path("help", ...)`
     // returns help.elc when both exist, but `read_to_string` then
@@ -98,13 +390,18 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         eval.push_specpdl_root(*form);
     }
     let mut found_substitute_command_keys = false;
+    let mut found_describe_map_fill_columns = false;
     for form in &help_forms {
-        let is_target = is_named_defun_value(form, "substitute-command-keys");
+        let is_substitute_command_keys = is_named_defun_value(form, "substitute-command-keys");
+        let is_describe_map_fill_columns = is_named_defun_value(form, "describe-map--fill-columns");
         eval.eval_sub(*form)
             .map_err(map_flow)
             .unwrap_or_else(|err| panic!("eval help.el prefix: {err:?}"));
-        if is_target {
+        if is_substitute_command_keys {
             found_substitute_command_keys = true;
+        }
+        if is_describe_map_fill_columns {
+            found_describe_map_fill_columns = true;
             break;
         }
     }
@@ -113,6 +410,11 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         found_substitute_command_keys,
         "help.el should define substitute-command-keys"
     );
+    assert!(
+        found_describe_map_fill_columns,
+        "help.el should define describe-map--fill-columns"
+    );
+    load_gnu_undo_auto_runtime(eval);
 }
 
 fn is_named_defun_value(form: &Value, name: &str) -> bool {

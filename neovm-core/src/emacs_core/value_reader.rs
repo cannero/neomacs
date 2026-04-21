@@ -11,7 +11,7 @@
 //! radix integers (#x, #o, #b), propertized strings, reader skip (#@N).
 
 use super::eval::{push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
-use super::intern::{intern, intern_uninterned, resolve_sym};
+use super::intern::{intern, intern_lisp_string, intern_uninterned_lisp_string, resolve_sym};
 // bytes_to_unibyte_storage_string and encode_nonunicode_char_for_storage
 // imports removed — using emacs_char + Vec<u8> directly
 use super::emacs_char;
@@ -215,8 +215,6 @@ enum ReaderSource<'a> {
     LispString(&'a crate::heap_types::LispString),
 }
 
-const NONUNICODE_SOURCE_SENTINEL: char = '\u{F0000}';
-
 struct Reader<'a> {
     source: ReaderSource<'a>,
     source_multibyte: bool,
@@ -226,6 +224,12 @@ struct Reader<'a> {
     read_labels: std::collections::HashMap<usize, Value>,
     /// When true, wrap interned symbols in symbol-with-pos objects.
     locate_syms: bool,
+}
+
+struct ReaderToken {
+    name: crate::heap_types::LispString,
+    text: Option<String>,
+    had_escape: bool,
 }
 
 fn translate_runtime_source_char(ch: char) -> u32 {
@@ -272,37 +276,41 @@ impl<'a> Reader<'a> {
 
     fn skip_ws_and_comments(&mut self) -> bool {
         loop {
-            let Some(ch) = self.current() else {
+            let Some(ch) = self.current_code() else {
                 return false;
             };
-            if ch.is_ascii_whitespace() {
+            if is_ascii_whitespace_code(ch) {
                 self.bump();
                 continue;
             }
-            if ch == ';' {
+            if ch == b';' as u32 {
                 // Line comment
-                while let Some(c) = self.current() {
+                while let Some(c) = self.current_code() {
                     self.bump();
-                    if c == '\n' {
+                    if c == b'\n' as u32 {
                         break;
                     }
                 }
                 continue;
             }
-            if ch == '#' && self.peek_at(1) == Some('|') {
+            if ch == b'#' as u32 && self.peek_code_at(1) == Some(b'|' as u32) {
                 // Block comment #| ... |#
                 self.bump(); // #
                 self.bump(); // |
                 let mut depth = 1;
                 while depth > 0 {
-                    match self.current() {
+                    match self.current_code() {
                         None => return false,
-                        Some('#') if self.peek_at(1) == Some('|') => {
+                        Some(code)
+                            if code == b'#' as u32 && self.peek_code_at(1) == Some(b'|' as u32) =>
+                        {
                             self.bump();
                             self.bump();
                             depth += 1;
                         }
-                        Some('|') if self.peek_at(1) == Some('#') => {
+                        Some(code)
+                            if code == b'|' as u32 && self.peek_code_at(1) == Some(b'#' as u32) =>
+                        {
                             self.bump();
                             self.bump();
                             depth -= 1;
@@ -323,18 +331,18 @@ impl<'a> Reader<'a> {
         // Record the byte position before reading — used by locate_syms
         // to tag symbols with their source offset (mirrors GNU read0).
         let form_start = self.pos;
-        let Some(ch) = self.current() else {
+        let Some(ch) = self.current_code() else {
             return Err(self.error("unexpected end of input"));
         };
 
         let value = match ch {
-            '(' => self.read_list_or_dotted(),
-            ')' => {
+            x if x == b'(' as u32 => self.read_list_or_dotted(),
+            x if x == b')' as u32 => {
                 self.bump();
                 Err(self.error(")"))
             }
-            '[' => self.read_vector(),
-            '\'' => {
+            x if x == b'[' as u32 => self.read_vector(),
+            x if x == b'\'' as u32 => {
                 self.bump();
                 let saved = save_scratch_gc_roots();
                 let quoted = self.read_form()?;
@@ -343,7 +351,7 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 Ok(result)
             }
-            '`' => {
+            x if x == b'`' as u32 => {
                 self.bump();
                 let saved = save_scratch_gc_roots();
                 let quoted = self.read_form()?;
@@ -352,9 +360,9 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 Ok(result)
             }
-            ',' => {
+            x if x == b',' as u32 => {
                 self.bump();
-                if self.current() == Some('@') {
+                if self.current_code() == Some(b'@' as u32) {
                     self.bump();
                     let saved = save_scratch_gc_roots();
                     let expr = self.read_form()?;
@@ -371,9 +379,9 @@ impl<'a> Reader<'a> {
                     Ok(result)
                 }
             }
-            '"' => self.read_string(),
-            '?' => self.read_char_literal(),
-            '#' => self.read_hash_syntax(),
+            x if x == b'"' as u32 => self.read_string(),
+            x if x == b'?' as u32 => self.read_char_literal(),
+            x if x == b'#' as u32 => self.read_hash_syntax(),
             _ => self.read_atom(),
         }?;
 
@@ -397,21 +405,21 @@ impl<'a> Reader<'a> {
         let mut items = Vec::new();
         loop {
             self.skip_ws_and_comments();
-            match self.current() {
-                Some(')') => {
+            match self.current_code() {
+                Some(code) if code == b')' as u32 => {
                     self.bump();
                     let result = Value::list(items);
                     restore_scratch_gc_roots(saved);
                     return Ok(result);
                 }
-                Some('.') if self.is_dot_separator() => {
+                Some(code) if code == b'.' as u32 && self.is_dot_separator() => {
                     // Dotted pair
                     self.bump(); // consume '.'
                     let cdr = self.read_form()?;
                     push_scratch_gc_root(cdr);
                     self.skip_ws_and_comments();
-                    match self.current() {
-                        Some(')') => {
+                    match self.current_code() {
+                        Some(code) if code == b')' as u32 => {
                             self.bump();
                             // Build cons chain: (a b c . d)
                             // items = [a, b, c], cdr = d
@@ -444,9 +452,14 @@ impl<'a> Reader<'a> {
 
     /// Check if current '.' is a dot separator (not part of a number like 1.5).
     fn is_dot_separator(&self) -> bool {
-        match self.peek_at(1) {
+        match self.peek_code_at(1) {
             None => true,
-            Some(c) => c.is_ascii_whitespace() || c == ')' || c == '(' || c == ';',
+            Some(c) => {
+                is_ascii_whitespace_code(c)
+                    || c == b')' as u32
+                    || c == b'(' as u32
+                    || c == b';' as u32
+            }
         }
     }
 
@@ -459,8 +472,8 @@ impl<'a> Reader<'a> {
         let mut items = Vec::new();
         loop {
             self.skip_ws_and_comments();
-            match self.current() {
-                Some(']') => {
+            match self.current_code() {
+                Some(code) if code == b']' as u32 => {
                     self.bump();
                     restore_scratch_gc_roots(saved);
                     return Ok(items);
@@ -498,13 +511,12 @@ impl<'a> Reader<'a> {
         // unibyte unless a real multibyte character is forced while reading.
         let mut unibyte_buf = Some(Vec::new());
         loop {
-            let Some(ch) = self.current() else {
+            let Some(ch) = self.current_code() else {
                 return Err(self.error("unterminated string"));
             };
-            let code = self.current_source_code().unwrap_or(ch as u32);
             self.bump();
             match ch {
-                '"' => {
+                x if x == b'"' as u32 => {
                     let string = if let Some(bytes) = unibyte_buf {
                         crate::heap_types::LispString::from_unibyte(bytes)
                     } else {
@@ -512,86 +524,85 @@ impl<'a> Reader<'a> {
                     };
                     return Ok(Value::heap_string(string));
                 }
-                '\\' => {
-                    let Some(esc) = self.current() else {
+                x if x == b'\\' as u32 => {
+                    let Some(esc) = self.current_code() else {
                         return Err(self.error("unterminated escape in string"));
                     };
-                    let esc_code = self.current_source_code().unwrap_or(esc as u32);
                     self.bump();
                     match esc {
-                        'n' => {
+                        x if x == b'n' as u32 => {
                             buf.push(b'\n');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b'\n');
                             }
                         }
-                        'r' => {
+                        x if x == b'r' as u32 => {
                             buf.push(b'\r');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b'\r');
                             }
                         }
-                        't' => {
+                        x if x == b't' as u32 => {
                             buf.push(b'\t');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b'\t');
                             }
                         }
-                        '\\' => {
+                        x if x == b'\\' as u32 => {
                             buf.push(b'\\');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b'\\');
                             }
                         }
-                        '"' => {
+                        x if x == b'"' as u32 => {
                             buf.push(b'"');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b'"');
                             }
                         }
-                        'a' => {
+                        x if x == b'a' as u32 => {
                             buf.push(0x07);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x07);
                             }
                         }
-                        'b' => {
+                        x if x == b'b' as u32 => {
                             buf.push(0x08);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x08);
                             }
                         }
-                        'f' => {
+                        x if x == b'f' as u32 => {
                             buf.push(0x0C);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x0C);
                             }
                         }
-                        'e' => {
+                        x if x == b'e' as u32 => {
                             buf.push(0x1B);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x1B);
                             }
                         }
-                        'v' => {
+                        x if x == b'v' as u32 => {
                             buf.push(0x0B);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x0B);
                             }
                         }
                         // Modifier escapes in strings
-                        's' if self.current() == Some('-') => {
+                        x if x == b's' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 23)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
-                        's' => {
+                        x if x == b's' as u32 => {
                             buf.push(b' ');
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(b' ');
                             }
                         }
-                        'C' if self.current() == Some('-') => {
+                        x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let base = self.parse_string_char_value(0)?;
                             let base_char = base & 0x3FFFFF;
@@ -607,33 +618,33 @@ impl<'a> Reader<'a> {
                             };
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, result)?;
                         }
-                        'M' if self.current() == Some('-') => {
+                        x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 27)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
-                        'S' if self.current() == Some('-') => {
+                        x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 25)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
-                        'A' if self.current() == Some('-') => {
+                        x if x == b'A' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 22)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
-                        'H' if self.current() == Some('-') => {
+                        x if x == b'H' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let val = self.parse_string_char_value(1 << 24)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
-                        'd' => {
+                        x if x == b'd' as u32 => {
                             buf.push(0x7F);
                             if let Some(bytes) = unibyte_buf.as_mut() {
                                 bytes.push(0x7F);
                             }
                         }
-                        'x' => {
+                        x if x == b'x' as u32 => {
                             let (hex, _digit_count) = self.read_hex_digits()?;
                             if hex <= emacs_char::MAX_CHAR {
                                 let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
@@ -652,7 +663,7 @@ impl<'a> Reader<'a> {
                                 ));
                             }
                         }
-                        'u' => {
+                        x if x == b'u' as u32 => {
                             let hex = self.read_fixed_hex(4)?;
                             let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
                             let len = emacs_char::char_string(hex, &mut tmp);
@@ -665,7 +676,7 @@ impl<'a> Reader<'a> {
                                 }
                             }
                         }
-                        'U' => {
+                        x if x == b'U' as u32 => {
                             let hex = self.read_fixed_hex(8)?;
                             if hex <= emacs_char::MAX_CHAR {
                                 let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
@@ -682,7 +693,7 @@ impl<'a> Reader<'a> {
                                 return Err(self.error("invalid unicode codepoint in \\U escape"));
                             }
                         }
-                        'N' if self.current() == Some('{') => {
+                        x if x == b'N' as u32 && self.current_code() == Some(b'{' as u32) => {
                             let value = self.read_unicode_name_escape()?;
                             if let Some(c) = char::from_u32(value) {
                                 let mut tmp = [0u8; 4];
@@ -698,14 +709,14 @@ impl<'a> Reader<'a> {
                                 return Err(self.error("invalid unicode codepoint in \\N{...}"));
                             }
                         }
-                        '0'..='7' => {
+                        x if (b'0' as u32..=b'7' as u32).contains(&x) => {
                             // Octal escape
-                            let mut val = (esc as u32) - ('0' as u32);
+                            let mut val = esc - b'0' as u32;
                             for _ in 0..2 {
-                                match self.current() {
-                                    Some(c @ '0'..='7') => {
+                                match self.current_code() {
+                                    Some(c) if (b'0' as u32..=b'7' as u32).contains(&c) => {
                                         self.bump();
-                                        val = val * 8 + (c as u32 - '0' as u32);
+                                        val = val * 8 + (c - b'0' as u32);
                                     }
                                     _ => break,
                                 }
@@ -723,99 +734,17 @@ impl<'a> Reader<'a> {
                                 }
                             }
                         }
-                        '\n' => {
+                        x if x == b'\n' as u32 => {
                             // Line continuation — skip newline
                         }
                         other => {
-                            // Unknown escape — keep the source character.
-                            debug_assert_eq!(esc, other);
-                            Self::push_string_char(&mut buf, &mut unibyte_buf, esc_code);
+                            // Unknown escape — keep the escaped source character.
+                            Self::push_string_char(&mut buf, &mut unibyte_buf, other);
                         }
                     }
                 }
                 other => {
-                    debug_assert_eq!(ch, other);
-                    if !self.source_multibyte && code >= 0x80 && code <= 0xFF {
-                        // Non-ASCII byte from .elc (unibyte) loading.
-                        //
-                        // When source_multibyte=false, .elc content uses Latin-1
-                        // encoding (each byte as char with same code point). A
-                        // UTF-8 multi-byte sequence like U+2018 (bytes E2 80 98)
-                        // arrives as three separate chars: U+00E2, U+0080, U+0098.
-                        //
-                        // GNU Emacs lread.c reads raw bytes and decodes UTF-8:
-                        // any non-ASCII char sets force_multibyte=true (line 3131).
-                        //
-                        // Match GNU: if this byte is a UTF-8 lead byte (>= 0xC0),
-                        // reassemble the full sequence from following continuation
-                        // bytes (0x80..0xBF). On success, emit the decoded Unicode
-                        // char and force multibyte. On failure, emit the raw byte.
-                        //
-                        // For source_multibyte=true sources, the char in 0x80..0xFF
-                        // range is already a decoded Latin-1 codepoint (e.g. U+00A1
-                        // '¡') that must be encoded as Emacs multibyte — falling
-                        // through to the "Normal Unicode" branch handles that.
-                        let byte0 = code as u8;
-                        let decoded = if !self.source_multibyte && byte0 >= 0xC0 {
-                            let expected_len = if byte0 < 0xE0 {
-                                2
-                            } else if byte0 < 0xF0 {
-                                3
-                            } else if byte0 < 0xF8 {
-                                4
-                            } else {
-                                0
-                            };
-                            if expected_len >= 2 {
-                                let save_pos = self.pos;
-                                let mut utf8_bytes = vec![byte0];
-                                let mut ok = true;
-                                for _ in 1..expected_len {
-                                    match self.current() {
-                                        Some(c) if (c as u32) >= 0x80 && (c as u32) <= 0xBF => {
-                                            utf8_bytes.push(c as u8);
-                                            self.bump();
-                                        }
-                                        _ => {
-                                            ok = false;
-                                            break;
-                                        }
-                                    }
-                                }
-                                if ok {
-                                    if let Ok(s) = std::str::from_utf8(&utf8_bytes) {
-                                        s.chars().next().map(|ch| ch as u32)
-                                    } else {
-                                        self.pos = save_pos;
-                                        None
-                                    }
-                                } else {
-                                    self.pos = save_pos;
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        if let Some(code) = decoded {
-                            // Successfully decoded a UTF-8 multi-byte char
-                            let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-                            let len = emacs_char::char_string(code, &mut tmp);
-                            buf.extend_from_slice(&tmp[..len]);
-                            unibyte_buf = None; // force multibyte
-                        } else {
-                            // Raw byte — keep as unibyte
-                            buf.push(byte0);
-                            if let Some(bytes) = unibyte_buf.as_mut() {
-                                bytes.push(byte0);
-                            }
-                        }
-                    } else {
-                        Self::push_string_char(&mut buf, &mut unibyte_buf, code);
-                    }
+                    self.push_source_string_code(&mut buf, &mut unibyte_buf, other);
                 }
             }
         }
@@ -824,19 +753,17 @@ impl<'a> Reader<'a> {
     /// Parse the next character in a string, applying accumulated modifiers.
     /// Handles recursive modifiers (e.g. `\M-\C-x`) and escape sequences.
     fn parse_string_char_value(&mut self, modifiers: u32) -> Result<u32, ReadError> {
-        let Some(ch) = self.current() else {
+        let Some(ch) = self.current_code() else {
             return Err(self.error("expected character after modifier escape in string"));
         };
-        let ch_code = self.current_source_code().unwrap_or(ch as u32);
         self.bump();
-        if ch == '\\' {
-            let Some(esc) = self.current() else {
+        if ch == b'\\' as u32 {
+            let Some(esc) = self.current_code() else {
                 return Err(self.error("unterminated escape in string modifier"));
             };
-            let esc_code = self.current_source_code().unwrap_or(esc as u32);
             self.bump();
             match esc {
-                'C' if self.current() == Some('-') => {
+                x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     let base = self.parse_string_char_value(modifiers)?;
                     let base_char = base & 0x3FFFFF;
@@ -851,56 +778,52 @@ impl<'a> Reader<'a> {
                         base_char | mods | (1u32 << 26)
                     })
                 }
-                'M' if self.current() == Some('-') => {
+                x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     self.parse_string_char_value(modifiers | (1 << 27))
                 }
-                'S' if self.current() == Some('-') => {
+                x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     self.parse_string_char_value(modifiers | (1 << 25))
                 }
-                's' if self.current() == Some('-') => {
+                x if x == b's' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     self.parse_string_char_value(modifiers | (1 << 23))
                 }
-                'A' if self.current() == Some('-') => {
+                x if x == b'A' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     self.parse_string_char_value(modifiers | (1 << 22))
                 }
-                'H' if self.current() == Some('-') => {
+                x if x == b'H' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     self.parse_string_char_value(modifiers | (1 << 24))
                 }
-                'n' => Ok('\n' as u32 | modifiers),
-                'r' => Ok('\r' as u32 | modifiers),
-                't' => Ok('\t' as u32 | modifiers),
-                'a' => Ok('\x07' as u32 | modifiers),
-                'b' => Ok('\x08' as u32 | modifiers),
-                'f' => Ok('\x0C' as u32 | modifiers),
-                'v' => Ok('\x0B' as u32 | modifiers),
-                'e' => Ok('\x1B' as u32 | modifiers),
-                's' => Ok(' ' as u32 | modifiers),
-                'd' => Ok('\x7F' as u32 | modifiers),
-                '\\' => Ok('\\' as u32 | modifiers),
-                '"' => Ok('"' as u32 | modifiers),
-                'N' if self.current() == Some('{') => {
+                x if x == b'n' as u32 => Ok(b'\n' as u32 | modifiers),
+                x if x == b'r' as u32 => Ok(b'\r' as u32 | modifiers),
+                x if x == b't' as u32 => Ok(b'\t' as u32 | modifiers),
+                x if x == b'a' as u32 => Ok(0x07 | modifiers),
+                x if x == b'b' as u32 => Ok(0x08 | modifiers),
+                x if x == b'f' as u32 => Ok(0x0C | modifiers),
+                x if x == b'v' as u32 => Ok(0x0B | modifiers),
+                x if x == b'e' as u32 => Ok(0x1B | modifiers),
+                x if x == b's' as u32 => Ok(b' ' as u32 | modifiers),
+                x if x == b'd' as u32 => Ok(0x7F | modifiers),
+                x if x == b'\\' as u32 => Ok(b'\\' as u32 | modifiers),
+                x if x == b'"' as u32 => Ok(b'"' as u32 | modifiers),
+                x if x == b'N' as u32 && self.current_code() == Some(b'{' as u32) => {
                     Ok(self.read_unicode_name_escape()? | modifiers)
                 }
-                '^' => {
-                    let Some(base) = self.current() else {
+                x if x == b'^' as u32 => {
+                    let Some(base) = self.current_code() else {
                         return Err(self.error("expected char after \\^ in string"));
                     };
-                    let base_val = self.current_source_code().unwrap_or(base as u32);
                     self.bump();
-                    Ok((base_val & 0x1F) | modifiers)
+                    Ok((base & 0x1F) | modifiers)
                 }
-                other => {
-                    debug_assert_eq!(esc, other);
-                    Ok(esc_code | modifiers)
-                }
+                other => Ok(other | modifiers),
             }
         } else {
-            Ok(ch_code | modifiers)
+            Ok(ch | modifiers)
         }
     }
 
@@ -973,13 +896,85 @@ impl<'a> Reader<'a> {
         Ok(())
     }
 
+    fn push_source_string_code(
+        &mut self,
+        buf: &mut Vec<u8>,
+        unibyte_buf: &mut Option<Vec<u8>>,
+        code: u32,
+    ) {
+        if !self.source_multibyte && (0x80..=0xFF).contains(&code) {
+            // Non-ASCII byte from .elc/unibyte loading.
+            //
+            // GNU lread reads raw bytes and decodes UTF-8 byte runs inside
+            // multibyte string constants, while still preserving genuine
+            // raw bytes as unibyte strings. Source bytes are represented as
+            // codes 0x80..0xFF on this path.
+            let byte0 = code as u8;
+            let decoded = if byte0 >= 0xC0 {
+                let expected_len = if byte0 < 0xE0 {
+                    2
+                } else if byte0 < 0xF0 {
+                    3
+                } else if byte0 < 0xF8 {
+                    4
+                } else {
+                    0
+                };
+                if expected_len >= 2 {
+                    let save_pos = self.pos;
+                    let mut utf8_bytes = vec![byte0];
+                    let mut ok = true;
+                    for _ in 1..expected_len {
+                        match self.current_code() {
+                            Some(c) if (0x80..=0xBF).contains(&c) => {
+                                utf8_bytes.push(c as u8);
+                                self.bump();
+                            }
+                            _ => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok {
+                        if let Ok(s) = std::str::from_utf8(&utf8_bytes) {
+                            s.chars().next().map(|ch| ch as u32)
+                        } else {
+                            self.pos = save_pos;
+                            None
+                        }
+                    } else {
+                        self.pos = save_pos;
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(decoded_code) = decoded {
+                Self::push_string_char(buf, unibyte_buf, decoded_code);
+            } else {
+                buf.push(byte0);
+                if let Some(bytes) = unibyte_buf.as_mut() {
+                    bytes.push(byte0);
+                }
+            }
+            return;
+        }
+
+        Self::push_string_char(buf, unibyte_buf, code);
+    }
+
     fn read_hex_digits(&mut self) -> Result<(u32, usize), ReadError> {
         let start = self.pos;
-        while let Some(c) = self.current() {
-            if c.is_ascii_hexdigit() {
+        while let Some(c) = self.current_code() {
+            if is_ascii_hexdigit_code(c) {
                 self.bump();
             } else {
-                if c == ';' {
+                if c == b';' as u32 {
                     self.bump(); // consume terminating semicolon
                 }
                 break;
@@ -999,8 +994,8 @@ impl<'a> Reader<'a> {
     fn read_fixed_hex(&mut self, count: usize) -> Result<u32, ReadError> {
         let start = self.pos;
         for _ in 0..count {
-            match self.current() {
-                Some(c) if c.is_ascii_hexdigit() => self.bump(),
+            match self.current_code() {
+                Some(c) if is_ascii_hexdigit_code(c) => self.bump(),
                 _ => return Err(self.error(&format!("expected {} hex digits", count))),
             }
         }
@@ -1011,13 +1006,13 @@ impl<'a> Reader<'a> {
     fn read_unicode_name_escape(&mut self) -> Result<u32, ReadError> {
         self.expect('{')?;
         let start = self.pos;
-        while let Some(ch) = self.current() {
-            if ch == '}' {
+        while let Some(ch) = self.current_code() {
+            if ch == b'}' as u32 {
                 break;
             }
             self.bump();
         }
-        if self.current() != Some('}') {
+        if self.current_code() != Some(b'}' as u32) {
             return Err(self.error("unterminated \\N{...} escape"));
         }
         let name = self.source_slice_string(start, self.pos);
@@ -1039,14 +1034,17 @@ impl<'a> Reader<'a> {
 
     fn read_char_literal(&mut self) -> Result<Value, ReadError> {
         self.expect('?')?;
-        if matches!(self.current(), Some(' ' | '\t')) {
-            let ch = self.current().expect("matched whitespace char literal");
+        if matches!(self.current_code(), Some(code) if code == b' ' as u32 || code == b'\t' as u32)
+        {
+            let ch = self
+                .current_code()
+                .expect("matched whitespace char literal");
             self.bump();
-            return Ok(Value::char(ch));
+            return Ok(Value::fixnum(ch as i64));
         }
 
         let val = self.parse_char_value(0)?;
-        if matches!(self.current(), Some(ch) if !is_char_literal_delimiter(ch)) {
+        if matches!(self.current_code(), Some(ch) if !is_char_literal_delimiter_code(ch)) {
             return Err(self.error("?"));
         }
         // Character literals with modifier bits produce values beyond Unicode range.
@@ -1056,54 +1054,54 @@ impl<'a> Reader<'a> {
 
     /// Parse the value part of a character literal, accumulating modifier bits.
     fn parse_char_value(&mut self, modifiers: u32) -> Result<u32, ReadError> {
-        let Some(ch) = self.current() else {
+        let Some(ch) = self.current_code() else {
             return Err(self.error("expected character in char literal"));
         };
-        let ch_code = self.current_source_code().unwrap_or(ch as u32);
         self.bump();
 
-        if ch == '\\' {
-            let Some(esc) = self.current() else {
+        if ch == b'\\' as u32 {
+            let Some(esc) = self.current_code() else {
                 return Err(self.error("unterminated character escape"));
             };
-            let esc_code = self.current_source_code().unwrap_or(esc as u32);
             self.bump();
             let val = match esc {
-                'n' => '\n' as u32,
-                'r' => '\r' as u32,
-                't' => '\t' as u32,
-                '\\' => '\\' as u32,
-                '\'' => '\'' as u32,
-                '"' => '"' as u32,
-                'a' => 0x07, // BEL
-                'b' => 0x08, // BS
-                'f' => 0x0C, // FF
-                'v' => 0x0B, // VT
-                'e' => 0x1B, // ESC
-                'd' => 0x7F, // DEL
-                's' if self.current() == Some('-') => {
+                x if x == b'n' as u32 => b'\n' as u32,
+                x if x == b'r' as u32 => b'\r' as u32,
+                x if x == b't' as u32 => b'\t' as u32,
+                x if x == b'\\' as u32 => b'\\' as u32,
+                x if x == b'\'' as u32 => b'\'' as u32,
+                x if x == b'"' as u32 => b'"' as u32,
+                x if x == b'a' as u32 => 0x07, // BEL
+                x if x == b'b' as u32 => 0x08, // BS
+                x if x == b'f' as u32 => 0x0C, // FF
+                x if x == b'v' as u32 => 0x0B, // VT
+                x if x == b'e' as u32 => 0x1B, // ESC
+                x if x == b'd' as u32 => 0x7F, // DEL
+                x if x == b's' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     return self.parse_char_value(modifiers | (1 << 23)); // super bit
                 }
-                's' => ' ' as u32,
-                'x' => self.read_hex_digits()?.0,
-                'u' => self.read_fixed_hex(4)?,
-                'U' => self.read_fixed_hex(8)?,
-                'N' if self.current() == Some('{') => self.read_unicode_name_escape()?,
-                '0'..='7' => {
-                    let mut val = (esc as u32) - ('0' as u32);
+                x if x == b's' as u32 => b' ' as u32,
+                x if x == b'x' as u32 => self.read_hex_digits()?.0,
+                x if x == b'u' as u32 => self.read_fixed_hex(4)?,
+                x if x == b'U' as u32 => self.read_fixed_hex(8)?,
+                x if x == b'N' as u32 && self.current_code() == Some(b'{' as u32) => {
+                    self.read_unicode_name_escape()?
+                }
+                x if (b'0' as u32..=b'7' as u32).contains(&x) => {
+                    let mut val = esc - b'0' as u32;
                     for _ in 0..2 {
-                        match self.current() {
-                            Some(c @ '0'..='7') => {
+                        match self.current_code() {
+                            Some(c) if (b'0' as u32..=b'7' as u32).contains(&c) => {
                                 self.bump();
-                                val = val * 8 + (c as u32 - '0' as u32);
+                                val = val * 8 + (c - b'0' as u32);
                             }
                             _ => break,
                         }
                     }
                     val
                 }
-                'C' if self.current() == Some('-') => {
+                x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump(); // consume '-'
                     let base = self.parse_char_value(modifiers)?;
                     let base_char = base & 0x3FFFFF;
@@ -1118,42 +1116,38 @@ impl<'a> Reader<'a> {
                         return Ok(base_char | existing_mods | (1u32 << 26));
                     }
                 }
-                'M' if self.current() == Some('-') => {
+                x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     return self.parse_char_value(modifiers | (1 << 27)); // meta bit
                 }
-                'S' if self.current() == Some('-') => {
+                x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     return self.parse_char_value(modifiers | (1 << 25)); // shift bit
                 }
-                'A' if self.current() == Some('-') => {
+                x if x == b'A' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     return self.parse_char_value(modifiers | (1 << 22)); // alt bit
                 }
-                'H' if self.current() == Some('-') => {
+                x if x == b'H' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     return self.parse_char_value(modifiers | (1 << 24)); // hyper bit
                 }
-                '^' => {
-                    let Some(base) = self.current() else {
+                x if x == b'^' as u32 => {
+                    let Some(base) = self.current_code() else {
                         return Err(self.error("expected char after \\^"));
                     };
-                    let base_val = self.current_source_code().unwrap_or(base as u32);
                     self.bump();
-                    if base_val == 0x3F {
+                    if base == 0x3F {
                         0x7F // '?' -> DEL
                     } else {
-                        base_val & 0x1F
+                        base & 0x1F
                     }
                 }
-                other => {
-                    debug_assert_eq!(esc, other);
-                    esc_code
-                }
+                other => other,
             };
             Ok(val | modifiers)
         } else {
-            Ok(ch_code | modifiers)
+            Ok(ch | modifiers)
         }
     }
 
@@ -1161,12 +1155,12 @@ impl<'a> Reader<'a> {
 
     fn read_hash_syntax(&mut self) -> Result<Value, ReadError> {
         self.expect('#')?;
-        let Some(ch) = self.current() else {
+        let Some(ch) = self.current_code() else {
             return Err(self.error("#"));
         };
 
         match ch {
-            '\'' => {
+            x if x == b'\'' as u32 => {
                 // #'function
                 self.bump();
                 let saved = save_scratch_gc_roots();
@@ -1176,7 +1170,7 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 Ok(result)
             }
-            '(' => {
+            x if x == b'(' as u32 => {
                 // #("string" START END (PROPS...) ...) — propertized string.
                 // Parse all elements, extract the string (first element), and
                 // discard text properties for now.
@@ -1200,7 +1194,7 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 Err(self.error("#(: expected propertized string"))
             }
-            '[' => {
+            x if x == b'[' as u32 => {
                 // #[...] — compiled-function literal in .elc.
                 // Produce a ByteCode Value directly, matching GNU Emacs's reader.
                 // The vector items are [arglist bytecode-string constants-vector
@@ -1241,93 +1235,95 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 result
             }
-            '@' => {
+            x if x == b'@' as u32 => {
                 // #@N<bytes> — reader skip used by .elc for inline data blocks.
                 self.read_hash_skip_bytes()
             }
-            '!' => {
+            x if x == b'!' as u32 => {
                 // `#!shebang line` — GNU `lread.c` treats `#!` as a
                 // comment to end-of-line, so a script-style shebang
                 // (`#!/usr/bin/env emacs --script`) loads cleanly.
                 // Skip to the next newline (or EOF) and read the next
                 // form.
                 self.bump();
-                while let Some(c) = self.current() {
+                while let Some(c) = self.current_code() {
                     self.bump();
-                    if c == '\n' {
+                    if c == b'\n' as u32 {
                         break;
                     }
                 }
                 self.read_form()
             }
-            ':' => {
+            x if x == b':' as u32 => {
                 // #:X — uninterned symbol.
                 self.bump();
-                let (token, _) = self.read_symbol_token();
-                Ok(Value::from_sym_id(intern_uninterned(&token)))
+                let token = self.read_symbol_token();
+                Ok(Value::from_sym_id(intern_uninterned_lisp_string(
+                    &token.name,
+                )))
             }
-            '$' => {
+            x if x == b'$' as u32 => {
                 // #$ — expands to the current load file name during read.
                 // Matches GNU lread.c: returns Vload_file_name (the actual
                 // file path string), not the symbol `load-file-name`.
                 self.bump();
                 Ok(get_reader_load_file_name())
             }
-            '#' => {
+            x if x == b'#' as u32 => {
                 // ## — symbol with empty name.
                 self.bump();
                 Ok(Value::from_sym_id(intern("")))
             }
-            'b' | 'B' => {
+            x if x == b'b' as u32 || x == b'B' as u32 => {
                 // #b... binary integer
                 self.bump();
                 self.read_radix_number(2)
             }
-            'o' | 'O' => {
+            x if x == b'o' as u32 || x == b'O' as u32 => {
                 // #o... octal integer
                 self.bump();
                 self.read_radix_number(8)
             }
-            'x' | 'X' => {
+            x if x == b'x' as u32 || x == b'X' as u32 => {
                 // #x... hex integer
                 self.bump();
                 self.read_radix_number(16)
             }
-            's' => {
+            x if x == b's' as u32 => {
                 // #s(hash-table ...) or #s(record-type ...)
                 self.bump();
-                if self.current() == Some('(') {
+                if self.current_code() == Some(b'(' as u32) {
                     self.read_hash_table_or_record_literal()
                 } else {
                     Err(self.error("#s"))
                 }
             }
-            '&' => {
+            x if x == b'&' as u32 => {
                 // #&SIZE"DATA" — bool-vector literal.
                 self.bump();
                 self.read_bool_vector_literal()
             }
-            '0'..='9' => {
+            x if is_ascii_digit_code(x) => {
                 // #N=EXPR defines read label N, #N# references it.
                 let mut n: usize = (ch as u8 - b'0') as usize;
                 self.bump();
-                while let Some(d) = self.current() {
-                    if d.is_ascii_digit() {
+                while let Some(d) = self.current_code() {
+                    if is_ascii_digit_code(d) {
                         n = n * 10 + (d as u8 - b'0') as usize;
                         self.bump();
                     } else {
                         break;
                     }
                 }
-                match self.current() {
-                    Some('=') => {
+                match self.current_code() {
+                    Some(code) if code == b'=' as u32 => {
                         // #N=EXPR — define label N and return EXPR
                         self.bump();
                         let expr = self.read_form()?;
                         self.read_labels.insert(n, expr);
                         Ok(expr)
                     }
-                    Some('#') => {
+                    Some(code) if code == b'#' as u32 => {
                         // #N# — reference previously defined label N
                         self.bump();
                         self.read_labels
@@ -1338,13 +1334,13 @@ impl<'a> Reader<'a> {
                     _ => Err(self.error(&format!("#{n}"))),
                 }
             }
-            _ => Err(self.error_after_current(&format!("#{}", ch))),
+            _ => Err(self.error_after_current(&format!("#{}", source_code_for_error(ch)))),
         }
     }
 
     fn read_hash_skip_bytes(&mut self) -> Result<Value, ReadError> {
         self.expect('@')?;
-        if !matches!(self.current(), Some(c) if c.is_ascii_digit()) {
+        if !matches!(self.current_code(), Some(c) if is_ascii_digit_code(c)) {
             return Err(self.error("end of input"));
         }
         let len = self.parse_decimal_usize()?;
@@ -1353,7 +1349,7 @@ impl<'a> Reader<'a> {
     }
 
     fn read_bool_vector_literal(&mut self) -> Result<Value, ReadError> {
-        if !matches!(self.current(), Some(c) if c.is_ascii_digit()) {
+        if !matches!(self.current_code(), Some(c) if is_ascii_digit_code(c)) {
             return Err(self.error("#& expected decimal size"));
         }
         let size = self.parse_decimal_usize()?;
@@ -1393,18 +1389,18 @@ impl<'a> Reader<'a> {
 
     fn read_radix_number(&mut self, radix: u32) -> Result<Value, ReadError> {
         let start = self.pos;
-        let negative = if self.current() == Some('-') {
+        let negative = if self.current_code() == Some(b'-' as u32) {
             self.bump();
             true
-        } else if self.current() == Some('+') {
+        } else if self.current_code() == Some(b'+' as u32) {
             self.bump();
             false
         } else {
             false
         };
 
-        while let Some(c) = self.current() {
-            if c.is_digit(radix) || c == '_' {
+        while let Some(c) = self.current_code() {
+            if is_ascii_digit_for_radix_code(c, radix) || c == b'_' as u32 {
                 self.bump();
             } else {
                 break;
@@ -1556,96 +1552,118 @@ impl<'a> Reader<'a> {
     // -- Atoms (numbers, symbols) --------------------------------------------
 
     fn read_atom(&mut self) -> Result<Value, ReadError> {
-        let (token, had_escape) = self.read_symbol_token();
+        let token = self.read_symbol_token();
 
-        if token.is_empty() {
+        if token.name.as_bytes().is_empty() {
             return Err(self.error("expected atom"));
         }
 
         // Keywords (:foo) — including bare `:` which is a keyword in Emacs
-        if token.starts_with(':') {
-            return Ok(Value::keyword(&token));
+        if token.name.as_bytes().first() == Some(&b':') {
+            return Ok(Value::keyword_id(intern_lisp_string(&token.name)));
         }
 
-        // Try integer. Funnel through Value::make_integer so a value
-        // that fits in i64 but not in fixnum (62-bit) is promoted to
-        // a bignum, matching GNU `string_to_number` behavior. On i64
-        // overflow, fall through to a rug::Integer parse so true
-        // bignum literals work.
-        if looks_like_integer(&token) {
-            if let Ok(n) = token.parse::<i64>() {
-                return Ok(Value::make_integer(rug::Integer::from(n)));
+        if let Some(token_text) = token.text.as_deref() {
+            // Try integer. Funnel through Value::make_integer so a value
+            // that fits in i64 but not in fixnum (62-bit) is promoted to
+            // a bignum, matching GNU `string_to_number` behavior. On i64
+            // overflow, fall through to a rug::Integer parse so true
+            // bignum literals work.
+            if looks_like_integer(token_text) {
+                if let Ok(n) = token_text.parse::<i64>() {
+                    return Ok(Value::make_integer(rug::Integer::from(n)));
+                }
+                if let Ok(parsed) = rug::Integer::parse(token_text) {
+                    return Ok(Value::make_integer(rug::Integer::from(parsed)));
+                }
             }
-            if let Ok(parsed) = rug::Integer::parse(&token) {
-                return Ok(Value::make_integer(rug::Integer::from(parsed)));
+
+            // Try float — handles 1.5, 1e10, .5, 1.5e-3, etc.
+            if looks_like_float(token_text) {
+                if let Ok(f) = token_text.parse::<f64>() {
+                    return Ok(Value::make_float(f));
+                }
+                if let Some(f) = parse_emacs_special_float(token_text) {
+                    return Ok(Value::make_float(f));
+                }
+            }
+
+            // Hex integer: 0xFF
+            if token_text.starts_with("0x") || token_text.starts_with("0X") {
+                if let Ok(n) = i64::from_str_radix(&token_text[2..], 16) {
+                    return Ok(Value::make_integer(rug::Integer::from(n)));
+                }
+            }
+
+            // t and nil
+            if token_text == "t" {
+                return Ok(Value::T);
+            }
+            if token_text == "nil" {
+                return Ok(Value::NIL);
+            }
+
+            // Emacs reader shorthand: bare ## reads as the symbol with empty name.
+            if token_text == "##" && !token.had_escape {
+                return Ok(Value::from_sym_id(intern("")));
             }
         }
 
-        // Try float — handles 1.5, 1e10, .5, 1.5e-3, etc.
-        if looks_like_float(&token) {
-            if let Ok(f) = token.parse::<f64>() {
-                return Ok(Value::make_float(f));
-            }
-            if let Some(f) = parse_emacs_special_float(&token) {
-                return Ok(Value::make_float(f));
-            }
-        }
-
-        // Hex integer: 0xFF
-        if token.starts_with("0x") || token.starts_with("0X") {
-            if let Ok(n) = i64::from_str_radix(&token[2..], 16) {
-                return Ok(Value::make_integer(rug::Integer::from(n)));
-            }
-        }
-
-        // t and nil
-        if token == "t" {
-            return Ok(Value::T);
-        }
-        if token == "nil" {
-            return Ok(Value::NIL);
-        }
-
-        // Emacs reader shorthand: bare ## reads as the symbol with empty name.
-        if token == "##" && !had_escape {
-            return Ok(Value::from_sym_id(intern("")));
-        }
-
-        Ok(Value::from_sym_id(intern(&token)))
+        Ok(Value::from_sym_id(intern_lisp_string(&token.name)))
     }
 
-    fn read_symbol_token(&mut self) -> (String, bool) {
-        let mut token = String::new();
+    fn read_symbol_token(&mut self) -> ReaderToken {
+        let mut bytes = Vec::new();
         let mut had_escape = false;
-        while let Some(ch) = self.current() {
-            if ch.is_ascii_whitespace()
-                || matches!(ch, '(' | ')' | '[' | ']' | '\'' | '`' | ',' | '"' | ';')
-            {
+        while let Some(ch) = self.current_code() {
+            if is_symbol_delimiter_code(ch) {
                 break;
             }
-            if ch == '\\' {
+            if ch == b'\\' as u32 {
                 had_escape = true;
                 self.bump();
-                match self.current() {
+                match self.current_code() {
                     Some(escaped) => {
-                        token.push(escaped);
+                        self.push_symbol_token_code(&mut bytes, escaped);
                         self.bump();
                     }
-                    None => token.push('\\'),
+                    None => bytes.push(b'\\'),
                 }
                 continue;
             }
-            token.push(ch);
+            self.push_symbol_token_code(&mut bytes, ch);
             self.bump();
         }
-        (token, had_escape)
+        let name = if self.source_multibyte {
+            crate::heap_types::LispString::from_emacs_bytes(bytes)
+        } else {
+            crate::heap_types::LispString::from_unibyte(bytes)
+        };
+        let text = name.as_utf8_str().map(ToOwned::to_owned);
+        ReaderToken {
+            name,
+            text,
+            had_escape,
+        }
+    }
+
+    fn push_symbol_token_code(&self, bytes: &mut Vec<u8>, code: u32) {
+        if !self.source_multibyte && code <= 0xFF {
+            bytes.push(code as u8);
+            return;
+        }
+
+        let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let len = emacs_char::char_string(code, &mut tmp);
+        bytes.extend_from_slice(&tmp[..len]);
     }
 
     // -- Helpers -------------------------------------------------------------
 
     fn expect(&mut self, expected: char) -> Result<(), ReadError> {
-        match self.current() {
-            Some(ch) if ch == expected => {
+        let expected_code = expected as u32;
+        match self.current_code() {
+            Some(code) if code == expected_code => {
                 self.bump();
                 Ok(())
             }
@@ -1653,20 +1671,16 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn current(&self) -> Option<char> {
-        self.source_char_at(self.pos)
+    fn current_code(&self) -> Option<u32> {
+        self.source_code_at(self.pos)
     }
 
-    fn current_source_code(&self) -> Option<u32> {
-        self.source_char_code_at(self.pos)
-    }
-
-    fn peek_at(&self, offset: usize) -> Option<char> {
+    fn peek_code_at(&self, offset: usize) -> Option<u32> {
         let mut pos = self.pos;
         for _ in 0..offset {
             pos = self.next_pos(pos)?;
         }
-        self.source_char_at(pos)
+        self.source_code_at(pos)
     }
 
     fn bump(&mut self) {
@@ -1681,7 +1695,7 @@ impl<'a> Reader<'a> {
     }
 
     fn error_after_current(&mut self, message: &str) -> ReadError {
-        if self.current().is_some() {
+        if self.current_code().is_some() {
             self.bump();
         }
         self.error(message)
@@ -1689,7 +1703,7 @@ impl<'a> Reader<'a> {
 
     fn parse_decimal_usize(&mut self) -> Result<usize, ReadError> {
         let start = self.pos;
-        while matches!(self.current(), Some(c) if c.is_ascii_digit()) {
+        while matches!(self.current_code(), Some(c) if is_ascii_digit_code(c)) {
             self.bump();
         }
         if self.pos == start {
@@ -1738,17 +1752,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn source_char_at(&self, pos: usize) -> Option<char> {
-        if pos >= self.limit {
-            return None;
-        }
-        match self.source {
-            ReaderSource::Runtime(input) => input[pos..self.limit].chars().next(),
-            ReaderSource::LispString(input) => self.lisp_string_step(input, pos).map(|(ch, _)| ch),
-        }
-    }
-
-    fn source_char_code_at(&self, pos: usize) -> Option<u32> {
+    fn source_code_at(&self, pos: usize) -> Option<u32> {
         if pos >= self.limit {
             return None;
         }
@@ -1758,7 +1762,7 @@ impl<'a> Reader<'a> {
                 .next()
                 .map(translate_runtime_source_char),
             ReaderSource::LispString(input) => {
-                self.lisp_string_step_code(input, pos).map(|(code, _)| code)
+                self.lisp_string_code_step(input, pos).map(|(code, _)| code)
             }
         }
     }
@@ -1773,21 +1777,12 @@ impl<'a> Reader<'a> {
                 .next()
                 .map(|ch| pos + ch.len_utf8()),
             ReaderSource::LispString(input) => self
-                .lisp_string_step(input, pos)
+                .lisp_string_code_step(input, pos)
                 .map(|(_, width)| pos + width),
         }
     }
 
-    fn lisp_string_step(
-        &self,
-        input: &crate::heap_types::LispString,
-        pos: usize,
-    ) -> Option<(char, usize)> {
-        self.lisp_string_step_code(input, pos)
-            .map(|(code, width)| (runtime_source_char_from_emacs_code(code), width))
-    }
-
-    fn lisp_string_step_code(
+    fn lisp_string_code_step(
         &self,
         input: &crate::heap_types::LispString,
         pos: usize,
@@ -1828,33 +1823,42 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn runtime_source_char_from_emacs_code(code: u32) -> char {
-    if let Some(ch) = char::from_u32(code) {
-        return ch;
-    }
-
-    if (0x3FFF80..=0x3FFFFF).contains(&code) {
-        let raw = code - 0x3FFF00;
-        return char::from_u32(0xE000 + raw).expect("valid raw-byte sentinel");
-    }
-
-    assert!(
-        code <= emacs_char::MAX_CHAR,
-        "invalid reader source character code {code:#X}"
-    );
-    NONUNICODE_SOURCE_SENTINEL
-}
-
 // ---------------------------------------------------------------------------
 // Free functions (copied from parser.rs)
 // ---------------------------------------------------------------------------
 
-fn is_char_literal_delimiter(ch: char) -> bool {
-    (ch as u32) <= 32
+fn is_char_literal_delimiter_code(code: u32) -> bool {
+    code <= 32
         || matches!(
-            ch,
-            '"' | '\'' | ';' | '(' | ')' | '[' | ']' | '#' | '?' | '`' | ',' | '.'
+            code,
+            34 | 39 | 59 | 40 | 41 | 91 | 93 | 35 | 63 | 96 | 44 | 46
         )
+}
+
+fn is_symbol_delimiter_code(code: u32) -> bool {
+    is_ascii_whitespace_code(code) || matches!(code, 40 | 41 | 91 | 93 | 39 | 96 | 44 | 34 | 59)
+}
+
+fn is_ascii_whitespace_code(code: u32) -> bool {
+    code <= 0x7F && (code as u8).is_ascii_whitespace()
+}
+
+fn is_ascii_digit_code(code: u32) -> bool {
+    code <= 0x7F && (code as u8).is_ascii_digit()
+}
+
+fn is_ascii_hexdigit_code(code: u32) -> bool {
+    code <= 0x7F && (code as u8).is_ascii_hexdigit()
+}
+
+fn is_ascii_digit_for_radix_code(code: u32, radix: u32) -> bool {
+    code <= 0x7F && (code as u8 as char).is_digit(radix)
+}
+
+fn source_code_for_error(code: u32) -> String {
+    char::from_u32(code)
+        .map(|ch| ch.to_string())
+        .unwrap_or_else(|| format!("\\U{code:08X}"))
 }
 
 fn looks_like_float(s: &str) -> bool {

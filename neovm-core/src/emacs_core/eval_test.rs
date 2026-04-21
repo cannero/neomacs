@@ -1066,7 +1066,7 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
 }
 
 #[test]
-fn read_char_forces_input_wait_redisplay_when_inhibit_redisplay_is_set() {
+fn read_char_respects_inhibit_redisplay_during_input_wait() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.obarray.set_symbol_value("inhibit-redisplay", Value::T);
@@ -1089,7 +1089,35 @@ fn read_char_forces_input_wait_redisplay_when_inhibit_redisplay_is_set() {
 
     let event = ev.read_char().expect("read_char should return keypress");
     assert_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(*redisplay_count.borrow(), 0);
+}
+
+#[test]
+fn redisplay_skips_callback_when_visible_state_is_unchanged() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let redisplay_count = Rc::new(RefCell::new(0usize));
+    let redisplay_count_in_cb = Rc::clone(&redisplay_count);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplay_count_in_cb.borrow_mut() += 1;
+    }));
+
+    ev.redisplay();
+    ev.redisplay();
     assert_eq!(*redisplay_count.borrow(), 1);
+
+    ev.set_current_message(Some(LispString::from_utf8("hello")));
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 2);
+
+    ev.apply(Value::symbol("force-mode-line-update"), vec![])
+        .expect("force-mode-line-update should be callable");
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 3);
+
+    ev.redisplay_with_force(true);
+    assert_eq!(*redisplay_count.borrow(), 4);
 }
 
 #[test]
@@ -1230,6 +1258,82 @@ fn recursive_edit_runs_top_level_before_outer_command_loop_reads_input() {
             .expect("top-level probe should be bound")
             .is_truthy(),
         "expected recursive_edit to evaluate `top-level' before waiting for input"
+    );
+}
+
+#[test]
+fn command_loop_runs_initial_post_command_hook_before_first_command() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    fn stop_command_loop_for_test(ctx: &mut Context, args: Vec<Value>) -> EvalResult {
+        assert!(args.is_empty(), "stop helper should not receive arguments");
+        ctx.command_loop.running = false;
+        Ok(Value::NIL)
+    }
+    ev.defsubr(
+        "neo-stop-command-loop-for-test",
+        stop_command_loop_for_test,
+        0,
+        Some(0),
+    );
+
+    let scratch = ev.buffers.create_buffer("*command-loop-prologue*");
+    ev.buffers.set_current(scratch);
+    let frame = ev.frames.create_frame("F1", 80, 24, scratch);
+    assert!(
+        ev.frames.select_frame(frame),
+        "command loop test should have a selected frame"
+    );
+
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    ev.eval_str(
+        r#"(progn
+             (setq neo-initial-post-command-count 0)
+             (setq inhibit-redisplay t)
+             (fset 'neo-initial-post-command-hook
+                   (lambda ()
+                     (setq neo-initial-post-command-count
+                           (1+ neo-initial-post-command-count))
+                     (setq inhibit-redisplay nil)
+                     (setq post-command-hook nil)))
+             (setq post-command-hook '(neo-initial-post-command-hook))
+             (fset 'neo-exit-command
+                   (lambda ()
+                     (interactive)
+                     (neo-stop-command-loop-for-test)))
+             (fset 'command-execute
+                   (lambda (cmd &optional _record _keys _special)
+                     (funcall cmd))))"#,
+    )
+    .expect("setup command-loop prologue test");
+
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &[Value::fixnum('q' as i64)],
+        Value::symbol("neo-exit-command"),
+    )
+    .expect("define exit command");
+    ev.command_loop
+        .keyboard
+        .kboard
+        .unread_events
+        .push_back(Value::fixnum('q' as i64));
+    ev.command_loop.running = true;
+
+    let result = ev
+        .recursive_edit_inner()
+        .expect("recursive edit should exit through command");
+    assert_eq!(result, Value::NIL);
+    assert_eq!(
+        ev.eval_symbol("neo-initial-post-command-count")
+            .expect("post-command count"),
+        Value::fixnum(1)
+    );
+    assert_eq!(
+        ev.eval_symbol("inhibit-redisplay")
+            .expect("inhibit-redisplay should be bound"),
+        Value::NIL
     );
 }
 
@@ -6602,6 +6706,42 @@ fn hook_system_runtime_value_shapes() {
     assert_eq!(results[12], "OK (invalid-function 42)");
     assert_eq!(results[15], "OK nil");
     assert_eq!(results[16], "OK 2");
+}
+
+#[test]
+fn safe_run_hook_removes_failing_local_hook_and_continues_to_global_hook() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buffer = ev.buffers.create_buffer("*safe-hook*");
+    ev.buffers.set_current(buffer);
+
+    ev.eval_str(
+        r#"(progn
+             (setq safe-hook-log nil)
+             (defalias 'safe-hook-bad
+               #'(lambda ()
+                   (setq safe-hook-log (cons 'bad safe-hook-log))
+                   (error "boom")))
+             (defalias 'safe-hook-good
+               #'(lambda ()
+                   (setq safe-hook-log (cons 'good safe-hook-log))))
+             (setq safe-local-hook '(safe-hook-good))
+             (make-local-variable 'safe-local-hook)
+             (setq safe-local-hook '(safe-hook-bad t)))"#,
+    )
+    .expect("safe hook test setup");
+
+    crate::emacs_core::hook_runtime::safe_run_named_hook(
+        &mut ev,
+        crate::emacs_core::intern::intern("safe-local-hook"),
+        &[],
+    )
+    .expect("safe hook should swallow ordinary hook errors");
+
+    let result = ev
+        .eval_str("(list safe-hook-log safe-local-hook (default-value 'safe-local-hook))")
+        .expect("inspect safe hook result");
+    assert_eq!(format!("{}", result), "((good bad) (t) (safe-hook-good))");
 }
 
 #[test]

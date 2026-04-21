@@ -755,15 +755,55 @@ pub(crate) fn builtin_read_char_exclusive_in_runtime(
 ///
 /// Return a list of suffixes that `load` tries when searching for files.
 /// GNU lread.c: combines `load-suffixes` with `load-file-rep-suffixes`.
-pub(crate) fn builtin_get_load_suffixes(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_get_load_suffixes(
+    obarray: &super::symbol::Obarray,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("get-load-suffixes", &args, 0)?;
-    // GNU: combines load-suffixes (".elc" ".el") with
-    // load-file-rep-suffixes (""). Result: (".elc" ".el" "").
-    Ok(Value::list(vec![
-        Value::string(".elc"),
-        Value::string(".el"),
-        Value::string(""),
-    ]))
+    // GNU `Fget_load_suffixes' cross-products `load-suffixes' with
+    // `load-file-rep-suffixes'.  The empty representation suffix extends each
+    // load suffix; it is not a standalone load suffix.
+    let load_suffixes = load_suffix_list(obarray.symbol_value("load-suffixes"), "load-suffixes")?;
+    let rep_suffixes = load_suffix_list(
+        obarray.symbol_value("load-file-rep-suffixes"),
+        "load-file-rep-suffixes",
+    )?;
+    let mut suffixes = Vec::new();
+    for suffix in &load_suffixes {
+        for rep in &rep_suffixes {
+            suffixes.push(Value::string(format!("{suffix}{rep}")));
+        }
+    }
+    Ok(Value::list(suffixes))
+}
+
+fn load_suffix_list(value: Option<&Value>, name: &str) -> Result<Vec<String>, Flow> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    if value.is_nil() {
+        return Ok(Vec::new());
+    }
+    let Some(items) = list_to_vec(value) else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), *value],
+        ));
+    };
+    let mut suffixes = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(suffix) = item.as_runtime_string_owned() else {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), item],
+            ));
+        };
+        suffixes.push(suffix);
+    }
+    if suffixes.is_empty() && name == "load-file-rep-suffixes" {
+        suffixes.push(String::new());
+    }
+    Ok(suffixes)
 }
 
 /// `(locate-file FILENAME PATH SUFFIXES &optional PREDICATE)`

@@ -1624,7 +1624,7 @@ pub fn eql_value_swp(left: &Value, right: &Value, symbols_with_pos_enabled: bool
 
 /// `equal` — structural comparison.
 pub fn equal_value(left: &Value, right: &Value, depth: usize) -> bool {
-    let mut seen = HashSet::new();
+    let mut seen = None;
     equal_value_inner(left, right, depth, &mut seen, false)
 }
 
@@ -1635,7 +1635,7 @@ pub fn equal_value_swp(
     depth: usize,
     symbols_with_pos_enabled: bool,
 ) -> bool {
-    let mut seen = HashSet::new();
+    let mut seen = None;
     equal_value_inner(left, right, depth, &mut seen, symbols_with_pos_enabled)
 }
 
@@ -1643,7 +1643,7 @@ fn equal_value_inner(
     left: &Value,
     right: &Value,
     depth: usize,
-    seen: &mut HashSet<(usize, usize)>,
+    seen: &mut Option<HashSet<(usize, usize)>>,
     symbols_with_pos_enabled: bool,
 ) -> bool {
     if depth > 200 {
@@ -1674,9 +1674,11 @@ fn equal_value_inner(
                 == super::marker::marker_logical_fields(right)
         }
         (ValueKind::Cons, ValueKind::Cons) => {
-            let pair = (left.bits(), right.bits());
-            if !seen.insert(pair) {
-                return true;
+            if depth > 10 {
+                let pair = (left.bits(), right.bits());
+                if !seen.get_or_insert_with(HashSet::new).insert(pair) {
+                    return true;
+                }
             }
             let a_car = left.cons_car();
             let a_cdr = left.cons_cdr();
@@ -1687,9 +1689,11 @@ fn equal_value_inner(
         }
         (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector))
         | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
-            let pair = (left.bits(), right.bits());
-            if !seen.insert(pair) {
-                return true;
+            if depth > 10 {
+                let pair = (left.bits(), right.bits());
+                if !seen.get_or_insert_with(HashSet::new).insert(pair) {
+                    return true;
+                }
             }
             let av = left.as_vector_data().or_else(|| left.as_record_data());
             let bv = right.as_vector_data().or_else(|| right.as_record_data());
@@ -1710,9 +1714,11 @@ fn equal_value_inner(
             ValueKind::Veclike(VecLikeType::HashTable),
         ) => left.bits() == right.bits(),
         (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) => {
-            let pair = (left.bits(), right.bits());
-            if !seen.insert(pair) {
-                return true;
+            if depth > 10 {
+                let pair = (left.bits(), right.bits());
+                if !seen.get_or_insert_with(HashSet::new).insert(pair) {
+                    return true;
+                }
             }
             closure_equal(left, right, depth + 1, seen, symbols_with_pos_enabled)
         }
@@ -1820,7 +1826,7 @@ fn closure_equal(
     left: &Value,
     right: &Value,
     depth: usize,
-    seen: &mut HashSet<(usize, usize)>,
+    seen: &mut Option<HashSet<(usize, usize)>>,
     symbols_with_pos_enabled: bool,
 ) -> bool {
     let (Some(left_params), Some(right_params)) = (left.closure_params(), right.closure_params())

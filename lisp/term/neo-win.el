@@ -33,6 +33,9 @@
 
 ;; Documentation-purposes only: actually loaded in loadup.el.
 (require 'term/common-win)
+;; neo-win.el is source-loaded during dump loadup; make the macro available
+;; before the mode definitions below.
+(require 'easy-mmode)
 (require 'frame)
 (require 'mouse)
 (require 'scroll-bar)

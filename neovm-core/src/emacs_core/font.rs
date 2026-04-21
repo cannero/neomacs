@@ -2876,6 +2876,10 @@ pub(crate) fn builtin_internal_make_lisp_face(
         }
     }
     mark_created_lisp_face(&face_name);
+    if let Some(face_id) = face_id_for_name(&face_name) {
+        eval.obarray_mut()
+            .put_property(&face_name, "face", Value::fixnum(face_id))?;
+    }
     clear_face_overrides(&face_name, true);
     let result = make_lisp_face_vector();
     crate::emacs_core::xfaces::ensure_face_new_frame_defaults_entry(eval, &face_name);

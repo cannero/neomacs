@@ -197,6 +197,7 @@ fn gnu_simple_command_execute_eval() -> Context {
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun mark (&optional force)");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun activate-mark");
     eval_first_form_after_marker(&mut ev, &simple_source, "(defun set-mark (pos)");
+    crate::test_utils::load_gnu_undo_auto_runtime(&mut ev);
     ev
 }
 

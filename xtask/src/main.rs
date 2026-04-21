@@ -285,21 +285,16 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
 
     // ---------------------------------------------------------------
     // Loaddefs generation: uses the now-compiled .elc files.
+    //
+    // This is a fresh-build pipeline, so mirror GNU's autoloads-force
+    // semantics and run loaddefs-generate with GENERATE-FULL non-nil.
+    // Update mode keys off the top-level loaddefs.el timestamp; that can
+    // skip older sources whose secondary loaddefs files (for example
+    // calendar/cal-loaddefs.el) are missing.
     // ---------------------------------------------------------------
     let loaddefs_gen = paths.lisp_root.join("emacs-lisp/loaddefs-gen.el");
     let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
-    let mut loaddefs_args = vec![
-        OsString::from("--batch"),
-        OsString::from("-l"),
-        loaddefs_gen.as_os_str().to_os_string(),
-        OsString::from("-f"),
-        OsString::from("loaddefs-generate--emacs-batch"),
-    ];
-    loaddefs_args.extend(
-        loaddefs_dirs
-            .iter()
-            .map(|path| path.as_os_str().to_os_string()),
-    );
+    let loaddefs_args = loaddefs_generation_args(&loaddefs_gen, &loaddefs_dirs);
     run_command(
         options,
         &options.repo_root,
@@ -345,6 +340,43 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     gnu_emacs_generate_secondary_loaddefs(options, &paths)?;
 
     Ok(())
+}
+
+fn loaddefs_generation_args(loaddefs_gen: &Path, loaddefs_dirs: &[PathBuf]) -> Vec<OsString> {
+    let mut loaddefs_args = vec![
+        OsString::from("--batch"),
+        OsString::from("-l"),
+        loaddefs_gen.as_os_str().to_os_string(),
+        OsString::from("--eval"),
+        force_loaddefs_generate_eval(),
+        OsString::from("-f"),
+        OsString::from("neomacs-loaddefs-generate--force"),
+    ];
+    loaddefs_args.extend(
+        loaddefs_dirs
+            .iter()
+            .map(|path| path.as_os_str().to_os_string()),
+    );
+    loaddefs_args
+}
+
+fn force_loaddefs_generate_eval() -> OsString {
+    OsString::from(
+        r#"(defun neomacs-loaddefs-generate--force ()
+  (let* ((args (mapcar #'file-truename command-line-args-left))
+         (default-directory (file-truename lisp-directory))
+         (output-file (expand-file-name "loaddefs.el")))
+    (setq command-line-args-left nil)
+    (loaddefs-generate
+     args output-file
+     (loaddefs-generate--excluded-files)
+     nil t t)
+    (let ((lisp-mode-autoload-regexp
+           "^;;;###\\(\\(noexist\\)-\\)?\\(theme-autoload\\)"))
+      (loaddefs-generate
+       (expand-file-name "../etc/themes/")
+       (expand-file-name "theme-loaddefs.el")))))"#,
+    )
 }
 
 /// Pre-compile bootstrap .el files using GNU Emacs.

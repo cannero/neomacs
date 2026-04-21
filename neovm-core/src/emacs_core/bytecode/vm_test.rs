@@ -1222,6 +1222,45 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
     assert_eq!(result, Value::fixnum(9));
 }
 
+#[test]
+fn vm_bytecoded_call_executes_heap_bytecode_without_cloning_function() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new_minimal_vm_harness();
+
+    let mut inner = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let answer_idx = inner.add_constant(Value::fixnum(42));
+    inner.ops = vec![Op::Constant(answer_idx), Op::Return];
+    inner.max_stack = 1;
+    let inner_value = Value::make_bytecode(inner);
+
+    let mut outer = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let inner_idx = outer.add_constant(inner_value);
+    outer.ops = vec![Op::Constant(inner_idx), Op::Call(0), Op::Return];
+    outer.max_stack = 1;
+
+    crate::emacs_core::bytecode::chunk::reset_bytecode_function_clone_count_for_test();
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&outer, vec![])
+            .expect("nested bytecoded call should execute")
+    };
+
+    assert_eq!(result, Value::fixnum(42));
+    assert_eq!(
+        crate::emacs_core::bytecode::chunk::bytecode_function_clone_count_for_test(),
+        0,
+        "VM bytecoded call fast path must execute the heap bytecode object in place"
+    );
+}
+
 fn vm_unbind_restores_saved_excursion_point() {
     let (result, buffers, (buffer_id, saved_point)) = execute_manual_vm_built(|buffers| {
         let buffer_id = buffers.create_buffer("excursion");
@@ -2085,7 +2124,7 @@ fn vm_xdisp_window_visibility_builtins_use_shared_runtime_state() {
                            (coordinates-in-window-p 'x w)
                          (error err))))"#
         ),
-        r#"OK ("vm-xdisp" (0 . 0) t (0 . 0) (wrong-type-argument windowp "x") (wrong-type-argument window-live-p 999999) (wrong-type-argument integer-or-marker-p left) (wrong-type-argument consp x))"#
+        r#"OK ("vm-xdisp" (5 . 2) t (0 . 0) (wrong-type-argument windowp "x") (wrong-type-argument window-live-p 999999) (wrong-type-argument integer-or-marker-p left) (wrong-type-argument consp x))"#
     );
 }
 
@@ -7337,6 +7376,7 @@ fn vm_delete_char_uses_shared_read_only_and_narrowing_state() {
                        (delete-char 1)
                      (error (car err)))))"#,
             |eval| {
+                crate::test_utils::load_gnu_undo_auto_runtime(eval);
                 let current = eval.buffers.current_buffer_id().expect("scratch buffer");
                 let buffer = eval.buffers.get_mut(current).expect("scratch buffer");
                 buffer.insert("abc");
@@ -9074,7 +9114,7 @@ fn vm_commandp_uses_shared_command_metadata_state() {
 fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
-        vm_eval_str(
+        vm_eval_with_init_str(
             "(progn
                (put 'vm-doc-shared 'variable-documentation '(identity \"doc\"))
                (list
@@ -9085,7 +9125,8 @@ fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
                  (condition-case err
                      (describe-vector [1] 'display-buffer)
                    (void-function (car err)))
-                 (help--describe-vector nil nil nil nil nil nil nil)))"
+                 (help--describe-vector nil nil nil nil nil nil nil)))",
+            crate::test_utils::load_minimal_gnu_help_runtime,
         ),
         "OK (t \"doc\" t nil void-function nil)"
     );

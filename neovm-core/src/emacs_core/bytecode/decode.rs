@@ -302,11 +302,9 @@ fn decode_pass1(
                 }
             }
 
-            // 128: constant with 1-byte index (but GNU defines this range oddly)
-            128 => {
-                let arg = fetch1(bytecodes, &mut pos, byte_offset)?;
-                ops.push(RawOp::Resolved(Op::Constant(arg as u16)));
-            }
+            // 128: unused in GNU Emacs. `byte-constant2` starts at 129 and
+            // single-byte constants are encoded as 192..=255.
+            128 => return Err(DecodeError::UnknownOpcode(byte, byte_offset)),
 
             // 129: constant2 with 2-byte index
             129 => {

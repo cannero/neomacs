@@ -488,6 +488,7 @@ pub(crate) fn regex_compile_lisp(
     let mut begalt_offset: usize = 0; // Start of current alternative
     let mut pending_exact: Option<usize> = None; // Position of current exactn being built
     let mut laststart: Option<usize> = None; // Start of last complete expression (for postfix ops)
+    let mut laststart_is_group = false; // True when laststart came from a closed \( ... \).
     let mut fixup_alt_jump: Option<usize> = None; // Jump to fixup at end of alternation
 
     /// Helper: push a byte to the bytecode buffer
@@ -567,14 +568,25 @@ pub(crate) fn regex_compile_lisp(
             b'*' | b'+' | b'?' => {
                 let Some(mut last) = laststart else {
                     // No previous expression to repeat — treat as literal
-                    goto_normal_char(c as u32, &mut buf, &mut pending_exact, &mut laststart);
+                    goto_normal_char(
+                        c as u32,
+                        &mut buf,
+                        &mut pending_exact,
+                        &mut laststart,
+                        &mut laststart_is_group,
+                    );
                     continue;
                 };
+                let last_is_group = laststart_is_group;
 
                 // GNU regex_compile: if the preceding expression was part
                 // of an exactn with count > 1, split off the last character
                 // so that the repetition applies only to that character.
-                if buf.buffer[last] == RegexOp::Exactn as u8 {
+                //
+                // Do not split when the postfix applies to a just-closed shy
+                // group. GNU clears `pending_exact` on \), so `\(?:ab\)?`
+                // repeats the whole "ab" group, not only "b".
+                if !last_is_group && buf.buffer[last] == RegexOp::Exactn as u8 {
                     let count_pos = last + 1;
                     let count = buf.buffer[count_pos] as usize;
                     let exact_start = count_pos + 1;
@@ -618,6 +630,7 @@ pub(crate) fn regex_compile_lisp(
                 compile_repetition(c, greedy, posix, last, &mut buf)?;
 
                 laststart = None; // Can't apply another postfix op
+                laststart_is_group = false;
                 pending_exact = None;
             }
 
@@ -750,6 +763,7 @@ pub(crate) fn regex_compile_lisp(
                         // After \), laststart points to the group's start
                         // so postfix operators (?, *, +) apply to the group.
                         laststart = Some(entry.group_bytecode_start);
+                        laststart_is_group = true;
                         // Do NOT restore regnum — it keeps incrementing
                         // across sibling groups (GNU behavior).
                         pending_exact = None;
@@ -859,6 +873,7 @@ pub(crate) fn regex_compile_lisp(
                                         &mut buf,
                                         &mut pending_exact,
                                         &mut laststart,
+                                        &mut laststart_is_group,
                                     );
                                 }
                             }
@@ -988,6 +1003,7 @@ pub(crate) fn regex_compile_lisp(
 
                         compile_interval(min_count, max_count, lazy, last, &mut buf)?;
                         laststart = None;
+                        laststart_is_group = false;
                         pending_exact = None;
                     }
 
@@ -1001,6 +1017,7 @@ pub(crate) fn regex_compile_lisp(
                             &mut buf,
                             &mut pending_exact,
                             &mut laststart,
+                            &mut laststart_is_group,
                         );
                     }
                     b'n' => {
@@ -1009,6 +1026,7 @@ pub(crate) fn regex_compile_lisp(
                             &mut buf,
                             &mut pending_exact,
                             &mut laststart,
+                            &mut laststart_is_group,
                         );
                     }
                     b'r' => {
@@ -1017,16 +1035,35 @@ pub(crate) fn regex_compile_lisp(
                             &mut buf,
                             &mut pending_exact,
                             &mut laststart,
+                            &mut laststart_is_group,
                         );
                     }
                     b'f' => {
-                        goto_normal_char(0x0c, &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            0x0c,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                            &mut laststart_is_group,
+                        );
                     }
                     b'a' => {
-                        goto_normal_char(0x07, &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            0x07,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                            &mut laststart_is_group,
+                        );
                     }
                     b'e' => {
-                        goto_normal_char(0x1b, &mut buf, &mut pending_exact, &mut laststart);
+                        goto_normal_char(
+                            0x1b,
+                            &mut buf,
+                            &mut pending_exact,
+                            &mut laststart,
+                            &mut laststart_is_group,
+                        );
                     }
                     // \d — digit [0-9]  (not in GNU Emacs, but used in tests)
                     b'd' => {
@@ -1060,13 +1097,20 @@ pub(crate) fn regex_compile_lisp(
                             let (code, len) = decode_pattern_char(pattern_bytes, char_start, true)
                                 .unwrap_or((c2 as u32, 1));
                             p = char_start + len;
-                            goto_normal_char(code, &mut buf, &mut pending_exact, &mut laststart);
+                            goto_normal_char(
+                                code,
+                                &mut buf,
+                                &mut pending_exact,
+                                &mut laststart,
+                                &mut laststart_is_group,
+                            );
                         } else {
                             goto_normal_char(
                                 c2 as u32,
                                 &mut buf,
                                 &mut pending_exact,
                                 &mut laststart,
+                                &mut laststart_is_group,
                             );
                         }
                     }
@@ -1082,9 +1126,21 @@ pub(crate) fn regex_compile_lisp(
                     let (code, len) = decode_pattern_char(pattern_bytes, char_start, true)
                         .unwrap_or((c as u32, 1));
                     p = char_start + len;
-                    goto_normal_char(code, &mut buf, &mut pending_exact, &mut laststart);
+                    goto_normal_char(
+                        code,
+                        &mut buf,
+                        &mut pending_exact,
+                        &mut laststart,
+                        &mut laststart_is_group,
+                    );
                 } else {
-                    goto_normal_char(c as u32, &mut buf, &mut pending_exact, &mut laststart);
+                    goto_normal_char(
+                        c as u32,
+                        &mut buf,
+                        &mut pending_exact,
+                        &mut laststart,
+                        &mut laststart_is_group,
+                    );
                 }
             }
         }
@@ -1147,6 +1203,7 @@ fn goto_normal_char(
     buf: &mut CompiledPattern,
     pending_exact: &mut Option<usize>,
     laststart: &mut Option<usize>,
+    laststart_is_group: &mut bool,
 ) {
     let c = if let Some(table) = buf.translate.as_ref() {
         if (c as usize) < table.len() {
@@ -1173,12 +1230,14 @@ fn goto_normal_char(
         if count + encoded_len <= 255 {
             buf.buffer[exact_pos] += encoded_len as u8;
             buf.buffer.extend_from_slice(&encoded[..encoded_len]);
+            *laststart_is_group = false;
             return;
         }
     }
 
     // Start a new exactn
     *laststart = Some(buf.buffer.len());
+    *laststart_is_group = false;
     buf.buffer.push(RegexOp::Exactn as u8);
     *pending_exact = Some(buf.buffer.len());
     buf.buffer.push(encoded_len as u8);

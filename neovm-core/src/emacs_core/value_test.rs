@@ -235,6 +235,49 @@ fn recursive_closure_equal_and_hash_are_structural() {
 }
 
 #[test]
+fn equal_deferred_cycle_tracking_still_handles_circular_lists() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        let left = Value::cons(Value::symbol("x"), Value::NIL);
+        left.set_cdr(left);
+        let right = Value::cons(Value::symbol("x"), Value::NIL);
+        right.set_cdr(right);
+
+        assert!(equal_value(&left, &right, 0));
+    });
+}
+
+#[test]
+fn repeated_shallow_equal_avoids_cycle_tracking_overhead() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        let make_value = || {
+            Value::vector(vec![
+                Value::symbol("menu-item"),
+                Value::string("Option documentation"),
+                Value::vector(vec![
+                    Value::symbol("lambda"),
+                    Value::list(vec![Value::symbol("interactive")]),
+                    Value::symbol("doom/help"),
+                ]),
+            ])
+        };
+        let left = make_value();
+        let right = make_value();
+
+        let start = std::time::Instant::now();
+        for _ in 0..200_000 {
+            assert!(equal_value(&left, &right, 0));
+        }
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "shallow equal should not allocate cycle tracking for every call; elapsed={elapsed:?}"
+        );
+    });
+}
+
+#[test]
 fn closure_slot_mutation_invalidates_cached_params() {
     crate::test_utils::init_test_tracing();
     with_test_heap(|| {

@@ -52,6 +52,14 @@ impl<'a> crate::emacs_core::hook_runtime::HookRuntime for Vm<'a> {
         self.call_function_with_roots(function, args)
     }
 
+    fn remove_hook_function_after_error(&mut self, hook_sym: SymId, function: Value) {
+        crate::emacs_core::hook_runtime::HookRuntime::remove_hook_function_after_error(
+            &mut *self.ctx,
+            hook_sym,
+            function,
+        );
+    }
+
     fn with_hook_root_scope<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, Flow>,
@@ -81,9 +89,9 @@ impl<'a> Vm<'a> {
     }
 
     fn with_dynamic_vm_roots<T>(&mut self, f: impl FnOnce(&mut Self) -> T) -> T {
-        self.ctx.push_vm_root_frame();
+        let scope = self.ctx.save_vm_roots();
         let result = f(self);
-        self.ctx.pop_vm_root_frame();
+        self.ctx.restore_vm_roots(scope);
         result
     }
 
@@ -116,11 +124,9 @@ impl<'a> Vm<'a> {
         f: impl FnOnce(&mut Self) -> T,
     ) -> T {
         self.with_dynamic_vm_roots(|vm| {
-            for value in func.constants.iter().copied() {
-                vm.ctx.push_vm_frame_root(value);
-            }
-            // bc_buf is scanned by collect_roots — no need to snapshot stack.
-            // specpdl entries are on ctx.specpdl which is already GC-traced.
+            // The active bytecode frame already roots its constants for the
+            // whole invocation; only transient values removed from bc_buf need
+            // an explicit root while a nested call can GC.
             for value in extra.iter().copied() {
                 vm.ctx.push_vm_frame_root(value);
             }
@@ -217,10 +223,9 @@ impl<'a> Vm<'a> {
         }
 
         // Root the bytecode function's constants so they survive GC during
-        // nested calls. Keep them in the active VM root frame so they remain
-        // reachable even if the ByteCodeObj tracing has a gap (e.g. cloned
-        // ByteCodeFunction whose constants diverge from the heap object, or
-        // NIL func_value from sf_byte_code_value).
+        // nested calls. Heap bytecode calls also root func_value below, which
+        // mirrors GNU's frame-held function object; direct/manual bytecode
+        // execution can pass NIL func_value, so constants still need roots.
         let result = self.maybe_grow_vm_stack(|vm| {
             vm.with_dynamic_vm_roots(|vm| {
                 if func_value.is_heap_object() {
@@ -605,18 +610,20 @@ impl<'a> Vm<'a> {
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
                     let func_val = stk!().pop().unwrap_or(Value::NIL);
-                    let writeback_names = self.writeback_callable_names(&func_val);
-                    let writeback_args = args.clone();
+                    let writeback_names = self.writeback_mutating_callable_names(&func_val);
+                    let writeback_args = writeback_names.as_ref().map(|_| args.clone());
                     let result =
                         vm_try!(
                             self.with_frame_call_roots(func, func_val, args, |vm, args| vm
                                 .call_function(func_val, args),)
                         );
-                    if let Some((called_name, alias_target)) = writeback_names.as_ref() {
+                    if let (Some((called_name, alias_target)), Some(writeback_args)) =
+                        (writeback_names.as_ref(), writeback_args.as_ref())
+                    {
                         self.maybe_writeback_mutating_first_arg(
                             called_name,
                             alias_target.as_deref(),
-                            &writeback_args,
+                            writeback_args,
                             &result,
                         );
                     }
@@ -646,19 +653,21 @@ impl<'a> Vm<'a> {
                             let spread = list_to_vec(&last).unwrap_or_default();
                             args.extend(spread);
                         }
-                        let writeback_names = self.writeback_callable_names(&func_val);
-                        let writeback_args = args.clone();
+                        let writeback_names = self.writeback_mutating_callable_names(&func_val);
+                        let writeback_args = writeback_names.as_ref().map(|_| args.clone());
                         let result = vm_try!(self.with_frame_call_roots(
                             func,
                             func_val,
                             args,
                             |vm, args| vm.call_function(func_val, args),
                         ));
-                        if let Some((called_name, alias_target)) = writeback_names.as_ref() {
+                        if let (Some((called_name, alias_target)), Some(writeback_args)) =
+                            (writeback_names.as_ref(), writeback_args.as_ref())
+                        {
                             self.maybe_writeback_mutating_first_arg(
                                 called_name,
                                 alias_target.as_deref(),
-                                &writeback_args,
+                                writeback_args,
                                 &result,
                             );
                         }
@@ -1737,15 +1746,25 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
-                    let writeback_args = args.clone();
-                    let result = if let Some(result) =
-                        vm_try!(self.maybe_call_named_function_cell(func, &name, args.clone(),))
-                    {
-                        result
-                    } else {
+                    let writeback_args = Self::mutates_first_arg_name(&name).then(|| args.clone());
+                    let result = if self.named_builtin_fast_path_allowed(&name) {
                         vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args,))
+                    } else {
+                        let func_val = Value::symbol(&name);
+                        vm_try!(
+                            self.with_frame_call_roots(func, func_val, args, |vm, args| {
+                                vm.call_function(func_val, args)
+                            })
+                        )
                     };
-                    self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
+                    if let Some(writeback_args) = writeback_args.as_ref() {
+                        self.maybe_writeback_mutating_first_arg(
+                            &name,
+                            None,
+                            writeback_args,
+                            &result,
+                        );
+                    }
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
                 }
@@ -1757,7 +1776,7 @@ impl<'a> Vm<'a> {
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
-                    let writeback_args = args.clone();
+                    let writeback_args = Self::mutates_first_arg_name(&name).then(|| args.clone());
                     // GNU-parity: opcodes 0140-0177 (decode.rs:295-303)
                     // dispatch *directly* to their C implementations
                     // (bytecode.c:1412-1545), bypassing the symbol's
@@ -1770,7 +1789,14 @@ impl<'a> Vm<'a> {
                     // consults the symbol's function cell) would make
                     // neomacs MORE advisable than GNU, breaking parity.
                     let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args));
-                    self.maybe_writeback_mutating_first_arg(&name, None, &writeback_args, &result);
+                    if let Some(writeback_args) = writeback_args.as_ref() {
+                        self.maybe_writeback_mutating_first_arg(
+                            &name,
+                            None,
+                            writeback_args,
+                            &result,
+                        );
+                    }
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
                 }
@@ -1783,29 +1809,44 @@ impl<'a> Vm<'a> {
 
     // -- Helper methods --
 
-    fn writeback_callable_names(&self, func_val: &Value) -> Option<(String, Option<String>)> {
+    fn mutates_first_arg_name(name: &str) -> bool {
+        name == "fillarray" || name == "aset"
+    }
+
+    fn writeback_mutating_callable_names(
+        &self,
+        func_val: &Value,
+    ) -> Option<(String, Option<String>)> {
         match func_val.kind() {
             ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr)
                 if func_val.as_subr_id().is_some() =>
             {
                 let id = func_val.as_subr_id().unwrap();
-                Some((resolve_sym(id).to_owned(), None))
+                let name = resolve_sym(id);
+                Self::mutates_first_arg_name(name).then(|| (name.to_owned(), None))
             }
             ValueKind::Symbol(id) => {
                 let name = resolve_sym(id);
+                if Self::mutates_first_arg_name(name) {
+                    return Some((name.to_owned(), None));
+                }
                 let alias_target =
                     self.ctx
                         .obarray
                         .symbol_function(name)
                         .and_then(|bound| match bound.kind() {
-                            ValueKind::Symbol(tid) => Some(resolve_sym(tid).to_owned()),
+                            ValueKind::Symbol(tid) => {
+                                let target = resolve_sym(tid);
+                                Self::mutates_first_arg_name(target).then(|| target.to_owned())
+                            }
                             ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
                                 let tid = bound.as_subr_id().unwrap();
-                                Some(resolve_sym(tid).to_owned())
+                                let target = resolve_sym(tid);
+                                Self::mutates_first_arg_name(target).then(|| target.to_owned())
                             }
                             _ => None,
                         });
-                Some((name.to_owned(), alias_target))
+                alias_target.map(|target| (name.to_owned(), Some(target)))
             }
             _ => None,
         }
@@ -3518,8 +3559,8 @@ impl<'a> Vm<'a> {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
             ValueKind::Veclike(VecLikeType::ByteCode) => {
-                let bc_data = func_val.get_bytecode_data().unwrap().clone();
-                self.execute_with_func_value(&bc_data, args, func_val)
+                let bc_data = func_val.get_bytecode_data().unwrap();
+                self.execute_with_func_value(bc_data, args, func_val)
             }
             // Everything else: shared dispatch via funcall_general on Context.
             // Matches GNU Emacs where exec_byte_code delegates to funcall_general.

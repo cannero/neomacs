@@ -833,3 +833,48 @@ fn lisp_read_source_preserves_extended_emacs_chars_in_char_literals() {
     assert_eq!(end, input.sbytes());
     assert_eq!(form.as_fixnum(), Some(extended_code as i64));
 }
+
+#[test]
+fn lisp_read_source_reads_nonunicode_emacs_char_literal() {
+    crate::test_utils::init_test_tracing();
+    let code = 0x1A_01C1;
+    let mut encoded = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let encoded_len = crate::emacs_core::emacs_char::char_string(code, &mut encoded);
+
+    let mut source_bytes = vec![b'?'];
+    source_bytes.extend_from_slice(&encoded[..encoded_len]);
+    let input = crate::heap_types::LispString::from_emacs_bytes(source_bytes);
+    let source = LispReadSource::new(&input);
+
+    let (form, end_pos) = source
+        .read_one(0)
+        .expect("read should not panic on non-Unicode Emacs chars")
+        .expect("form should exist");
+
+    assert_eq!(form.as_fixnum(), Some(code as i64));
+    assert_eq!(end_pos, input.sbytes());
+}
+
+#[test]
+fn lisp_read_source_reads_nonunicode_emacs_string_literal() {
+    crate::test_utils::init_test_tracing();
+    let code = 0x1A_01C1;
+    let mut encoded = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let encoded_len = crate::emacs_core::emacs_char::char_string(code, &mut encoded);
+
+    let mut source_bytes = vec![b'"'];
+    source_bytes.extend_from_slice(&encoded[..encoded_len]);
+    source_bytes.push(b'"');
+    let input = crate::heap_types::LispString::from_emacs_bytes(source_bytes);
+    let source = LispReadSource::new(&input);
+
+    let (form, end_pos) = source
+        .read_one(0)
+        .expect("read should not panic on non-Unicode Emacs chars")
+        .expect("form should exist");
+    let text = form.as_lisp_string().expect("form should be a string");
+
+    assert!(text.is_multibyte());
+    assert_eq!(text.as_bytes(), &encoded[..encoded_len]);
+    assert_eq!(end_pos, input.sbytes());
+}

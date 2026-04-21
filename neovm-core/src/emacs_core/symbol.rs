@@ -431,6 +431,7 @@ pub struct Obarray {
     symbols: Vec<Option<LispSymbol>>,
     global_member_count: usize,
     function_epoch: u64,
+    value_epoch: u64,
     /// Heap-allocated BLVs for `SYMBOL_LOCALIZED` symbols. Each entry
     /// is a `Box::into_raw` pointer; freed in [`Obarray::drop`]. The
     /// pool is append-only — we never reuse a slot.
@@ -487,6 +488,7 @@ impl Clone for Obarray {
             symbols,
             global_member_count: self.global_member_count,
             function_epoch: self.function_epoch,
+            value_epoch: self.value_epoch,
             blvs,
         }
     }
@@ -606,6 +608,7 @@ impl Obarray {
             symbols: Vec::new(),
             global_member_count: 0,
             function_epoch: 0,
+            value_epoch: 0,
             blvs: Vec::new(),
         };
 
@@ -1223,9 +1226,10 @@ impl Obarray {
         // touch the cons cell.
         let valcell = blv.valcell;
         let defcell = blv.defcell;
-        let writing_default = super::value::eq_value(&valcell, &defcell);
+        let _writing_default = super::value::eq_value(&valcell, &defcell);
         let _ = blv;
         valcell.set_cdr(value);
+        self.value_epoch = self.value_epoch.wrapping_add(1);
 
         // Phase F: the legacy SymbolValue::BufferLocal mirror is no
         // longer written; symbol_value_id reads directly from the BLV
@@ -1243,6 +1247,7 @@ impl Obarray {
     /// without per-buffer entries.
     fn set_symbol_value_id_inner(&mut self, id: SymId, value: Value) {
         let target = self.resolve_alias_for_write(id);
+        self.value_epoch = self.value_epoch.wrapping_add(1);
         let sym = self.ensure_symbol_id(target);
 
         // LOCALIZED: write to BLV defcell (the default). Do NOT touch
@@ -1428,6 +1433,7 @@ impl Obarray {
                 sym.val = SymbolVal {
                     plain: Value::UNBOUND,
                 };
+                self.value_epoch = self.value_epoch.wrapping_add(1);
             }
         }
     }
@@ -1925,6 +1931,11 @@ impl Obarray {
         self.function_epoch
     }
 
+    /// Monotonic epoch for value-cell mutations.
+    pub fn value_epoch(&self) -> u64 {
+        self.value_epoch
+    }
+
     /// True when `fmakunbound` explicitly masked this symbol's fallback function definition.
     pub fn is_function_unbound(&self, name: &str) -> bool {
         self.is_function_unbound_id(intern(name))
@@ -1972,6 +1983,7 @@ impl Obarray {
             symbols: Vec::new(),
             global_member_count: 0,
             function_epoch,
+            value_epoch: 0,
             blvs: Vec::new(),
         };
         for (id, mut sym) in symbols {

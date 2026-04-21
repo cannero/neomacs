@@ -125,6 +125,14 @@ fn decode_constant_range() {
 }
 
 #[test]
+fn decode_rejects_unused_opcode_128() {
+    crate::test_utils::init_test_tracing();
+    let mut constants = vec![Value::fixnum(42)];
+    let err = decode_gnu_bytecode(&[128, 0, 135], &mut constants).unwrap_err();
+    assert!(matches!(err, DecodeError::UnknownOpcode(128, 0)));
+}
+
+#[test]
 fn decode_unwind_protect_pop() {
     crate::test_utils::init_test_tracing();
     // unwind-protect = byte 142

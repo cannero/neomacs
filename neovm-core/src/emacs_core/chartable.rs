@@ -17,7 +17,7 @@
 //!   `Value::fixnum(0)` or `Value::fixnum(1)`.
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::Context;
+use super::eval::{Context, push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::resolve_sym;
 use super::value::*;
 
@@ -557,20 +557,26 @@ pub(crate) fn for_each_char_table_mapping(
     }
 
     let shared_range = Value::cons(Value::fixnum(0), Value::fixnum(MAX_CHAR));
-    for run in ct_effective_runs(table) {
-        shared_range.set_car(Value::fixnum(run.start));
-        shared_range.set_cdr(Value::fixnum(run.end));
-        if run.value.is_nil() {
-            continue;
+    let saved = save_scratch_gc_roots();
+    push_scratch_gc_root(shared_range);
+    let result = (|| {
+        for run in ct_effective_runs(table) {
+            shared_range.set_car(Value::fixnum(run.start));
+            shared_range.set_cdr(Value::fixnum(run.end));
+            if run.value.is_nil() {
+                continue;
+            }
+            let key = if run.start == run.end {
+                Value::fixnum(run.start)
+            } else {
+                shared_range
+            };
+            f(key, run.value)?;
         }
-        let key = if run.start == run.end {
-            Value::fixnum(run.start)
-        } else {
-            shared_range
-        };
-        f(key, run.value)?;
-    }
-    Ok(())
+        Ok(())
+    })();
+    restore_scratch_gc_roots(saved);
+    result
 }
 
 pub(crate) fn builtin_map_char_table(eval: &mut Context, args: Vec<Value>) -> EvalResult {

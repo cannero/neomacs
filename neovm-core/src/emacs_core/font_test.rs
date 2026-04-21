@@ -924,14 +924,27 @@ fn internal_lisp_face_p_with_frame_designator_returns_resolved_vector() {
 fn internal_make_lisp_face_creates_symbol_visible_to_internal_lisp_face_p() {
     crate::test_utils::init_test_tracing();
     let face_name = "__neovm_make_face_unit_test";
-    let made = call_font_builtin!(
-        builtin_internal_make_lisp_face,
-        vec![Value::symbol(face_name)]
-    )
-    .unwrap();
+    let mut eval = Context::new();
+    let made = builtin_internal_make_lisp_face(&mut eval, vec![Value::symbol(face_name)]).unwrap();
     assert!(made.is_vector());
     let exists = builtin_internal_lisp_face_p(vec![Value::symbol(face_name)]).unwrap();
     assert!(exists.is_vector());
+    assert_eq!(
+        eval.obarray().get_property(face_name, "face"),
+        face_id_for_name(face_name).map(Value::fixnum),
+    );
+}
+
+#[test]
+fn internal_make_lisp_face_publishes_known_face_id_property() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let made = builtin_internal_make_lisp_face(&mut eval, vec![Value::symbol("default")]).unwrap();
+    assert!(made.is_vector());
+    assert_eq!(
+        eval.obarray().get_property("default", "face"),
+        Some(Value::fixnum(0))
+    );
 }
 
 #[test]

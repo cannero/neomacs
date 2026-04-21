@@ -90,6 +90,10 @@ fn prefix_line_and_column(buf: &Buffer, end_byte: usize) -> (usize, usize) {
 }
 
 fn region_text_metrics(bytes: &[u8], multibyte: bool) -> (usize, usize) {
+    if bytes.is_empty() {
+        return (0, 0);
+    }
+
     let mut max_cols = 0usize;
     let mut lines = 1usize;
     let mut cur_col = 0usize;
@@ -117,6 +121,10 @@ fn region_text_metrics(bytes: &[u8], multibyte: bool) -> (usize, usize) {
         for &byte in bytes {
             visit(byte as u32);
         }
+    }
+
+    if bytes.last() == Some(&b'\n') {
+        lines = lines.saturating_sub(1);
     }
 
     (lines, max_cols.max(cur_col))
@@ -3726,6 +3734,16 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     );
     obarray.set_symbol_value("pre-redisplay-function", Value::NIL);
     obarray.set_symbol_value("pre-redisplay-functions", Value::NIL);
+    // GNU `src/xdisp.c:38428-38438` defines this with DEFVAR_LISP,
+    // initializes it to nil, then calls Fmake_variable_buffer_local.
+    // `jit-lock.el` installs `jit-lock-function` here buffer-locally.
+    {
+        let id = intern("fontification-functions");
+        obarray.set_symbol_value("fontification-functions", Value::NIL);
+        obarray.make_special("fontification-functions");
+        obarray.make_symbol_localized(id, Value::NIL);
+        obarray.set_blv_local_if_set(id, true);
+    }
 
     // auto-fill-chars: a char-table for characters which invoke auto-filling.
     // Official Emacs (character.c) creates it with sub-type `auto-fill-chars`

@@ -65,9 +65,83 @@ const GC_PERCENT_SCALE: u64 = 1_000_000;
 pub(crate) const INTERNAL_COMPILER_FUNCTION_OVERRIDES: &str =
     "internal--compiler-function-overrides";
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RedisplaySignature {
+    selected_frame: Option<u64>,
+    selected_window: Option<u64>,
+    current_buffer: Option<u64>,
+    current_message: Option<crate::heap_types::LispString>,
+    active_minibuffer_window: Option<u64>,
+    minibuffer_selected_window: Option<u64>,
+    face_change_count: u64,
+    obarray_function_epoch: u64,
+    obarray_value_epoch: u64,
+    redisplay_generation: u64,
+    frame: Option<RedisplayFrameSignature>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RedisplayFrameSignature {
+    id: u64,
+    width: u32,
+    height: u32,
+    char_width: u32,
+    char_height: u32,
+    font_pixel_size: u32,
+    visible: bool,
+    selected_window: u64,
+    window_state_change: bool,
+    windows: Vec<RedisplayWindowSignature>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RedisplayWindowSignature {
+    id: u64,
+    buffer_id: u64,
+    bounds: (u32, u32, u32, u32),
+    window_start: usize,
+    window_end_pos: usize,
+    window_end_bytepos: usize,
+    window_end_vpos: usize,
+    window_end_valid: bool,
+    point: usize,
+    old_point: usize,
+    hscroll: usize,
+    vscroll: i32,
+    preserve_vscroll_p: bool,
+    buffer: Option<RedisplayBufferSignature>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RedisplayBufferSignature {
+    id: u64,
+    modified_tick: i64,
+    chars_modified_tick: i64,
+    save_modified_tick: i64,
+    autosave_modified_tick: i64,
+    point: usize,
+    point_byte: usize,
+    begv: usize,
+    begv_byte: usize,
+    zv: usize,
+    zv_byte: usize,
+    total_chars: usize,
+    total_bytes: usize,
+    last_window_start: usize,
+    last_selected_window: Option<u64>,
+}
+
+fn redisplay_f32_bits(value: f32) -> u32 {
+    if value == 0.0 {
+        0.0f32.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
 /// Static subr entry — lives in global table, not on the tagged heap.
 /// Replaces the heap-allocated SubrObj for builtin function metadata.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) struct SubrEntry {
     pub(crate) function: Option<crate::tagged::header::SubrFn>,
     pub(crate) min_args: u16,
@@ -117,12 +191,7 @@ pub(crate) fn register_global_subr_entry(sym_id: SymId, entry: SubrEntry) {
 
 /// Look up a subr entry by SymId.
 pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
-    GLOBAL_SUBR_TABLE.with(|table| {
-        table
-            .borrow()
-            .get(sym_id.0 as usize)
-            .and_then(|entry| entry.clone())
-    })
+    GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(sym_id.0 as usize).copied().flatten())
 }
 
 /// Access a subr entry by reference (avoids cloning).
@@ -1448,6 +1517,13 @@ pub struct Context {
     /// Incremented when any face attribute changes; layout engine uses
     /// this to invalidate its resolved face cache.
     pub face_change_count: u64,
+    /// Explicit redisplay invalidation generation, used for state that GNU
+    /// marks with update_mode_lines/window redisplay flags.
+    redisplay_generation: u64,
+    /// Last visible state submitted to redisplay.  Mirrors GNU's fast
+    /// `needs_no_redisplay` path by skipping layout when none of the visible
+    /// inputs changed.
+    last_redisplay_signature: Option<RedisplaySignature>,
     /// Recursion depth counter.
     pub(crate) depth: usize,
     eval_counter: u64,
@@ -2167,6 +2243,9 @@ impl Context {
         ev.display_host = None;
         ev.coding_systems = CodingSystemManager::new();
         ev.face_table = FaceTable::new();
+        ev.face_change_count = 0;
+        ev.redisplay_generation = 0;
+        ev.last_redisplay_signature = None;
         ev.depth = 0;
         ev.max_depth = 1600;
         ev.gc_pending = false;
@@ -4069,6 +4148,8 @@ impl Context {
             coding_systems: CodingSystemManager::new(),
             face_table: FaceTable::new(),
             face_change_count: 0,
+            redisplay_generation: 0,
+            last_redisplay_signature: None,
             depth: 0,
             eval_counter: 0,
             max_depth: 2400, // Matches GNU Emacs default (max-lisp-eval-depth)
@@ -4216,6 +4297,8 @@ impl Context {
             coding_systems,
             face_table,
             face_change_count: 0,
+            redisplay_generation: 0,
+            last_redisplay_signature: None,
             depth: 0,
             eval_counter: 0,
             max_depth: 2400,
@@ -4981,6 +5064,12 @@ impl Context {
     /// This is the core interactive loop: read → dispatch → redisplay.
     #[tracing::instrument(skip_all)]
     fn command_loop_1(&mut self) -> EvalResult {
+        if !self.command_loop.running {
+            return Ok(Value::NIL);
+        }
+
+        self.command_loop_1_entry_prologue()?;
+
         loop {
             if !self.command_loop.running {
                 return Ok(Value::NIL);
@@ -5194,6 +5283,48 @@ impl Context {
             // events in the unread queue" probe.
             self.command_loop_1_maybe_auto_save();
         }
+    }
+
+    /// One-time entry prologue for `command_loop_1`.
+    ///
+    /// GNU `keyboard.c:1313-1349` runs this before the first
+    /// `read_key_sequence` after entering `command_loop_1`, not after the
+    /// first command. Doom relies on that ordering: it sets
+    /// `inhibit-redisplay` during startup and clears it from an initial
+    /// `post-command-hook` before the first input wait/redisplay.
+    fn command_loop_1_entry_prologue(&mut self) -> EvalResult {
+        self.assign("prefix-arg", Value::NIL);
+        self.assign("last-prefix-arg", Value::NIL);
+        self.assign("deactivate-mark", Value::NIL);
+
+        if self
+            .eval_symbol("memory-full")
+            .unwrap_or(Value::NIL)
+            .is_nil()
+        {
+            self.safe_run_hook_if_bound("post-command-hook")?;
+
+            if self
+                .eval_symbol("delayed-warnings-list")
+                .unwrap_or(Value::NIL)
+                .is_truthy()
+            {
+                self.safe_run_hook_if_bound("delayed-warnings-hook")?;
+            }
+        }
+
+        let this_command = self.eval_symbol("this-command").unwrap_or(Value::NIL);
+        self.assign("last-command", this_command);
+
+        let real_this_command = self.eval_symbol("real-this-command").unwrap_or(Value::NIL);
+        self.assign("real-last-command", real_this_command);
+
+        let last_command_event = self.eval_symbol("last-command-event").unwrap_or(Value::NIL);
+        if !last_command_event.is_cons() {
+            self.assign("last-repeatable-command", real_this_command);
+        }
+
+        Ok(Value::NIL)
     }
 
     /// Per-iteration `auto-save-interval` check, mirroring GNU
@@ -5561,9 +5692,12 @@ impl Context {
     }
 
     pub(crate) fn redisplay_for_input_wait(&mut self) {
-        // GNU's input wait performs the final startup paint even when Lisp has
-        // temporarily set `inhibit-redisplay' to suppress earlier flicker.
-        self.redisplay_with_force(true);
+        self.redisplay_with_force(false);
+    }
+
+    pub(crate) fn invalidate_redisplay(&mut self) {
+        self.redisplay_generation = self.redisplay_generation.wrapping_add(1);
+        self.last_redisplay_signature = None;
     }
 
     pub(crate) fn redisplay_with_force(&mut self, force: bool) {
@@ -5572,12 +5706,12 @@ impl Context {
         // (window.c:4116) specbinds this to t so any nested redisplay
         // triggered by a window-change hook is a no-op. Without this check
         // a hook that indirectly calls `redisplay` infinitely recurses.
-        if !force
-            && self
-                .obarray
-                .symbol_value("inhibit-redisplay")
-                .is_some_and(|v| v.is_truthy())
-        {
+        let inhibit_redisplay = self.obarray.symbol_value("inhibit-redisplay");
+        if !force && inhibit_redisplay.as_ref().is_some_and(|v| v.is_truthy()) {
+            tracing::debug!(
+                "redisplay inhibited by inhibit-redisplay={}",
+                inhibit_redisplay.as_ref().unwrap()
+            );
             return;
         }
         self.sync_pending_resize_events();
@@ -5596,6 +5730,11 @@ impl Context {
                 }
             }
         }
+        let before_signature = self.redisplay_signature();
+        if !force && self.last_redisplay_signature.as_ref() == Some(&before_signature) {
+            tracing::debug!("redisplay skipped: visible state unchanged");
+            return;
+        }
         let has_fn = self.redisplay_fn.is_some();
         tracing::debug!("redisplay called (has_fn={})", has_fn);
         if let Some(mut f) = self.redisplay_fn.take() {
@@ -5607,6 +5746,95 @@ impl Context {
         } else {
             let _ = super::builtins::run_redisplay_window_change_hooks(self);
         }
+        self.last_redisplay_signature = Some(self.redisplay_signature());
+    }
+
+    fn redisplay_signature(&self) -> RedisplaySignature {
+        let selected_frame = self.frames.selected_frame().map(|frame| frame.id.0);
+        let selected_window = self
+            .frames
+            .selected_frame()
+            .map(|frame| frame.selected_window.0);
+        let frame = self.frames.selected_frame().map(|frame| {
+            let mut window_ids = frame.window_list();
+            if let Some(minibuffer_window) = frame.minibuffer_window {
+                window_ids.push(minibuffer_window);
+            }
+            let mut windows = Vec::with_capacity(window_ids.len());
+            for window_id in window_ids {
+                let Some(window) = frame.find_window(window_id) else {
+                    continue;
+                };
+                let Some(state) = window.redisplay_state() else {
+                    continue;
+                };
+                windows.push(RedisplayWindowSignature {
+                    id: state.id.0,
+                    buffer_id: state.buffer_id.0,
+                    bounds: state.bounds,
+                    window_start: state.window_start,
+                    window_end_pos: state.window_end_pos,
+                    window_end_bytepos: state.window_end_bytepos,
+                    window_end_vpos: state.window_end_vpos,
+                    window_end_valid: state.window_end_valid,
+                    point: state.point,
+                    old_point: state.old_point,
+                    hscroll: state.hscroll,
+                    vscroll: state.vscroll,
+                    preserve_vscroll_p: state.preserve_vscroll_p,
+                    buffer: self.redisplay_buffer_signature(state.buffer_id),
+                });
+            }
+            RedisplayFrameSignature {
+                id: frame.id.0,
+                width: frame.width,
+                height: frame.height,
+                char_width: redisplay_f32_bits(frame.char_width),
+                char_height: redisplay_f32_bits(frame.char_height),
+                font_pixel_size: redisplay_f32_bits(frame.font_pixel_size),
+                visible: frame.visible,
+                selected_window: frame.selected_window.0,
+                window_state_change: frame.window_state_change,
+                windows,
+            }
+        });
+        RedisplaySignature {
+            selected_frame,
+            selected_window,
+            current_buffer: self.buffers.current_buffer_id().map(|id| id.0),
+            current_message: self.current_message.clone(),
+            active_minibuffer_window: self.active_minibuffer_window.map(|id| id.0),
+            minibuffer_selected_window: self.minibuffer_selected_window.map(|id| id.0),
+            face_change_count: self.face_change_count,
+            obarray_function_epoch: self.obarray.function_epoch(),
+            obarray_value_epoch: self.obarray.value_epoch(),
+            redisplay_generation: self.redisplay_generation,
+            frame,
+        }
+    }
+
+    fn redisplay_buffer_signature(
+        &self,
+        id: crate::buffer::BufferId,
+    ) -> Option<RedisplayBufferSignature> {
+        let buffer = self.buffers.get(id)?;
+        Some(RedisplayBufferSignature {
+            id: buffer.id.0,
+            modified_tick: buffer.modified_tick(),
+            chars_modified_tick: buffer.chars_modified_tick(),
+            save_modified_tick: buffer.save_modified_tick(),
+            autosave_modified_tick: buffer.autosave_modified_tick,
+            point: buffer.point_char(),
+            point_byte: buffer.point_byte(),
+            begv: buffer.begv,
+            begv_byte: buffer.begv_byte,
+            zv: buffer.zv,
+            zv_byte: buffer.zv_byte,
+            total_chars: buffer.total_chars(),
+            total_bytes: buffer.total_bytes(),
+            last_window_start: buffer.last_window_start,
+            last_selected_window: buffer.last_selected_window.map(|id| id.0),
+        })
     }
 
     fn this_command_name_for_log(&self) -> String {
@@ -6329,7 +6557,10 @@ impl Context {
     }
 
     pub fn set_current_message(&mut self, message: Option<crate::heap_types::LispString>) {
-        self.current_message = message;
+        if self.current_message != message {
+            self.current_message = message;
+            self.invalidate_redisplay();
+        }
     }
 
     pub(crate) fn append_current_message_runtime_text(&mut self, text: &str) {
@@ -6350,6 +6581,7 @@ impl Context {
             Some(message) => *message = message.concat(text),
             None => self.current_message = Some(text.clone()),
         }
+        self.invalidate_redisplay();
     }
 
     pub fn clear_current_message(&mut self) {
@@ -6360,6 +6592,7 @@ impl Context {
             crate::emacs_core::hook_runtime::hook_symbol_by_name(self, "echo-area-clear-hook");
         let _ = crate::emacs_core::hook_runtime::safe_run_named_hook(self, hook, &[]);
         self.current_message = None;
+        self.invalidate_redisplay();
     }
 
     pub(crate) fn current_message_slot(&mut self) -> &mut Option<crate::heap_types::LispString> {
@@ -9500,6 +9733,15 @@ impl Context {
     ) -> Option<EvalResult> {
         let sym_id = function.as_subr_id()?;
         let entry = lookup_global_subr_entry(sym_id)?;
+        self.dispatch_subr_entry_internal(entry, args, wrong_arity_callee)
+    }
+
+    fn dispatch_subr_entry_internal(
+        &mut self,
+        entry: SubrEntry,
+        args: Vec<Value>,
+        wrong_arity_callee: Value,
+    ) -> Option<EvalResult> {
         let func = entry.function?;
         let name = resolve_name(entry.name_id);
         if name == "cdr" && args.len() == 1 && args[0].is_t() {
@@ -9561,16 +9803,24 @@ impl Context {
         let Some(entry) = lookup_global_subr_entry(sym_id) else {
             return Err(signal("invalid-function", vec![function]));
         };
+        self.apply_subr_object_with_entry(sym_id, function, args, entry)
+    }
+
+    #[inline]
+    fn apply_subr_object_with_entry(
+        &mut self,
+        sym_id: SymId,
+        function: Value,
+        args: Vec<Value>,
+        entry: SubrEntry,
+    ) -> EvalResult {
         if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
             return Err(signal("invalid-function", vec![function]));
         }
         if entry.dispatch_kind == SubrDispatchKind::ContextCallable {
             return self.apply_evaluator_callable_by_id(sym_id, args);
         }
-        if let Some(flow) = self.check_funcall_subr_arity_value(function, args.len()) {
-            return Err(flow);
-        }
-        if let Some(result) = self.dispatch_subr_value_internal(function, args, function) {
+        if let Some(result) = self.dispatch_subr_entry_internal(entry, args, function) {
             result.map_err(|flow| self.validate_throw(flow))
         } else {
             Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
@@ -9724,19 +9974,16 @@ impl Context {
                 result
             }
             NamedCallTarget::Subr(func) => {
-                let result = self.apply_subr_object(func, args, rewrite_builtin_wrong_arity);
-                // Do NOT poison the cache with Void when the subr was found.
-                // A void-function from a known subr is transient (e.g., dispatch
-                // failure during initialization), not a permanent state change.
-                if func
-                    .as_subr_id()
-                    .and_then(lookup_global_subr_entry)
-                    .is_some_and(|e| e.dispatch_kind == SubrDispatchKind::SpecialForm)
-                {
-                    Err(signal("invalid-function", vec![invalid_fn]))
-                } else {
-                    result
+                let Some(sym_id) = func.as_subr_id() else {
+                    return Err(signal("invalid-function", vec![invalid_fn]));
+                };
+                let Some(entry) = lookup_global_subr_entry(sym_id) else {
+                    return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
+                };
+                if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
+                    return Err(signal("invalid-function", vec![invalid_fn]));
                 }
+                self.apply_subr_object_with_entry(sym_id, func, args, entry)
             }
             NamedCallTarget::Void => Err(signal("void-function", vec![Value::from_sym_id(sym_id)])),
         }

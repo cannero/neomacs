@@ -4349,7 +4349,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "force-mode-line-update",
-        |_ctx, args| builtin_force_mode_line_update(args),
+        |ctx, args| builtin_force_mode_line_update(ctx, args),
         0,
         Some(1),
     );
@@ -4575,11 +4575,14 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
-        "describe-buffer-bindings",
-        |ctx, args| keymaps::builtin_describe_buffer_bindings(ctx, args),
-        1,
-        Some(3),
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state(
+            "describe-buffer-bindings",
+            keymaps::builtin_describe_buffer_bindings,
+            1,
+            Some(3),
+        ),
     );
     ctx.defsubr(
         "describe-vector",
@@ -9102,7 +9105,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     // -- Lread --
     ctx.defsubr(
         "get-load-suffixes",
-        |_ctx, args| super::lread::builtin_get_load_suffixes(args),
+        |ctx, args| super::lread::builtin_get_load_suffixes(&ctx.obarray, args),
         0,
         Some(0),
     );

@@ -3820,9 +3820,10 @@ fn decode_insert_file_contents(
         coding_system_for_read.filter(|coding| !coding.is_empty() && *coding != "nil")
     else {
         if source_load_context && multibyte {
+            let eol_suffix = detected_default_eol_suffix(bytes);
             return Ok((
-                crate::emacs_core::load::decode_emacs_utf8(bytes),
-                "utf-8-emacs".to_string(),
+                crate::encoding::decode_bytes(bytes, &format!("utf-8-emacs{eol_suffix}")),
+                format!("utf-8-emacs{eol_suffix}"),
             ));
         }
 
@@ -3835,20 +3836,18 @@ fn decode_insert_file_contents(
 
         let eol_suffix = detected_default_eol_suffix(bytes);
         if bytes.is_ascii() {
-            return Ok((
-                crate::encoding::decode_bytes(bytes, "utf-8-emacs"),
-                format!("undecided{eol_suffix}"),
-            ));
+            let coding = format!("undecided{eol_suffix}");
+            return Ok((crate::encoding::decode_bytes(bytes, &coding), coding));
         }
         if std::str::from_utf8(bytes).is_ok() {
-            return Ok((
-                crate::encoding::decode_bytes(bytes, "utf-8-emacs"),
-                format!("utf-8{eol_suffix}"),
-            ));
+            let coding = format!("utf-8{eol_suffix}");
+            return Ok((crate::encoding::decode_bytes(bytes, &coding), coding));
         }
 
-        let decoded = crate::encoding::decode_bytes(bytes, "utf-8-emacs");
-        return Ok((decoded, "utf-8-emacs".to_string()));
+        let eol_suffix = detected_default_eol_suffix(bytes);
+        let coding = format!("utf-8-emacs{eol_suffix}");
+        let decoded = crate::encoding::decode_bytes(bytes, &coding);
+        return Ok((decoded, coding));
     };
 
     if source_load_context && multibyte && is_utf8_like_source_coding(coding) {
@@ -4029,6 +4028,8 @@ pub(crate) fn builtin_insert_file_contents(
         replace_requested,
     )?;
 
+    // GNU `insert-file-contents' sets `last-coding-system-used' before
+    // `after-insert-file-set-coding' derives `buffer-file-coding-system'.
     eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
 
     let inserted_char_count = run_after_insert_file_pipeline(

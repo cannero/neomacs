@@ -1,6 +1,7 @@
 use super::*;
 use crate::buffer::buffer::BUFFER_SLOT_BUFFER_FILE_CODING_SYSTEM;
 use crate::emacs_core::Context;
+use crate::emacs_core::intern::intern;
 use crate::emacs_core::value::{
     StringTextPropertyRun, ValueKind, get_string_text_properties_table_for_value,
     set_string_text_properties_for_value,
@@ -28,6 +29,17 @@ fn test_register_bootstrap_vars_include_tab_bar_display_vars() {
     assert_eq!(
         obarray.symbol_value("tab-bar-button-margin"),
         Some(&Value::fixnum(1))
+    );
+    assert_eq!(
+        obarray.symbol_value("fontification-functions"),
+        Some(&Value::NIL)
+    );
+    assert!(obarray.is_special("fontification-functions"));
+    let fontification_functions = intern("fontification-functions");
+    assert!(
+        obarray
+            .blv(fontification_functions)
+            .is_some_and(|blv| blv.local_if_set)
     );
 }
 
@@ -1343,7 +1355,34 @@ fn test_window_text_pixel_size_tty_frame_uses_char_cell_metrics() {
     .unwrap();
     assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
     assert_eq!(result.cons_car(), Value::fixnum(4));
-    assert_eq!(result.cons_cdr(), Value::fixnum(2));
+    assert_eq!(result.cons_cdr(), Value::fixnum(1));
+}
+
+#[test]
+fn test_window_text_pixel_size_ignores_only_final_implicit_line() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
+    let frame_id = eval.frames.create_frame("xdisp-test", 80, 24, buf_id);
+    {
+        let frame = eval.frames.get_mut(frame_id).expect("frame");
+        frame.char_width = 1.0;
+        frame.char_height = 1.0;
+        frame.font_pixel_size = 1.0;
+        frame.set_window_system(None);
+    }
+    {
+        let buffer = eval.buffers.get_mut(buf_id).expect("buffer");
+        buffer.insert("hello\nworld\n\n");
+    }
+    let selected_window = eval.frames.get(frame_id).expect("frame").selected_window.0 as i64;
+
+    let result =
+        builtin_window_text_pixel_size_ctx(&mut eval, vec![Value::fixnum(selected_window)])
+            .unwrap();
+    assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
+    assert_eq!(result.cons_car(), Value::fixnum(5));
+    assert_eq!(result.cons_cdr(), Value::fixnum(3));
 }
 
 #[test]

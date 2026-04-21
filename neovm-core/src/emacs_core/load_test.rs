@@ -4610,6 +4610,24 @@ fn loadup_source_preloads_mouse_help_fixup_runtime_surface() {
 }
 
 #[test]
+fn neo_win_source_requires_easy_mmode_before_minor_mode_definitions() {
+    crate::test_utils::init_test_tracing();
+    let source =
+        fs::read_to_string(source_bootstrap_path("term/neo-win.el")).expect("read term/neo-win.el");
+    let require_pos = source
+        .find("(require 'easy-mmode)")
+        .expect("neo-win.el must require easy-mmode because loadup source-loads it");
+    let mode_pos = source
+        .find("(define-minor-mode neomacs-scroll-indicator-mode")
+        .expect("neo-win.el should define neomacs-scroll-indicator-mode");
+
+    assert!(
+        require_pos < mode_pos,
+        "easy-mmode must be loaded before neo-win.el expands define-minor-mode forms"
+    );
+}
+
+#[test]
 fn bootstrap_help_fns_loads_and_preserves_hook_depth_metadata() {
     crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

@@ -123,6 +123,30 @@ fn compile_first_args_match_gnu_native_shape() {
     );
 }
 
+#[test]
+fn loaddefs_generation_args_force_full_generation() {
+    let loaddefs_gen = Path::new("/repo/lisp/emacs-lisp/loaddefs-gen.el");
+    let loaddefs_dirs = vec![
+        PathBuf::from("/repo/lisp"),
+        PathBuf::from("/repo/lisp/calendar"),
+    ];
+    let args = loaddefs_generation_args(loaddefs_gen, &loaddefs_dirs);
+    let rendered = args
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    assert!(rendered.contains(&"--eval".to_string()));
+    assert!(rendered.contains(&"neomacs-loaddefs-generate--force".to_string()));
+    assert!(rendered.iter().any(|arg| arg.contains("(loaddefs-generate")
+        && arg.contains("nil t t")
+        && arg.contains("theme-loaddefs.el")));
+    assert_eq!(
+        &rendered[rendered.len() - 2..],
+        ["/repo/lisp", "/repo/lisp/calendar"]
+    );
+}
+
 fn tempdir() -> PathBuf {
     let dir = env::temp_dir().join(format!(
         "xtask-tests-{}-{}",

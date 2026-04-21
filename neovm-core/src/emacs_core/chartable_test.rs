@@ -318,6 +318,38 @@ fn map_char_table_coalesces_ranges_after_single_override() {
 }
 
 #[test]
+fn map_char_table_shared_range_survives_callback_gc() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_range(vec![
+        ct,
+        Value::cons(Value::fixnum('A' as i64), Value::fixnum('Z' as i64)),
+        Value::symbol("upper"),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![ct, Value::fixnum('M' as i64), Value::symbol("middle")])
+        .unwrap();
+
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(ct);
+    let mut seen = 0;
+    let result = for_each_char_table_mapping(&ct, |_key, _value| {
+        seen += 1;
+        eval.gc_collect_exact();
+        Ok(())
+    });
+    eval.restore_specpdl_roots(roots);
+
+    result.unwrap();
+    assert_eq!(seen, 3);
+
+    let first = Value::cons(Value::fixnum(1), Value::NIL);
+    let second = Value::cons(Value::fixnum(2), first);
+    assert!(second.is_cons());
+}
+
+#[test]
 fn char_table_p_on_plain_vector() {
     crate::test_utils::init_test_tracing();
     // A plain vector should not be detected as a char-table.

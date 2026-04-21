@@ -860,23 +860,40 @@ fn read_char_exclusive_skips_non_character_and_leaves_tail() {
 #[test]
 fn get_load_suffixes_returns_list() {
     crate::test_utils::init_test_tracing();
-    // GNU `Fget_load_suffixes` (lread.c) cross-products
-    // `load-suffixes` (".elc", ".el") with `load-file-rep-suffixes`
-    // (""). Our stateless variant mirrors this with the
-    // (".elc", ".el", "") tuple. The earlier two-element expectation
-    // predates .elc support.
-    let result = builtin_get_load_suffixes(vec![]).unwrap();
+    let ev = Context::new();
+    // GNU `Fget_load_suffixes` cross-products `load-suffixes` with
+    // `load-file-rep-suffixes`.  The empty representation suffix extends each
+    // load suffix; it is not returned as its own suffix.
+    let result = builtin_get_load_suffixes(&ev.obarray, vec![]).unwrap();
     let items = list_to_vec(&result).unwrap();
-    assert_eq!(items.len(), 3);
+    assert_eq!(items.len(), 2);
     assert_eq!(items[0].as_utf8_str(), Some(".elc"));
     assert_eq!(items[1].as_utf8_str(), Some(".el"));
-    assert_eq!(items[2].as_utf8_str(), Some(""));
+}
+
+#[test]
+fn get_load_suffixes_cross_products_rep_suffixes() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.obarray.set_symbol_value(
+        "load-file-rep-suffixes",
+        Value::list(vec![Value::string(""), Value::string(".gz")]),
+    );
+
+    let result = builtin_get_load_suffixes(&ev.obarray, vec![]).unwrap();
+    let rendered = list_to_vec(&result)
+        .unwrap()
+        .into_iter()
+        .map(|v| v.as_utf8_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(rendered, vec![".elc", ".elc.gz", ".el", ".el.gz"]);
 }
 
 #[test]
 fn get_load_suffixes_rejects_over_arity() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_get_load_suffixes(vec![Value::NIL]);
+    let ev = Context::new();
+    let result = builtin_get_load_suffixes(&ev.obarray, vec![Value::NIL]);
     assert!(matches!(
         result,
         Err(Flow::Signal(sig)) if sig.symbol_name() == "wrong-number-of-arguments"

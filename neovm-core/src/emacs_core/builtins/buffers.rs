@@ -3536,7 +3536,7 @@ pub(crate) fn builtin_set_buffer_modified_p(
     let _ = eval
         .buffers
         .restore_buffer_modified_state(current_id, args[0]);
-    super::misc_pure::builtin_force_mode_line_update(vec![Value::NIL])
+    super::misc_pure::builtin_force_mode_line_update(eval, vec![Value::NIL])
 }
 
 pub(crate) fn builtin_restore_buffer_modified_p(

@@ -2137,7 +2137,25 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         buf.get_multibyte(),
     );
     let buf_syntax = crate::emacs_core::syntax::SyntaxTable::for_buffer(buf);
-    let (byte_start, byte_end, replacement) = compute_replacement_with_syntax(
+    let (match_start, match_end) = match md.groups.get(subexp) {
+        Some(Some(pair)) => *pair,
+        _ => return Err(REPLACE_MATCH_SUBEXP_MISSING.to_string()),
+    };
+    let (buffer_start, buffer_end) = if md.searched_string.is_some() {
+        (
+            buf.text.char_to_emacs_byte(match_start),
+            buf.text.char_to_emacs_byte(match_end),
+        )
+    } else if md.searched_buffer.is_some() && !md.buffer_positions_are_bytes {
+        (
+            buf.text.char_to_emacs_byte(match_start.saturating_sub(1)),
+            buf.text.char_to_emacs_byte(match_end.saturating_sub(1)),
+        )
+    } else {
+        (match_start, match_end)
+    };
+
+    let (_storage_start, _storage_end, replacement) = compute_replacement_with_syntax(
         newtext,
         fixedcase,
         literal,
@@ -2157,7 +2175,7 @@ pub(crate) fn compute_buffer_replacement_with_syntax(
         crate::heap_types::LispString::from_unibyte(replacement_bytes)
     };
 
-    Ok((byte_start, byte_end, replacement))
+    Ok((buffer_start, buffer_end, replacement))
 }
 
 /// Replace the last match in SOURCE and return the resulting string.

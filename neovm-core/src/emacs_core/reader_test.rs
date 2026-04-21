@@ -75,7 +75,7 @@ fn bootstrap_eval_all(src: &str) -> Vec<String> {
 #[test]
 fn read_from_string_integer() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("42")]).unwrap();
     // Should be (42 . 2)
     match result.kind() {
@@ -92,7 +92,7 @@ fn read_from_string_integer() {
 #[test]
 fn read_from_string_symbol() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let result = builtin_read_from_string(&mut ev, vec![Value::string("hello")]).unwrap();
     match result.kind() {
         ValueKind::Cons => {
@@ -789,7 +789,7 @@ fn shared_read_from_minibuffer_runtime_converts_unibyte_initial_input_to_buffer_
 #[test]
 fn read_from_minibuffer_custom_keymap_lambda_sees_last_command_event() {
     crate::test_utils::init_test_tracing();
-    let mut ev = Context::new();
+    let mut ev = crate::test_utils::runtime_startup_context();
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
         crate::keyboard::KeyEvent::char(' '),

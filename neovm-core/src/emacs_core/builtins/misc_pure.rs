@@ -213,8 +213,12 @@ pub(crate) fn builtin_flush_standard_output(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_force_mode_line_update(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_force_mode_line_update(
+    ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_max_args("force-mode-line-update", &args, 1)?;
+    ctx.invalidate_redisplay();
     Ok(args.first().cloned().unwrap_or(Value::NIL))
 }
 

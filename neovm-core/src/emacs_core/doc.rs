@@ -247,10 +247,6 @@ fn resolve_documentation_function_value(
         }
     }
 
-    if resolved.is_cons() && resolved.cons_car().as_symbol_name() == Some("macro") {
-        resolved = resolved.cons_cdr();
-    }
-
     Ok(resolved)
 }
 
