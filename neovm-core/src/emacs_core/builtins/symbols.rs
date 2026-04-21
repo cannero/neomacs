@@ -242,6 +242,7 @@ pub(crate) fn builtin_default_toplevel_value(
     match crate::emacs_core::eval::default_toplevel_value_in_state(
         obarray,
         eval.specpdl.as_slice(),
+        Some(&eval.buffers.buffer_defaults),
         resolved,
     ) {
         Some(value) => Ok(value),
@@ -1419,7 +1420,8 @@ pub(crate) fn builtin_redisplay(
     {
         return Ok(Value::NIL);
     }
-    eval.redisplay();
+    let force = args.first().is_some_and(|value| value.is_truthy());
+    eval.redisplay_with_force(force);
     Ok(Value::T)
 }
 

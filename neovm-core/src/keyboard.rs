@@ -3432,7 +3432,7 @@ impl crate::emacs_core::eval::Context {
                 return Ok(None);
             }
 
-            self.redisplay();
+            self.redisplay_for_input_wait();
             let _ = self.service_wait_path_once(None, false, true, true)?;
 
             tracing::debug!(

@@ -1066,6 +1066,33 @@ fn read_char_redisplays_when_resize_arrives_after_pre_block_redisplay() {
 }
 
 #[test]
+fn read_char_forces_input_wait_redisplay_when_inhibit_redisplay_is_set() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.obarray.set_symbol_value("inhibit-redisplay", Value::T);
+
+    let redisplay_count = Rc::new(RefCell::new(0usize));
+    let redisplay_count_in_cb = Rc::clone(&redisplay_count);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplay_count_in_cb.borrow_mut() += 1;
+    }));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    ev.input_rx = Some(rx);
+    thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(20));
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char('a'),
+        ))
+        .expect("send keypress");
+    });
+
+    let event = ev.read_char().expect("read_char should return keypress");
+    assert_eq!(event, Value::fixnum('a' as i64));
+    assert_eq!(*redisplay_count.borrow(), 1);
+}
+
+#[test]
 fn read_char_does_not_redisplay_again_when_monitor_change_arrives_after_pre_block_redisplay() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

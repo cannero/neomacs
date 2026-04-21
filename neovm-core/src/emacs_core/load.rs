@@ -892,6 +892,7 @@ fn default_toplevel_lexical_binding(eval: &super::eval::Context) -> bool {
     crate::emacs_core::eval::default_toplevel_value_in_state(
         &eval.obarray,
         eval.specpdl.as_slice(),
+        Some(&eval.buffers.buffer_defaults),
         intern("lexical-binding"),
     )
     .is_some_and(|value| value.is_truthy())

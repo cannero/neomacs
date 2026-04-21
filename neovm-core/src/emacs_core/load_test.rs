@@ -500,7 +500,10 @@ fn load_bindings_source_survives_gc_stress_after_custom_runtime() {
         "mode-line-right-align-edge standard-value"
     );
     assert!(!values[5].is_nil(), "mode-line-format standard-value");
-    assert!(!values[6].is_nil(), "mode-line-format default value");
+    assert!(
+        values[6].is_cons(),
+        "mode-line-format default value should be a list"
+    );
 }
 
 #[test]

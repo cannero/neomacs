@@ -5554,15 +5554,26 @@ impl Context {
     /// Mirrors GNU Emacs `redisplay()` (dispnew.c:5259).
     /// In batch mode (no callback), this is a no-op.
     pub(crate) fn redisplay(&mut self) {
+        self.redisplay_with_force(false);
+    }
+
+    pub(crate) fn redisplay_for_input_wait(&mut self) {
+        // GNU's input wait performs the final startup paint even when Lisp has
+        // temporarily set `inhibit-redisplay' to suppress earlier flicker.
+        self.redisplay_with_force(true);
+    }
+
+    pub(crate) fn redisplay_with_force(&mut self, force: bool) {
         // Mirrors GNU `redisplay_internal` (xdisp.c:17242-17245): bail out
         // when `inhibit-redisplay` is non-nil. `run_window_change_functions`
         // (window.c:4116) specbinds this to t so any nested redisplay
         // triggered by a window-change hook is a no-op. Without this check
         // a hook that indirectly calls `redisplay` infinitely recurses.
-        if self
-            .obarray
-            .symbol_value("inhibit-redisplay")
-            .is_some_and(|v| v.is_truthy())
+        if !force
+            && self
+                .obarray
+                .symbol_value("inhibit-redisplay")
+                .is_some_and(|v| v.is_truthy())
         {
             return;
         }
@@ -7998,10 +8009,14 @@ impl Context {
             define_args,
         )?;
 
-        let was_bound =
-            default_toplevel_value_in_state(&self.obarray, self.specpdl.as_slice(), sym_id)
-                .is_some()
-                || self.obarray.is_constant_id(sym_id);
+        let was_bound = default_toplevel_value_in_state(
+            &self.obarray,
+            self.specpdl.as_slice(),
+            Some(&self.buffers.buffer_defaults),
+            sym_id,
+        )
+        .is_some()
+            || self.obarray.is_constant_id(sym_id);
         if !was_bound {
             let value = self.eval_sub(init_form)?;
             super::builtins::symbols::builtin_set_default_toplevel_value(
@@ -10767,6 +10782,7 @@ fn default_toplevel_binding(specpdl: &[SpecBinding], sym_id: SymId) -> Option<&S
 pub(crate) fn default_toplevel_value_in_state(
     obarray: &Obarray,
     specpdl: &[SpecBinding],
+    buffer_defaults: Option<&[Value]>,
     sym_id: SymId,
 ) -> Option<Value> {
     match default_toplevel_binding(specpdl, sym_id) {
@@ -10783,7 +10799,28 @@ pub(crate) fn default_toplevel_value_in_state(
         | Some(SpecBinding::SaveRestriction { .. }) => {
             unreachable!("non-variable bindings are excluded above")
         }
-        None => obarray.default_value_id(sym_id).copied(),
+        None => {
+            use crate::emacs_core::forward::{LispBufferObjFwd, LispFwdType};
+            use crate::emacs_core::symbol::SymbolRedirect;
+
+            if let Some(sym) = obarray.get_by_id(sym_id)
+                && sym.redirect() == SymbolRedirect::Forwarded
+            {
+                let fwd = unsafe { &*sym.val.fwd };
+                if matches!(fwd.ty, LispFwdType::BufferObj) {
+                    let buf_fwd = unsafe { &*(fwd as *const _ as *const LispBufferObjFwd) };
+                    let off = buf_fwd.offset as usize;
+                    if let Some(defaults) = buffer_defaults
+                        && off < defaults.len()
+                    {
+                        return Some(defaults[off]);
+                    }
+                    return Some(buf_fwd.default);
+                }
+            }
+
+            obarray.default_value_id(sym_id).copied()
+        }
     }
 }
 
