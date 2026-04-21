@@ -485,6 +485,48 @@ impl CodingSystemManager {
             EolType::Undecided,
         ));
         mgr.register(CodingSystemInfo::new(
+            "utf-16",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16-be",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16-le",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16be",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16le",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16be-with-signature",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
+            "utf-16le-with-signature",
+            "utf-16",
+            'U',
+            EolType::Undecided,
+        ));
+        mgr.register(CodingSystemInfo::new(
             "prefer-utf-8",
             "undecided",
             '-',

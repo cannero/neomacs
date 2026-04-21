@@ -6319,10 +6319,12 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     };
     assert_eq!(entry, Some(Value::fixnum(42)));
 
-    let make_char = dispatch_builtin_pure("make-char", vec![Value::fixnum(1)])
-        .expect("builtin make-char should resolve")
-        .expect("builtin make-char should evaluate");
-    assert!(make_char.is_nil());
+    let make_char_result = dispatch_builtin_pure("make-char", vec![Value::fixnum(1)])
+        .expect("builtin make-char should resolve");
+    assert!(
+        make_char_result.is_err(),
+        "make-char with a non-charset should signal"
+    );
 
     // make-closure requires a bytecode prototype; nil signals wrong-type-argument
     let make_closure_result = dispatch_builtin_pure("make-closure", vec![Value::NIL])
@@ -6354,6 +6356,50 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
     .expect("builtin make-interpreted-closure should evaluate");
     // make-interpreted-closure now returns a Lambda value (not nil)
     assert!(make_interpreted.is_lambda());
+}
+
+#[test]
+fn make_char_matches_common_gnu_charset_mappings() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        dispatch_builtin_pure("make-char", vec![Value::symbol("ascii"), Value::fixnum(65)])
+            .expect("builtin make-char should resolve")
+            .expect("ascii make-char should evaluate"),
+        Value::fixnum(65)
+    );
+    assert_eq!(
+        dispatch_builtin_pure(
+            "make-char",
+            vec![Value::symbol("latin-iso8859-1"), Value::fixnum(65)]
+        )
+        .expect("builtin make-char should resolve")
+        .expect("latin-1 make-char should evaluate"),
+        Value::fixnum(193)
+    );
+    assert_eq!(
+        dispatch_builtin_pure(
+            "make-char",
+            vec![Value::symbol("latin-jisx0201"), Value::fixnum(92)]
+        )
+        .expect("builtin make-char should resolve")
+        .expect("jis roman make-char should evaluate"),
+        Value::fixnum(165)
+    );
+    assert_eq!(
+        dispatch_builtin_pure(
+            "make-char",
+            vec![Value::symbol("latin-jisx0201"), Value::fixnum(126)]
+        )
+        .expect("builtin make-char should resolve")
+        .expect("jis roman overline should evaluate"),
+        Value::fixnum(8254)
+    );
+    assert_eq!(
+        dispatch_builtin_pure("make-char", vec![Value::symbol("katakana-jisx0201")])
+            .expect("builtin make-char should resolve")
+            .expect("katakana make-char should evaluate"),
+        Value::fixnum(65377)
+    );
 }
 
 #[test]
@@ -9137,6 +9183,22 @@ fn prin1_to_string_supports_noescape_for_strings() {
         .expect("prin1-to-string should resolve with noescape")
         .expect("prin1-to-string should evaluate with noescape");
     assert_eq!(noescape, Value::string("a\nb"));
+}
+
+#[test]
+fn prin1_to_string_respects_print_overrides_for_control_characters() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"(prin1-to-string (string ?\t ?\n) nil
+                               '(t (escape-newlines . t)
+                                   (escape-control-characters . t)))"#,
+        )
+        .expect("prin1-to-string should accept GNU print overrides");
+
+    assert_eq!(result, Value::string(r#""\11\n""#));
 }
 
 #[test]

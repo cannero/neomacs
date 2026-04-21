@@ -185,8 +185,14 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
                 stack.push(pair_cdr);
                 stack.push(pair_car);
             }
-            ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
+            ValueKind::Veclike(VecLikeType::Vector) => {
                 let items = obj.as_vector_data().unwrap().clone();
+                for item in items.iter().rev() {
+                    stack.push(*item);
+                }
+            }
+            ValueKind::Veclike(VecLikeType::Record) => {
+                let items = obj.as_record_data().unwrap().clone();
                 for item in items.iter().rev() {
                     stack.push(*item);
                 }

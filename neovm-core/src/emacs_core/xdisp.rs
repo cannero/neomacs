@@ -725,7 +725,18 @@ fn coding_system_mnemonic_char(cs_name: crate::emacs_core::intern::SymId) -> cha
         .or_else(|| cs_name.strip_suffix("-mac"))
         .unwrap_or(cs_name);
     match base {
-        "utf-8" | "utf-8-emacs" | "utf-8-auto" | "prefer-utf-8" | "mule-utf-8" => 'U',
+        "utf-8"
+        | "utf-8-emacs"
+        | "utf-8-auto"
+        | "prefer-utf-8"
+        | "mule-utf-8"
+        | "utf-16"
+        | "utf-16-be"
+        | "utf-16-le"
+        | "utf-16be"
+        | "utf-16le"
+        | "utf-16be-with-signature"
+        | "utf-16le-with-signature" => 'U',
         "undecided" => '-',
         "raw-text" => '=',
         "no-conversion" | "binary" => '0',

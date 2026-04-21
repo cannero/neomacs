@@ -416,6 +416,37 @@ fn encoding_utf8() {
 }
 
 #[test]
+fn encoding_utf16_gnu_compatible_signatures_and_endianness() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(encode_string("a", "utf-16"), vec![0xfe, 0xff, 0x00, 0x61]);
+    assert_eq!(
+        encode_string("a", "utf-16-be"),
+        vec![0xfe, 0xff, 0x00, 0x61]
+    );
+    assert_eq!(encode_string("a", "utf-16be"), vec![0x00, 0x61]);
+    assert_eq!(
+        encode_string("a", "utf-16-le"),
+        vec![0xff, 0xfe, 0x61, 0x00]
+    );
+    assert_eq!(encode_string("a", "utf-16le"), vec![0x61, 0x00]);
+
+    assert_eq!(decode_bytes(&[0x00, 0x61], "utf-16be"), "a");
+    assert_eq!(decode_bytes(&[0x61, 0x00], "utf-16le"), "a");
+    assert_eq!(
+        decode_bytes(&[0xff, 0xfe, 0x3d, 0xd8, 0x00, 0xde], "utf-16-be"),
+        "\u{1f600}"
+    );
+
+    let encoded =
+        builtin_encode_coding_string(vec![Value::string("a"), Value::symbol("utf-16-be")])
+            .expect("utf-16-be should be a valid coding system");
+    let encoded_string = encoded
+        .as_lisp_string()
+        .expect("encode-coding-string should return a string");
+    assert_eq!(encoded_string.as_bytes(), &[0xfe, 0xff, 0x00, 0x61]);
+}
+
+#[test]
 fn encoding_utf8_dos_applies_eol_conversion() {
     crate::test_utils::init_test_tracing();
     let bytes = encode_string("a\nb", "utf-8-dos");
@@ -448,6 +479,31 @@ fn raw_text_dos_preserves_bytes_but_converts_eol() {
     };
     let ls = decoded.as_lisp_string().unwrap();
     assert_eq!(ls.as_bytes(), b"a\nb");
+}
+
+#[test]
+fn undecided_write_encoding_preserves_bytes_and_converts_eol() {
+    crate::test_utils::init_test_tracing();
+
+    let encoded = builtin_encode_coding_string(vec![
+        Value::string("alpha\nomega"),
+        Value::symbol("undecided-unix"),
+    ])
+    .unwrap();
+    let ls = encoded
+        .as_lisp_string()
+        .expect("encode-coding-string should return a string");
+    assert_eq!(ls.as_bytes(), b"alpha\nomega");
+
+    let encoded = builtin_encode_coding_string(vec![
+        Value::string("alpha\nomega"),
+        Value::symbol("undecided-dos"),
+    ])
+    .unwrap();
+    let ls = encoded
+        .as_lisp_string()
+        .expect("encode-coding-string should return a string");
+    assert_eq!(ls.as_bytes(), b"alpha\r\nomega");
 }
 
 #[test]

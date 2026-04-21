@@ -287,7 +287,7 @@ pub(super) fn builtin_lookup_key(eval: &mut super::eval::Context, args: Vec<Valu
         return Ok(keymaps.first().copied().unwrap_or(Value::NIL));
     }
 
-    Ok(lookup_key_in_keymaps_in_obarray(
+    Ok(lookup_key_with_menu_compat(
         eval.obarray(),
         &keymaps,
         &events,
@@ -310,9 +310,63 @@ pub(crate) fn builtin_lookup_key_impl(obarray: &Obarray, args: &[Value]) -> Eval
         return Ok(keymaps.first().copied().unwrap_or(Value::NIL));
     }
 
-    Ok(lookup_key_in_keymaps_in_obarray(
+    Ok(lookup_key_with_menu_compat(
         obarray, &keymaps, &events, t_ok,
     ))
+}
+
+fn lookup_key_with_menu_compat(
+    obarray: &Obarray,
+    keymaps: &[Value],
+    events: &[Value],
+    t_ok: bool,
+) -> Value {
+    let found = lookup_key_in_keymaps_in_obarray(obarray, keymaps, events, t_ok);
+    if is_defined_lookup_result(&found) || !is_menu_bar_key(events) {
+        return found;
+    }
+
+    let lower_events: Vec<Value> = events
+        .iter()
+        .map(|event| {
+            event
+                .as_symbol_name()
+                .map(|name| Value::symbol(name.to_lowercase()))
+                .unwrap_or(*event)
+        })
+        .collect();
+    let lower_found = lookup_key_in_keymaps_in_obarray(obarray, keymaps, &lower_events, t_ok);
+    if is_defined_lookup_result(&lower_found) {
+        return lower_found;
+    }
+
+    let dash_events: Vec<Value> = lower_events
+        .iter()
+        .map(|event| {
+            event
+                .as_symbol_name()
+                .filter(|name| name.contains(' '))
+                .map(|name| Value::symbol(name.replace(' ', "-")))
+                .unwrap_or(*event)
+        })
+        .collect();
+    let dash_found = lookup_key_in_keymaps_in_obarray(obarray, keymaps, &dash_events, t_ok);
+    if is_defined_lookup_result(&dash_found) {
+        return dash_found;
+    }
+
+    found
+}
+
+fn is_defined_lookup_result(value: &Value) -> bool {
+    !value.is_nil() && !value.is_fixnum()
+}
+
+fn is_menu_bar_key(events: &[Value]) -> bool {
+    events
+        .first()
+        .and_then(|event| event.as_symbol_name())
+        .is_some_and(|name| name == "menu-bar")
 }
 
 fn resolve_lookup_keymaps_in_runtime(

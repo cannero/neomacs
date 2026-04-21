@@ -6,7 +6,7 @@
 
 use neomacs_tui_tests::*;
 use std::fs;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
     let mut gnu = TuiSession::gnu_emacs(extra_args);
@@ -328,6 +328,64 @@ fn open_home_file(
     read_both(gnu, neo, Duration::from_secs(1));
 }
 
+fn make_shared_dired_fixture(label: &str) -> std::path::PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "neomacs-dired-root-{label}-{}-{unique}",
+        std::process::id()
+    ));
+    let dir = root.join("work");
+    fs::create_dir_all(dir.join("nested")).expect("create dired fixture directory");
+    fs::write(dir.join("alpha.txt"), "alpha body\n").expect("write alpha fixture");
+    fs::write(dir.join("beta.org"), "* beta heading\n").expect("write beta fixture");
+    fs::write(dir.join("zeta.log"), "zeta body\n").expect("write zeta fixture");
+    dir
+}
+
+fn open_shared_dired(gnu: &mut TuiSession, neo: &mut TuiSession, dir: &std::path::Path) {
+    send_both(gnu, neo, "C-x d");
+    let dired_path = format!("{}/", dir.display());
+    gnu.send(dired_path.as_bytes());
+    neo.send(dired_path.as_bytes());
+    send_both(gnu, neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Dired by name"))
+            && ["alpha.txt", "beta.org", "nested", "zeta.log"]
+                .iter()
+                .all(|name| grid.iter().any(|row| row.contains(name)))
+    };
+    gnu.read_until(Duration::from_secs(10), ready);
+    neo.read_until(Duration::from_secs(20), ready);
+    read_both(gnu, neo, Duration::from_secs(1));
+}
+
+fn dired_goto_file(gnu: &mut TuiSession, neo: &mut TuiSession, file: &std::path::Path) {
+    send_both(gnu, neo, "j");
+    let prompt_ready = |grid: &[String]| grid.last().is_some_and(|row| row.contains("Goto file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    let file_name = file
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("fixture file name should be utf-8")
+        .to_string();
+    let file_path = file.to_string_lossy().into_owned();
+    gnu.send(file_path.as_bytes());
+    neo.send(file_path.as_bytes());
+    send_both(gnu, neo, "RET");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(&file_name))
+            && grid.last().is_none_or(|row| !row.contains("Goto file:"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(gnu, neo, Duration::from_secs(1));
+}
+
 #[test]
 fn find_file_via_cx_cf() {
     let (mut gnu, mut neo) = boot_pair("");
@@ -339,6 +397,114 @@ fn find_file_via_cx_cf() {
         "C-x C-f",
     );
     assert_pair_nearly_matches("find_file_via_cx_cf", &gnu, &neo, 2);
+}
+
+#[test]
+fn dired_open_directory_via_cx_d_lists_entries() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("open");
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+
+    assert_pair_nearly_matches("dired_open_directory_via_cx_d_lists_entries", &gnu, &neo, 0);
+}
+
+#[test]
+fn dired_mark_flag_and_unmark_current_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("mark");
+    let alpha = dir.join("alpha.txt");
+    let beta = dir.join("beta.org");
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+    dired_goto_file(&mut gnu, &mut neo, &alpha);
+    send_both(&mut gnu, &mut neo, "m");
+    let alpha_marked = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.starts_with('*') && row.contains("alpha.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_marked);
+    neo.read_until(Duration::from_secs(8), alpha_marked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "dired_mark_flag_and_unmark_current_file/mark",
+        &gnu,
+        &neo,
+        0,
+    );
+
+    send_both(&mut gnu, &mut neo, "DEL");
+    let alpha_unmarked = |grid: &[String]| {
+        grid.iter()
+            .any(|row| !row.starts_with('*') && row.contains("alpha.txt"))
+            && !grid
+                .iter()
+                .any(|row| row.starts_with('*') && row.contains("alpha.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_unmarked);
+    neo.read_until(Duration::from_secs(8), alpha_unmarked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "dired_mark_flag_and_unmark_current_file/unmark",
+        &gnu,
+        &neo,
+        0,
+    );
+
+    dired_goto_file(&mut gnu, &mut neo, &beta);
+    send_both(&mut gnu, &mut neo, "d");
+    let beta_flagged = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.starts_with('D') && row.contains("beta.org"))
+    };
+    gnu.read_until(Duration::from_secs(6), beta_flagged);
+    neo.read_until(Duration::from_secs(8), beta_flagged);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "dired_mark_flag_and_unmark_current_file/flag",
+        &gnu,
+        &neo,
+        0,
+    );
+
+    send_both(&mut gnu, &mut neo, "DEL");
+    let beta_unflagged = |grid: &[String]| {
+        grid.iter()
+            .any(|row| !row.starts_with('D') && row.contains("beta.org"))
+            && !grid
+                .iter()
+                .any(|row| row.starts_with('D') && row.contains("beta.org"))
+    };
+    gnu.read_until(Duration::from_secs(6), beta_unflagged);
+    neo.read_until(Duration::from_secs(8), beta_unflagged);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "dired_mark_flag_and_unmark_current_file/unflag",
+        &gnu,
+        &neo,
+        0,
+    );
+}
+
+#[test]
+fn dired_find_file_via_ret_visits_current_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("find-file");
+    let beta = dir.join("beta.org");
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+    dired_goto_file(&mut gnu, &mut neo, &beta);
+    send_both(&mut gnu, &mut neo, "RET");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("* beta heading"))
+            && grid.iter().any(|row| row.contains("beta.org"))
+            && !grid.iter().any(|row| row.contains("Dired by name"))
+    };
+    gnu.read_until(Duration::from_secs(60), ready);
+    neo.read_until(Duration::from_secs(60), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("dired_find_file_via_ret_visits_current_file", &gnu, &neo, 0);
 }
 
 #[test]

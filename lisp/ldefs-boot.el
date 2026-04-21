@@ -5262,8 +5262,6 @@ evaluate the variable `compilation-shell-minor-mode'.
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
 
-\\{compilation-shell-minor-mode-map}
-
 (fn &optional ARG)" t)
 (autoload 'compilation-minor-mode "compile" "\
 Toggle Compilation minor mode.
@@ -5285,8 +5283,6 @@ evaluate the variable `compilation-minor-mode'.
 
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
-
-\\{compilation-minor-mode-map}
 
 (fn &optional ARG)" t)
 (autoload 'compilation-next-error-function "compile" "\
@@ -8605,21 +8601,6 @@ Switch to *doctor* buffer and start giving psychotherapy." t)
 ;;; Generated autoloads from dom.el
 
 (register-definition-prefixes "dom" '("dom-"))
-
-
-;;; Generated autoloads from dos-fns.el
-
-(register-definition-prefixes "dos-fns" '("dos"))
-
-
-;;; Generated autoloads from dos-vars.el
-
-(register-definition-prefixes "dos-vars" '("dos-codepage-setup-hook" "msdos-shells"))
-
-
-;;; Generated autoloads from dos-w32.el
-
-(register-definition-prefixes "dos-w32" '("file-name-buffer-file-type-alist" "find-" "w32-"))
 
 
 ;;; Generated autoloads from double.el
@@ -13694,8 +13675,6 @@ evaluate the variable `flymake-mode'.
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
 
-\\{flymake-mode-map}
-
 (fn &optional ARG)" t)
 (autoload 'flymake-mode-on "flymake" "\
 Turn Flymake mode on.")
@@ -16493,9 +16472,13 @@ buffer after following a reference.  INTERACTIVE-P is non-nil if the
 calling command was invoked interactively.  In this case the stack of
 items for help buffer \"back\" buttons is cleared.
 
-This should be called very early, before the output buffer is cleared,
-because we want to record the \"previous\" position of point so we can
-restore it properly when going back.
+This function also re-enables the major mode of the buffer, thus
+resetting local variables to the values set by the mode and running the
+mode hooks.
+
+So this should be called very early, before the output buffer is
+cleared, also because we want to record the \"previous\" position of
+point so we can restore it properly when going back.
 
 (fn ITEM INTERACTIVE-P)")
 (autoload 'help-buffer "help-mode" "\
@@ -22661,6 +22644,38 @@ disabled.
 (push '(nadvice 1 0) package--builtin-versions)
 
 
+;;; Generated autoloads from neo-term.el
+
+(autoload 'neo-term "neo-term" "\
+Open a new GPU-accelerated terminal in the current window." t)
+(autoload 'neo-term-floating "neo-term" "\
+Open a floating GPU terminal overlay.
+Optional X, Y set the floating position.
+Optional COLS, ROWS set the terminal size.
+
+(fn &optional X Y COLS ROWS)" t)
+(register-definition-prefixes "neo-term" '("neo-term-"))
+
+
+;;; Generated autoloads from neomacs-image.el
+
+(register-definition-prefixes "neomacs-image" '("neomacs-image-"))
+
+
+;;; Generated autoloads from neomacs-video.el
+
+(register-definition-prefixes "neomacs-video" '("neomacs-video-"))
+
+
+;;; Generated autoloads from neomacs-webkit.el
+
+(autoload 'neomacs-webkit-open-url "neomacs-webkit" "\
+Open URL in a new WebKit browser buffer.
+
+(fn URL)" t)
+(register-definition-prefixes "neomacs-webkit" '("neomacs-webkit-"))
+
+
 ;;; Generated autoloads from net/net-utils.el
 
 (autoload 'ifconfig "net-utils" "\
@@ -25665,11 +25680,6 @@ Turning on Perl mode runs the normal hook `perl-mode-hook'." t)
 (register-definition-prefixes "perl-mode" '("perl-"))
 
 
-;;; Generated autoloads from pgtk-dnd.el
-
-(register-definition-prefixes "pgtk-dnd" '("pgtk-dnd-"))
-
-
 ;;; Generated autoloads from progmodes/php-ts-mode.el
 
 (autoload 'php-ts-mode "php-ts-mode" "\
@@ -27777,8 +27787,6 @@ evaluate the variable `rectangle-mark-mode'.
 
 The mode's hook is called both when the mode is enabled and when it is
 disabled.
-
-\\{rectangle-mark-mode-map}
 
 (fn &optional ARG)" t)
 (register-definition-prefixes "rect" '("apply-on-rectangle" "clear-rectangle-line" "delete-" "extract-rectangle-" "killed-rectangle" "ope" "rectangle-" "spaces-string" "string-rectangle-"))
@@ -32040,6 +32048,26 @@ substring that does not include newlines.
 
 (fn STRING &optional BUFFER)")
 (function-put 'string-pixel-width 'important-return-value 't)
+(autoload 'truncate-string-pixelwise "subr-x" "\
+Return STRING truncated to fit within MAX-PIXELS.
+If BUFFER is non-nil, use the face remappings, alternative and default
+properties from that buffer when determining the width.
+If you call this function to measure pixel width of a string
+with embedded newlines, it returns the width of the widest
+substring that does not include newlines.
+
+If ELLIPSIS is non-nil, it should be a string which will replace the end
+of STRING if it extends beyond MAX-PIXELS, unless the pixel width of
+STRING is equal to or less than the pixel width of ELLIPSIS.  If it is
+non-nil and not a string, then ELLIPSIS defaults to
+`truncate-string-ellipsis', or to three dots when it's nil.
+
+If ELLIPSIS-PIXELS is non-nil, it is the pixel width of ELLIPSIS, and
+can be used to avoid the cost of recomputing this for multiple calls to
+this function using the same ELLIPSIS.
+
+(fn STRING MAX-PIXELS &optional BUFFER ELLIPSIS ELLIPSIS-PIXELS)")
+(function-put 'truncate-string-pixelwise 'important-return-value 't)
 (autoload 'string-glyph-split "subr-x" "\
 Split STRING into a list of strings representing separate glyphs.
 This takes into account combining characters and grapheme clusters:
@@ -38489,16 +38517,6 @@ Visual-Wrap-Prefix mode.
 ;;; Generated autoloads from emacs-lisp/vtable.el
 
 (register-definition-prefixes "vtable" '("vtable"))
-
-
-;;; Generated autoloads from w32-fns.el
-
-(register-definition-prefixes "w32-fns" '("w32-"))
-
-
-;;; Generated autoloads from w32-vars.el
-
-(register-definition-prefixes "w32-vars" '("w32-"))
 
 
 ;;; Generated autoloads from image/wallpaper.el

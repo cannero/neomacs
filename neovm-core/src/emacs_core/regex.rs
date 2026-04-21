@@ -1047,30 +1047,33 @@ fn ascii_case_fold_rfind(haystack: &str, needle: &str) -> Option<usize> {
     })
 }
 
-fn build_unicode_folded_literal_index(text: &str) -> (Vec<char>, Vec<(usize, usize)>) {
-    let mut folded = Vec::new();
-    let mut mapping = Vec::new();
-    for (byte_start, ch) in text.char_indices() {
-        let byte_end = byte_start + ch.len_utf8();
-        for folded_ch in ch.to_lowercase() {
-            folded.push(folded_ch);
-            mapping.push((byte_start, byte_end));
-        }
-    }
-    (folded, mapping)
-}
-
 fn unicode_case_fold_literal_find(text: &str, literal: &str) -> Option<(usize, usize)> {
     let needle: Vec<char> = literal.chars().flat_map(|ch| ch.to_lowercase()).collect();
     if needle.is_empty() {
         return Some((0, 0));
     }
-    let (haystack, mapping) = build_unicode_folded_literal_index(text);
-    let start_char = haystack
-        .windows(needle.len())
-        .position(|window| window == needle.as_slice())?;
-    let end_char = start_char + needle.len() - 1;
-    Some((mapping[start_char].0, mapping[end_char].1))
+    let mut window = std::collections::VecDeque::with_capacity(needle.len());
+    let mut ranges = std::collections::VecDeque::with_capacity(needle.len());
+    for (byte_start, ch) in text.char_indices() {
+        let byte_end = byte_start + ch.len_utf8();
+        for folded_ch in ch.to_lowercase() {
+            window.push_back(folded_ch);
+            ranges.push_back((byte_start, byte_end));
+            if window.len() > needle.len() {
+                window.pop_front();
+                ranges.pop_front();
+            }
+            if window.len() == needle.len()
+                && window
+                    .iter()
+                    .zip(needle.iter())
+                    .all(|(lhs, rhs)| lhs == rhs)
+            {
+                return Some((ranges.front()?.0, ranges.back()?.1));
+            }
+        }
+    }
+    None
 }
 
 fn unicode_case_fold_literal_rfind(text: &str, literal: &str) -> Option<(usize, usize)> {
@@ -1078,12 +1081,29 @@ fn unicode_case_fold_literal_rfind(text: &str, literal: &str) -> Option<(usize, 
     if needle.is_empty() {
         return Some((text.len(), text.len()));
     }
-    let (haystack, mapping) = build_unicode_folded_literal_index(text);
-    let start_char = haystack
-        .windows(needle.len())
-        .rposition(|window| window == needle.as_slice())?;
-    let end_char = start_char + needle.len() - 1;
-    Some((mapping[start_char].0, mapping[end_char].1))
+    let mut last_match = None;
+    let mut window = std::collections::VecDeque::with_capacity(needle.len());
+    let mut ranges = std::collections::VecDeque::with_capacity(needle.len());
+    for (byte_start, ch) in text.char_indices() {
+        let byte_end = byte_start + ch.len_utf8();
+        for folded_ch in ch.to_lowercase() {
+            window.push_back(folded_ch);
+            ranges.push_back((byte_start, byte_end));
+            if window.len() > needle.len() {
+                window.pop_front();
+                ranges.pop_front();
+            }
+            if window.len() == needle.len()
+                && window
+                    .iter()
+                    .zip(needle.iter())
+                    .all(|(lhs, rhs)| lhs == rhs)
+            {
+                last_match = Some((ranges.front()?.0, ranges.back()?.1));
+            }
+        }
+    }
+    last_match
 }
 
 /// Find LITERAL inside TEXT, optionally case-folded.
@@ -1100,11 +1120,12 @@ fn literal_find(text: &str, literal: &str, case_fold: bool) -> Option<(usize, us
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
         || {
-            if case_fold && (!literal.is_ascii() || !text.is_ascii()) {
-                return unicode_case_fold_literal_find(text, literal);
-            }
             let start = if case_fold {
-                ascii_case_fold_find(text, literal)?
+                if literal.is_ascii() {
+                    ascii_case_fold_find(text, literal)?
+                } else {
+                    return unicode_case_fold_literal_find(text, literal);
+                }
             } else {
                 text.find(literal)?
             };
@@ -1160,11 +1181,12 @@ fn literal_rfind(text: &str, literal: &str, case_fold: bool) -> Option<(usize, u
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexLiteralFind,
         || {
-            if case_fold && (!literal.is_ascii() || !text.is_ascii()) {
-                return unicode_case_fold_literal_rfind(text, literal);
-            }
             let start = if case_fold {
-                ascii_case_fold_rfind(text, literal)?
+                if literal.is_ascii() {
+                    ascii_case_fold_rfind(text, literal)?
+                } else {
+                    return unicode_case_fold_literal_rfind(text, literal);
+                }
             } else {
                 text.rfind(literal)?
             };
@@ -1199,7 +1221,7 @@ fn literal_find_emacs_bytes(
                     .position(|window| window == literal)
                     .map(|start| (start, start + literal.len()));
             }
-            if text.is_ascii() && literal.is_ascii() {
+            if literal.is_ascii() {
                 return text
                     .windows(literal.len())
                     .position(|window| bytes_equal_ascii_case_fold(window, literal))
@@ -1252,7 +1274,7 @@ fn literal_rfind_emacs_bytes(
                     .find(|(_, window)| *window == literal)
                     .map(|(start, _)| (start, start + literal.len()));
             }
-            if text.is_ascii() && literal.is_ascii() {
+            if literal.is_ascii() {
                 return text
                     .windows(literal.len())
                     .enumerate()

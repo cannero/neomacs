@@ -630,6 +630,123 @@ fn coding_system_family(coding_system: &str) -> &str {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Utf16Endian {
+    Big,
+    Little,
+}
+
+fn utf16_coding_variant(coding_system: &str) -> Option<(Utf16Endian, bool)> {
+    let base = coding_system
+        .strip_suffix("-unix")
+        .or_else(|| coding_system.strip_suffix("-dos"))
+        .or_else(|| coding_system.strip_suffix("-mac"))
+        .unwrap_or(coding_system);
+    match base {
+        "utf-16" | "utf-16-be" | "utf-16be-with-signature" => Some((Utf16Endian::Big, true)),
+        "utf-16-le" | "utf-16le-with-signature" => Some((Utf16Endian::Little, true)),
+        "utf-16be" => Some((Utf16Endian::Big, false)),
+        "utf-16le" => Some((Utf16Endian::Little, false)),
+        _ => None,
+    }
+}
+
+fn push_utf16_unit(out: &mut Vec<u8>, endian: Utf16Endian, unit: u16) {
+    match endian {
+        Utf16Endian::Big => out.extend_from_slice(&unit.to_be_bytes()),
+        Utf16Endian::Little => out.extend_from_slice(&unit.to_le_bytes()),
+    }
+}
+
+fn push_utf16_codepoint(out: &mut Vec<u8>, endian: Utf16Endian, code: u32) {
+    let code = if crate::emacs_core::emacs_char::char_byte8_p(code) {
+        crate::emacs_core::emacs_char::char_to_byte8(code) as u32
+    } else if (0xD800..=0xDFFF).contains(&code) || code > 0x10FFFF {
+        0xFFFD
+    } else {
+        code
+    };
+
+    if code <= 0xFFFF {
+        push_utf16_unit(out, endian, code as u16);
+    } else {
+        let scalar = code - 0x1_0000;
+        let high = 0xD800 | ((scalar >> 10) as u16);
+        let low = 0xDC00 | ((scalar & 0x3FF) as u16);
+        push_utf16_unit(out, endian, high);
+        push_utf16_unit(out, endian, low);
+    }
+}
+
+fn encode_utf16_lisp_string(
+    s: &crate::heap_types::LispString,
+    endian: Utf16Endian,
+    bom: bool,
+) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.sbytes() * 2 + 2);
+    if bom {
+        match endian {
+            Utf16Endian::Big => out.extend_from_slice(&[0xFE, 0xFF]),
+            Utf16Endian::Little => out.extend_from_slice(&[0xFF, 0xFE]),
+        }
+    }
+
+    if s.is_multibyte() {
+        let bytes = s.as_bytes();
+        let mut pos = 0usize;
+        while pos < bytes.len() {
+            let (code, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+            push_utf16_codepoint(&mut out, endian, code);
+            pos += len;
+        }
+    } else {
+        for &byte in s.as_bytes() {
+            push_utf16_codepoint(&mut out, endian, byte as u32);
+        }
+    }
+
+    out
+}
+
+fn encode_utf16_text(s: &str, endian: Utf16Endian, bom: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len() * 2 + 2);
+    if bom {
+        match endian {
+            Utf16Endian::Big => out.extend_from_slice(&[0xFE, 0xFF]),
+            Utf16Endian::Little => out.extend_from_slice(&[0xFF, 0xFE]),
+        }
+    }
+    for code in s.chars().map(|ch| ch as u32) {
+        push_utf16_codepoint(&mut out, endian, code);
+    }
+    out
+}
+
+fn decode_utf16_bytes(bytes: &[u8], default_endian: Utf16Endian) -> String {
+    let (endian, body) = match bytes {
+        [0xFE, 0xFF, rest @ ..] => (Utf16Endian::Big, rest),
+        [0xFF, 0xFE, rest @ ..] => (Utf16Endian::Little, rest),
+        _ => (default_endian, bytes),
+    };
+
+    let mut units = Vec::with_capacity(body.len() / 2);
+    let mut chunks = body.chunks_exact(2);
+    for chunk in &mut chunks {
+        let pair = [chunk[0], chunk[1]];
+        units.push(match endian {
+            Utf16Endian::Big => u16::from_be_bytes(pair),
+            Utf16Endian::Little => u16::from_le_bytes(pair),
+        });
+    }
+    if !chunks.remainder().is_empty() {
+        units.push(0xFFFD);
+    }
+
+    std::char::decode_utf16(units)
+        .map(|item| item.unwrap_or(char::REPLACEMENT_CHARACTER))
+        .collect()
+}
+
 fn decode_single_byte_family_char(family: &str, byte: u8) -> Option<char> {
     match family {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some(byte as char),
@@ -856,8 +973,15 @@ fn encode_utf8_emacs_text(s: &str) -> Vec<u8> {
 }
 
 pub fn encode_lisp_string(s: &crate::heap_types::LispString, coding_system: &str) -> Vec<u8> {
+    if let Some((endian, bom)) = utf16_coding_variant(coding_system) {
+        return encode_utf16_lisp_string(s, endian, bom);
+    }
+
     let family = coding_system_family(coding_system);
-    if matches!(family, "utf-8" | "utf-8-emacs") || is_byte_preserving_coding_system(coding_system)
+    if matches!(
+        family,
+        "utf-8" | "utf-8-emacs" | "undecided" | "prefer-utf-8"
+    ) || is_byte_preserving_coding_system(coding_system)
     {
         return encode_eol_bytes(s.as_bytes(), coding_system);
     }
@@ -908,6 +1032,10 @@ pub fn encode_lisp_string(s: &crate::heap_types::LispString, coding_system: &str
 /// Currently only UTF-8 is supported.
 pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
     let eol_text = encode_eol_text(s, coding_system);
+    if let Some((endian, bom)) = utf16_coding_variant(coding_system) {
+        return encode_utf16_text(&eol_text, endian, bom);
+    }
+
     match coding_system_family(coding_system) {
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac" | "utf-8-emacs" => {
             encode_utf8_emacs_text(&eol_text)
@@ -930,6 +1058,10 @@ pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
 /// Decode bytes to a string using the specified coding system.
 /// Currently only UTF-8 is supported.
 pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
+    if let Some((endian, _bom)) = utf16_coding_variant(coding_system) {
+        return decode_utf16_bytes(bytes, endian);
+    }
+
     let bytes = decode_eol_text(bytes, coding_system);
     match coding_system_family(coding_system) {
         "utf-8" | "utf-8-emacs" => decode_utf8_emacs_bytes(&bytes),

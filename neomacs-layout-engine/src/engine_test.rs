@@ -785,6 +785,64 @@ fn layout_frame_rust_records_display_point_for_display_replacement_slot() {
 }
 
 #[test]
+fn layout_frame_rust_emits_display_string_replacement_glyphs() {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    {
+        let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+        buf.insert("dir:");
+        buf.text.text_props_put_property(
+            3,
+            4,
+            Value::symbol("display"),
+            Value::string(": (287 GiB available)"),
+        );
+    }
+
+    let frame_id = eval
+        .frame_manager_mut()
+        .create_frame("layout-display-string", 320, 120, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+
+    let mut engine = LayoutEngine::new();
+    engine.layout_frame_rust(&mut eval, frame_id);
+
+    let state = engine
+        .last_frame_display_state
+        .as_ref()
+        .expect("display state");
+    let window_entry = state
+        .window_matrices
+        .iter()
+        .find(|entry| entry.window_id == selected_window.0)
+        .expect("selected window matrix");
+    let text_row = window_entry
+        .matrix
+        .rows
+        .iter()
+        .find(|row| row.enabled && row.role == GlyphRowRole::Text)
+        .expect("text row");
+    let rendered: String = text_row.glyphs[1]
+        .iter()
+        .filter_map(|glyph| match &glyph.glyph_type {
+            GlyphType::Char { ch } => Some(*ch),
+            GlyphType::Composite { text } => text.chars().next(),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(rendered, "dir: (287 GiB available)");
+}
+
+#[test]
 fn layout_frame_rust_emits_inline_image_glyphs_for_display_image_specs() {
     let mut eval = Context::new();
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -3253,7 +3311,7 @@ fn layout_frame_rust_preserves_multiline_overlay_output_rows() {
             rear_advance: false,
         });
         buf.overlays.insert_overlay(overlay);
-        buf.overlays.overlay_put(
+        let _ = buf.overlays.overlay_put(
             overlay,
             Value::symbol("after-string"),
             Value::string("A\nB"),

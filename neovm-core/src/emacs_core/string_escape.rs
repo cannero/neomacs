@@ -611,12 +611,10 @@ pub(crate) fn format_lisp_string_bytes_inner_emacs(
                     need_nonhex = false;
                     continue;
                 }
-                if options.print_escape_control_characters {
-                    if (b < 0x20 && b != b'\t' && b != b'\n' && b != 0x0c) || b == 0x7f {
-                        push_octal_escape_contextual_u32(&mut out, b, next_code);
-                        need_nonhex = false;
-                        continue;
-                    }
+                if options.print_escape_control_characters && (b < 0x20 || b == 0x7f) {
+                    push_octal_escape_contextual_u32(&mut out, b, next_code);
+                    need_nonhex = false;
+                    continue;
                 }
                 out.push(b);
                 need_nonhex = false;
@@ -667,12 +665,10 @@ pub(crate) fn format_lisp_string_bytes_inner_emacs(
                 need_nonhex = false;
                 continue;
             }
-            if options.print_escape_control_characters {
-                if (byte < 0x20 && byte != b'\t' && byte != b'\n' && byte != 0x0c) || byte == 0x7f {
-                    push_octal_escape_contextual_u32(&mut out, byte, next_byte.map(|b| b as u32));
-                    need_nonhex = false;
-                    continue;
-                }
+            if options.print_escape_control_characters && (byte < 0x20 || byte == 0x7f) {
+                push_octal_escape_contextual_u32(&mut out, byte, next_byte.map(|b| b as u32));
+                need_nonhex = false;
+                continue;
             }
             out.push(byte);
             need_nonhex = false;

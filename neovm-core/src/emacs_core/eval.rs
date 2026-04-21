@@ -3140,6 +3140,8 @@ impl Context {
             "exec-suffixes",
             Value::list(vec![Value::unibyte_string("")]),
         );
+        // GNU callproc.c: `movemail-program-name` defaults to "movemail".
+        obarray.set_symbol_value("movemail-program-name", Value::unibyte_string("movemail"));
         obarray.set_symbol_value("buffer-read-only", Value::NIL);
         obarray.set_symbol_value("left-margin-width", Value::NIL);
         obarray.set_symbol_value("right-margin-width", Value::NIL);
@@ -3733,6 +3735,7 @@ impl Context {
             "noninteractive",
             "inhibit-quit",
             "inhibit-read-only",
+            "inhibit-modification-hooks",
             "internal-make-interpreted-closure-function",
             "print-length",
             "print-level",
@@ -6171,7 +6174,18 @@ impl Context {
 
     /// Load a file, converting EvalError back to Flow for use in special forms.
     pub fn load_file_internal(&mut self, path: &std::path::Path) -> EvalResult {
-        super::load::load_file(self, path).map_err(|e| match e {
+        self.load_file_internal_with_flags(path, false, false)
+    }
+
+    /// Load a file with caller-visible `load` flags, converting EvalError
+    /// back to Flow for use in special forms.
+    pub fn load_file_internal_with_flags(
+        &mut self,
+        path: &std::path::Path,
+        noerror: bool,
+        nomessage: bool,
+    ) -> EvalResult {
+        super::load::load_file_with_flags(self, path, noerror, nomessage).map_err(|e| match e {
             EvalError::Signal {
                 symbol,
                 data,

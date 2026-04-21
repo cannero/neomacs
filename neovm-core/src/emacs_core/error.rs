@@ -329,13 +329,21 @@ pub(crate) fn print_value_in_state(
     ctx: &crate::emacs_core::eval::Context,
     value: &Value,
 ) -> String {
+    print_value_in_state_with_options(ctx, value, print_options_from_state(&ctx.obarray))
+}
+
+pub(crate) fn print_value_in_state_with_options(
+    ctx: &crate::emacs_core::eval::Context,
+    value: &Value,
+    options: PrintOptions,
+) -> String {
     format_value_in_state(
         &ctx.obarray,
         &ctx.buffers,
         &ctx.frames,
         &ctx.threads,
         value,
-        print_options_from_state(&ctx.obarray),
+        options,
     )
 }
 
@@ -510,7 +518,7 @@ pub(crate) fn print_value_bytes_in_state(
     )
 }
 
-fn format_value_bytes_in_state_with_options(
+pub(crate) fn format_value_bytes_in_state_with_options(
     obarray: &super::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
     frames: &crate::window::FrameManager,

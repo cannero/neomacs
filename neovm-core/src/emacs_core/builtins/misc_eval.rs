@@ -1386,6 +1386,116 @@ fn prin1_to_string_value(value: &Value, noescape: bool) -> String {
     }
 }
 
+fn print_options_from_overrides(
+    ctx: &super::eval::Context,
+    overrides: Option<&Value>,
+) -> Result<super::print::PrintOptions, Flow> {
+    let mut options = super::error::print_options_from_state(&ctx.obarray);
+    if let Some(overrides) = overrides.filter(|v| !v.is_nil()) {
+        apply_print_overrides(&mut options, *overrides)?;
+    }
+    Ok(options)
+}
+
+fn reset_print_options(options: &mut super::print::PrintOptions) {
+    *options = super::print::PrintOptions::default();
+}
+
+fn apply_print_overrides(
+    options: &mut super::print::PrintOptions,
+    mut overrides: Value,
+) -> Result<(), Flow> {
+    if overrides == Value::T {
+        reset_print_options(options);
+        return Ok(());
+    }
+
+    while !overrides.is_nil() {
+        if !overrides.is_cons() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("consp"), overrides],
+            ));
+        }
+
+        let setting = overrides.cons_car();
+        if setting == Value::T {
+            reset_print_options(options);
+        } else {
+            if !setting.is_cons() {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("consp"), setting],
+                ));
+            }
+            apply_print_override_setting(options, setting.cons_car(), setting.cons_cdr())?;
+        }
+
+        overrides = overrides.cons_cdr();
+    }
+
+    Ok(())
+}
+
+fn apply_print_override_setting(
+    options: &mut super::print::PrintOptions,
+    key: Value,
+    value: Value,
+) -> Result<(), Flow> {
+    let ValueKind::Symbol(id) = key.kind() else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), key],
+        ));
+    };
+
+    match resolve_sym(id) {
+        "length" => {
+            options.print_length = value.as_fixnum().filter(|n| *n >= 0);
+        }
+        "level" => {
+            options.print_level = value.as_fixnum().filter(|n| *n >= 0);
+        }
+        "circle" => {
+            options.print_circle = value.is_truthy();
+        }
+        "escape-newlines" => {
+            options.print_escape_newlines = value.is_truthy();
+        }
+        "escape-control-characters" => {
+            options.print_escape_control_characters = value.is_truthy();
+        }
+        "escape-nonascii" => {
+            options.print_escape_nonascii = value.is_truthy();
+        }
+        "escape-multibyte" => {
+            options.print_escape_multibyte = value.is_truthy();
+        }
+        "gensym" => {
+            options.print_gensym = value.is_truthy();
+        }
+        // GNU accepts these override keys by dynamically binding print
+        // variables that Neomacs does not yet model in PrintOptions.
+        "quoted"
+        | "charset-text-property"
+        | "unreadable-function"
+        | "unreadeable-function"
+        | "continuous-numbering"
+        | "number-table"
+        | "float-format"
+        | "integers-as-characters"
+        | "symbols-bare" => {}
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), key],
+            ));
+        }
+    }
+
+    Ok(())
+}
+
 fn prin1_to_string_value_eval(
     eval: &super::eval::Context,
     value: &Value,
@@ -1399,28 +1509,8 @@ pub(crate) fn prin1_to_lisp_string_value_in_state(
     value: &Value,
     noescape: bool,
 ) -> crate::heap_types::LispString {
-    if noescape {
-        match value.kind() {
-            ValueKind::String => value.as_lisp_string().unwrap().clone(),
-            _other => crate::heap_types::LispString::from_emacs_bytes(
-                super::error::print_value_bytes_in_state(
-                    &ctx.obarray,
-                    &ctx.buffers,
-                    &ctx.frames,
-                    &ctx.threads,
-                    value,
-                ),
-            ),
-        }
-    } else {
-        crate::heap_types::LispString::from_emacs_bytes(super::error::print_value_bytes_in_state(
-            &ctx.obarray,
-            &ctx.buffers,
-            &ctx.frames,
-            &ctx.threads,
-            value,
-        ))
-    }
+    prin1_to_lisp_string_value_in_state_with_overrides(ctx, value, noescape, None)
+        .expect("nil print overrides cannot fail")
 }
 
 pub(crate) fn prin1_to_string_value_in_state(
@@ -1430,6 +1520,41 @@ pub(crate) fn prin1_to_string_value_in_state(
 ) -> String {
     let printed = prin1_to_lisp_string_value_in_state(ctx, value, noescape);
     crate::emacs_core::emacs_char::to_utf8_lossy(printed.as_bytes())
+}
+
+fn prin1_to_lisp_string_value_in_state_with_overrides(
+    ctx: &crate::emacs_core::eval::Context,
+    value: &Value,
+    noescape: bool,
+    overrides: Option<&Value>,
+) -> Result<crate::heap_types::LispString, Flow> {
+    let options = print_options_from_overrides(ctx, overrides)?;
+    if noescape {
+        match value.kind() {
+            ValueKind::String => Ok(value.as_lisp_string().unwrap().clone()),
+            _other => Ok(crate::heap_types::LispString::from_emacs_bytes(
+                super::error::format_value_bytes_in_state_with_options(
+                    &ctx.obarray,
+                    &ctx.buffers,
+                    &ctx.frames,
+                    &ctx.threads,
+                    value,
+                    options,
+                ),
+            )),
+        }
+    } else {
+        Ok(crate::heap_types::LispString::from_emacs_bytes(
+            super::error::format_value_bytes_in_state_with_options(
+                &ctx.obarray,
+                &ctx.buffers,
+                &ctx.frames,
+                &ctx.threads,
+                value,
+                options,
+            ),
+        ))
+    }
 }
 
 pub(crate) fn builtin_princ(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -1461,12 +1586,13 @@ pub(crate) fn builtin_princ_impl(
 
 pub(crate) fn builtin_prin1(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
+    let options = print_options_from_overrides(eval, args.get(2))?;
     let target = resolve_print_target(eval, args.get(1));
     if print_target_is_direct(target) {
         return builtin_prin1_impl(eval, args);
     }
 
-    let text = super::error::print_value_in_state(eval, &args[0]);
+    let text = super::error::print_value_in_state_with_options(eval, &args[0], options);
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(target);
     let prin1_result =
@@ -1481,7 +1607,8 @@ pub(crate) fn builtin_prin1_impl(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("prin1", &args, 1)?;
-    let text = super::error::print_value_in_state(ctx, &args[0]);
+    let options = print_options_from_overrides(ctx, args.get(2))?;
+    let text = super::error::print_value_in_state_with_options(ctx, &args[0], options);
     write_print_output_from_ctx(ctx, args.get(1), &text)?;
     Ok(args[0])
 }
@@ -1499,9 +1626,9 @@ pub(crate) fn builtin_prin1_to_string_impl(
 ) -> EvalResult {
     expect_min_args("prin1-to-string", &args, 1)?;
     let noescape = args.get(1).is_some_and(|v| v.is_truthy());
-    Ok(Value::heap_string(prin1_to_lisp_string_value_in_state(
-        ctx, &args[0], noescape,
-    )))
+    Ok(Value::heap_string(
+        prin1_to_lisp_string_value_in_state_with_overrides(ctx, &args[0], noescape, args.get(2))?,
+    ))
 }
 
 pub(crate) fn builtin_print(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {

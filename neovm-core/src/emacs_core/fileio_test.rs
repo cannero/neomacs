@@ -3116,6 +3116,40 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
 }
 
 #[test]
+fn insert_file_contents_sets_last_coding_before_after_insert_hook() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_coding_hook");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("ascii.txt");
+    let path_str = path.to_string_lossy().to_string();
+    write_string_to_file("ascii text\n", &path_str, false).unwrap();
+
+    let mut eval = Context::new();
+    eval.eval_str(
+        r#"(defalias 'after-insert-file-set-coding
+             #'(lambda (_inserted _visit)
+                 (setq neomacs-test-last-coding-in-hook last-coding-system-used)
+                 nil))"#,
+    )
+    .expect("define hook");
+
+    builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::T])
+        .expect("insert-file-contents with visit should succeed");
+
+    assert_eq!(
+        eval.visible_variable_value_or_nil("neomacs-test-last-coding-in-hook")
+            .as_symbol_name(),
+        Some("undecided-unix")
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
     crate::test_utils::init_test_tracing();
 

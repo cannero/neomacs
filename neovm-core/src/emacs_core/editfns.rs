@@ -226,7 +226,9 @@ pub(crate) fn signal_before_change(
         return Ok(());
     };
 
-    if let Some(buf) = ctx.buffers.get(current_id) {
+    if ctx.treesit.has_editable_tree(current_id)
+        && let Some(buf) = ctx.buffers.get(current_id)
+    {
         let source = buf.buffer_substring_lisp_string(buf.begv_byte, buf.zv_byte);
         ctx.treesit
             .begin_buffer_edit(current_id, &source, beg.min(end), beg.max(end));
@@ -307,7 +309,9 @@ pub(crate) fn signal_after_change(
     };
 
     ctx.treesit.note_buffer_change(current_id, beg);
-    if let Some(buf) = ctx.buffers.get(current_id) {
+    if ctx.treesit.has_pending_edit(current_id)
+        && let Some(buf) = ctx.buffers.get(current_id)
+    {
         let source = buf.buffer_substring_lisp_string(buf.begv_byte, buf.zv_byte);
         ctx.treesit.finish_buffer_edit(current_id, &source, end);
     }

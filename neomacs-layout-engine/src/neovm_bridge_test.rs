@@ -730,15 +730,80 @@ fn test_text_prop_check_invisible() {
 
     // Position 0: not invisible
     let (invis, _next) = access.check_invisible(0);
-    assert!(!invis);
+    assert!(!invis.hidden);
 
     // Position 8: invisible
     let (invis, _next) = access.check_invisible(8);
-    assert!(invis);
+    assert!(invis.hidden);
+    assert!(!invis.ellipsis);
 
     // Position 14: visible again
     let (invis, _next) = access.check_invisible(14);
-    assert!(!invis);
+    assert!(!invis.hidden);
+}
+
+#[test]
+fn text_prop_invisible_respects_buffer_invisibility_spec() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator
+        .buffer_manager_mut()
+        .create_buffer("*dired-invis*");
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.text.insert_str(0, "details filename");
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
+        buf.set_buffer_local(
+            "buffer-invisibility-spec",
+            Value::list(vec![
+                Value::cons(Value::symbol("dired"), Value::T),
+                Value::cons(Value::symbol("dired-filename-hide"), Value::T),
+            ]),
+        );
+        buf.text.text_props_put_property(
+            0,
+            7,
+            Value::symbol("invisible"),
+            Value::symbol("dired-hide-details-detail"),
+        );
+        buf.text
+            .text_props_put_property(8, 16, Value::symbol("invisible"), Value::symbol("dired"));
+    }
+
+    let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+    let access = RustTextPropAccess::new(buf);
+
+    let (details, _) = access.check_invisible(0);
+    assert_eq!(details, InvisibleStatus::VISIBLE);
+
+    let (filename, _) = access.check_invisible(8);
+    assert_eq!(filename, InvisibleStatus::HIDDEN_WITH_ELLIPSIS);
+}
+
+#[test]
+fn text_prop_invisible_matches_members_of_property_list() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator.buffer_manager_mut().create_buffer("*invis-list*");
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.text.insert_str(0, "folded");
+        buf.zv_byte = buf.text.len();
+        buf.zv = buf.text.char_count();
+        buf.set_buffer_local(
+            "buffer-invisibility-spec",
+            Value::list(vec![Value::cons(Value::symbol("outline"), Value::T)]),
+        );
+        buf.text.text_props_put_property(
+            0,
+            6,
+            Value::symbol("invisible"),
+            Value::list(vec![Value::symbol("foo"), Value::symbol("outline")]),
+        );
+    }
+
+    let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+    let access = RustTextPropAccess::new(buf);
+
+    let (status, _) = access.check_invisible(0);
+    assert_eq!(status, InvisibleStatus::HIDDEN_WITH_ELLIPSIS);
 }
 
 #[test]

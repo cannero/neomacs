@@ -15,16 +15,22 @@
 //!   the way out by the rasterizer.
 //! * Menu items whose label resolves to nil or whose definition is nil
 //!   are skipped, mirroring `menu_bar_item`'s `STRINGP (string)` /
-//!   `CONSP (def)` guards.
+//!   `CONSP (def)` guards.  The key still counts as seen while walking
+//!   parent keymaps, matching GNU's `keymap-canonicalize`: a child
+//!   binding of `undefined` hides an inherited menu entry.
 //! * `current-minor-mode-map-alist` is not walked yet — minor-mode
 //!   menu-bar additions are TODO. Major-mode (`current-local-map`) and
 //!   global maps are walked, which matches GNU's most common menus
 //!   like `Lisp-Interaction` in `*scratch*`.
 
+use std::collections::HashSet;
+
 use neomacs_display_protocol::glyph_matrix::TtyMenuBarItem;
 use neovm_core::emacs_core::Context;
 use neovm_core::emacs_core::Value;
-use neovm_core::emacs_core::keymap::{list_keymap_for_each_binding, list_keymap_lookup_one};
+use neovm_core::emacs_core::keymap::{
+    list_keymap_for_each_binding, list_keymap_lookup_one, list_keymap_parent,
+};
 
 /// Walk the active `[menu-bar]` keymap(s) and return the items to draw.
 ///
@@ -77,23 +83,42 @@ fn collect_from_keymap(eval: &Context, keymap: &Value, items: &mut Vec<TtyMenuBa
         None => return,
     };
 
-    list_keymap_for_each_binding(&menu_bar_keymap, |key, def| {
+    let mut current = menu_bar_keymap;
+    let mut seen_keys = HashSet::new();
+    for _ in 0..64 {
+        collect_menu_bar_keymap_bindings(&current, items, &mut seen_keys);
+        let parent = list_keymap_parent(&current);
+        if !is_keymap(&parent) {
+            break;
+        }
+        current = parent;
+    }
+}
+
+fn collect_menu_bar_keymap_bindings(
+    menu_bar_keymap: &Value,
+    items: &mut Vec<TtyMenuBarItem>,
+    seen_keys: &mut HashSet<String>,
+) {
+    list_keymap_for_each_binding(menu_bar_keymap, |key, def| {
         let key_str = key_symbol_name(&key);
-        if let Some(label) = extract_menu_label(&def) {
-            // Dedup-by-key: GNU's `menu_bar_item` calls `Fmemq (key,
-            // menu_bar_one_keymap_changed_items)` to skip a key it has
-            // already seen for the *current* keymap. Here we apply the
-            // same idea across the union of keymaps so that a major
-            // mode that re-binds an existing top-level menu (rare)
-            // doesn't produce a duplicate label. The first occurrence
-            // wins, mirroring the natural reverse-insertion-order walk
-            // (newest binding first within each map).
-            if !items.iter().any(|item| item.key == key_str) {
-                items.push(TtyMenuBarItem {
-                    label,
-                    key: key_str,
-                    hpos: 0,
-                });
+        if seen_keys.insert(key_str.clone()) {
+            if let Some(label) = extract_menu_label(&def) {
+                // Dedup-by-key: GNU's `menu_bar_item` calls `Fmemq (key,
+                // menu_bar_one_keymap_changed_items)` to skip a key it has
+                // already seen for the *current* keymap. Here we apply the
+                // same idea across the union of keymaps so that a major
+                // mode that re-binds an existing top-level menu (rare)
+                // doesn't produce a duplicate label. The first occurrence
+                // wins, mirroring the natural reverse-insertion-order walk
+                // (newest binding first within each map).
+                if !items.iter().any(|item| item.key == key_str) {
+                    items.push(TtyMenuBarItem {
+                        label,
+                        key: key_str,
+                        hpos: 0,
+                    });
+                }
             }
         }
     });

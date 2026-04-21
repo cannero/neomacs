@@ -7052,6 +7052,13 @@ fn first_change_and_before_change_hooks_run_with_inhibit_bound() {
 }
 
 #[test]
+fn inhibit_modification_hooks_is_bound_to_nil_by_default() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one("(list (boundp 'inhibit-modification-hooks) inhibit-modification-hooks)");
+    assert_eq!(result, "OK (t nil)");
+}
+
+#[test]
 fn after_change_functions_receive_character_old_len() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(

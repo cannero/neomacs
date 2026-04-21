@@ -191,6 +191,15 @@ fn print_list() {
 }
 
 #[test]
+fn print_stateful_record_preprocess_uses_record_storage() {
+    crate::test_utils::init_test_tracing();
+    let record = Value::make_record(vec![Value::symbol("foo"), Value::fixnum(1)]);
+    let options = PrintOptions::new(false, false, Some(10), None);
+
+    assert_eq!(print_value_stateful(&record, options), "#s(foo 1)");
+}
+
+#[test]
 fn print_hash_s_literal_shorthand() {
     crate::test_utils::init_test_tracing();
     let literal = Value::list(vec![

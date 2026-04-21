@@ -2030,6 +2030,21 @@ fn key_binding_and_lookup_key_follow_ctl_x_prefix_map() {
 }
 
 #[test]
+fn lookup_key_accepts_legacy_menu_symbol_case_and_spaces() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(let ((m (make-sparse-keymap)))
+                 (define-key m [menu-bar text] (cons "Text" 'ignore))
+                 (define-key m [menu-bar some-menu] (cons "Some" 'ignore))
+                 (list (lookup-key m [menu-bar Text])
+                       (lookup-key m (vector 'menu-bar (intern "Some Menu")))))"#
+        ),
+        "OK (ignore ignore)"
+    );
+}
+
+#[test]
 fn define_key_sequence_preserves_gnu_prefix_symbol_bindings() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

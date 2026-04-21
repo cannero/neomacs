@@ -4683,7 +4683,57 @@ fn quote_payload_value(value: Value) -> Option<Value> {
 
 pub(crate) fn builtin_make_char(args: Vec<Value>) -> EvalResult {
     expect_range_args("make-char", &args, 1, 5)?;
-    Ok(Value::NIL)
+    let Some(charset) = args[0].as_symbol_name() else {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("charsetp"), args[0]],
+        ));
+    };
+    let code1 = match args.get(1) {
+        Some(value) => value.as_fixnum().ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("integerp"), *value],
+            )
+        })?,
+        None => default_charset_code(charset).ok_or_else(invalid_make_char_code)?,
+    };
+
+    match make_char_code(charset, code1) {
+        Some(code) => Ok(Value::fixnum(code as i64)),
+        None => Err(invalid_make_char_code()),
+    }
+}
+
+fn invalid_make_char_code() -> Flow {
+    signal("error", vec![Value::string("Invalid code(s)")])
+}
+
+fn default_charset_code(charset: &str) -> Option<i64> {
+    match charset {
+        "ascii" => Some(0),
+        "latin-iso8859-1" => Some(32),
+        "latin-jisx0201" | "katakana-jisx0201" => Some(33),
+        _ => None,
+    }
+}
+
+fn make_char_code(charset: &str, code1: i64) -> Option<u32> {
+    if code1 < 0 {
+        return None;
+    }
+    let code = (code1 as u32) & 0x7f;
+    match charset {
+        "ascii" => Some(code),
+        "latin-iso8859-1" if (32..=127).contains(&code) => Some(0x80 + code),
+        "latin-jisx0201" if (33..=126).contains(&code) => Some(match code {
+            0x5c => 0x00a5,
+            0x7e => 0x203e,
+            _ => code,
+        }),
+        "katakana-jisx0201" if (33..=95).contains(&code) => Some(0xff61 + (code - 33)),
+        _ => None,
+    }
 }
 
 pub(crate) fn builtin_make_closure(args: Vec<Value>) -> EvalResult {

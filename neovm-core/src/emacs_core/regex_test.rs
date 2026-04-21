@@ -1391,6 +1391,38 @@ fn search_forward_case_fold_true_unicode_literal() {
 }
 
 #[test]
+fn search_forward_case_fold_true_ascii_literal_in_non_ascii_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = make_test_buffer("α GENERATED-AUTOLOAD-FILE");
+    let mut md = None;
+    let result = search_forward(
+        &mut buf,
+        "generated-autoload-file",
+        None,
+        false,
+        true,
+        &mut md,
+    );
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Some("α GENERATED-AUTOLOAD-FILE".len()));
+    assert_eq!(
+        md.unwrap().groups[0],
+        Some(("α ".len(), "α GENERATED-AUTOLOAD-FILE".len()))
+    );
+}
+
+#[test]
+fn search_forward_case_fold_true_ascii_literal_does_not_unicode_fold_kelvin() {
+    crate::test_utils::init_test_tracing();
+    let mut buf = make_test_buffer("xxKelvin");
+    let mut md = None;
+    let result = search_forward(&mut buf, "kelvin", None, true, true, &mut md);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), None);
+    assert!(md.is_none());
+}
+
+#[test]
 fn re_search_forward_trivial_regexp_follows_literal_case_fold_path() {
     crate::test_utils::init_test_tracing();
     let mut buf = make_test_buffer("A.b");

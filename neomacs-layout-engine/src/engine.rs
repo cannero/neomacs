@@ -2997,20 +2997,8 @@ impl LayoutEngine {
             // Only call check_invisible at property change boundaries for efficiency
             if charpos >= invis_next_check {
                 let text_props = super::neovm_bridge::RustTextPropAccess::new(buffer);
-                let (is_invisible, next_visible) = text_props.check_invisible(charpos);
-                if is_invisible {
-                    // Check if ellipsis should be shown BEFORE skipping.
-                    // In Emacs, invisible property `t` means hide completely (no ellipsis),
-                    // while symbol values (e.g. `outline`, `hs`) typically indicate that
-                    // ellipsis should be shown (via buffer-invisibility-spec).
-                    let show_ellipsis =
-                        match text_props.get_property(charpos, Value::symbol("invisible")) {
-                            Some(v) if v.is_t() => false,
-                            Some(v) if v.is_nil() => false,
-                            None => false,
-                            Some(_) => true,
-                        };
-
+                let (invisible, next_visible) = text_props.check_invisible(charpos);
+                if invisible.hidden {
                     let skip_to = next_visible.min(params.buffer_size);
                     let point_in_hidden_region =
                         cursor_info.is_none() && params.point >= charpos && params.point < skip_to;
@@ -3043,8 +3031,9 @@ impl LayoutEngine {
                     }
                     invis_next_check = next_visible;
 
-                    // Render "..." ellipsis for non-t invisible property values
-                    if show_ellipsis {
+                    // GNU displays ellipsis only when the matching
+                    // `buffer-invisibility-spec' entry requests it.
+                    if invisible.ellipsis {
                         let ellipsis_start_x = x;
                         let ellipsis_start_col = col;
                         flush_run(&self.run_buf, ligatures);
@@ -3290,7 +3279,8 @@ impl LayoutEngine {
                         if !replacement.is_empty() {
                             let right_limit = content_x + (text_width - lnum_pixel_width);
                             for rch in replacement.chars() {
-                                let rch_advance = if is_wide_char(rch) {
+                                let rch_is_wide = is_wide_char(rch);
+                                let rch_advance = if rch_is_wide {
                                     2.0 * face_char_w
                                 } else {
                                     face_char_w
@@ -3298,8 +3288,21 @@ impl LayoutEngine {
                                 if x + rch_advance > right_limit {
                                     break;
                                 }
+                                if rch_is_wide {
+                                    self.matrix_builder.push_wide_char(
+                                        rch,
+                                        current_face_id.saturating_sub(1),
+                                        charpos as usize,
+                                    );
+                                } else {
+                                    self.matrix_builder.push_char(
+                                        rch,
+                                        current_face_id.saturating_sub(1),
+                                        charpos as usize,
+                                    );
+                                }
                                 x += rch_advance;
-                                col += if is_wide_char(rch) { 2 } else { 1 };
+                                col += if rch_is_wide { 2 } else { 1 };
                             }
                         }
 

@@ -308,6 +308,16 @@ impl TreeSitterManager {
         }
     }
 
+    pub(crate) fn has_editable_tree(&self, buffer_id: BufferId) -> bool {
+        self.parsers.values().any(|parser| {
+            !parser.deleted && parser.orig_buffer_id == buffer_id && parser.tree.is_some()
+        })
+    }
+
+    pub(crate) fn has_pending_edit(&self, buffer_id: BufferId) -> bool {
+        self.pending_edits.contains_key(&buffer_id)
+    }
+
     pub(crate) fn begin_buffer_edit(
         &mut self,
         buffer_id: BufferId,
@@ -315,6 +325,9 @@ impl TreeSitterManager {
         start_byte: usize,
         old_end_byte: usize,
     ) {
+        if !self.has_editable_tree(buffer_id) {
+            return;
+        }
         self.pending_edits.insert(
             buffer_id,
             PendingBufferEdit {
@@ -360,6 +373,23 @@ impl TreeSitterManager {
         for parser_id in edited_parser_ids {
             self.clear_nodes_for_parser(parser_id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn buffer_edit_without_tree_does_not_track_pending_edit() {
+        crate::test_utils::init_test_tracing();
+        let mut manager = TreeSitterManager::new();
+        let buffer_id = BufferId(7);
+        let source = LispString::from_utf8("alpha\nbeta\ngamma\n");
+
+        manager.begin_buffer_edit(buffer_id, &source, source.sbytes(), source.sbytes());
+
+        assert!(manager.pending_edits.is_empty());
     }
 }
 

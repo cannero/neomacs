@@ -215,6 +215,8 @@ enum ReaderSource<'a> {
     LispString(&'a crate::heap_types::LispString),
 }
 
+const NONUNICODE_SOURCE_SENTINEL: char = '\u{F0000}';
+
 struct Reader<'a> {
     source: ReaderSource<'a>,
     source_multibyte: bool,
@@ -499,6 +501,7 @@ impl<'a> Reader<'a> {
             let Some(ch) = self.current() else {
                 return Err(self.error("unterminated string"));
             };
+            let code = self.current_source_code().unwrap_or(ch as u32);
             self.bump();
             match ch {
                 '"' => {
@@ -513,6 +516,7 @@ impl<'a> Reader<'a> {
                     let Some(esc) = self.current() else {
                         return Err(self.error("unterminated escape in string"));
                     };
+                    let esc_code = self.current_source_code().unwrap_or(esc as u32);
                     self.bump();
                     match esc {
                         'n' => {
@@ -723,37 +727,15 @@ impl<'a> Reader<'a> {
                             // Line continuation — skip newline
                         }
                         other => {
-                            // Unknown escape — keep the character as UTF-8
-                            let mut tmp = [0u8; 4];
-                            buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
-                            if let Some(bytes) = unibyte_buf.as_mut() {
-                                if other.is_ascii() {
-                                    bytes.push(other as u8);
-                                } else {
-                                    unibyte_buf = None;
-                                }
-                            }
+                            // Unknown escape — keep the source character.
+                            debug_assert_eq!(esc, other);
+                            Self::push_string_char(&mut buf, &mut unibyte_buf, esc_code);
                         }
                     }
                 }
                 other => {
-                    let cp = other as u32;
-                    if (0xE300..=0xE3FF).contains(&cp) {
-                        let byte = (cp - 0xE300) as u8;
-                        buf.push(byte);
-                        if let Some(bytes) = unibyte_buf.as_mut() {
-                            bytes.push(byte);
-                        }
-                    } else if (0xE080..=0xE0FF).contains(&cp) {
-                        let byte = (cp - 0xE000) as u8;
-                        let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-                        let len =
-                            emacs_char::char_string(emacs_char::byte8_to_char(byte), &mut tmp);
-                        buf.extend_from_slice(&tmp[..len]);
-                        if let Some(bytes) = unibyte_buf.as_mut() {
-                            bytes.push(byte);
-                        }
-                    } else if !self.source_multibyte && cp >= 0x80 && cp <= 0xFF {
+                    debug_assert_eq!(ch, other);
+                    if !self.source_multibyte && code >= 0x80 && code <= 0xFF {
                         // Non-ASCII byte from .elc (unibyte) loading.
                         //
                         // When source_multibyte=false, .elc content uses Latin-1
@@ -773,7 +755,7 @@ impl<'a> Reader<'a> {
                         // range is already a decoded Latin-1 codepoint (e.g. U+00A1
                         // '¡') that must be encoded as Emacs multibyte — falling
                         // through to the "Normal Unicode" branch handles that.
-                        let byte0 = cp as u8;
+                        let byte0 = code as u8;
                         let decoded = if !self.source_multibyte && byte0 >= 0xC0 {
                             let expected_len = if byte0 < 0xE0 {
                                 2
@@ -832,16 +814,7 @@ impl<'a> Reader<'a> {
                             }
                         }
                     } else {
-                        // Normal Unicode — encode as UTF-8 (== Emacs encoding)
-                        let mut tmp = [0u8; 4];
-                        buf.extend_from_slice(other.encode_utf8(&mut tmp).as_bytes());
-                        if let Some(bytes) = unibyte_buf.as_mut() {
-                            if other.is_ascii() {
-                                bytes.push(other as u8);
-                            } else {
-                                unibyte_buf = None;
-                            }
-                        }
+                        Self::push_string_char(&mut buf, &mut unibyte_buf, code);
                     }
                 }
             }
@@ -854,11 +827,13 @@ impl<'a> Reader<'a> {
         let Some(ch) = self.current() else {
             return Err(self.error("expected character after modifier escape in string"));
         };
+        let ch_code = self.current_source_code().unwrap_or(ch as u32);
         self.bump();
         if ch == '\\' {
             let Some(esc) = self.current() else {
                 return Err(self.error("unterminated escape in string modifier"));
             };
+            let esc_code = self.current_source_code().unwrap_or(esc as u32);
             self.bump();
             match esc {
                 'C' if self.current() == Some('-') => {
@@ -915,13 +890,17 @@ impl<'a> Reader<'a> {
                     let Some(base) = self.current() else {
                         return Err(self.error("expected char after \\^ in string"));
                     };
+                    let base_val = self.current_source_code().unwrap_or(base as u32);
                     self.bump();
-                    Ok((translate_runtime_source_char(base) & 0x1F) | modifiers)
+                    Ok((base_val & 0x1F) | modifiers)
                 }
-                other => Ok(translate_runtime_source_char(other) | modifiers),
+                other => {
+                    debug_assert_eq!(esc, other);
+                    Ok(esc_code | modifiers)
+                }
             }
         } else {
-            Ok(translate_runtime_source_char(ch) | modifiers)
+            Ok(ch_code | modifiers)
         }
     }
 
@@ -1080,12 +1059,14 @@ impl<'a> Reader<'a> {
         let Some(ch) = self.current() else {
             return Err(self.error("expected character in char literal"));
         };
+        let ch_code = self.current_source_code().unwrap_or(ch as u32);
         self.bump();
 
         if ch == '\\' {
             let Some(esc) = self.current() else {
                 return Err(self.error("unterminated character escape"));
             };
+            let esc_code = self.current_source_code().unwrap_or(esc as u32);
             self.bump();
             let val = match esc {
                 'n' => '\n' as u32,
@@ -1157,19 +1138,22 @@ impl<'a> Reader<'a> {
                     let Some(base) = self.current() else {
                         return Err(self.error("expected char after \\^"));
                     };
+                    let base_val = self.current_source_code().unwrap_or(base as u32);
                     self.bump();
-                    let base_val = translate_runtime_source_char(base);
                     if base_val == 0x3F {
                         0x7F // '?' -> DEL
                     } else {
                         base_val & 0x1F
                     }
                 }
-                other => translate_runtime_source_char(other),
+                other => {
+                    debug_assert_eq!(esc, other);
+                    esc_code
+                }
             };
             Ok(val | modifiers)
         } else {
-            Ok(translate_runtime_source_char(ch) | modifiers)
+            Ok(ch_code | modifiers)
         }
     }
 
@@ -1673,6 +1657,10 @@ impl<'a> Reader<'a> {
         self.source_char_at(self.pos)
     }
 
+    fn current_source_code(&self) -> Option<u32> {
+        self.source_char_code_at(self.pos)
+    }
+
     fn peek_at(&self, offset: usize) -> Option<char> {
         let mut pos = self.pos;
         for _ in 0..offset {
@@ -1760,6 +1748,21 @@ impl<'a> Reader<'a> {
         }
     }
 
+    fn source_char_code_at(&self, pos: usize) -> Option<u32> {
+        if pos >= self.limit {
+            return None;
+        }
+        match self.source {
+            ReaderSource::Runtime(input) => input[pos..self.limit]
+                .chars()
+                .next()
+                .map(translate_runtime_source_char),
+            ReaderSource::LispString(input) => {
+                self.lisp_string_step_code(input, pos).map(|(code, _)| code)
+            }
+        }
+    }
+
     fn next_pos(&self, pos: usize) -> Option<usize> {
         if pos >= self.limit {
             return None;
@@ -1780,6 +1783,15 @@ impl<'a> Reader<'a> {
         input: &crate::heap_types::LispString,
         pos: usize,
     ) -> Option<(char, usize)> {
+        self.lisp_string_step_code(input, pos)
+            .map(|(code, width)| (runtime_source_char_from_emacs_code(code), width))
+    }
+
+    fn lisp_string_step_code(
+        &self,
+        input: &crate::heap_types::LispString,
+        pos: usize,
+    ) -> Option<(u32, usize)> {
         let bytes = input.as_bytes();
         if pos >= self.limit || pos >= bytes.len() {
             return None;
@@ -1787,19 +1799,14 @@ impl<'a> Reader<'a> {
 
         if !self.source_multibyte {
             let byte = *bytes.get(pos)?;
-            let ch = if byte.is_ascii() {
-                byte as char
-            } else {
-                char::from_u32(0xE300 + byte as u32).expect("valid unibyte sentinel")
-            };
-            return Some((ch, 1));
+            return Some((byte as u32, 1));
         }
 
         let (code, width) = emacs_char::string_char(&bytes[pos..]);
         if pos + width > self.limit {
             return None;
         }
-        Some((runtime_source_char_from_emacs_code(code), width))
+        Some((code, width))
     }
 
     fn source_slice_string(&self, start: usize, end: usize) -> String {
@@ -1831,15 +1838,11 @@ fn runtime_source_char_from_emacs_code(code: u32) -> char {
         return char::from_u32(0xE000 + raw).expect("valid raw-byte sentinel");
     }
 
-    let storage = crate::emacs_core::string_escape::encode_nonunicode_char_for_storage(code)
-        .expect("reader source code must encode into storage");
-    let mut chars = storage.chars();
-    let ch = chars.next().expect("storage encoding must not be empty");
     assert!(
-        chars.next().is_none(),
-        "reader source code {code:#X} encoded to multi-char storage sequence"
+        code <= emacs_char::MAX_CHAR,
+        "invalid reader source character code {code:#X}"
     );
-    ch
+    NONUNICODE_SOURCE_SENTINEL
 }
 
 // ---------------------------------------------------------------------------

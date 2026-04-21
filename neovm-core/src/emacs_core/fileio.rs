@@ -4029,6 +4029,8 @@ pub(crate) fn builtin_insert_file_contents(
         replace_requested,
     )?;
 
+    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
+
     let inserted_char_count = run_after_insert_file_pipeline(
         eval,
         current_id,
@@ -4053,8 +4055,6 @@ pub(crate) fn builtin_insert_file_contents(
         Value::heap_string(resolved),
         Value::fixnum(inserted_char_count),
     ]);
-    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
-
     // Fire after-change hooks.
     if let Some((beg, _old_end, old_len)) = pre_state {
         let new_end = eval

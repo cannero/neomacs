@@ -1026,6 +1026,29 @@ pub(crate) struct RustTextPropAccess<'a, B: LayoutBufferView> {
     buffer: &'a B,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct InvisibleStatus {
+    pub(crate) hidden: bool,
+    pub(crate) ellipsis: bool,
+}
+
+impl InvisibleStatus {
+    const VISIBLE: Self = Self {
+        hidden: false,
+        ellipsis: false,
+    };
+
+    const HIDDEN_NO_ELLIPSIS: Self = Self {
+        hidden: true,
+        ellipsis: false,
+    };
+
+    const HIDDEN_WITH_ELLIPSIS: Self = Self {
+        hidden: true,
+        ellipsis: true,
+    };
+}
+
 fn buffer_charpos_to_bytepos<B: LayoutBufferView>(buffer: &B, charpos: usize) -> usize {
     buffer
         .layout_text()
@@ -1039,6 +1062,67 @@ fn buffer_bytepos_to_charpos<B: LayoutBufferView>(buffer: &B, bytepos: usize) ->
         .min(buffer.layout_point_max_char())
 }
 
+fn invisible_atom_status(prop_atom: Value, spec: Value) -> InvisibleStatus {
+    if spec.is_nil() {
+        return InvisibleStatus::VISIBLE;
+    }
+    if spec.is_t() {
+        return InvisibleStatus::HIDDEN_NO_ELLIPSIS;
+    }
+
+    let mut cursor = spec;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        if entry.is_cons() {
+            if eq_value(&entry.cons_car(), &prop_atom) {
+                return if entry.cons_cdr().is_nil() {
+                    InvisibleStatus::HIDDEN_NO_ELLIPSIS
+                } else {
+                    InvisibleStatus::HIDDEN_WITH_ELLIPSIS
+                };
+            }
+        } else if eq_value(&entry, &prop_atom) {
+            return InvisibleStatus::HIDDEN_NO_ELLIPSIS;
+        }
+        cursor = cursor.cons_cdr();
+    }
+
+    if eq_value(&spec, &prop_atom) {
+        InvisibleStatus::HIDDEN_NO_ELLIPSIS
+    } else {
+        InvisibleStatus::VISIBLE
+    }
+}
+
+fn invisible_prop_status(prop: Option<Value>, spec: Value) -> InvisibleStatus {
+    let Some(prop) = prop else {
+        return InvisibleStatus::VISIBLE;
+    };
+    if prop.is_nil() || spec.is_nil() {
+        return InvisibleStatus::VISIBLE;
+    }
+    if spec.is_t() {
+        return InvisibleStatus::HIDDEN_NO_ELLIPSIS;
+    }
+
+    if prop.is_cons() {
+        let mut cursor = prop;
+        while cursor.is_cons() {
+            let status = invisible_atom_status(cursor.cons_car(), spec);
+            if status.hidden {
+                return status;
+            }
+            cursor = cursor.cons_cdr();
+        }
+        if !cursor.is_nil() {
+            return invisible_atom_status(cursor, spec);
+        }
+        InvisibleStatus::VISIBLE
+    } else {
+        invisible_atom_status(prop, spec)
+    }
+}
+
 impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     /// Create a new text property accessor.
     pub fn new(buffer: &'a B) -> Self {
@@ -1047,21 +1131,20 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
 
     /// Check if text at `charpos` is invisible.
     ///
-    /// Returns `(is_invisible, next_visible_pos)`.
+    /// Returns `(status, next_visible_pos)`.
     /// `next_visible_pos` is the next char position where visibility might change.
     /// If no change is found, returns `buffer.zv` as the next boundary.
-    pub fn check_invisible(&self, charpos: i64) -> (bool, i64) {
+    pub fn check_invisible(&self, charpos: i64) -> (InvisibleStatus, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
         let invis = self
             .buffer
             .layout_text()
             .text_props_get_property(bytepos, Value::symbol("invisible"));
-
-        let is_invisible = match invis {
-            Some(v) if v.is_nil() => false,
-            None => false,
-            Some(_) => true, // Any non-nil value means invisible
-        };
+        let spec = self
+            .buffer
+            .layout_buffer_local_value("buffer-invisibility-spec")
+            .unwrap_or(Value::T);
+        let status = invisible_prop_status(invis, spec);
 
         // Find the next position where the invisible property changes
         let next_change = self
@@ -1071,7 +1154,7 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
             .unwrap_or(self.buffer.layout_point_max_char());
 
-        (is_invisible, next_change as i64)
+        (status, next_change as i64)
     }
 
     /// Check for a display text property at `charpos`.

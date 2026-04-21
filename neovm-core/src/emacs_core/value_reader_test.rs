@@ -781,3 +781,55 @@ fn lisp_read_source_reads_late_multibyte_forms_directly() {
     assert_eq!(last.as_fixnum(), Some(42));
     assert_eq!(end_pos, input.sbytes());
 }
+
+#[test]
+fn lisp_read_source_preserves_extended_emacs_chars_in_string_literals() {
+    crate::test_utils::init_test_tracing();
+    let extended_code = 0x1A_01C1;
+    let mut extended = [0; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let extended_len = crate::emacs_core::emacs_char::char_string(extended_code, &mut extended);
+
+    let mut bytes = Vec::new();
+    bytes.push(b'"');
+    bytes.extend_from_slice(&extended[..extended_len]);
+    bytes.push(b'"');
+
+    let input = crate::heap_types::LispString::from_emacs_bytes(bytes);
+    let source = LispReadSource::new(&input);
+    let (form, end) = source
+        .read_one(0)
+        .expect("read should not panic on extended Emacs chars")
+        .expect("reader should produce a form");
+    let text = form
+        .as_lisp_string()
+        .expect("reader should return a string");
+
+    assert_eq!(end, input.sbytes());
+    assert!(text.is_multibyte());
+    assert_eq!(
+        crate::emacs_core::builtins::lisp_string_char_codes(text),
+        vec![extended_code]
+    );
+}
+
+#[test]
+fn lisp_read_source_preserves_extended_emacs_chars_in_char_literals() {
+    crate::test_utils::init_test_tracing();
+    let extended_code = 0x1A_01C1;
+    let mut extended = [0; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
+    let extended_len = crate::emacs_core::emacs_char::char_string(extended_code, &mut extended);
+
+    let mut bytes = Vec::new();
+    bytes.push(b'?');
+    bytes.extend_from_slice(&extended[..extended_len]);
+
+    let input = crate::heap_types::LispString::from_emacs_bytes(bytes);
+    let source = LispReadSource::new(&input);
+    let (form, end) = source
+        .read_one(0)
+        .expect("read should not panic on extended Emacs char literals")
+        .expect("reader should produce a form");
+
+    assert_eq!(end, input.sbytes());
+    assert_eq!(form.as_fixnum(), Some(extended_code as i64));
+}

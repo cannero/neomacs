@@ -4,6 +4,7 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -170,6 +171,47 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         OsString::from("NEOMACS_RUNTIME_ROOT"),
         options.runtime_root.as_os_str().to_os_string(),
     )];
+    let loaddefs_el = paths.lisp_root.join("loaddefs.el");
+    let theme_loaddefs_el = paths.lisp_root.join("theme-loaddefs.el");
+    let ldefs_boot = paths.lisp_root.join("ldefs-boot.el");
+
+    // GNU's bootstrap treats lisp/loaddefs.el as generated state: initial
+    // loadup should use ldefs-boot.el, then loaddefs.el is regenerated later.
+    // Remove stale primary generated files before GNU precompile/pbootstrap so
+    // locally corrupt generated output cannot poison a fresh build.
+    print_synthetic_step("force full primary loaddefs regeneration");
+    if options.dry_run {
+        println!("  would remove: {}", loaddefs_el.display());
+        println!("  would remove: {}", theme_loaddefs_el.display());
+        println!(
+            "  would remove: {}",
+            loaddefs_el.with_extension("elc").display()
+        );
+        println!(
+            "  would remove: {}",
+            theme_loaddefs_el.with_extension("elc").display()
+        );
+        println!(
+            "  would remove: {}",
+            ldefs_boot.with_extension("elc").display()
+        );
+        println!(
+            "  would remove: {}",
+            paths.lisp_root.join("emacs-lisp/cl-loaddefs.elc").display()
+        );
+    } else {
+        remove_file_if_exists(&loaddefs_el)?;
+        remove_file_if_exists(&theme_loaddefs_el)?;
+        remove_file_if_exists(&loaddefs_el.with_extension("elc"))?;
+        remove_file_if_exists(&theme_loaddefs_el.with_extension("elc"))?;
+        remove_file_if_exists(&ldefs_boot.with_extension("elc"))?;
+        remove_file_if_exists(&paths.lisp_root.join("emacs-lisp/cl-loaddefs.elc"))?;
+    }
+
+    // Remove secondary loaddefs from previous builds before compiling or
+    // bootstrapping.  They are generated artifacts and should not influence
+    // Neomacs's primary lisp/loaddefs.el or lisp/ldefs-boot.el generation.
+    remove_stale_secondary_loaddefs(options, &paths)?;
 
     // ---------------------------------------------------------------
     // Pre-compile .el files with GNU Emacs.
@@ -186,15 +228,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // bootstraps its own compiler; we use an external GNU Emacs.
     // ---------------------------------------------------------------
     gnu_emacs_precompile(options, &paths)?;
-
-    // ---------------------------------------------------------------
-    // Generate org-loaddefs.el if missing.
-    //
-    // GNU Emacs's Makefile runs `loaddefs-generate` on lisp/org/ to
-    // create org-loaddefs.el. Without it, org.el prints a warning
-    // during loadup. Generate it using GNU Emacs.
-    // ---------------------------------------------------------------
-    gnu_emacs_generate_org_loaddefs(options, &paths)?;
 
     run_command(
         options,
@@ -275,8 +308,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         &envs,
     )?;
 
-    let loaddefs_el = paths.lisp_root.join("loaddefs.el");
-    let ldefs_boot = paths.lisp_root.join("ldefs-boot.el");
     print_synthetic_step(&format!(
         "generate {} from {}",
         ldefs_boot.display(),
@@ -298,6 +329,20 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         ],
         &envs,
     )?;
+
+    // ---------------------------------------------------------------
+    // Generate GNU secondary loaddefs files after the dump is built.
+    //
+    // GNU `loaddefs-generate` writes named-cookie and file-local
+    // generated-autoload-file entries to secondary files such as
+    // dired-loaddefs.el, org/org-loaddefs.el, net/tramp-loaddefs.el,
+    // and textmodes/reftex-loaddefs.el.  It must use lisp/loaddefs.el
+    // as the main output so load names are computed correctly, but that
+    // main output belongs to Neomacs.  Generate secondary files only
+    // after Neomacs has produced its dump, and restore the Neomacs-owned
+    // primary files immediately after GNU Emacs returns.
+    // ---------------------------------------------------------------
+    gnu_emacs_generate_secondary_loaddefs(options, &paths)?;
 
     Ok(())
 }
@@ -394,33 +439,154 @@ fn gnu_emacs_precompile(options: &FreshBuildOptions, paths: &PipelinePaths) -> R
     Ok(())
 }
 
-/// Find a GNU Emacs binary for pre-compilation.
-/// Checks: $GNU_EMACS env var, then `emacs` on PATH.
-/// Validates that the found binary is actually GNU Emacs (not neomacs).
-/// Generate org-loaddefs.el using GNU Emacs if it's missing or stale.
-/// Matches GNU Emacs's `make autoloads` for the org/ directory.
-fn gnu_emacs_generate_org_loaddefs(
+fn elisp_string_literal(path: &Path) -> String {
+    format!("{:?}", path.display().to_string())
+}
+
+fn remove_stale_secondary_loaddefs(
     options: &FreshBuildOptions,
     paths: &PipelinePaths,
 ) -> Result<()> {
-    let org_loaddefs = paths.lisp_root.join("org/org-loaddefs.el");
-    if org_loaddefs.exists() {
+    let files = generated_secondary_loaddefs_files(&paths.lisp_root)?;
+    if files.is_empty() {
         return Ok(());
     }
 
+    print_synthetic_step("remove stale secondary loaddefs");
+    if options.dry_run {
+        for file in &files {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for file in &files {
+        if remove_file_if_exists(file)? {
+            removed += 1;
+        }
+        if remove_file_if_exists(&file.with_extension("elc"))? {
+            removed += 1;
+        }
+    }
+    println!("  INFO  removed {removed} stale secondary loaddefs artifacts");
+    Ok(())
+}
+
+fn generated_secondary_loaddefs_files(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_secondary_loaddefs_files(lisp_root, lisp_root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_secondary_loaddefs_files(
+    lisp_root: &Path,
+    current: &Path,
+    out: &mut Vec<PathBuf>,
+) -> Result<()> {
+    let entries = match fs::read_dir(current) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_secondary_loaddefs_files(lisp_root, &path, out)?;
+        } else if is_generated_secondary_loaddefs_file(lisp_root, &path) {
+            out.push(path);
+        }
+    }
+
+    Ok(())
+}
+
+fn is_generated_secondary_loaddefs_file(lisp_root: &Path, path: &Path) -> bool {
+    let Ok(relative) = path.strip_prefix(lisp_root) else {
+        return false;
+    };
+
+    if matches!(
+        relative,
+        rel if rel == Path::new("loaddefs.el")
+            || rel == Path::new("ldefs-boot.el")
+            || rel == Path::new("theme-loaddefs.el")
+            || rel == Path::new("emacs-lisp/cl-loaddefs.el")
+    ) {
+        return false;
+    }
+
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return false;
+    };
+    file_name == "loaddefs.el" || file_name.ends_with("-loaddefs.el")
+}
+
+fn read_file_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn remove_file_if_exists(path: &Path) -> Result<bool> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn restore_file_snapshot(path: &Path, snapshot: Option<&[u8]>) -> Result<()> {
+    match snapshot {
+        Some(bytes) => fs::write(path, bytes)?,
+        None => match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == ErrorKind::NotFound => {}
+            Err(err) => return Err(err.into()),
+        },
+    }
+    Ok(())
+}
+
+/// Generate GNU secondary loaddefs files.  The main output path must be
+/// lisp/loaddefs.el because GNU computes autoload load names relative to it;
+/// Neomacs owns that file, so restore it immediately after GNU generation.
+fn gnu_emacs_generate_secondary_loaddefs(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
     let gnu_emacs = match find_gnu_emacs() {
         Some(e) => e,
         None => return Ok(()), // Skip if no GNU Emacs
     };
 
-    print_synthetic_step("generate org-loaddefs.el with GNU Emacs");
+    print_synthetic_step("generate secondary loaddefs with GNU Emacs");
+
+    let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
+    let main_loaddefs = paths.lisp_root.join("loaddefs.el");
+    let cl_loaddefs = paths.lisp_root.join("emacs-lisp/cl-loaddefs.el");
 
     if options.dry_run {
-        println!("  would generate: {}", org_loaddefs.display());
+        println!(
+            "  would generate secondary loaddefs via main loaddefs: {}",
+            main_loaddefs.display()
+        );
         return Ok(());
     }
 
-    let org_dir = paths.lisp_root.join("org");
+    let dirs_expr = loaddefs_dirs
+        .iter()
+        .map(|dir| elisp_string_literal(dir))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let main_loaddefs_literal = elisp_string_literal(&main_loaddefs);
+    let generate_expr =
+        format!("(loaddefs-generate (list {dirs_expr}) {main_loaddefs_literal} nil nil nil t)");
+
     let args = vec![
         OsString::from("--batch"),
         OsString::from("-L"),
@@ -434,18 +600,27 @@ fn gnu_emacs_generate_org_loaddefs(
         OsString::from("--eval"),
         OsString::from("(require 'loaddefs-gen)"),
         OsString::from("--eval"),
-        OsString::from(format!(
-            "(loaddefs-generate \"{}\" \"{}\")",
-            org_dir.display(),
-            org_loaddefs.display()
-        )),
+        OsString::from(generate_expr),
     ];
 
-    run_command(options, &options.repo_root, &gnu_emacs, &args, &[])?;
-    println!("  INFO  generated {}", org_loaddefs.display());
+    let main_snapshot = read_file_snapshot(&main_loaddefs)?;
+    let cl_snapshot = read_file_snapshot(&cl_loaddefs)?;
+
+    let command_result = run_command(options, &options.repo_root, &gnu_emacs, &args, &[]);
+    let main_restore_result = restore_file_snapshot(&main_loaddefs, main_snapshot.as_deref());
+    let cl_restore_result = restore_file_snapshot(&cl_loaddefs, cl_snapshot.as_deref());
+
+    main_restore_result?;
+    cl_restore_result?;
+    command_result?;
+
+    println!("  INFO  generated secondary loaddefs");
     Ok(())
 }
 
+/// Find a GNU Emacs binary for pre-compilation.
+/// Checks: $GNU_EMACS env var, then `emacs` on PATH.
+/// Validates that the found binary is actually GNU Emacs (not neomacs).
 fn find_gnu_emacs() -> Option<PathBuf> {
     // Check GNU_EMACS env var first
     if let Some(path) = env::var_os("GNU_EMACS") {

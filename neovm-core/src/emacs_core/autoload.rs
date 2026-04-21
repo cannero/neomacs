@@ -500,7 +500,11 @@ pub(crate) fn builtin_autoload_do_load(
             }
             let result = (|| -> EvalResult {
                 let path = resolve_autoload_load_path(&eval.obarray, &file)?;
-                eval.load_file_internal(&path)?;
+                // GNU eval.c:Fautoload_do_load calls
+                // load_with_autoload_queue with NOMESSAGE=t: autoloading is
+                // an implicit consequence of calling a function, not an
+                // explicit user request to load a file.
+                eval.load_file_internal_with_flags(&path, false, true)?;
                 finish_autoload_do_load_in_state(&eval.obarray, funname, original_fundef.as_ref())
             })();
             eval.restore_specpdl_roots(roots);
@@ -522,7 +526,7 @@ pub(crate) fn builtin_autoload_do_load_in_vm_runtime(
             if let Some(fundef) = original_fundef {
                 shared.push_specpdl_root(fundef);
             }
-            let load_result = shared.load_file_internal(&path);
+            let load_result = shared.load_file_internal_with_flags(&path, false, true);
             shared.restore_specpdl_roots(roots);
             load_result?;
             finish_autoload_do_load_in_state(&shared.obarray, funname, original_fundef.as_ref())

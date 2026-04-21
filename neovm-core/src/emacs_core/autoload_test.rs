@@ -473,6 +473,50 @@ fn autoload_with_type() {
 }
 
 #[test]
+fn autoload_do_load_passes_nomessage_to_load_source_file_function() {
+    crate::test_utils::init_test_tracing();
+
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("system time")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "neovm-autoload-nomessage-{}-{unique}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&dir).expect("create autoload test directory");
+    fs::write(
+        dir.join("vm-auto-file.el"),
+        ";; loaded via load-source-file-function\n",
+    )
+    .expect("write autoload source file");
+
+    let mut ev = Context::new();
+    ev.set_variable(
+        "load-path",
+        Value::list(vec![Value::string(dir.to_string_lossy().as_ref())]),
+    );
+    ev.eval_str(
+        r#"(progn
+             (setq load-source-file-function
+                   (lambda (fullname file noerror nomessage)
+                     (setq vm-autoload-nomessage nomessage)
+                     (fset 'vm-auto-target (lambda () 'ok))
+                     t))
+             (autoload 'vm-auto-target "vm-auto-file" nil t))"#,
+    )
+    .expect("install autoload test setup");
+
+    let result = ev.eval_str(
+        r#"(progn
+             (autoload-do-load (symbol-function 'vm-auto-target) 'vm-auto-target)
+             (list vm-autoload-nomessage (vm-auto-target)))"#,
+    );
+
+    assert_eq!(format_eval_result(&result), "OK (t ok)");
+}
+
+#[test]
 fn autoload_is_callable_subr_surface() {
     crate::test_utils::init_test_tracing();
     let results = minimal_autoload_eval_all(
