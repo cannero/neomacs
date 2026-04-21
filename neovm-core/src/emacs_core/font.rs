@@ -2102,6 +2102,18 @@ fn mark_created_lisp_face(name: &str) {
     }
 }
 
+fn ensure_lisp_face_id_property(
+    eval: &mut super::eval::Context,
+    face_name: &str,
+) -> Result<(), Flow> {
+    ensure_dynamic_face_id(face_name);
+    if let Some(face_id) = face_id_for_name(face_name) {
+        eval.obarray_mut()
+            .put_property(face_name, "face", Value::fixnum(face_id))?;
+    }
+    Ok(())
+}
+
 fn ensure_dynamic_face_id(name: &str) {
     if known_face_id(name).is_some() {
         return;
@@ -2876,10 +2888,7 @@ pub(crate) fn builtin_internal_make_lisp_face(
         }
     }
     mark_created_lisp_face(&face_name);
-    if let Some(face_id) = face_id_for_name(&face_name) {
-        eval.obarray_mut()
-            .put_property(&face_name, "face", Value::fixnum(face_id))?;
-    }
+    ensure_lisp_face_id_property(eval, &face_name)?;
     clear_face_overrides(&face_name, true);
     let result = make_lisp_face_vector();
     crate::emacs_core::xfaces::ensure_face_new_frame_defaults_entry(eval, &face_name);
@@ -2912,6 +2921,7 @@ pub(crate) fn builtin_internal_copy_lisp_face(
     }
     let from_name = resolve_copy_source_face_symbol(&args[0])?;
     mark_created_lisp_face(&to_name);
+    ensure_lisp_face_id_property(eval, &to_name)?;
     copy_defaults_overrides(&from_name, &to_name);
     let result = args[1];
 

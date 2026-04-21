@@ -948,6 +948,31 @@ fn internal_make_lisp_face_publishes_known_face_id_property() {
 }
 
 #[test]
+fn internal_make_lisp_face_sets_gnu_face_id_symbol_property() {
+    crate::test_utils::init_test_tracing();
+    clear_font_cache_state();
+
+    let mut eval = Context::new();
+    let face_name = "__neovm_make_face_id_property_unit_test";
+    builtin_internal_make_lisp_face(&mut eval, vec![Value::symbol(face_name)]).unwrap();
+
+    let face_id = eval
+        .obarray()
+        .get_property(face_name, "face")
+        .and_then(|value| value.as_int())
+        .expect("new Lisp face should publish its GNU face id");
+    assert_eq!(Some(face_id), face_id_for_name(face_name));
+
+    builtin_internal_make_lisp_face(&mut eval, vec![Value::symbol(face_name)]).unwrap();
+    let repeated_face_id = eval
+        .obarray()
+        .get_property(face_name, "face")
+        .and_then(|value| value.as_int())
+        .expect("existing Lisp face should keep its GNU face id");
+    assert_eq!(repeated_face_id, face_id);
+}
+
+#[test]
 fn internal_make_lisp_face_rejects_non_symbol_and_non_nil_frame() {
     crate::test_utils::init_test_tracing();
     assert!(
@@ -977,6 +1002,32 @@ fn internal_copy_lisp_face_returns_to_when_frame_t() {
     )
     .unwrap();
     assert_eq!(result.as_symbol_name(), Some("my-face"));
+}
+
+#[test]
+fn internal_copy_lisp_face_sets_gnu_face_id_symbol_property() {
+    crate::test_utils::init_test_tracing();
+    clear_font_cache_state();
+
+    let mut eval = Context::new();
+    let face_name = "__neovm_copy_face_id_property_unit_test";
+    builtin_internal_copy_lisp_face(
+        &mut eval,
+        vec![
+            Value::symbol("bold"),
+            Value::symbol(face_name),
+            Value::T,
+            Value::NIL,
+        ],
+    )
+    .unwrap();
+
+    let face_id = eval
+        .obarray()
+        .get_property(face_name, "face")
+        .and_then(|value| value.as_int())
+        .expect("copied Lisp face should publish its GNU face id");
+    assert_eq!(Some(face_id), face_id_for_name(face_name));
 }
 
 #[test]
