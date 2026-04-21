@@ -4231,15 +4231,14 @@ fn backup_file_before_save(
 /// 2. `buffer-file-coding-system` (buffer-local)
 /// 3. Fallback to `"utf-8"`
 fn resolve_write_coding_system(
-    obarray: &Obarray,
+    eval: &super::eval::Context,
     buffers: &crate::buffer::BufferManager,
     buffer_id: crate::buffer::BufferId,
 ) -> String {
     // 1. Check coding-system-for-write
-    if let Some(val) = obarray.symbol_value("coding-system-for-write") {
-        if let Some(name) = coding_system_value_to_name(val) {
-            return name;
-        }
+    let coding_system_for_write = eval.visible_variable_value_or_nil("coding-system-for-write");
+    if let Some(name) = coding_system_value_to_name(&coding_system_for_write) {
+        return name;
     }
 
     // 2. Check buffer-file-coding-system (buffer-local)
@@ -4354,7 +4353,7 @@ pub(crate) fn builtin_write_region(
 
     // --- Encode using the appropriate coding system ---
     // Priority: coding-system-for-write > buffer-file-coding-system > utf-8
-    let coding_system = resolve_write_coding_system(&eval.obarray, &eval.buffers, current_id);
+    let coding_system = resolve_write_coding_system(eval, &eval.buffers, current_id);
     let encoded_bytes = crate::encoding::encode_lisp_string(&content, &coding_system);
 
     // --- Write encoded bytes and handle fsync ---
@@ -4366,9 +4365,8 @@ pub(crate) fn builtin_write_region(
 
     // fsync after write unless write-region-inhibit-fsync is non-nil.
     let inhibit_fsync = eval
-        .obarray
-        .symbol_value("write-region-inhibit-fsync")
-        .is_some_and(|v| v.is_truthy());
+        .visible_variable_value_or_nil("write-region-inhibit-fsync")
+        .is_truthy();
     if !inhibit_fsync {
         file.sync_all().map_err(|err| {
             signal_file_action_error_value(err, "Writing to", Value::heap_string(resolved.clone()))

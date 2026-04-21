@@ -333,6 +333,15 @@ fn builtin_coding_string_helpers_accept_iso_8859_15_alias() {
 }
 
 #[test]
+fn encode_lisp_string_emacs_internal_uses_utf8_emacs_alias() {
+    crate::test_utils::init_test_tracing();
+    let text = crate::heap_types::LispString::from_utf8("abc\n");
+
+    assert_eq!(encode_lisp_string(&text, "emacs-internal"), b"abc\n");
+    assert_eq!(encode_lisp_string(&text, "emacs-internal-dos"), b"abc\r\n");
+}
+
+#[test]
 fn builtin_coding_string_helpers_accept_iso_8859_9_alias() {
     crate::test_utils::init_test_tracing();
     let encoded =

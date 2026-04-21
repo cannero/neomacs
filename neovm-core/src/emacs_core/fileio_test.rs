@@ -3189,6 +3189,28 @@ fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
 }
 
 #[test]
+fn write_region_honors_dynamic_coding_system_for_write() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("dynamic-coding.eld");
+    let path_lisp = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let results = bootstrap_eval(&format!(
+        r#"(let ((coding-system-for-write 'emacs-internal))
+             (with-temp-file "{path_lisp}"
+               (insert "abc")))
+           last-coding-system-used"#
+    ));
+
+    assert_eq!(results[0], "OK nil");
+    assert_eq!(results[1], "OK emacs-internal");
+    assert_eq!(std::fs::read(&path).expect("read output"), b"abc");
+}
+
+#[test]
 fn insert_file_contents_sets_last_coding_before_after_insert_file_set_coding() {
     crate::test_utils::init_test_tracing();
 

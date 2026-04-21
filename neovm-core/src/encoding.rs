@@ -626,6 +626,7 @@ fn coding_system_family(coding_system: &str) -> &str {
     {
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        "emacs-internal" => "utf-8-emacs",
         family => family,
     }
 }
