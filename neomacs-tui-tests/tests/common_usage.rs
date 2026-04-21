@@ -1794,6 +1794,94 @@ fn just_one_space_via_mspc() {
 }
 
 #[test]
+fn delete_horizontal_space_via_mbackslash() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-horizontal-space.txt",
+        "alpha   beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-\\");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alphabeta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha   beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("delete_horizontal_space_via_mbackslash", &gnu, &neo, 2);
+}
+
+#[test]
+fn delete_blank_lines_after_current_line_via_cx_co() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-blank-lines.txt",
+        "alpha\n\n\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-o");
+
+    let ready = |grid: &[String]| {
+        grid.windows(2)
+            .any(|rows| rows[0].contains("alpha") && rows[1].contains("beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_blank_lines_after_current_line_via_cx_co",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "set-mark-kill-region.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both_raw(&mut gnu, &mut neo, &[0]);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(" beta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "set_mark_command_then_kill_region_via_cspc_mf_cw",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn describe_bindings_via_ch_b() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "b");
