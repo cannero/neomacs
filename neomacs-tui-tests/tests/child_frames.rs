@@ -143,7 +143,11 @@ fn delete_all_child_frames(gnu: &mut TuiSession, neo: &mut TuiSession) {
 #[test]
 fn tty_child_frames_feature_check() {
     let (mut gnu, mut neo) = boot_child_frame_pair();
-    eval_both(&mut gnu, &mut neo, "(message \"%s\" (featurep 'tty-child-frames))");
+    eval_both(
+        &mut gnu,
+        &mut neo,
+        "(message \"%s\" (featurep 'tty-child-frames))",
+    );
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
     let gnu_echo = gnu.text_grid().last().unwrap().trim().to_string();
@@ -156,9 +160,7 @@ fn tty_child_frames_feature_check() {
     // NeoMacs currently does NOT support tty-child-frames, but this test
     // documents the expected behavior.
     if !neo_echo.contains('t') {
-        eprintln!(
-            "NOTE: NeoMacs does not yet support tty-child-frames (got: {neo_echo:?})"
-        );
+        eprintln!("NOTE: NeoMacs does not yet support tty-child-frames (got: {neo_echo:?})");
     }
 }
 

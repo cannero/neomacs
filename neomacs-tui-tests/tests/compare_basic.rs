@@ -364,8 +364,15 @@ fn fido_vertical_mode_completions() {
     let nl = neo.text_grid();
 
     // Check that completions are visible (multiple non-empty rows near bottom)
-    let gnu_nonempty_bottom = gl[18..24].iter().filter(|r| !r.trim().is_empty()).count();
-    let neo_nonempty_bottom = nl[18..24].iter().filter(|r| !r.trim().is_empty()).count();
+    let bottom_6_start = (ROWS as usize).saturating_sub(6);
+    let gnu_nonempty_bottom = gl[bottom_6_start..]
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .count();
+    let neo_nonempty_bottom = nl[bottom_6_start..]
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .count();
 
     eprintln!("GNU bottom 6 rows with content: {gnu_nonempty_bottom}");
     eprintln!("NEO bottom 6 rows with content: {neo_nonempty_bottom}");
@@ -390,7 +397,11 @@ fn fido_vertical_mode_completions() {
     let nl2 = neo.text_grid();
 
     // After C-g, the bottom area should be mostly empty again
-    let neo_nonempty_after = nl2[20..24].iter().filter(|r| !r.trim().is_empty()).count();
+    let bottom_4_start = (ROWS as usize).saturating_sub(4);
+    let neo_nonempty_after = nl2[bottom_4_start..]
+        .iter()
+        .filter(|r| !r.trim().is_empty())
+        .count();
     eprintln!("NEO bottom 4 rows after C-g: {neo_nonempty_after}");
     assert!(
         neo_nonempty_after <= 2,

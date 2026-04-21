@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 // ── Session ──────────────────────────────────────────────────────────
 
 /// Default terminal size for tests.
-pub const COLS: u16 = 80;
-pub const ROWS: u16 = 24;
+pub const COLS: u16 = 160;
+pub const ROWS: u16 = 50;
 
 /// A TUI editor session running inside an isolated PTY.
 pub struct TuiSession {

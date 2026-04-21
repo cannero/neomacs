@@ -229,8 +229,9 @@ fn wait_for_fido_mx_candidates(gnu: &mut TuiSession, neo: &mut TuiSession, query
     gnu.send(query.as_bytes());
     neo.send(query.as_bytes());
     let candidates_ready = |grid: &[String]| {
+        let bottom_start = (ROWS as usize).saturating_sub(8);
         grid.iter().any(|row| row.contains("find-file"))
-            && grid[16..24]
+            && grid[bottom_start..]
                 .iter()
                 .filter(|row| !row.trim().is_empty())
                 .count()
@@ -381,12 +382,13 @@ fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
     wait_for_fido_mx_candidates(&mut gnu, &mut neo, "find-f");
     for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
         let grid = session.text_grid();
+        let bottom_start = (ROWS as usize).saturating_sub(8);
         assert!(
             grid.iter().any(|row| row.contains("find-file")),
             "{label} should show find-file in fido candidates"
         );
         assert!(
-            grid[16..24]
+            grid[bottom_start..]
                 .iter()
                 .filter(|row| !row.trim().is_empty())
                 .count()
