@@ -143,7 +143,11 @@ where
 {
     let key = match first {
         0 => Some((b'@' as u32, RENDER_CTRL_MASK)),
-        b'\r' | b'\n' => Some((XK_RETURN, 0)),
+        // Preserve LF as raw C-j. GNU TTY input distinguishes Enter/RET
+        // (typically CR) from literal linefeed, and commands like
+        // `quoted-insert` rely on `C-q C-j` reaching Lisp as `?\C-j`
+        // instead of a synthetic RET event.
+        b'\r' => Some((XK_RETURN, 0)),
         b'\t' => Some((XK_TAB, 0)),
         // Match GNU's TTY split between help-char (`C-h` == 0x08) and
         // the physical Backspace keysym. GNU keeps raw 0x08 as a

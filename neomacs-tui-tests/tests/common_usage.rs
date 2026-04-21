@@ -2554,3 +2554,85 @@ fn what_cursor_position_via_cx_equals() {
 
     assert_pair_nearly_matches("what_cursor_position_via_cx_equals", &gnu, &neo, 2);
 }
+
+#[test]
+fn quoted_insert_newline_via_cq_cj() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "quoted-insert.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"\x11\x0a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.trim() == "al")
+            && grid.iter().any(|row| row.contains("Xpha beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("quoted_insert_newline_via_cq_cj", &gnu, &neo, 2);
+}
+
+#[test]
+fn undo_edit_via_cslash() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "undo-cslash.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    let inserted = |grid: &[String]| grid.iter().any(|row| row.contains("Xalpha beta"));
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both_raw(&mut gnu, &mut neo, b"\x1f");
+    let undone = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta"))
+            && !grid.iter().any(|row| row.contains("Xalpha beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), undone);
+    neo.read_until(Duration::from_secs(8), undone);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("undo_edit_via_cslash", &gnu, &neo, 2);
+}
+
+#[test]
+fn comment_region_via_msemicolon() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "comment-dwim.el",
+        "(message \"alpha\")\n(message \"beta\")\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC M-> M-;");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains(";; (message \"alpha\")"))
+            && grid.iter().any(|row| row.contains(";; (message \"beta\")"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("comment_region_via_msemicolon", &gnu, &neo, 2);
+}
