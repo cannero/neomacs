@@ -1464,6 +1464,148 @@ fn kill_and_yank_rectangle_via_cx_r_k_y() {
 }
 
 #[test]
+fn point_to_register_and_jump_to_register_via_cx_r_spc_j() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let mut contents = String::new();
+    for line in 1..=70 {
+        contents.push_str(&format!("register jump line {line:02}\n"));
+    }
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "point-register.txt",
+        &contents,
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x r SPC");
+    let point_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Point to register:"));
+    gnu.read_until(Duration::from_secs(6), point_prompt);
+    neo.read_until(Duration::from_secs(8), point_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M->");
+    let at_end = |grid: &[String]| grid.iter().any(|row| row.contains("register jump line 70"));
+    gnu.read_until(Duration::from_secs(6), at_end);
+    neo.read_until(Duration::from_secs(8), at_end);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r j");
+    let jump_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Jump to register:"));
+    gnu.read_until(Duration::from_secs(6), jump_prompt);
+    neo.read_until(Duration::from_secs(8), jump_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+
+    let at_start = |grid: &[String]| grid.iter().any(|row| row.contains("register jump line 01"));
+    gnu.read_until(Duration::from_secs(6), at_start);
+    neo.read_until(Duration::from_secs(8), at_start);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "point_to_register_and_jump_to_register_via_cx_r_spc_j",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn occur_via_ms_o_lists_matching_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "occur-usage.txt",
+        "alpha needle one\nbeta plain\ngamma needle two\nneedle three\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-s o");
+    let occur_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("List lines matching regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), occur_prompt);
+    neo.read_until(Duration::from_secs(8), occur_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"needle");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("3 matches"))
+            && grid.iter().any(|row| row.contains("alpha needle one"))
+            && grid.iter().any(|row| row.contains("gamma needle two"))
+            && grid.iter().any(|row| row.contains("needle three"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("occur_via_ms_o_lists_matching_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn revert_buffer_via_mx_rereads_file_from_disk() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "revert-usage.txt",
+        "original disk line\n",
+        "C-x C-f",
+    );
+    fs::write(
+        gnu.home_dir().join("revert-usage.txt"),
+        "updated disk line\n",
+    )
+    .expect("update GNU revert fixture");
+    fs::write(
+        neo.home_dir().join("revert-usage.txt"),
+        "updated disk line\n",
+    )
+    .expect("update Neo revert fixture");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    let mx_prompt = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
+    gnu.read_until(Duration::from_secs(6), mx_prompt);
+    neo.read_until(Duration::from_secs(8), mx_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"revert-buffer");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let revert_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Revert buffer from file"))
+    };
+    gnu.read_until(Duration::from_secs(6), revert_prompt);
+    neo.read_until(Duration::from_secs(8), revert_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"yes");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("revert-usage.txt"))
+            && grid.iter().any(|row| row.contains("updated disk line"))
+            && !grid.iter().any(|row| row.contains("original disk line"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("revert_buffer_via_mx_rereads_file_from_disk", &gnu, &neo, 2);
+}
+
+#[test]
 fn kill_buffer_after_find_file_via_cx_k() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
