@@ -1122,6 +1122,74 @@ fn save_buffer_after_edit_via_cx_cs() {
 }
 
 #[test]
+fn save_unnamed_buffer_via_cx_cs_prompts_for_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let switch_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Switch to buffer:"));
+    gnu.read_until(Duration::from_secs(6), switch_prompt);
+    neo.read_until(Duration::from_secs(8), switch_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"unnamed-save-buffer");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let buffer_ready = |grid: &[String]| grid.iter().any(|row| row.contains("unnamed-save-buffer"));
+    gnu.read_until(Duration::from_secs(6), buffer_ready);
+    neo.read_until(Duration::from_secs(8), buffer_ready);
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"unnamed save line\n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-s");
+    let save_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("File to save in:"));
+    gnu.read_until(Duration::from_secs(6), save_prompt);
+    neo.read_until(Duration::from_secs(8), save_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/unnamed-save-buffer.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("unnamed-save-buffer.txt"))
+            && grid.iter().any(|row| row.contains("unnamed save line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+
+    let expected = "unnamed save line\n";
+    let gnu_path = gnu.home_dir().join("unnamed-save-buffer.txt");
+    let neo_path = neo.home_dir().join("unnamed-save-buffer.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        let gnu_saved = fs::read_to_string(&gnu_path).ok().as_deref() == Some(expected);
+        let neo_saved = fs::read_to_string(&neo_path).ok().as_deref() == Some(expected);
+        if gnu_saved && neo_saved {
+            break;
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(&gnu_path).expect("read GNU unnamed saved file"),
+        expected
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_path).expect("read Neo unnamed saved file"),
+        expected
+    );
+    assert_pair_nearly_matches(
+        "save_unnamed_buffer_via_cx_cs_prompts_for_file",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn save_some_buffers_after_edit_via_cx_s() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
