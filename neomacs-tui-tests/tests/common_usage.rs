@@ -390,6 +390,38 @@ fn open_home_file(
     read_both(gnu, neo, Duration::from_secs(1));
 }
 
+fn save_current_file_and_assert_contents(
+    label: &str,
+    gnu: &mut TuiSession,
+    neo: &mut TuiSession,
+    name: &str,
+    expected: &str,
+) {
+    send_both(gnu, neo, "C-x C-s");
+
+    let gnu_path = gnu.home_dir().join(name);
+    let neo_path = neo.home_dir().join(name);
+    for _ in 0..10 {
+        read_both(gnu, neo, Duration::from_millis(300));
+        let gnu_saved = fs::read_to_string(&gnu_path).ok().as_deref() == Some(expected);
+        let neo_saved = fs::read_to_string(&neo_path).ok().as_deref() == Some(expected);
+        if gnu_saved && neo_saved {
+            break;
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(&gnu_path).expect("read GNU saved file"),
+        expected,
+        "{label}: GNU saved file contents should match"
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_path).expect("read Neo saved file"),
+        expected,
+        "{label}: Neomacs saved file contents should match"
+    );
+}
+
 fn make_shared_dired_fixture(label: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -2609,6 +2641,191 @@ fn delete_blank_lines_after_current_line_via_cx_co() {
 
     assert_pair_nearly_matches(
         "delete_blank_lines_after_current_line_via_cx_co",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn delete_trailing_whitespace_via_mx_cleans_buffer_before_save() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-trailing-whitespace.txt",
+        "alpha   \nbeta\t \n\n\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "delete-trailing-whitespace");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha"))
+            && grid.iter().any(|row| row.contains("beta"))
+            && grid
+                .iter()
+                .any(|row| row.contains("delete-trailing-whitespace.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "delete_trailing_whitespace_via_mx_cleans_buffer_before_save",
+        &mut gnu,
+        &mut neo,
+        "delete-trailing-whitespace.txt",
+        "alpha\nbeta\n",
+    );
+    assert_pair_nearly_matches(
+        "delete_trailing_whitespace_via_mx_cleans_buffer_before_save",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn untabify_region_via_mx_expands_tabs_before_save() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "untabify-region.txt",
+        "a\tb\n\tindent\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "untabify");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("a       b"))
+            && grid.iter().any(|row| row.contains("        indent"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "untabify_region_via_mx_expands_tabs_before_save",
+        &mut gnu,
+        &mut neo,
+        "untabify-region.txt",
+        "a       b\n        indent\n",
+    );
+    assert_pair_nearly_matches(
+        "untabify_region_via_mx_expands_tabs_before_save",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn tabify_region_via_mx_converts_spaces_before_save() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "tabify-region.txt",
+        "a       b\n        indent\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "tabify");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("a       b"))
+            && grid.iter().any(|row| row.contains("        indent"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "tabify_region_via_mx_converts_spaces_before_save",
+        &mut gnu,
+        &mut neo,
+        "tabify-region.txt",
+        "a\tb\n\tindent\n",
+    );
+    assert_pair_nearly_matches(
+        "tabify_region_via_mx_converts_spaces_before_save",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn indent_region_elisp_via_cmeta_backslash() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "indent-region.el",
+        "(defun sample ()\n(message \"alpha\")\n(when t\n(message \"beta\")))\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    // C-M-\ is ESC followed by C-\ (0x1c).
+    send_both_raw(&mut gnu, &mut neo, b"\x1b\x1c");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("  (message \"alpha\")"))
+            && grid.iter().any(|row| row.contains("  (when t"))
+            && grid
+                .iter()
+                .any(|row| row.contains("    (message \"beta\")"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "indent_region_elisp_via_cmeta_backslash",
+        &mut gnu,
+        &mut neo,
+        "indent-region.el",
+        "(defun sample ()\n  (message \"alpha\")\n  (when t\n    (message \"beta\")))\n",
+    );
+    assert_pair_nearly_matches("indent_region_elisp_via_cmeta_backslash", &gnu, &neo, 2);
+}
+
+#[test]
+fn shell_command_via_mbang_displays_short_output() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-!");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Shell command:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "shell_command_via_mbang_displays_short_output/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"printf tui-shell-ok");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("tui-shell-ok"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "shell_command_via_mbang_displays_short_output",
         &gnu,
         &neo,
         2,

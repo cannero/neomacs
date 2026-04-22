@@ -2987,7 +2987,6 @@ struct PartialParseState {
     mindepth: i64,
     stack: Vec<i64>,
     last_sexp_start: Option<i64>,
-    completed_toplevel_list_start: Option<i64>,
     in_string: Option<ParseStringState>,
     in_comment: Option<ParseCommentState>,
     comment_or_string_start: Option<i64>,
@@ -3001,7 +3000,6 @@ impl PartialParseState {
             mindepth: 0,
             stack: Vec::new(),
             last_sexp_start: None,
-            completed_toplevel_list_start: None,
             in_string: None,
             in_comment: None,
             comment_or_string_start: None,
@@ -3071,11 +3069,7 @@ impl PartialParseState {
         state
     }
 
-    fn into_value(mut self) -> Value {
-        if let Some(open_pos) = self.completed_toplevel_list_start {
-            self.last_sexp_start = Some(open_pos);
-        }
-
+    fn into_value(self) -> Value {
         let stack_value = if self.depth > 0 {
             Value::list(self.stack.iter().map(|p| Value::fixnum(*p)).collect())
         } else {
@@ -3154,6 +3148,8 @@ fn parse_state_from_range_with_options(
     table: &SyntaxTable,
     from: i64,
     to: i64,
+    target_depth: Option<i64>,
+    stop_before: bool,
     oldstate: Option<&Value>,
     commentstop: CommentStopMode,
     honor_properties: bool,
@@ -3165,6 +3161,13 @@ fn parse_state_from_range_with_options(
 
     let mut state = PartialParseState::from_oldstate(oldstate);
     let mut idx = from_idx;
+    let mut atom_start: Option<i64> = None;
+
+    let finish_atom = |state: &mut PartialParseState, atom_start: &mut Option<i64>| {
+        if let Some(start) = atom_start.take() {
+            state.last_sexp_start = Some(start);
+        }
+    };
 
     while idx < to_idx {
         let pos1 = (idx + 1) as i64;
@@ -3195,6 +3198,7 @@ fn parse_state_from_range_with_options(
                     continue;
                 }
                 SyntaxClass::StringFence if string_state == ParseStringState::Fence => {
+                    state.last_sexp_start = state.comment_or_string_start;
                     state.in_string = None;
                     state.comment_or_string_start = None;
                     idx += 1;
@@ -3205,6 +3209,7 @@ fn parse_state_from_range_with_options(
                 }
                 SyntaxClass::StringDelim if matches!(string_state, ParseStringState::Delim(term) if ch == term) =>
                 {
+                    state.last_sexp_start = state.comment_or_string_start;
                     state.in_string = None;
                     state.comment_or_string_start = None;
                     idx += 1;
@@ -3358,6 +3363,28 @@ fn parse_state_from_range_with_options(
             }
         }
 
+        if stop_before
+            && matches!(
+                class,
+                SyntaxClass::Escape
+                    | SyntaxClass::CharQuote
+                    | SyntaxClass::Word
+                    | SyntaxClass::Symbol
+                    | SyntaxClass::Open
+                    | SyntaxClass::StringDelim
+                    | SyntaxClass::StringFence
+            )
+        {
+            break;
+        }
+
+        if !matches!(
+            class,
+            SyntaxClass::Word | SyntaxClass::Symbol | SyntaxClass::Quote
+        ) {
+            finish_atom(&mut state, &mut atom_start);
+        }
+
         if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
             let (_, next_flags) = syntax_class_and_flags(
                 buf,
@@ -3386,6 +3413,11 @@ fn parse_state_from_range_with_options(
             SyntaxClass::Open => {
                 state.depth += 1;
                 state.stack.push(pos1);
+                idx += 1;
+                if target_depth == Some(state.depth) {
+                    break;
+                }
+                continue;
             }
             SyntaxClass::Close => {
                 if state.depth > 0 {
@@ -3393,10 +3425,13 @@ fn parse_state_from_range_with_options(
                     state.mindepth = state.mindepth.min(state.depth);
                 }
                 if let Some(open_pos) = state.stack.pop() {
-                    if state.depth == 0 {
-                        state.completed_toplevel_list_start = Some(open_pos);
-                    }
+                    state.last_sexp_start = Some(open_pos);
                 }
+                idx += 1;
+                if target_depth == Some(state.depth) {
+                    break;
+                }
+                continue;
             }
             SyntaxClass::StringDelim => {
                 state.in_string = Some(ParseStringState::Delim(ch));
@@ -3447,22 +3482,34 @@ fn parse_state_from_range_with_options(
                 idx += 1;
                 continue;
             }
-            SyntaxClass::Whitespace | SyntaxClass::EndComment => {}
-            _ => {
-                if state.last_sexp_start.is_none() {
-                    state.last_sexp_start = Some(pos1);
-                }
+            SyntaxClass::Word | SyntaxClass::Symbol | SyntaxClass::Quote => {
+                atom_start.get_or_insert(pos1);
             }
+            SyntaxClass::Whitespace | SyntaxClass::EndComment => {}
+            _ => {}
         }
 
         idx += 1;
     }
 
+    finish_atom(&mut state, &mut atom_start);
+
     (state.into_value(), idx as i64 + 1)
 }
 
 fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64) -> Value {
-    parse_state_from_range_with_options(buf, table, from, to, None, CommentStopMode::None, false).0
+    parse_state_from_range_with_options(
+        buf,
+        table,
+        from,
+        to,
+        None,
+        false,
+        None,
+        CommentStopMode::None,
+        false,
+    )
+    .0
 }
 
 /// `(parse-partial-sexp FROM TO &optional TARGETDEPTH STOPBEFORE STATE COMMENTSTOP)`
@@ -3512,6 +3559,19 @@ pub(crate) fn builtin_parse_partial_sexp(
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = SyntaxTable::for_buffer(buf);
+    let target_depth = match args.get(2) {
+        Some(v) if !v.is_nil() => match v.kind() {
+            ValueKind::Fixnum(n) => Some(n),
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("integerp"), *v],
+                ));
+            }
+        },
+        _ => None,
+    };
+    let stop_before = args.get(3).is_some_and(|v| v.is_truthy());
     let oldstate = args.get(4).filter(|v| !v.is_nil());
     let commentstop = parse_commentstop_mode(args.get(5));
     let honor_properties = parse_sexp_lookup_properties_enabled(eval);
@@ -3520,6 +3580,8 @@ pub(crate) fn builtin_parse_partial_sexp(
         &table,
         from,
         to,
+        target_depth,
+        stop_before,
         oldstate,
         commentstop,
         honor_properties,
@@ -3569,6 +3631,8 @@ pub(crate) fn builtin_syntax_ppss(eval: &mut super::eval::Context, args: Vec<Val
         &table,
         1,
         pos,
+        None,
+        false,
         None,
         CommentStopMode::None,
         honor_properties,

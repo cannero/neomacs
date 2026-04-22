@@ -212,3 +212,74 @@ fn parse_partial_sexp_string_state() {
     let in_string = call(&mut ctx, "nth", vec![fixnum(3), state]);
     assert!(!in_string.is_nil(), "unterminated string => elt 3 non-nil");
 }
+
+#[test]
+fn parse_partial_sexp_tracks_last_complete_sexp_start() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) =
+        ctx_with_buffer("(defun sample ()\n(message \"alpha\")\n(when t\n(message \"beta\")))\n");
+
+    let after_defun_signature = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(18)]);
+    assert_eq!(
+        as_int(call(
+            &mut ctx,
+            "nth",
+            vec![fixnum(2), after_defun_signature]
+        )),
+        15,
+        "last complete sexp before function body should be the empty arg list"
+    );
+
+    let after_message_form = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(36)]);
+    assert_eq!(
+        as_int(call(&mut ctx, "nth", vec![fixnum(2), after_message_form])),
+        18,
+        "last complete sexp at function body level should be the message form"
+    );
+}
+
+#[test]
+fn parse_partial_sexp_tracks_later_top_level_atom_after_list() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) = ctx_with_buffer("(a) b");
+
+    let state = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(6)]);
+    assert_eq!(
+        as_int(call(&mut ctx, "nth", vec![fixnum(2), state])),
+        5,
+        "last complete sexp at top level should advance from the list to the later atom"
+    );
+}
+
+#[test]
+fn parse_partial_sexp_stopbefore_stops_at_sexp_start() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) = ctx_with_buffer("(a) x");
+
+    let state = call(
+        &mut ctx,
+        "parse-partial-sexp",
+        vec![fixnum(1), fixnum(6), Value::NIL, Value::T],
+    );
+
+    assert_eq!(point(&mut ctx), 1, "STOPBEFORE leaves point at sexp start");
+    assert!(
+        call(&mut ctx, "nth", vec![fixnum(2), state]).is_nil(),
+        "no sexp has been consumed when stopping before the opening paren"
+    );
+}
+
+#[test]
+fn parse_partial_sexp_targetdepth_stops_after_depth_reached() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) = ctx_with_buffer("(a) x");
+
+    let state = call(
+        &mut ctx,
+        "parse-partial-sexp",
+        vec![fixnum(1), fixnum(6), fixnum(0), Value::NIL],
+    );
+
+    assert_eq!(point(&mut ctx), 4, "TARGETDEPTH stops after closing paren");
+    assert_eq!(as_int(call(&mut ctx, "car", vec![state])), 0);
+}
