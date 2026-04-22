@@ -171,7 +171,7 @@ pub(crate) fn marker_equal_hash_key_value(v: &Value) -> HashKey {
     }
 }
 
-fn marker_id_value(v: &Value) -> Option<u64> {
+pub(crate) fn marker_id_value(v: &Value) -> Option<u64> {
     if !v.is_marker() {
         return None;
     };

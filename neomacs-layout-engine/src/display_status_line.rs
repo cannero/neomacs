@@ -55,6 +55,8 @@ pub(crate) struct StatusLineFace {
     pub(crate) face_id: u32,
     pub(crate) foreground: Color,
     pub(crate) background: Color,
+    pub(crate) use_default_foreground: bool,
+    pub(crate) use_default_background: bool,
     pub(crate) font_family: String,
     pub(crate) font_file_path: Option<String>,
     pub(crate) font_weight: u16,
@@ -92,6 +94,8 @@ impl StatusLineFace {
             face_id,
             foreground: Color::from_pixel(face.fg),
             background: Color::from_pixel(face.bg),
+            use_default_foreground: face.use_default_foreground,
+            use_default_background: face.use_default_background,
             font_family: if face.font_family.is_empty() {
                 "monospace".to_string()
             } else {
@@ -138,9 +142,11 @@ impl StatusLineFace {
         face.face_id = face_id;
         if let Some(color) = fg {
             face.foreground = color;
+            face.use_default_foreground = false;
         }
         if let Some(color) = bg {
             face.background = color;
+            face.use_default_background = false;
         }
         face
     }
@@ -169,6 +175,8 @@ impl StatusLineFace {
             id: self.face_id,
             foreground: self.foreground,
             background: self.background,
+            use_default_foreground: self.use_default_foreground,
+            use_default_background: self.use_default_background,
             underline_color: self.underline_color,
             overline_color: self.overline_color,
             strike_through_color: self.strike_through_color,
@@ -777,12 +785,9 @@ impl LayoutEngine {
         bytepos: usize,
     ) -> ResolvedFace {
         let mut face = base_face.clone();
-        if let Some(value) = props.get_property(bytepos, Value::symbol("face"))
-            && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
-        {
-            face = next;
-        }
-        if let Some(value) = props.get_property(bytepos, Value::symbol("font-lock-face"))
+        let face_prop = props.get_property(bytepos, Value::symbol("face"));
+        let font_lock_face_prop = props.get_property(bytepos, Value::symbol("font-lock-face"));
+        if let Some(value) = face_prop.or(font_lock_face_prop)
             && let Some(next) = face_resolver.resolve_face_value_over(&face, value)
         {
             face = next;

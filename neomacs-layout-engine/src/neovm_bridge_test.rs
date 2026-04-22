@@ -1017,6 +1017,32 @@ fn test_face_resolver_with_font_lock_face() {
 }
 
 #[test]
+fn test_face_resolver_face_property_precedes_font_lock_face() {
+    let _evaluator = neovm_core::emacs_core::Context::new();
+    let table = FaceTable::new();
+    let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
+
+    let mut buf = test_buffer(20, "*scratch*");
+    buf.text.insert_str(0, "C-x C-f");
+    buf.zv_byte = buf.text.len();
+    buf.zv = buf.text.char_count();
+    buf.text
+        .text_props_put_property(0, 7, Value::symbol("face"), Value::symbol("bold"));
+    buf.text.text_props_put_property(
+        0,
+        7,
+        Value::symbol("font-lock-face"),
+        Value::symbol("italic"),
+    );
+
+    let mut next_check = buf.point_max_char();
+    let resolved = resolver.face_at_pos(&buf, 3, &mut next_check);
+
+    assert_eq!(resolved.font_weight, FontWeight::BOLD.0);
+    assert!(!resolved.italic);
+}
+
+#[test]
 fn test_face_resolver_next_check() {
     let _evaluator = neovm_core::emacs_core::Context::new();
     let table = FaceTable::new();

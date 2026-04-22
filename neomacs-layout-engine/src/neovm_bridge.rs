@@ -1370,6 +1370,10 @@ pub struct ResolvedFace {
     pub fg: u32,
     /// Background color (sRGB pixel: 0x00RRGGBB).
     pub bg: u32,
+    /// Use the terminal's default foreground instead of `fg`.
+    pub use_default_foreground: bool,
+    /// Use the terminal's default background instead of `bg`.
+    pub use_default_background: bool,
     /// Font family name.
     pub font_family: String,
     /// Font weight (CSS 100-900).
@@ -1413,6 +1417,8 @@ impl Default for ResolvedFace {
         Self {
             fg: 0x00000000,
             bg: 0x00FFFFFF,
+            use_default_foreground: false,
+            use_default_background: false,
             font_family: String::new(),
             font_weight: 400,
             italic: false,
@@ -1474,16 +1480,18 @@ impl FaceResolver {
     ) -> Self {
         let neo_default = face_table.resolve("default");
         let mut df = ResolvedFace::default();
-        df.fg = neo_default
-            .foreground
-            .as_ref()
-            .map(color_to_pixel)
-            .unwrap_or(default_fg);
-        df.bg = neo_default
-            .background
-            .as_ref()
-            .map(color_to_pixel)
-            .unwrap_or(default_bg);
+        if let Some(color) = neo_default.foreground.as_ref() {
+            df.fg = color_to_pixel(color);
+        } else {
+            df.fg = default_fg;
+            df.use_default_foreground = true;
+        }
+        if let Some(color) = neo_default.background.as_ref() {
+            df.bg = color_to_pixel(color);
+        } else {
+            df.bg = default_bg;
+            df.use_default_background = true;
+        }
         df.font_family = neo_default
             .family_runtime_string_owned()
             .unwrap_or_default();
@@ -1556,12 +1564,18 @@ impl FaceResolver {
 
         if let Some(c) = &face.foreground {
             rf.fg = color_to_pixel(c);
+            rf.use_default_foreground = false;
         }
         if let Some(c) = &face.background {
             rf.bg = color_to_pixel(c);
+            rf.use_default_background = false;
         }
         if face.inverse_video == Some(true) {
             std::mem::swap(&mut rf.fg, &mut rf.bg);
+            std::mem::swap(
+                &mut rf.use_default_foreground,
+                &mut rf.use_default_background,
+            );
         }
 
         if let Some(family) = face.family_runtime_string_owned() {
@@ -1620,6 +1634,7 @@ impl FaceResolver {
         if let Some(dfg) = &face.distant_foreground {
             if colors_close(rf.fg, rf.bg) {
                 rf.fg = color_to_pixel(dfg);
+                rf.use_default_foreground = false;
             }
         }
 
@@ -1631,11 +1646,17 @@ impl FaceResolver {
         let default = self.default_face();
         let mut merged = base.clone();
 
-        if resolved.fg != default.fg {
+        if resolved.fg != default.fg
+            || resolved.use_default_foreground != default.use_default_foreground
+        {
             merged.fg = resolved.fg;
+            merged.use_default_foreground = resolved.use_default_foreground;
         }
-        if resolved.bg != default.bg {
+        if resolved.bg != default.bg
+            || resolved.use_default_background != default.use_default_background
+        {
             merged.bg = resolved.bg;
+            merged.use_default_background = resolved.use_default_background;
         }
         if !resolved.font_family.is_empty() && resolved.font_family != default.font_family {
             merged.font_family = resolved.font_family;
@@ -1845,11 +1866,20 @@ impl FaceResolver {
         let mut resolved = self.resolve_buffer_default_face(buffer);
         let mut remap_stack = Vec::new();
 
-        // 1. "face" text property
-        if let Some(val) = buffer
+        // GNU redisplay asks for the effective `face` property.  When
+        // font-lock mode is active, `font-lock-face` acts as a fallback face,
+        // but an explicit `face` property wins.  This matters for
+        // font-locking comments that cover propertized help key strings in
+        // the initial scratch message.
+        let face_prop = buffer
             .layout_text()
-            .text_props_get_property(bytepos, Value::symbol("face"))
-        {
+            .text_props_get_property(bytepos, Value::symbol("face"));
+        let font_lock_face_prop = buffer
+            .layout_text()
+            .text_props_get_property(bytepos, Value::symbol("font-lock-face"));
+
+        // 1. Text face property, with font-lock-face fallback.
+        if let Some(val) = face_prop.or(font_lock_face_prop) {
             if let Some(next) =
                 self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
             {
@@ -1861,19 +1891,7 @@ impl FaceResolver {
             min_next = min_next.min(buffer_bytepos_to_charpos(buffer, nc));
         }
 
-        // 2. "font-lock-face" text property
-        if let Some(val) = buffer
-            .layout_text()
-            .text_props_get_property(bytepos, Value::symbol("font-lock-face"))
-        {
-            if let Some(next) =
-                self.resolve_buffer_face_value_over(buffer, &resolved, &val, &mut remap_stack)
-            {
-                resolved = next;
-            }
-        }
-
-        // 3. Overlay faces (sorted by priority, lowest first)
+        // 2. Overlay faces (sorted by priority, lowest first)
         let overlay_ids = buffer.layout_overlays().overlays_at(bytepos);
         if !overlay_ids.is_empty() {
             let mut overlay_faces: Vec<(i64, Value)> = Vec::new();
@@ -1990,14 +2008,20 @@ impl FaceResolver {
         // Foreground
         if let Some(c) = &face.foreground {
             rf.fg = color_to_pixel(c);
+            rf.use_default_foreground = false;
         }
         // Background
         if let Some(c) = &face.background {
             rf.bg = color_to_pixel(c);
+            rf.use_default_background = false;
         }
         // Inverse video: swap fg and bg
         if face.inverse_video == Some(true) {
             std::mem::swap(&mut rf.fg, &mut rf.bg);
+            std::mem::swap(
+                &mut rf.use_default_foreground,
+                &mut rf.use_default_background,
+            );
         }
 
         // Font family
@@ -2065,6 +2089,7 @@ impl FaceResolver {
             let dfg_pixel = color_to_pixel(dfg);
             if colors_close(rf.fg, rf.bg) {
                 rf.fg = dfg_pixel;
+                rf.use_default_foreground = false;
             }
         }
 

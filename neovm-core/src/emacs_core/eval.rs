@@ -36,7 +36,7 @@ use super::symbol::Obarray;
 use super::threads::ThreadManager;
 use super::timer::TimerManager;
 use super::value::*;
-use crate::buffer::{BufferManager, InsertionType};
+use crate::buffer::BufferManager;
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
 use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind};
@@ -344,6 +344,7 @@ pub(crate) enum SpecBinding {
     SaveExcursion {
         buffer_id: crate::buffer::BufferId,
         marker_id: u64,
+        marker: Value,
     },
     /// save-current-buffer state. Matches GNU record_unwind_current_buffer.
     SaveCurrentBuffer { buffer_id: crate::buffer::BufferId },
@@ -4420,9 +4421,8 @@ impl Context {
                         visit(root);
                     }
                 }
-                SpecBinding::SaveExcursion { .. }
-                | SpecBinding::SaveCurrentBuffer { .. }
-                | SpecBinding::Nop => {}
+                SpecBinding::SaveExcursion { marker, .. } => visit(*marker),
+                SpecBinding::SaveCurrentBuffer { .. } | SpecBinding::Nop => {}
                 _ => {}
             }
         }
@@ -8588,16 +8588,7 @@ impl Context {
 
     fn sf_save_excursion_value(&mut self, tail: Value) -> EvalResult {
         let count = self.specpdl.len();
-        if let Some(buf_id) = self.buffers.current_buffer().map(|b| b.id) {
-            let pt = self.buffers.get(buf_id).map(|b| b.pt_byte).unwrap_or(0);
-            let (marker_id, _marker_ptr) =
-                self.buffers
-                    .create_marker(buf_id, pt, InsertionType::Before);
-            self.specpdl.push(SpecBinding::SaveExcursion {
-                buffer_id: buf_id,
-                marker_id,
-            });
-        }
+        self.record_save_excursion();
         let result = self.sf_progn_value(tail);
         self.unbind_to(count);
         result
@@ -9400,6 +9391,28 @@ impl Context {
 
     pub(crate) fn push_specpdl_root(&mut self, value: Value) {
         self.specpdl.push(SpecBinding::GcRoot { value });
+    }
+
+    pub(crate) fn record_save_excursion(&mut self) -> Option<usize> {
+        let (buffer_id, point) = self
+            .buffers
+            .current_buffer()
+            .map(|buffer| (buffer.id, buffer.point_char() as i64 + 1))?;
+        let marker = super::marker::make_registered_buffer_marker(
+            &mut self.buffers,
+            buffer_id,
+            point,
+            false,
+        );
+        let marker_id = super::marker::marker_id_value(&marker)
+            .expect("registered save-excursion marker should carry an id");
+        let count = self.specpdl.len();
+        self.specpdl.push(SpecBinding::SaveExcursion {
+            buffer_id,
+            marker_id,
+            marker,
+        });
+        Some(count)
     }
 
     pub(crate) fn restore_specpdl_roots(&mut self, scope: SpecpdlRootScopeState) {
@@ -10941,6 +10954,7 @@ impl Context {
                 SpecBinding::SaveExcursion {
                     buffer_id,
                     marker_id,
+                    marker: _,
                 } => {
                     self.restore_current_buffer_if_live(buffer_id);
                     if let Some(saved_pt) = self.buffers.marker_position(buffer_id, marker_id) {

@@ -57,6 +57,12 @@ pub struct Face {
     /// Background color
     pub background: Color,
 
+    /// Use the terminal's default foreground instead of `foreground`.
+    pub use_default_foreground: bool,
+
+    /// Use the terminal's default background instead of `background`.
+    pub use_default_background: bool,
+
     /// Underline color (if different from foreground)
     pub underline_color: Option<Color>,
 
@@ -124,6 +130,8 @@ impl Default for Face {
             id: 0,
             foreground: Color::WHITE,
             background: Color::BLACK,
+            use_default_foreground: false,
+            use_default_background: false,
             underline_color: None,
             overline_color: None,
             strike_through_color: None,
@@ -344,6 +352,8 @@ impl FaceDataFFI {
             id: self.face_id,
             foreground: Color::from_pixel(self.fg),
             background: Color::from_pixel(self.bg),
+            use_default_foreground: false,
+            use_default_background: false,
             underline_color: (underline_style_code > 0)
                 .then(|| Color::from_pixel(self.underline_color)),
             overline_color: overline.then(|| Color::from_pixel(self.overline_color)),

@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
-use crate::buffer::{BufferManager, InsertionType};
+use crate::buffer::BufferManager;
 use crate::emacs_core::advice::VariableWatcherList;
 use crate::emacs_core::builtins;
 use crate::emacs_core::coding::CodingSystemManager;
@@ -787,21 +787,8 @@ impl<'a> Vm<'a> {
                     }
                 }
                 Op::SaveExcursion => {
-                    if let Some((buffer_id, point)) = self
-                        .ctx
-                        .buffers
-                        .current_buffer()
-                        .map(|buffer| (buffer.id, buffer.pt_byte))
-                    {
-                        let (marker_id, _marker_ptr) =
-                            self.ctx
-                                .buffers
-                                .create_marker(buffer_id, point, InsertionType::Before);
-                        bind_stack.push(self.ctx.specpdl.len());
-                        self.ctx.specpdl.push(SpecBinding::SaveExcursion {
-                            buffer_id,
-                            marker_id,
-                        });
+                    if let Some(count) = self.ctx.record_save_excursion() {
+                        bind_stack.push(count);
                     }
                 }
                 Op::SaveRestriction => {

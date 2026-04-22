@@ -73,8 +73,8 @@ fn resolve_attrs_uses_face_table() {
     rif.set_faces(faces);
 
     let attrs = rif.resolve_attrs(1);
-    assert_eq!(attrs.fg, (255, 0, 0));
-    assert_eq!(attrs.bg, (0, 255, 0));
+    assert_eq!(attrs.fg, Some((255, 0, 0)));
+    assert_eq!(attrs.bg, Some((0, 255, 0)));
     assert!(attrs.bold);
     assert!(attrs.italic);
     assert_eq!(attrs.underline, 2); // Wave
@@ -86,10 +86,28 @@ fn resolve_attrs_falls_back_to_defaults_for_unknown_face() {
     let rif = TtyRif::new(80, 24);
     let attrs = rif.resolve_attrs(999);
     // Should get default fg/bg.
-    assert_eq!(attrs.fg, (255, 255, 255));
-    assert_eq!(attrs.bg, (0, 0, 0));
+    assert_eq!(attrs.fg, None);
+    assert_eq!(attrs.bg, None);
     assert!(!attrs.bold);
     assert!(!attrs.italic);
+}
+
+#[test]
+fn resolve_attrs_preserves_terminal_default_face_colors() {
+    let mut rif = TtyRif::new(80, 24);
+    let mut face = Face::new(0);
+    face.foreground = Color::rgb(0.0, 0.0, 0.0);
+    face.background = Color::rgb(1.0, 1.0, 1.0);
+    face.use_default_foreground = true;
+    face.use_default_background = true;
+
+    let mut faces = HashMap::new();
+    faces.insert(0, face);
+    rif.set_faces(faces);
+
+    let attrs = rif.resolve_attrs(0);
+    assert_eq!(attrs.fg, None);
+    assert_eq!(attrs.bg, None);
 }
 
 // ---------------------------------------------------------------------------
@@ -561,8 +579,8 @@ fn rasterize_applies_phys_filled_box_visual_to_cell() {
 
     let cell = &rif.desired.cells[1];
     assert_eq!(cell.ch, 'b');
-    assert_eq!(cell.attrs.bg, (255, 0, 0));
-    assert_eq!(cell.attrs.fg, (0, 0, 0));
+    assert_eq!(cell.attrs.bg, Some((255, 0, 0)));
+    assert_eq!(cell.attrs.fg, Some((0, 0, 0)));
     assert!(!rif.cursor_visible);
 }
 
@@ -879,7 +897,7 @@ fn diff_with_changes_produces_ansi_sequences() {
         0,
         'A',
         CellAttrs {
-            fg: (255, 0, 0),
+            fg: Some((255, 0, 0)),
             ..CellAttrs::default()
         },
         false,
@@ -1016,8 +1034,8 @@ fn cursor_not_visible_omits_show_cursor_sequence() {
 #[test]
 fn write_sgr_bold_italic_underline() {
     let attrs = CellAttrs {
-        fg: (0, 0, 0),
-        bg: (255, 255, 255),
+        fg: Some((0, 0, 0)),
+        bg: Some((255, 255, 255)),
         bold: true,
         italic: true,
         underline: 1,
@@ -1037,8 +1055,8 @@ fn write_sgr_bold_italic_underline() {
 #[test]
 fn write_sgr_strikethrough_inverse() {
     let attrs = CellAttrs {
-        fg: (0, 0, 0),
-        bg: (0, 0, 0),
+        fg: Some((0, 0, 0)),
+        bg: Some((0, 0, 0)),
         bold: false,
         italic: false,
         underline: 0,
@@ -1053,6 +1071,33 @@ fn write_sgr_strikethrough_inverse() {
     assert!(s.contains("\x1b[7m"), "Missing inverse");
 }
 
+#[test]
+fn write_sgr_terminal_default_colors() {
+    let attrs = CellAttrs {
+        fg: None,
+        bg: None,
+        bold: false,
+        italic: false,
+        underline: 0,
+        strikethrough: false,
+        inverse: false,
+    };
+    let mut buf = Vec::new();
+    write_sgr(&mut buf, &attrs);
+    let s = String::from_utf8_lossy(&buf);
+
+    assert!(s.contains("\x1b[39m"), "Missing default foreground reset");
+    assert!(s.contains("\x1b[49m"), "Missing default background reset");
+    assert!(
+        !s.contains("\x1b[38;2;"),
+        "Terminal-default foreground should not emit explicit RGB SGR: {s:?}"
+    );
+    assert!(
+        !s.contains("\x1b[48;2;"),
+        "Terminal-default background should not emit explicit RGB SGR: {s:?}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // TtyGrid
 // ---------------------------------------------------------------------------
@@ -1060,10 +1105,10 @@ fn write_sgr_strikethrough_inverse() {
 #[test]
 fn grid_clear_sets_background() {
     let mut grid = TtyGrid::new(5, 3);
-    grid.clear((100, 50, 25));
+    grid.clear(Some((100, 50, 25)));
     for cell in &grid.cells {
         assert_eq!(cell.ch, ' ');
-        assert_eq!(cell.attrs.bg, (100, 50, 25));
+        assert_eq!(cell.attrs.bg, Some((100, 50, 25)));
     }
 }
 

@@ -20,8 +20,8 @@ use std::collections::HashMap;
 /// Attributes for a single terminal cell (maps to ANSI SGR sequences).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CellAttrs {
-    pub fg: (u8, u8, u8),
-    pub bg: (u8, u8, u8),
+    pub fg: Option<(u8, u8, u8)>,
+    pub bg: Option<(u8, u8, u8)>,
     pub bold: bool,
     pub italic: bool,
     /// 0=none, 1=single, 2=curly/wave, 3=double, 4=dotted, 5=dashed
@@ -33,8 +33,8 @@ pub struct CellAttrs {
 impl Default for CellAttrs {
     fn default() -> Self {
         Self {
-            fg: (255, 255, 255),
-            bg: (0, 0, 0),
+            fg: None,
+            bg: None,
             bold: false,
             italic: false,
             underline: 0,
@@ -100,7 +100,7 @@ impl TtyGrid {
     }
 
     /// Clear all cells to spaces with the given background color.
-    pub fn clear(&mut self, bg: (u8, u8, u8)) {
+    pub fn clear(&mut self, bg: Option<(u8, u8, u8)>) {
         let blank = TtyCell {
             ch: ' ',
             attrs: CellAttrs {
@@ -192,9 +192,9 @@ pub struct TtyRif {
     /// Face lookup table (face_id -> Face).
     faces: HashMap<u32, Face>,
     /// Default background color (r, g, b).
-    default_bg: (u8, u8, u8),
+    default_bg: Option<(u8, u8, u8)>,
     /// Default foreground color (r, g, b).
-    default_fg: (u8, u8, u8),
+    default_fg: Option<(u8, u8, u8)>,
 }
 
 fn terminal_cursor_cell(x: f32, y: f32, char_width: f32, char_height: f32) -> (u16, u16) {
@@ -222,8 +222,8 @@ impl TtyRif {
             cursor_visible: false,
             cursor_shape: TerminalCursorShape::Block,
             faces: HashMap::new(),
-            default_bg: (0, 0, 0),
-            default_fg: (255, 255, 255),
+            default_bg: None,
+            default_fg: None,
         }
     }
 
@@ -255,7 +255,17 @@ impl TtyRif {
     /// resolving face attributes.
     pub fn rasterize(&mut self, state: &FrameDisplayState) {
         self.faces = state.faces.clone();
-        self.default_bg = color_to_rgb8(&state.background);
+        let default_face = self.faces.get(&0);
+        self.default_bg = if default_face.is_some_and(|face| face.use_default_background) {
+            None
+        } else {
+            Some(color_to_rgb8(&state.background))
+        };
+        self.default_fg = if default_face.is_some_and(|face| face.use_default_foreground) {
+            None
+        } else {
+            default_face.map(|face| color_to_rgb8(&face.foreground))
+        };
         self.desired.clear(self.default_bg);
         self.cursor_visible = false;
         self.cursor_shape = TerminalCursorShape::Block;
@@ -343,8 +353,8 @@ impl TtyRif {
     ///   reachable via `tty_menu_activate`).
     fn rasterize_menu_bar(&mut self, menu_bar: &TtyMenuBarState) {
         let attrs = CellAttrs {
-            fg: rgb_pixel_to_tuple(menu_bar.fg),
-            bg: rgb_pixel_to_tuple(menu_bar.bg),
+            fg: Some(rgb_pixel_to_tuple(menu_bar.fg)),
+            bg: Some(rgb_pixel_to_tuple(menu_bar.bg)),
             bold: menu_bar.bold,
             italic: false,
             underline: 0,
@@ -401,8 +411,8 @@ impl TtyRif {
     fn resolve_attrs(&self, face_id: u32) -> CellAttrs {
         if let Some(face) = self.faces.get(&face_id) {
             CellAttrs {
-                fg: color_to_rgb8(&face.foreground),
-                bg: color_to_rgb8(&face.background),
+                fg: (!face.use_default_foreground).then(|| color_to_rgb8(&face.foreground)),
+                bg: (!face.use_default_background).then(|| color_to_rgb8(&face.background)),
                 bold: face.is_bold(),
                 italic: face.is_italic(),
                 underline: match face.underline_style {
@@ -517,10 +527,10 @@ impl TtyRif {
         match style {
             CursorStyle::FilledBox => {
                 if let Some(bg) = color {
-                    cell.attrs.bg = bg;
+                    cell.attrs.bg = Some(bg);
                 }
                 if let Some(fg) = cursor_fg {
-                    cell.attrs.fg = fg;
+                    cell.attrs.fg = Some(fg);
                 }
             }
             CursorStyle::Bar(_) | CursorStyle::Hollow => {
@@ -711,17 +721,18 @@ fn write_sgr(buf: &mut Vec<u8>, attrs: &CellAttrs) {
         buf.extend_from_slice(b"\x1b[7m");
     }
 
-    // 24-bit true-color foreground and background.
-    let _ = write!(
-        buf,
-        "\x1b[38;2;{};{};{}m",
-        attrs.fg.0, attrs.fg.1, attrs.fg.2
-    );
-    let _ = write!(
-        buf,
-        "\x1b[48;2;{};{};{}m",
-        attrs.bg.0, attrs.bg.1, attrs.bg.2
-    );
+    // GNU term.c only emits color SGR for specified TTY colors.
+    // `None` mirrors FACE_TTY_DEFAULT_FG_COLOR/BG_COLOR.
+    if let Some((r, g, b)) = attrs.fg {
+        let _ = write!(buf, "\x1b[38;2;{r};{g};{b}m");
+    } else {
+        buf.extend_from_slice(b"\x1b[39m");
+    }
+    if let Some((r, g, b)) = attrs.bg {
+        let _ = write!(buf, "\x1b[48;2;{r};{g};{b}m");
+    } else {
+        buf.extend_from_slice(b"\x1b[49m");
+    }
 }
 
 fn write_cell_contents(buf: &mut Vec<u8>, cell: &TtyCell) {

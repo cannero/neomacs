@@ -4,10 +4,8 @@
 //! read-non-nil-coding-system.
 
 use super::error::{EvalResult, Flow, signal};
-use super::eval::SpecBinding;
 use super::intern::{intern, resolve_sym};
 use super::value::*;
-use crate::buffer::InsertionType;
 use crate::heap_types::LispString;
 use std::path::Path;
 
@@ -348,20 +346,7 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &L
 }
 
 fn record_eval_buffer_save_excursion(eval: &mut super::eval::Context) {
-    if let Some(buffer_id) = eval.buffers.current_buffer_id() {
-        let pt = eval
-            .buffers
-            .get(buffer_id)
-            .map(|buffer| buffer.pt_byte)
-            .unwrap_or(0);
-        let (marker_id, _marker_ptr) =
-            eval.buffers
-                .create_marker(buffer_id, pt, InsertionType::Before);
-        eval.specpdl.push(SpecBinding::SaveExcursion {
-            buffer_id,
-            marker_id,
-        });
-    }
+    eval.record_save_excursion();
 }
 
 pub(crate) fn eval_region_source_text_in_state(

@@ -64,6 +64,10 @@ fn wait_for_other_window_after_split(gnu: &mut TuiSession, neo: &mut TuiSession)
     });
 }
 
+fn is_blank_cell(cell: &vt100::Cell) -> bool {
+    cell.contents().trim().is_empty()
+}
+
 /// Filter out boot-info rows (welcome text, copyright) from diffs.
 fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
     diffs
@@ -111,6 +115,57 @@ fn boot_screen_layout() {
         diffs.len() <= 2,
         "Boot screens differ in {} rows (expected <= 2 for menu bar / echo area)",
         diffs.len()
+    );
+}
+
+#[test]
+fn boot_blank_cells_use_terminal_default_background() {
+    let (gnu, neo) = boot_pair("");
+    assert!(
+        gnu.text_grid().iter().any(|row| row.contains("*scratch*")),
+        "GNU Emacs did not reach the scratch boot screen"
+    );
+    assert!(
+        neo.text_grid().iter().any(|row| row.contains("*scratch*")),
+        "Neomacs did not reach the scratch boot screen"
+    );
+
+    let mut checked = 0usize;
+    let mut mismatches = Vec::new();
+
+    // GNU Emacs leaves ordinary TTY background cells on the terminal default
+    // color. A Neomacs regression here painted blank cells explicit white.
+    for row in 1..ROWS.saturating_sub(2) {
+        for col in 0..COLS {
+            let (Some(gnu_cell), Some(neo_cell)) =
+                (gnu.screen().cell(row, col), neo.screen().cell(row, col))
+            else {
+                continue;
+            };
+
+            if is_blank_cell(gnu_cell) && is_blank_cell(neo_cell) {
+                checked += 1;
+                if gnu_cell.bgcolor() != neo_cell.bgcolor() && mismatches.len() < 12 {
+                    mismatches.push(format!(
+                        "row {row} col {col}: GNU bg {:?}, Neomacs bg {:?}\nGNU: {:?}\nNEO: {:?}",
+                        gnu_cell.bgcolor(),
+                        neo_cell.bgcolor(),
+                        gnu.text_grid().get(row as usize),
+                        neo.text_grid().get(row as usize)
+                    ));
+                }
+            }
+        }
+    }
+
+    assert!(
+        checked > 100,
+        "Expected many blank body cells to compare, checked {checked}"
+    );
+    assert!(
+        mismatches.is_empty(),
+        "Blank body background differs from GNU Emacs:\n{}",
+        mismatches.join("\n")
     );
 }
 

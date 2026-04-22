@@ -6055,6 +6055,8 @@ pub(crate) fn x_create_frame_impl(
         )));
         frame.set_parameter(Value::symbol("display-type"), Value::symbol("color"));
         frame.set_parameter(Value::symbol("background-mode"), Value::symbol("dark"));
+        frame.set_parameter(Value::symbol("foreground-color"), Value::string("black"));
+        frame.set_parameter(Value::symbol("background-color"), Value::string("white"));
         for (key, value) in parsed.all {
             frame.set_parameter(Value::from_sym_id(key), value);
         }

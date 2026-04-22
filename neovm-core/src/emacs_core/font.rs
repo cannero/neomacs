@@ -1391,16 +1391,13 @@ fn resolved_face_at_buffer_byte(
 ) -> RuntimeFace {
     let mut layers = Vec::new();
 
-    if let Some(value) = buffer
+    let face_prop = buffer
         .text
-        .text_props_get_property(bytepos, Value::symbol("face"))
-    {
-        layers.extend(resolve_face_layers_from_value(&value));
-    }
-    if let Some(value) = buffer
+        .text_props_get_property(bytepos, Value::symbol("face"));
+    let font_lock_face_prop = buffer
         .text
-        .text_props_get_property(bytepos, Value::symbol("font-lock-face"))
-    {
+        .text_props_get_property(bytepos, Value::symbol("font-lock-face"));
+    if let Some(value) = face_prop.or(font_lock_face_prop) {
         layers.extend(resolve_face_layers_from_value(&value));
     }
 
@@ -1438,10 +1435,9 @@ fn resolved_face_at_string_byte(
 ) -> RuntimeFace {
     let mut layers = Vec::new();
     if let Some(table) = get_string_text_properties_table_for_value(str_value) {
-        if let Some(value) = table.get_property(bytepos, Value::symbol("face")) {
-            layers.extend(resolve_face_layers_from_value(value));
-        }
-        if let Some(value) = table.get_property(bytepos, Value::symbol("font-lock-face")) {
+        let face_prop = table.get_property(bytepos, Value::symbol("face"));
+        let font_lock_face_prop = table.get_property(bytepos, Value::symbol("font-lock-face"));
+        if let Some(value) = face_prop.or(font_lock_face_prop) {
             layers.extend(resolve_face_layers_from_value(value));
         }
     }
@@ -3500,7 +3496,10 @@ pub(crate) fn builtin_internal_get_lisp_face_attribute(
     }
 
     if let Some(face) = eval.face_table().get(&face_name) {
-        return Ok(runtime_face_attribute_value(face, attr_name_str));
+        let runtime_value = runtime_face_attribute_value(face, attr_name_str);
+        if !runtime_value.is_symbol_named("unspecified") {
+            return Ok(runtime_value);
+        }
     }
 
     Ok(lisp_value)

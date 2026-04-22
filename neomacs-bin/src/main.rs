@@ -2191,6 +2191,8 @@ fn bootstrap_buffers(
         frame.visible = true;
         if let Some(window_system) = display.window_system_symbol() {
             frame.set_window_system(Some(Value::symbol(window_system)));
+            frame.set_parameter(Value::symbol("foreground-color"), Value::string("black"));
+            frame.set_parameter(Value::symbol("background-color"), Value::string("white"));
         } else {
             frame.set_window_system(None);
         }
@@ -2257,6 +2259,17 @@ fn bootstrap_buffers(
     if display.frontend == FrontendKind::Gui {
         seed_gnu_default_gui_chrome_modes(eval);
         sync_selected_gui_chrome_state(eval);
+    } else {
+        eval.set_face_attribute(
+            "default",
+            ":foreground",
+            neovm_core::face::FaceAttrValue::Unspecified,
+        );
+        eval.set_face_attribute(
+            "default",
+            ":background",
+            neovm_core::face::FaceAttrValue::Unspecified,
+        );
     }
 
     if display.window_system_symbol().is_some() {

@@ -7510,6 +7510,24 @@ fn buffer_save_excursion() {
 }
 
 #[test]
+fn buffer_save_excursion_marker_survives_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(get-buffer-create \"se-gc\")
+         (set-buffer \"se-gc\")
+         (erase-buffer)
+         (insert \"abcdef\")
+         (goto-char (point-max))
+         (save-excursion
+           (garbage-collect)
+           (goto-char 3)
+           (insert \"XXX\"))
+         (list (point) (buffer-string))",
+    );
+    assert_eq!(results[6], "OK (10 \"abXXXcdef\")");
+}
+
+#[test]
 fn buffer_save_excursion_tracks_marker_through_edits() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(

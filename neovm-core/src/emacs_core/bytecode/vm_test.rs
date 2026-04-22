@@ -754,6 +754,73 @@ fn vm_save_excursion_restores_point_on_normal_exit() {
 }
 
 #[test]
+fn vm_save_excursion_marker_survives_exact_gc() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_eval_with_init_str(
+            r#"(progn
+                 (goto-char (point-max))
+                 (save-excursion
+                   (garbage-collect)
+                   (goto-char 3)
+                   (insert "XXX"))
+                 (list (point) (buffer-string)))"#,
+            |eval| {
+                let buffer_id = eval.buffers.create_buffer("vm-save-excursion-gc");
+                eval.buffers.set_current(buffer_id);
+                let _ = eval.buffers.insert_into_buffer(buffer_id, "abcdef");
+            },
+        ),
+        "OK (10 \"abXXXcdef\")"
+    );
+}
+
+#[test]
+fn vm_compiled_loaddefs_docstring_print_form_preserves_point() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_bootstrap_eval_str(
+            r#"(progn
+                 (require 'bytecomp)
+                 (funcall
+                  (byte-compile
+                   (lambda ()
+                     (with-temp-buffer
+                       (let ((def (list 'autoload
+                                        (list 'quote 'ebrowse-tags-find-declaration)
+                                        "ebrowse"
+                                        "Find declaration of member at point."
+                                        t))
+                             (n 0))
+                         (insert "(")
+                         (while (< n 3)
+                           (prin1 (car def) (current-buffer)
+                                  '(t (escape-newlines . t)
+                                      (escape-control-characters . t)))
+                           (setq def (cdr def))
+                           (insert " ")
+                           (setq n (1+ n)))
+                         (let ((start (point)))
+                           (prin1 (car def) (current-buffer) t)
+                           (setq def (cdr def))
+                           (save-excursion
+                             (goto-char (1+ start))
+                             (insert "\\
+")))
+                         (while def
+                           (insert " ")
+                           (prin1 (car def) (current-buffer)
+                                  '(t (escape-newlines . t)
+                                      (escape-control-characters . t)))
+                           (setq def (cdr def)))
+                         (insert ")")
+                         (buffer-string)))))))"#
+        ),
+        "OK \"(autoload 'ebrowse-tags-find-declaration \\\"ebrowse\\\" \\\"\\\\\nFind declaration of member at point.\\\" t)\""
+    );
+}
+
+#[test]
 fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

@@ -1427,21 +1427,23 @@ impl Frame {
             width,
             height,
             window_system: None,
-            // GNU Emacs frame.c make_frame() initializes the foreground-color
-            // and background-color parameters before any Lisp startup runs:
-            // see Fmake_terminal_frame and the GUI equivalents, which call
-            // store_frame_param with the framework defaults ("black" /
-            // "white") so that frame-parameter never returns nil for them.
-            // Lisp code in startup (e.g. frame--current-background-mode in
-            // frame.el) calls (color-values (frame-parameter f
-            // 'background-color)), and color-values -> xw-color-values
-            // signals wrong-type-argument: stringp nil if the value is not a
-            // string. Match GNU and pre-populate the defaults here so the
-            // parameter alist is never missing them.
+            // GNU terminal frames expose the terminal's default colors as
+            // string sentinel values, not concrete RGB colors.  `term.c`
+            // initializes FRAME_FOREGROUND_PIXEL / FRAME_BACKGROUND_PIXEL to
+            // FACE_TTY_DEFAULT_FG_COLOR / FACE_TTY_DEFAULT_BG_COLOR, and
+            // `xfaces.c::tty_color_name` exposes those as "unspecified-fg" /
+            // "unspecified-bg".  GUI frame creation overwrites these with
+            // concrete black/white defaults after it installs a window system.
             parameters: {
                 let mut params = HashMap::new();
-                params.insert(Value::symbol("foreground-color"), Value::string("black"));
-                params.insert(Value::symbol("background-color"), Value::string("white"));
+                params.insert(
+                    Value::symbol("foreground-color"),
+                    Value::string("unspecified-fg"),
+                );
+                params.insert(
+                    Value::symbol("background-color"),
+                    Value::string("unspecified-bg"),
+                );
                 params.insert(Value::symbol("cursor-color"), Value::string("black"));
                 // GNU terminal frames expose a numeric tab-bar-lines frame
                 // parameter even when the tab bar is disabled. Lisp window

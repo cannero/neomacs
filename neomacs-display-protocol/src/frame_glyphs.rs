@@ -726,6 +726,8 @@ impl FrameGlyphBuffer {
             id: face_id,
             foreground: fg,
             background: bg.unwrap_or(Color::TRANSPARENT),
+            use_default_foreground: false,
+            use_default_background: false,
             underline_color,
             overline_color,
             strike_through_color,
