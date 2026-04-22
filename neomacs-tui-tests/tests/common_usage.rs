@@ -1147,10 +1147,30 @@ fn save_unnamed_buffer_via_cx_cs_prompts_for_file() {
     gnu.read_until(Duration::from_secs(6), save_prompt);
     neo.read_until(Duration::from_secs(8), save_prompt);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "save_unnamed_buffer_via_cx_cs_prompts_for_file/after-cx-cs",
+        &gnu,
+        &neo,
+        2,
+    );
 
     for session in [&mut gnu, &mut neo] {
         session.send(b"~/unnamed-save-buffer.txt");
     }
+    let typed_path = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("unnamed-save-buffer.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), typed_path);
+    neo.read_until(Duration::from_secs(8), typed_path);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "save_unnamed_buffer_via_cx_cs_prompts_for_file/before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+
     send_both(&mut gnu, &mut neo, "RET");
 
     let ready = |grid: &[String]| {
@@ -1160,6 +1180,13 @@ fn save_unnamed_buffer_via_cx_cs_prompts_for_file() {
     };
     gnu.read_until(Duration::from_secs(6), ready);
     neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "save_unnamed_buffer_via_cx_cs_prompts_for_file/after-ret",
+        &gnu,
+        &neo,
+        2,
+    );
 
     let expected = "unnamed save line\n";
     let gnu_path = gnu.home_dir().join("unnamed-save-buffer.txt");
