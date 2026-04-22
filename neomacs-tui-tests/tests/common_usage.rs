@@ -450,6 +450,45 @@ fn find_file_via_cx_cf() {
 }
 
 #[test]
+fn list_directory_via_cx_cd_lists_entries() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_micros();
+    let dir = std::env::temp_dir().join(format!("nmls-{}-{unique}", std::process::id()));
+    fs::create_dir_all(dir.join("nested")).expect("create list-directory fixture");
+    fs::write(dir.join("alpha.txt"), "alpha body\n").expect("write alpha fixture");
+    fs::write(dir.join("beta.org"), "* beta heading\n").expect("write beta fixture");
+    fs::write(dir.join("zeta.log"), "zeta body\n").expect("write zeta fixture");
+
+    send_both(&mut gnu, &mut neo, "C-x C-d");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("List directory (brief):"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    let list_path = format!("{}/", dir.display());
+    gnu.send(list_path.as_bytes());
+    neo.send(list_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Directory*"))
+            && grid.iter().any(|row| row.contains("Directory "))
+            && ["alpha.txt", "beta.org", "nested", "zeta.log"]
+                .iter()
+                .all(|name| grid.iter().any(|row| row.contains(name)))
+    };
+    gnu.read_until(Duration::from_secs(10), ready);
+    neo.read_until(Duration::from_secs(20), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("list_directory_via_cx_cd_lists_entries", &gnu, &neo, 2);
+}
+
+#[test]
 fn dired_open_directory_via_cx_d_lists_entries() {
     let (mut gnu, mut neo) = boot_pair("");
     let dir = make_shared_dired_fixture("open");
@@ -1603,6 +1642,37 @@ fn revert_buffer_via_mx_rereads_file_from_disk() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("revert_buffer_via_mx_rereads_file_from_disk", &gnu, &neo, 2);
+}
+
+#[test]
+fn dabbrev_expand_via_mslash_expands_previous_word() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "dabbrev-usage.txt",
+        "dynamic-expansion\n\n dyn",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-> M-/");
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .filter(|row| row.contains("dynamic-expansion"))
+            .count()
+            >= 2
+            && !grid.iter().any(|row| row.trim_end().ends_with(" dyn"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "dabbrev_expand_via_mslash_expands_previous_word",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
