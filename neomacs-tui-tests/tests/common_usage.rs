@@ -126,6 +126,18 @@ fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
     send_both(gnu, neo, key);
 }
 
+fn invoke_mx_command(gnu: &mut TuiSession, neo: &mut TuiSession, command: &str) {
+    send_both(gnu, neo, "M-x");
+    let mx_prompt = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
+    gnu.read_until(Duration::from_secs(6), mx_prompt);
+    neo.read_until(Duration::from_secs(8), mx_prompt);
+    read_both(gnu, neo, Duration::from_millis(300));
+
+    gnu.send(command.as_bytes());
+    neo.send(command.as_bytes());
+    send_both(gnu, neo, "RET");
+}
+
 fn settle_session(session: &mut TuiSession, timeout: Duration, max_rounds: usize) {
     let mut previous = session.text_grid();
     for _ in 0..max_rounds {
@@ -2902,6 +2914,181 @@ fn query_replace_via_mpercent_bang() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("query_replace_via_mpercent_bang", &gnu, &neo, 2);
+}
+
+#[test]
+fn replace_string_via_mx_replaces_from_point_to_end() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "replace-string.txt",
+        "alpha one\nbeta one\none tail\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "replace-string");
+
+    let from_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Replace string"));
+    gnu.read_until(Duration::from_secs(6), from_prompt);
+    neo.read_until(Duration::from_secs(8), from_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"one");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let to_prompt = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("with:")) || grid.iter().any(|row| row.contains("with "))
+    };
+    gnu.read_until(Duration::from_secs(6), to_prompt);
+    neo.read_until(Duration::from_secs(8), to_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"uno");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha uno"))
+            && grid.iter().any(|row| row.contains("beta uno"))
+            && grid.iter().any(|row| row.contains("uno tail"))
+            && !grid.iter().any(|row| row.contains("alpha one"))
+            && !grid.iter().any(|row| row.contains("beta one"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "replace_string_via_mx_replaces_from_point_to_end",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn sort_lines_region_via_mx_orders_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-lines.txt",
+        "delta\nalpha\ncharlie\nbravo\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-lines");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(alpha) = text.find("alpha") else {
+            return false;
+        };
+        let Some(bravo) = text.find("bravo") else {
+            return false;
+        };
+        let Some(charlie) = text.find("charlie") else {
+            return false;
+        };
+        let Some(delta) = text.find("delta") else {
+            return false;
+        };
+        alpha < bravo && bravo < charlie && charlie < delta
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("sort_lines_region_via_mx_orders_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn flush_lines_via_mx_deletes_matching_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "flush-lines.txt",
+        "keep alpha\ndrop beta\nkeep gamma\ndrop delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "flush-lines");
+
+    let regexp_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Flush lines containing match"))
+    };
+    gnu.read_until(Duration::from_secs(6), regexp_prompt);
+    neo.read_until(Duration::from_secs(8), regexp_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"drop");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("keep alpha"))
+            && grid.iter().any(|row| row.contains("keep gamma"))
+            && !grid.iter().any(|row| row.contains("drop beta"))
+            && !grid.iter().any(|row| row.contains("drop delta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("flush_lines_via_mx_deletes_matching_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn keep_lines_via_mx_preserves_matching_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "keep-lines.txt",
+        "keep alpha\ndrop beta\nkeep gamma\ndrop delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "keep-lines");
+
+    let regexp_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Keep lines containing match"))
+    };
+    gnu.read_until(Duration::from_secs(6), regexp_prompt);
+    neo.read_until(Duration::from_secs(8), regexp_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"keep");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("keep alpha"))
+            && grid.iter().any(|row| row.contains("keep gamma"))
+            && !grid.iter().any(|row| row.contains("drop beta"))
+            && !grid.iter().any(|row| row.contains("drop delta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("keep_lines_via_mx_preserves_matching_lines", &gnu, &neo, 2);
 }
 
 #[test]
