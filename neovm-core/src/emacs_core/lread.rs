@@ -4,8 +4,10 @@
 //! read-non-nil-coding-system.
 
 use super::error::{EvalResult, Flow, signal};
+use super::eval::SpecBinding;
 use super::intern::{intern, resolve_sym};
 use super::value::*;
+use crate::buffer::InsertionType;
 use crate::heap_types::LispString;
 use std::path::Path;
 
@@ -345,6 +347,23 @@ fn record_eval_buffer_load_history(eval: &mut super::eval::Context, filename: &L
     eval.set_variable("load-history", Value::cons(entry, filtered_history));
 }
 
+fn record_eval_buffer_save_excursion(eval: &mut super::eval::Context) {
+    if let Some(buffer_id) = eval.buffers.current_buffer_id() {
+        let pt = eval
+            .buffers
+            .get(buffer_id)
+            .map(|buffer| buffer.pt_byte)
+            .unwrap_or(0);
+        let (marker_id, _marker_ptr) =
+            eval.buffers
+                .create_marker(buffer_id, pt, InsertionType::Before);
+        eval.specpdl.push(SpecBinding::SaveExcursion {
+            buffer_id,
+            marker_id,
+        });
+    }
+}
+
 pub(crate) fn eval_region_source_text_in_state(
     buffers: &crate::buffer::BufferManager,
     args: &[Value],
@@ -430,6 +449,12 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
         };
         eval.specbind(intern("standard-output"), standard_output);
 
+        // GNU `Feval_buffer` records an excursion before evaluating the
+        // source buffer.  Source loads depend on this: `load-with-code-conversion`
+        // evaluates a temporary *load* buffer while the caller's buffer remains
+        // current, and any `set-buffer` during evaluation must unwind afterward.
+        record_eval_buffer_save_excursion(eval);
+
         if let Some(filename) = filename.as_ref() {
             let filename_value = Value::heap_string(filename.clone());
             eval.push_specpdl_root(filename_value);
@@ -512,7 +537,11 @@ pub(crate) fn builtin_eval_buffer_in_vm_runtime(
     args: &[Value],
 ) -> EvalResult {
     let source = eval_buffer_source_text_in_state(&shared.buffers, args.first())?;
-    eval_forms_from_source_in_vm_runtime_streaming(shared, args, &source)
+    let specpdl_count = shared.specpdl.len();
+    record_eval_buffer_save_excursion(shared);
+    let result = eval_forms_from_source_in_vm_runtime_streaming(shared, args, &source);
+    shared.unbind_to(specpdl_count);
+    result
 }
 
 pub(crate) fn builtin_eval_region_in_vm_runtime(

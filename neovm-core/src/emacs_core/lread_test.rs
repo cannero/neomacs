@@ -120,6 +120,26 @@ fn eval_buffer_uses_source_text_without_switching_current() {
 }
 
 #[test]
+fn eval_buffer_restores_current_buffer_after_source_switches_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let target = ev
+        .buffers
+        .create_buffer("*lread-eval-buffer-switch-source*");
+    {
+        let target_buf = ev.buffers.get_mut(target).expect("target buffer");
+        target_buf.insert("(set-buffer (get-buffer-create \"*lread-eval-buffer-switched*\"))");
+    }
+    let caller = ev.buffers.create_buffer("*lread-eval-buffer-caller*");
+    ev.buffers.set_current(caller);
+
+    let result = builtin_eval_buffer(&mut ev, vec![Value::make_buffer(target)]).unwrap();
+
+    assert!(result.is_nil());
+    assert_eq!(ev.buffers.current_buffer_id(), Some(caller));
+}
+
+#[test]
 fn eval_buffer_preserves_unibyte_filename_in_load_state() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

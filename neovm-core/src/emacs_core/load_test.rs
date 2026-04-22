@@ -7159,6 +7159,33 @@ fn partial_bootstrap_load_with_code_conversion_swallows_footer_local_variables_e
 }
 
 #[test]
+fn partial_bootstrap_source_load_restores_current_buffer_after_eval_buffer_switches_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    eval.set_variable(
+        "load-source-file-function",
+        Value::symbol("load-with-code-conversion"),
+    );
+
+    let caller = eval.buffers.create_buffer("*load-current-buffer-caller*");
+    eval.buffers.set_current(caller);
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("source-load-current-buffer.el");
+    fs::write(
+        &path,
+        ";;; source-load-current-buffer.el --- fixture -*- lexical-binding: t; -*-\n\
+         (set-buffer (get-buffer-create \"*source-load-switched*\"))\n",
+    )
+    .expect("write source load current buffer fixture");
+
+    let result = load_file(&mut eval, &path);
+
+    assert_eq!(format_eval_result(&result), "OK t");
+    assert_eq!(eval.buffers.current_buffer_id(), Some(caller));
+}
+
+#[test]
 fn partial_bootstrap_looking_back_matches_empty_suffix_at_line_end() {
     crate::test_utils::init_test_tracing();
     let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
