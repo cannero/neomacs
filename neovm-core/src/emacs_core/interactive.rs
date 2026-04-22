@@ -1517,7 +1517,11 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::heap_string(prompt.clone()), Value::NIL, Value::T];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
+                    super::minibuffer::read_buffer_completing_args(
+                        &shared.obarray,
+                        &shared.buffers,
+                        &letter_args,
+                    )
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,
@@ -1528,7 +1532,11 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 let letter_args = [Value::heap_string(prompt.clone()), Value::NIL, Value::NIL];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(&shared.buffers, &letter_args)
+                    super::minibuffer::read_buffer_completing_args(
+                        &shared.obarray,
+                        &shared.buffers,
+                        &letter_args,
+                    )
                 };
                 args.push(super::reader::finish_completing_read_in_vm_runtime(
                     shared,

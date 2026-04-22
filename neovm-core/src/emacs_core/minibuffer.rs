@@ -113,6 +113,66 @@ fn normalize_buffer_reader_default(buffers: &BufferManager, default: Value) -> V
     }
 }
 
+fn strip_read_buffer_prompt_suffix(prompt: &str) -> &str {
+    if let Some(stripped) = prompt.strip_suffix(": ") {
+        stripped
+    } else if let Some(stripped) = prompt.strip_suffix(':') {
+        stripped
+    } else if let Some(stripped) = prompt.strip_suffix(' ') {
+        stripped
+    } else {
+        prompt
+    }
+}
+
+fn format_default_prompt(format: &str, default: &str) -> String {
+    let mut output = String::new();
+    let mut chars = format.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '%' {
+            match chars.peek().copied() {
+                Some('s') => {
+                    chars.next();
+                    output.push_str(default);
+                }
+                Some('%') => {
+                    chars.next();
+                    output.push('%');
+                }
+                _ => output.push(ch),
+            }
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
+fn read_buffer_prompt(obarray: &Obarray, raw_prompt: Value, default: Value) -> Value {
+    if default.is_nil() {
+        return raw_prompt;
+    }
+    let Some(prompt) = raw_prompt.as_runtime_string_owned() else {
+        return raw_prompt;
+    };
+    let prompt_base = strip_read_buffer_prompt_suffix(&prompt);
+    let mut formatted = String::from(prompt_base);
+    if let Some(default_text) = default.as_runtime_string_owned()
+        && !default_text.is_empty()
+    {
+        let default_prompt_format = obarray
+            .symbol_value("minibuffer-default-prompt-format")
+            .and_then(|value| (*value).as_runtime_string_owned())
+            .unwrap_or_else(|| " (default %s)".to_string());
+        formatted.push_str(&format_default_prompt(
+            &default_prompt_format,
+            &default_text,
+        ));
+    }
+    formatted.push_str(": ");
+    Value::string(formatted)
+}
+
 // ---------------------------------------------------------------------------
 // CompletionTable
 // ---------------------------------------------------------------------------
@@ -883,7 +943,7 @@ pub(crate) fn finish_read_buffer_in_eval(
     eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
-    let completing_args = read_buffer_completing_args(eval.buffer_manager(), args);
+    let completing_args = read_buffer_completing_args(eval.obarray(), eval.buffer_manager(), args);
     super::reader::finish_completing_read_in_eval(eval, &completing_args)
 }
 
@@ -901,10 +961,14 @@ pub(crate) fn builtin_read_buffer_in_runtime(
     }
 }
 
-pub(crate) fn read_buffer_completing_args(buffers: &BufferManager, args: &[Value]) -> [Value; 7] {
-    let prompt = args[0];
+pub(crate) fn read_buffer_completing_args(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    args: &[Value],
+) -> [Value; 7] {
     let default =
         normalize_buffer_reader_default(buffers, args.get(1).copied().unwrap_or(Value::NIL));
+    let prompt = read_buffer_prompt(obarray, args[0], default);
     let require_match = args.get(2).copied().unwrap_or(Value::NIL);
     let predicate = args.get(3).copied().unwrap_or(Value::NIL);
 

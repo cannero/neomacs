@@ -3528,10 +3528,16 @@ pub(crate) fn builtin_local_variable_if_set_p(
             crate::emacs_core::custom::builtin_local_variable_p(ctx, args)
         }
         SymbolRedirect::Forwarded => {
-            // GNU returns Qt unconditionally for BUFFER_OBJFWD
-            // slots since they auto-localize on set
-            // (data.c:2459).
-            Ok(Value::bool_val(ctx.obarray.is_buffer_local(&resolved)))
+            // GNU `local-variable-if-set-p` returns t for BUFFER_OBJFWD
+            // symbols because setting them auto-localizes the per-buffer slot
+            // (`data.c:2458-2460`). Other forwarder kinds are not
+            // buffer-local variables.
+            let is_buffer_objfwd = {
+                use crate::emacs_core::forward::LispFwdType;
+                let fwd = unsafe { &*sym.val.fwd };
+                matches!(fwd.ty, LispFwdType::BufferObj)
+            };
+            Ok(Value::bool_val(is_buffer_objfwd))
         }
         _ => Ok(Value::NIL),
     }

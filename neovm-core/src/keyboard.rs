@@ -3136,11 +3136,7 @@ impl crate::emacs_core::eval::Context {
                     {
                         if let Some(s) = desc.as_utf8_str() {
                             let echo_msg = format!("{}-", s);
-                            let _ = crate::emacs_core::builtins::dispatch_builtin(
-                                self,
-                                "message",
-                                vec![Value::string(echo_msg)],
-                            );
+                            self.set_current_message(Some(LispString::from_utf8(&echo_msg)));
                         }
                     }
                 }

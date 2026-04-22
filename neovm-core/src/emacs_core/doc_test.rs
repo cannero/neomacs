@@ -924,6 +924,30 @@ fn documentation_property_eval_load_path_integer_property_returns_string() {
 }
 
 #[test]
+fn documentation_property_eval_fill_column_uses_full_gnu_per_buffer_doc() {
+    crate::test_utils::init_test_tracing();
+    let mut evaluator = super::super::eval::Context::new();
+    let result = builtin_documentation_property(
+        &mut evaluator,
+        vec![
+            Value::symbol("fill-column"),
+            Value::symbol("variable-documentation"),
+            Value::T,
+        ],
+    )
+    .unwrap();
+    let doc = result
+        .as_utf8_str()
+        .expect("fill-column documentation-property should return a string");
+
+    assert!(doc.contains("automatic line-wrapping"));
+    assert!(doc.contains("fill-region"));
+    assert!(doc.contains("current-fill-column"));
+    assert!(doc.contains("\\[set-fill-column]"));
+    assert!(!doc.contains("\\\\[set-fill-column]"));
+}
+
+#[test]
 fn documentation_property_eval_load_path_raw_t_preserves_ascii_quotes() {
     crate::test_utils::init_test_tracing();
     let mut evaluator = super::super::eval::Context::new();

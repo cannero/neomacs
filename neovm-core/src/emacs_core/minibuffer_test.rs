@@ -50,6 +50,7 @@ fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
     let mut eval = crate::emacs_core::eval::Context::new();
     let buf_id = eval.buffers.create_buffer(" target-buffer ");
     let args = read_buffer_completing_args(
+        &eval.obarray,
         &eval.buffers,
         &[
             Value::string("Buffer: "),
@@ -58,12 +59,47 @@ fn read_buffer_completing_args_use_live_buffer_names_and_normalized_default() {
             Value::symbol("predicate"),
         ],
     );
-    assert_eq!(args[0], Value::string("Buffer: "));
+    assert_eq!(args[0], Value::string("Buffer (default  target-buffer ): "));
     assert_eq!(args[2], Value::symbol("predicate"));
     assert_eq!(args[3], Value::T);
     assert_eq!(args[6], Value::string(" target-buffer "));
     let names = super::value_to_string_list(&args[1]);
     assert!(names.contains(&" target-buffer ".to_string()));
+}
+
+#[test]
+fn read_buffer_completing_args_formats_default_prompt_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.obarray
+        .set_symbol_value("minibuffer-default-prompt-format", Value::string(" [%s]"));
+
+    let with_default = read_buffer_completing_args(
+        &eval.obarray,
+        &eval.buffers,
+        &[
+            Value::string("Switch to buffer: "),
+            Value::string("*Messages*"),
+        ],
+    );
+    assert_eq!(
+        with_default[0],
+        Value::string("Switch to buffer [*Messages*]: ")
+    );
+
+    let without_default = read_buffer_completing_args(
+        &eval.obarray,
+        &eval.buffers,
+        &[Value::string("Switch to buffer: "), Value::NIL],
+    );
+    assert_eq!(without_default[0], Value::string("Switch to buffer: "));
+
+    let empty_default = read_buffer_completing_args(
+        &eval.obarray,
+        &eval.buffers,
+        &[Value::string("Switch to buffer: "), Value::string("")],
+    );
+    assert_eq!(empty_default[0], Value::string("Switch to buffer: "));
 }
 
 #[test]

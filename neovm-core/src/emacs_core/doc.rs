@@ -8013,7 +8013,8 @@ fn documentation_property_plan(
 
     match obarray.get_property(sym, prop) {
         Some(value) if startup_variable_doc_offset_symbol(sym, prop, &value) => {
-            let base_doc = startup_variable_doc_stub(sym)
+            let base_doc = super::var_docs::lookup(sym)
+                .or_else(|| startup_variable_doc_stub(sym))
                 .map(ToString::to_string)
                 .unwrap_or_else(|| format!("{sym} is a variable defined in `C source code`."));
             let doc = if raw {

@@ -3977,8 +3977,11 @@ impl<'a> Vm<'a> {
 
     fn builtin_read_buffer_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::minibuffer::builtin_read_buffer_in_runtime(self.ctx, args)?;
-        let completing_args =
-            crate::emacs_core::minibuffer::read_buffer_completing_args(&self.ctx.buffers, args);
+        let completing_args = crate::emacs_core::minibuffer::read_buffer_completing_args(
+            &self.ctx.obarray,
+            &self.ctx.buffers,
+            args,
+        );
         self.builtin_completing_read_shared(&completing_args)
     }
 

@@ -40,15 +40,12 @@ import sys
 from pathlib import Path
 
 
-# Match the start of a DEFVAR_* declaration. We capture the name
-# (group 1) and the variant (group 2) for diagnostic purposes.
-# The DEFVAR may span multiple lines; we just need the name and a
-# pointer to the position right after the C-variable identifier.
+# Match the start of a DEFVAR_* declaration.  DEFVAR_PER_BUFFER can use
+# expressions such as `&BVAR (current_buffer, fill_column)' for the C storage
+# argument, so don't try to parse the argument list here.  We only need the
+# Lisp variable name plus a bounded search for the following `doc: /* ... */`.
 DEFVAR_HEAD = re.compile(
     r'\bDEFVAR_(LISP|BOOL|INT|KBOARD|LISP_NOPRO|PER_BUFFER)\s*\(\s*"([^"]+)"\s*,'
-    r'\s*[A-Za-z_][A-Za-z0-9_]*'   # C variable name
-    r'(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*'  # optional extra args (DEFVAR_PER_BUFFER)
-    r'\s*,',
 )
 
 
@@ -67,13 +64,43 @@ def find_doc_block(text: str, start: int) -> tuple[str | None, int]:
     body_end = text.find("*/", body_start)
     if body_end == -1:
         return None, start
-    body = text[body_start:body_end]
+    body = unescape_doc_comment(text[body_start:body_end])
     # Strip leading/trailing single space (matches make-docfile.c).
     if body.startswith(" "):
         body = body[1:]
     if body.endswith(" "):
         body = body[:-1]
     return body.rstrip(), body_end + 2
+
+
+def unescape_doc_comment(text: str) -> str:
+    r"""Mirror GNU make-docfile's `read_c_string_or_comment` escape handling.
+
+    For `doc: /* ... */` comments, make-docfile consumes a backslash and emits
+    the following character verbatim except for `\n`, `\t`, and escaped
+    newlines.  In particular, C source `\\[command]` becomes Emacs doc text
+    `\[command]` so `substitute-command-keys` can replace it.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        i += 1
+        if ch != "\\" or i >= len(text):
+            out.append(ch)
+            continue
+
+        escaped = text[i]
+        i += 1
+        if escaped in "\n\r":
+            continue
+        if escaped == "n":
+            out.append("\n")
+        elif escaped == "t":
+            out.append("\t")
+        else:
+            out.append(escaped)
+    return "".join(out)
 
 
 def extract_defvars(src: str) -> list[tuple[str, str]]:
@@ -128,6 +155,7 @@ def emit_rust(entries: list[tuple[str, str]], output: Path) -> None:
         "//",
         "// Variables don't have an `(fn ARGS)' suffix -- only DEFUNs do.",
         "",
+        "#[rustfmt::skip]",
         "pub(crate) static GNU_VAR_DOCS: &[(&str, &str)] = &[",
     ]
     for name, doc in entries_sorted:

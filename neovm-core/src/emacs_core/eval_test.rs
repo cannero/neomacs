@@ -1824,6 +1824,55 @@ fn read_key_sequence_continues_through_pending_suffix_translation_prefix() {
 }
 
 #[test]
+fn read_key_sequence_prefix_echo_does_not_log_to_messages_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let global_map = crate::emacs_core::keymap::make_sparse_list_keymap();
+    ev.assign("global-map", global_map);
+    ev.eval_str(
+        r#"(fset 'neomacs-test-prefix-target-command
+                  (lambda () (interactive) 'ok))"#,
+    )
+    .expect("setup prefix target command");
+
+    let sequence =
+        crate::keyboard::KeySequence::from_description("C-x C-f").expect("C-x C-f key sequence");
+    let events = sequence
+        .events
+        .iter()
+        .map(crate::keyboard::KeyEvent::to_emacs_event_value)
+        .collect::<Vec<_>>();
+    crate::emacs_core::keymap::list_keymap_define_seq(
+        global_map,
+        &events,
+        Value::symbol("neomacs-test-prefix-target-command"),
+    )
+    .expect("define prefix command");
+    for event in events {
+        ev.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(event);
+    }
+
+    let (_keys, binding) = ev.read_key_sequence().expect("read prefixed key sequence");
+    assert_eq!(binding, Value::symbol("neomacs-test-prefix-target-command"));
+    assert!(
+        ev.current_message_text()
+            .is_some_and(|message| message.contains("C-x-")),
+        "prefix echo should still update the echo area"
+    );
+    if let Some(messages_id) = ev.buffers.find_buffer_by_name("*Messages*") {
+        let messages = ev.buffers.get(messages_id).expect("*Messages* live");
+        assert!(
+            !messages.buffer_string().contains("C-x-"),
+            "GNU prefix-key echo uses message3_nolog and must not log to *Messages*"
+        );
+    }
+}
+
+#[test]
 fn read_key_sequence_shift_translates_uppercase_binding() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -5117,13 +5166,15 @@ fn local_variable_if_set_p_follows_alias_and_contract_semantics() {
            (condition-case err (local-variable-if-set-p 'x (current-buffer)) (error err))
            (condition-case err (local-variable-if-set-p 'x 1) (error err))
            (condition-case err (local-variable-if-set-p 'x (current-buffer) nil)
-             (error err)))",
+             (error err)))
+         (local-variable-if-set-p 'fill-column)",
     );
     assert_eq!(results[0], "OK (t t)");
     assert_eq!(
         results[1],
         "OK (nil nil nil (wrong-type-argument symbolp 1) nil nil nil (wrong-number-of-arguments local-variable-if-set-p 3))"
     );
+    assert_eq!(results[2], "OK t");
 }
 
 #[test]

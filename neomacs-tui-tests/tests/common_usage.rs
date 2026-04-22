@@ -1134,6 +1134,66 @@ fn find_file_other_window_via_cx4_cf() {
 }
 
 #[test]
+fn switch_to_buffer_other_window_via_cx4_b_displays_messages() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "other window buffer switch")"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    send_both(&mut gnu, &mut neo, "C-x 4 b");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Switch to buffer in other window"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let expected_prompt = "Switch to buffer in other window (default *Messages*): ";
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains(expected_prompt)),
+            "{label} should show read-buffer's default in the prompt\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "switch_to_buffer_other_window_via_cx4_b_displays_messages/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"*Messages*");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && grid.iter().any(|row| row.contains("*Messages*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("other window buffer switch"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "switch_to_buffer_other_window_via_cx4_b_displays_messages",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "split-window.txt", "split line 1\nsplit line 2\n");
@@ -3197,6 +3257,38 @@ fn indent_region_elisp_via_cmeta_backslash() {
 }
 
 #[test]
+fn eval_last_sexp_via_cx_ce_prints_echo_area_value() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both_raw(&mut gnu, &mut neo, b"(+ 40 2)");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-e");
+
+    let ready = |grid: &[String]| grid.iter().rev().take(4).any(|row| row.contains("42"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("(+ 40 2)")),
+            "{label} should keep the evaluated sexp in the buffer"
+        );
+        assert!(
+            grid.iter().rev().take(4).any(|row| row.contains("42")),
+            "{label} should show eval-last-sexp's value in the echo area"
+        );
+    }
+    assert_pair_nearly_matches(
+        "eval_last_sexp_via_cx_ce_prints_echo_area_value",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn shell_command_via_mbang_displays_short_output() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -3448,6 +3540,55 @@ fn describe_function_find_file_via_ch_f() {
             "{label} describe-function should mention C-x C-f"
         );
     }
+}
+
+#[test]
+fn describe_variable_fill_column_via_ch_v() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "v");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Describe variable"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "describe_variable_fill_column_via_ch_v/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"fill-column");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("fill-column is a variable"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Help*")),
+            "{label} should show *Help* after C-h v"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("fill-column is a variable")),
+            "{label} describe-variable should mention fill-column"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("70")),
+            "{label} describe-variable should show fill-column's default value"
+        );
+    }
+    assert_top_rows_nearly_match("describe_variable_fill_column_via_ch_v", &gnu, &neo, 18, 3);
 }
 
 #[test]
