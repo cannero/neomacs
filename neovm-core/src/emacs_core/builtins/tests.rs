@@ -9190,6 +9190,57 @@ fn prin1_to_string_respects_print_overrides_for_control_characters() {
 }
 
 #[test]
+fn prin1_loaddefs_docstring_layout_matches_gnu_print_form() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (progn
+              (erase-buffer)
+              (let ((def (list 'autoload
+                               (list 'quote 'ebrowse-tags-find-declaration)
+                               "ebrowse"
+                               "Find declaration of member at point."
+                               t))
+                    (n 0))
+                (insert "(")
+                (while (< n 3)
+                  (prin1 (car def) (current-buffer)
+                         '(t (escape-newlines . t)
+                             (escape-control-characters . t)))
+                  (setq def (cdr def))
+                  (insert " ")
+                  (setq n (1+ n)))
+                (let ((start (point)))
+                  (prin1 (car def) (current-buffer) t)
+                  (setq def (cdr def))
+                  (save-excursion
+                    (goto-char (1+ start))
+                    (insert "\\
+")))
+                (while def
+                  (insert " ")
+                  (prin1 (car def) (current-buffer)
+                         '(t (escape-newlines . t)
+                             (escape-control-characters . t)))
+                  (setq def (cdr def)))
+                (insert ")")
+                (buffer-string)))
+            "#,
+        )
+        .expect("GNU loaddefs print-form pattern should evaluate");
+
+    assert_eq!(
+        result,
+        Value::string(
+            "(autoload 'ebrowse-tags-find-declaration \"ebrowse\" \"\\\nFind declaration of member at point.\" t)"
+        )
+    );
+}
+
+#[test]
 fn prin1_to_string_respects_print_gensym_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

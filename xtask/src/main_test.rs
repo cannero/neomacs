@@ -94,6 +94,46 @@ fn inject_no_byte_compile_matches_loaddefs_boot_intent() {
 }
 
 #[test]
+fn validate_primary_loaddefs_accepts_gnu_docstring_layout() {
+    let contents = format!(
+        "\
+;;; loaddefs.el --- generated
+
+{}
+
+\x0c
+;;; End of scraped data
+;; Local Variables:
+;; End:
+",
+        GNU_EBROWSE_DECLARATION_AUTOLOAD
+    );
+
+    validate_primary_loaddefs_contents(&contents).unwrap();
+}
+
+#[test]
+fn validate_primary_loaddefs_rejects_moved_docstring_layout() {
+    let contents = "\
+;;; loaddefs.el --- generated
+
+(autoload 'ebrowse-tags-find-declaration \"ebrowse\" \"\\
+ t)
+
+Find declaration of member at point.\"\x0c
+;;; End of scraped data
+;; Local Variables:
+;; End:
+";
+
+    let err = validate_primary_loaddefs_contents(contents).unwrap_err();
+    assert!(
+        err.to_string().contains("moved an ebrowse docstring"),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
 fn compile_first_args_match_gnu_non_native_shape() {
     let args = compile_first_args_for_source(false, Path::new("/tmp/macroexp.el"));
     assert_eq!(

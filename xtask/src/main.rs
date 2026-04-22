@@ -309,6 +309,7 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         loaddefs_el.display()
     ));
     if !options.dry_run {
+        validate_primary_loaddefs(&loaddefs_el)?;
         write_ldefs_boot(&loaddefs_el, &ldefs_boot)?;
     }
 
@@ -990,6 +991,44 @@ fn write_ldefs_boot(loaddefs_el: &Path, ldefs_boot: &Path) -> Result<()> {
     let input = fs::read_to_string(loaddefs_el)?;
     let output = inject_no_byte_compile(&input);
     fs::write(ldefs_boot, output)?;
+    Ok(())
+}
+
+const LOADDEFS_END_BOUNDARY: &str = "\n\x0c\n;;; End of scraped data";
+const GNU_EBROWSE_DECLARATION_AUTOLOAD: &str = concat!(
+    "(autoload 'ebrowse-tags-find-declaration \"ebrowse\" \"\\",
+    "\nFind declaration of member at point.\" t)"
+);
+const MISPLACED_EBROWSE_DECLARATION_DOCSTRING: &str =
+    "Find declaration of member at point.\"\x0c\n;;; End of scraped data";
+
+fn validate_primary_loaddefs(loaddefs_el: &Path) -> Result<()> {
+    let contents = fs::read_to_string(loaddefs_el)
+        .map_err(|err| format!("read generated {}: {err}", loaddefs_el.display()))?;
+    validate_primary_loaddefs_contents(&contents).map_err(|err| -> DynError {
+        format!("validate generated {}: {err}", loaddefs_el.display()).into()
+    })
+}
+
+fn validate_primary_loaddefs_contents(contents: &str) -> Result<()> {
+    if contents.contains(MISPLACED_EBROWSE_DECLARATION_DOCSTRING) {
+        return Err("generated loaddefs.el moved an ebrowse docstring to the final page".into());
+    }
+
+    if !contents.contains(LOADDEFS_END_BOUNDARY) {
+        return Err(format!(
+            "generated loaddefs.el is missing GNU end boundary {:?}",
+            LOADDEFS_END_BOUNDARY
+        )
+        .into());
+    }
+
+    if !contents.contains(GNU_EBROWSE_DECLARATION_AUTOLOAD) {
+        return Err(
+            "generated loaddefs.el is missing GNU ebrowse autoload docstring layout".into(),
+        );
+    }
+
     Ok(())
 }
 
