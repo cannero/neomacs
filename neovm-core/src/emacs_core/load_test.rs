@@ -2605,6 +2605,47 @@ fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
 }
 
 #[test]
+fn bootstrap_minibuffer_complete_and_exit_accepts_exact_must_match_input() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let minibuf_id = eval.buffers.create_buffer(" *Minibuf-exact*");
+    {
+        let buf = eval.buffers.get_mut(minibuf_id).expect("minibuffer buffer");
+        crate::emacs_core::minibuffer::install_minibuffer_buffer_text(
+            buf,
+            &crate::heap_types::LispString::from_utf8("Insert buffer: "),
+            Some(&crate::heap_types::LispString::from_utf8(
+                "insert-buffer-source",
+            )),
+        );
+    }
+    eval.buffers.set_current(minibuf_id);
+    eval.minibuffers
+        .read_from_minibuffer(
+            minibuf_id,
+            "Insert buffer: ",
+            Some("insert-buffer-source"),
+            None,
+        )
+        .expect("enter minibuffer");
+    eval.assign(
+        "minibuffer-completion-table",
+        Value::list(vec![Value::string("insert-buffer-source")]),
+    );
+    eval.assign("minibuffer-completion-predicate", Value::NIL);
+    eval.assign("minibuffer-completion-confirm", Value::NIL);
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(catch 'exit
+             (minibuffer-complete-and-exit)
+             'no-exit)"#,
+    );
+    assert_eq!(rendered, "OK nil");
+}
+
+#[test]
 fn bootstrap_runtime_global_obarray_proxy_preserves_completion_semantics() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

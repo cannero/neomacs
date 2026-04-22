@@ -679,6 +679,14 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
     eval: &mut super::eval::Context,
     args: &[Value],
 ) -> EvalResult {
+    finish_read_from_minibuffer_in_eval_with_setup(eval, args, |_| Ok(Value::NIL))
+}
+
+fn finish_read_from_minibuffer_in_eval_with_setup(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+    mut run_before_setup_hook: impl FnMut(&mut super::eval::Context) -> EvalResult,
+) -> EvalResult {
     let eval_ptr = std::ptr::NonNull::from(&mut *eval);
     let command_loop_depth = eval.recursive_command_loop_depth();
     finish_read_from_minibuffer_in_state_with_recursive_edit(
@@ -691,11 +699,9 @@ pub(crate) fn finish_read_from_minibuffer_in_eval(
         command_loop_depth,
         args,
         move || unsafe {
-            eval_ptr
-                .as_ptr()
-                .as_mut()
-                .unwrap()
-                .run_hook_if_bound("minibuffer-setup-hook")
+            let eval = eval_ptr.as_ptr().as_mut().unwrap();
+            run_before_setup_hook(eval)?;
+            eval.run_hook_if_bound("minibuffer-setup-hook")
         },
         move || unsafe {
             match eval_ptr
@@ -1129,22 +1135,28 @@ pub(crate) fn finish_completing_read_in_eval(
 ) -> EvalResult {
     let minibuffer_args = completing_read_minibuffer_args(eval.obarray(), args);
     let collection = args[1];
-    eval.assign("minibuffer-completion-table", collection);
     let predicate = args.get(2).copied().unwrap_or(Value::NIL);
-    eval.assign("minibuffer-completion-predicate", predicate);
     let require_match = args.get(3).copied().unwrap_or(Value::NIL);
-    eval.assign(
-        "minibuffer-completion-confirm",
-        completion_confirm_from_require_match(require_match),
-    );
+    let original_buffer = eval
+        .buffers
+        .current_buffer_id()
+        .map(Value::make_buffer)
+        .unwrap_or(Value::NIL);
+    let completion_ignore_case = eval
+        .eval_symbol("completion-ignore-case")
+        .unwrap_or(Value::NIL);
 
-    let result = finish_read_from_minibuffer_in_eval(eval, &minibuffer_args);
-
-    eval.assign("minibuffer-completion-table", Value::NIL);
-    eval.assign("minibuffer-completion-predicate", Value::NIL);
-    eval.assign("minibuffer-completion-confirm", Value::NIL);
-
-    result
+    finish_read_from_minibuffer_in_eval_with_setup(eval, &minibuffer_args, move |eval| {
+        install_completing_read_minibuffer_locals(
+            eval,
+            collection,
+            predicate,
+            require_match,
+            original_buffer,
+            completion_ignore_case,
+        );
+        Ok(Value::NIL)
+    })
 }
 
 pub(crate) fn builtin_completing_read_in_runtime(
@@ -1235,6 +1247,14 @@ pub(crate) fn finish_completing_read_in_state_with_minibuffer(
 pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     shared: &mut super::eval::Context,
     args: &[Value],
+) -> EvalResult {
+    finish_read_from_minibuffer_in_vm_runtime_with_setup(shared, args, |_| Ok(Value::NIL))
+}
+
+fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
+    shared: &mut super::eval::Context,
+    args: &[Value],
+    mut run_before_setup_hook: impl FnMut(&mut super::eval::Context) -> EvalResult,
 ) -> EvalResult {
     builtin_read_from_minibuffer_in_runtime(shared, args)?;
 
@@ -1333,6 +1353,7 @@ pub(crate) fn finish_read_from_minibuffer_in_vm_runtime(
     shared
         .obarray
         .set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
+    run_before_setup_hook(shared)?;
     shared.run_hook_if_bound("minibuffer-setup-hook")?;
 
     let gc_roots = shared.save_specpdl_roots();
@@ -1422,57 +1443,29 @@ pub(crate) fn finish_completing_read_in_vm_runtime(
 ) -> EvalResult {
     builtin_completing_read_in_runtime(shared, args)?;
     let minibuffer_args = completing_read_minibuffer_args(&shared.obarray, args);
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-table"),
-        args[1],
-    );
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-predicate"),
-        args.get(2).copied().unwrap_or(Value::NIL),
-    );
+    let collection = args[1];
+    let predicate = args.get(2).copied().unwrap_or(Value::NIL);
     let require_match = args.get(3).copied().unwrap_or(Value::NIL);
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-confirm"),
-        completion_confirm_from_require_match(require_match),
-    );
-    let result = finish_read_from_minibuffer_in_vm_runtime(shared, &minibuffer_args);
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-table"),
-        Value::NIL,
-    );
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-predicate"),
-        Value::NIL,
-    );
-    let _ = crate::emacs_core::eval::set_runtime_binding(
-        &mut shared.obarray,
-        &mut shared.buffers,
-        &shared.custom,
-        shared.specpdl.as_slice(),
-        intern("minibuffer-completion-confirm"),
-        Value::NIL,
-    );
-    result
+    let original_buffer = shared
+        .buffers
+        .current_buffer_id()
+        .map(Value::make_buffer)
+        .unwrap_or(Value::NIL);
+    let completion_ignore_case = shared
+        .eval_symbol("completion-ignore-case")
+        .unwrap_or(Value::NIL);
+
+    finish_read_from_minibuffer_in_vm_runtime_with_setup(shared, &minibuffer_args, move |shared| {
+        install_completing_read_minibuffer_locals(
+            shared,
+            collection,
+            predicate,
+            require_match,
+            original_buffer,
+            completion_ignore_case,
+        );
+        Ok(Value::NIL)
+    })
 }
 
 /// Map the `REQUIRE-MATCH` argument of `completing-read` to the value
@@ -1491,6 +1484,34 @@ fn completion_confirm_from_require_match(require_match: Value) -> Value {
         require_match
     } else {
         Value::NIL
+    }
+}
+
+fn install_completing_read_minibuffer_locals(
+    eval: &mut super::eval::Context,
+    collection: Value,
+    predicate: Value,
+    require_match: Value,
+    original_buffer: Value,
+    completion_ignore_case: Value,
+) {
+    let Some(current_id) = eval.buffers.current_buffer_id() else {
+        return;
+    };
+    for (name, value) in [
+        ("minibuffer-completion-table", collection),
+        ("minibuffer-completion-predicate", predicate),
+        (
+            "minibuffer-completion-confirm",
+            completion_confirm_from_require_match(require_match),
+        ),
+        ("minibuffer--require-match", require_match),
+        ("minibuffer--original-buffer", original_buffer),
+        ("completion-ignore-case", completion_ignore_case),
+    ] {
+        let _ = eval
+            .buffers
+            .set_buffer_local_property_by_sym_id(current_id, intern(name), value);
     }
 }
 

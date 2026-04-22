@@ -1403,6 +1403,218 @@ fn insert_file_via_cx_i_inserts_contents_at_point() {
 }
 
 #[test]
+fn find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "read-only-toggle.txt",
+        "original read-only body\n",
+        "C-x C-r",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "readonly:%S" buffer-read-only)"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let readonly_ready = |grid: &[String]| grid.iter().any(|row| row.contains("readonly:t"));
+    gnu.read_until(Duration::from_secs(6), readonly_ready);
+    neo.read_until(Duration::from_secs(8), readonly_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq/readonly",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-q");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"edited line\n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq",
+        &mut gnu,
+        &mut neo,
+        "read-only-toggle.txt",
+        "edited line\noriginal read-only body\n",
+    );
+    assert_pair_nearly_matches(
+        "find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn append_to_file_via_mx_appends_region_to_existing_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "append-to-file-dest.txt", "existing header\n");
+    write_home_file(&neo, "append-to-file-dest.txt", "existing header\n");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "append-to-file-source.txt",
+        "region alpha\nregion beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "append-to-file");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Append to file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/append-to-file-dest.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let expected = "existing header\nregion alpha\nregion beta\n";
+    let gnu_dest = gnu.home_dir().join("append-to-file-dest.txt");
+    let neo_dest = neo.home_dir().join("append-to-file-dest.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        let gnu_saved = fs::read_to_string(&gnu_dest).ok().as_deref() == Some(expected);
+        let neo_saved = fs::read_to_string(&neo_dest).ok().as_deref() == Some(expected);
+        if gnu_saved && neo_saved {
+            break;
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(&gnu_dest).expect("read GNU append destination"),
+        expected
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_dest).expect("read Neo append destination"),
+        expected
+    );
+    assert_pair_nearly_matches(
+        "append_to_file_via_mx_appends_region_to_existing_file",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn copy_to_buffer_via_mx_replaces_target_buffer_contents() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "copy-to-buffer-source.txt",
+        "copy alpha\ncopy beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "copy-to-buffer");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Copy to buffer:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"copy-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"copy-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("copy-to-buffer-target"))
+            && grid.iter().any(|row| row.contains("copy alpha"))
+            && grid.iter().any(|row| row.contains("copy beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "copy_to_buffer_via_mx_replaces_target_buffer_contents",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn insert_buffer_via_cx_x_i_inserts_named_buffer_contents() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"insert-buffer-source");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let source_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("insert-buffer-source"));
+    gnu.read_until(Duration::from_secs(6), source_ready);
+    neo.read_until(Duration::from_secs(8), source_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"source alpha\nsource beta\n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"insert-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let target_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("insert-buffer-target"));
+    gnu.read_until(Duration::from_secs(6), target_ready);
+    neo.read_until(Duration::from_secs(8), target_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"target header\n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x x i");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Insert buffer:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"insert-buffer-source");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("insert-buffer-target"))
+            && grid.iter().any(|row| row.contains("target header"))
+            && grid.iter().any(|row| row.contains("source alpha"))
+            && grid.iter().any(|row| row.contains("source beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "insert_buffer_via_cx_x_i_inserts_named_buffer_contents",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn find_alternate_file_via_cx_cv_replaces_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "alternate-new.txt", "new alternate body\n");
