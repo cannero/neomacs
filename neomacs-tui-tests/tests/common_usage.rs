@@ -641,6 +641,192 @@ fn dired_find_file_via_ret_visits_current_file() {
 }
 
 #[test]
+fn dired_copy_current_file_via_c_copies_file_and_updates_listing() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("copy");
+    let alpha = dir.join("alpha.txt");
+    let alpha_copy = dir.join("alpha-copy.txt");
+    let alpha_copy_path = alpha_copy.to_string_lossy().into_owned();
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+    dired_goto_file(&mut gnu, &mut neo, &alpha);
+
+    gnu.send_keys("C");
+    let copy_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Copy") && row.contains("alpha.txt") && row.contains("to:"))
+    };
+    gnu.read_until(Duration::from_secs(6), copy_prompt);
+    gnu.send(alpha_copy_path.as_bytes());
+    gnu.send_keys("RET");
+    let copy_ready = |grid: &[String]| grid.iter().any(|row| row.contains("alpha-copy.txt"));
+    gnu.read_until(Duration::from_secs(10), copy_ready);
+    gnu.read(Duration::from_secs(1));
+    assert_eq!(
+        fs::read_to_string(&alpha_copy).expect("GNU should copy dired file"),
+        "alpha body\n"
+    );
+
+    fs::remove_file(&alpha_copy).expect("reset copied file before Neomacs operation");
+
+    neo.send_keys("C");
+    neo.read_until(Duration::from_secs(8), copy_prompt);
+    neo.send(alpha_copy_path.as_bytes());
+    neo.send_keys("RET");
+    neo.read_until(Duration::from_secs(12), copy_ready);
+    neo.read(Duration::from_secs(1));
+    assert_eq!(
+        fs::read_to_string(&alpha_copy).expect("Neomacs should copy dired file"),
+        "alpha body\n"
+    );
+
+    assert_pair_nearly_matches(
+        "dired_copy_current_file_via_c_copies_file_and_updates_listing",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn dired_rename_current_file_via_r_moves_file_and_updates_listing() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("rename");
+    let beta = dir.join("beta.org");
+    let beta_renamed = dir.join("beta-renamed.org");
+    let beta_renamed_path = beta_renamed.to_string_lossy().into_owned();
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+    dired_goto_file(&mut gnu, &mut neo, &beta);
+
+    gnu.send_keys("R");
+    let rename_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Rename") && row.contains("beta.org") && row.contains("to:"))
+    };
+    gnu.read_until(Duration::from_secs(6), rename_prompt);
+    gnu.send(beta_renamed_path.as_bytes());
+    gnu.send_keys("RET");
+    let rename_ready = |grid: &[String]| grid.iter().any(|row| row.contains("beta-renamed.org"));
+    gnu.read_until(Duration::from_secs(10), rename_ready);
+    gnu.read(Duration::from_secs(1));
+    assert!(
+        beta_renamed.exists() && !beta.exists(),
+        "GNU should rename beta.org to beta-renamed.org"
+    );
+
+    fs::rename(&beta_renamed, &beta).expect("reset renamed file before Neomacs operation");
+
+    neo.send_keys("R");
+    neo.read_until(Duration::from_secs(8), rename_prompt);
+    neo.send(beta_renamed_path.as_bytes());
+    neo.send_keys("RET");
+    neo.read_until(Duration::from_secs(12), rename_ready);
+    neo.read(Duration::from_secs(1));
+    assert!(
+        beta_renamed.exists() && !beta.exists(),
+        "Neomacs should rename beta.org to beta-renamed.org"
+    );
+
+    assert_pair_nearly_matches(
+        "dired_rename_current_file_via_r_moves_file_and_updates_listing",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn dired_delete_current_file_via_d_confirms_and_removes_listing() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("delete");
+    let zeta = dir.join("zeta.log");
+
+    open_shared_dired(&mut gnu, &mut neo, &dir);
+    dired_goto_file(&mut gnu, &mut neo, &zeta);
+
+    gnu.send_keys("D");
+    let delete_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Delete") && row.contains("zeta.log"))
+    };
+    gnu.read_until(Duration::from_secs(6), delete_prompt);
+    gnu.send(b"yes");
+    gnu.send_keys("RET");
+    let delete_ready = |grid: &[String]| !grid.iter().any(|row| row.contains("zeta.log"));
+    gnu.read_until(Duration::from_secs(10), delete_ready);
+    gnu.read(Duration::from_secs(1));
+    assert!(!zeta.exists(), "GNU should delete zeta.log from disk");
+
+    fs::write(&zeta, "zeta body\n").expect("reset deleted file before Neomacs operation");
+
+    neo.send_keys("D");
+    neo.read_until(Duration::from_secs(8), delete_prompt);
+    neo.send(b"yes");
+    neo.send_keys("RET");
+    neo.read_until(Duration::from_secs(12), delete_ready);
+    neo.read(Duration::from_secs(1));
+    assert!(!zeta.exists(), "Neomacs should delete zeta.log from disk");
+
+    assert_pair_nearly_matches(
+        "dired_delete_current_file_via_d_confirms_and_removes_listing",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn rename_buffer_via_cx_x_r_updates_current_buffer_name() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-x x r");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Rename buffer") && row.contains("to new name"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "rename_buffer_via_cx_x_r_updates_current_buffer_name/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"renamed-scratch");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let renamed_ready = |grid: &[String]| grid.iter().any(|row| row.contains("renamed-scratch"));
+    gnu.read_until(Duration::from_secs(6), renamed_ready);
+    neo.read_until(Duration::from_secs(8), renamed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "rename_buffer_via_cx_x_r_updates_current_buffer_name/renamed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-b");
+    let list_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Buffer List*"))
+            && grid.iter().any(|row| row.contains("renamed-scratch"))
+    };
+    gnu.read_until(Duration::from_secs(6), list_ready);
+    neo.read_until(Duration::from_secs(8), list_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "rename_buffer_via_cx_x_r_updates_current_buffer_name/list-buffers",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn list_buffers_after_find_file() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

@@ -244,6 +244,23 @@ pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
             Value::symbol("goto-char--read-natnum-interactive"),
             Value::string("Go to char: "),
         ]))),
+        "rename-buffer" => Some(interactive_form_from_spec_value(Value::list(vec![
+            Value::symbol("list"),
+            Value::list(vec![
+                Value::symbol("read-string"),
+                Value::string("Rename buffer (to new name): "),
+                Value::NIL,
+                Value::list(vec![
+                    Value::symbol("quote"),
+                    Value::symbol("buffer-name-history"),
+                ]),
+                Value::list(vec![
+                    Value::symbol("buffer-name"),
+                    Value::list(vec![Value::symbol("current-buffer")]),
+                ]),
+            ]),
+            Value::symbol("current-prefix-arg"),
+        ]))),
         "self-insert-command" => Some(interactive_form_from_spec_value(Value::list(vec![
             Value::symbol("list"),
             Value::list(vec![

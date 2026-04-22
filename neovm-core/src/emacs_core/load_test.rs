@@ -4866,6 +4866,43 @@ fn bootstrap_runtime_command_execute_autoloaded_describe_function_reads_prompt()
 }
 
 #[test]
+fn bootstrap_runtime_command_execute_rename_buffer_reads_gnu_interactive_form() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    for ch in "renamed-scratch".chars() {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(Value::fixnum(ch as i64));
+    }
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
+    );
+
+    let result = eval
+        .apply(
+            Value::symbol("command-execute"),
+            vec![Value::symbol("rename-buffer")],
+        )
+        .expect("command-execute should read rename-buffer args");
+    assert!(
+        result.is_string(),
+        "rename-buffer should return the new buffer name, got {result}"
+    );
+
+    let rendered = eval_rendered(&mut eval, r#"(buffer-name (current-buffer))"#);
+    assert_eq!(rendered, "OK \"renamed-scratch\"");
+}
+
+#[test]
 fn bootstrap_runtime_call_interactively_autoloaded_describe_function_reads_prompt_from_input_rx() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
