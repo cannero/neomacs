@@ -957,13 +957,21 @@ pub(crate) fn dump_symbol_table() -> DumpSymbolTable {
 
 // --- Symbol / Obarray ---
 
-pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> DumpSymbolData {
+pub(crate) fn dump_symbol_data(
+    encoder: &mut DumpEncoder,
+    sd: &LispSymbol,
+    dynamic_default: Option<Option<Value>>,
+) -> DumpSymbolData {
     // Phase I (pdump v21): encode redirect + flags directly.
     use crate::emacs_core::symbol::{SymbolInterned, SymbolRedirect};
     let redirect = sd.flags.redirect();
     let val = match redirect {
         SymbolRedirect::Plainval => {
-            let v = unsafe { sd.val.plain };
+            let v = match dynamic_default {
+                Some(Some(value)) => value,
+                Some(None) => Value::UNBOUND,
+                None => unsafe { sd.val.plain },
+            };
             // Preserve the UNBOUND sentinel — DumpValue::Unbound maps back to
             // Value::UNBOUND on load, which is the correct "unbound" state.
             DumpSymbolVal::Plain(encoder.dump_value(&v))
@@ -975,13 +983,18 @@ pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> Du
         SymbolRedirect::Localized => {
             // Read the BLV to get the global default and local_if_set flag.
             // The BLV is heap-allocated and valid while sd is alive.
-            let (default, local_if_set) = unsafe {
+            let (default_val, local_if_set) = unsafe {
                 let blv = &*sd.val.blv;
                 let default_val = blv.defcell.cons_cdr();
-                (encoder.dump_value(&default_val), blv.local_if_set)
+                (default_val, blv.local_if_set)
+            };
+            let default_val = match dynamic_default {
+                Some(Some(value)) => value,
+                Some(None) => Value::UNBOUND,
+                None => default_val,
             };
             DumpSymbolVal::Localized {
-                default,
+                default: encoder.dump_value(&default_val),
                 local_if_set,
             }
         }
@@ -1002,15 +1015,39 @@ pub(crate) fn dump_symbol_data(encoder: &mut DumpEncoder, sd: &LispSymbol) -> Du
     }
 }
 
-pub(crate) fn dump_obarray(encoder: &mut DumpEncoder, ob: &Obarray) -> DumpObarray {
+fn dynamic_default_for_dump(eval: &Context, sym_id: SymId) -> Option<Option<Value>> {
+    eval.specpdl.iter().find_map(|binding| match binding {
+        crate::emacs_core::eval::SpecBinding::Let {
+            sym_id: binding_sym,
+            old_value,
+        }
+        | crate::emacs_core::eval::SpecBinding::LetDefault {
+            sym_id: binding_sym,
+            old_value,
+        } if *binding_sym == sym_id => Some(*old_value),
+        _ => None,
+    })
+}
+
+pub(crate) fn dump_obarray(encoder: &mut DumpEncoder, eval: &Context) -> DumpObarray {
     DumpObarray {
-        symbols: ob
+        symbols: eval
+            .obarray
             .iter_symbols()
-            .map(|(id, sd)| (dump_sym_id(id), dump_symbol_data(encoder, sd)))
+            .map(|(id, sd)| {
+                (
+                    dump_sym_id(id),
+                    dump_symbol_data(encoder, sd, dynamic_default_for_dump(eval, id)),
+                )
+            })
             .collect(),
-        global_members: ob.global_member_ids().map(dump_sym_id).collect(),
-        function_unbound: ob.function_unbound_ids().map(dump_sym_id).collect(),
-        function_epoch: ob.function_epoch(),
+        global_members: eval.obarray.global_member_ids().map(dump_sym_id).collect(),
+        function_unbound: eval
+            .obarray
+            .function_unbound_ids()
+            .map(dump_sym_id)
+            .collect(),
+        function_epoch: eval.obarray.function_epoch(),
     }
 }
 
@@ -2046,7 +2083,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
         },
-        obarray: dump_obarray(&mut encoder, &eval.obarray),
+        obarray: dump_obarray(&mut encoder, eval),
         dynamic: Vec::new(),
         lexenv: encoder.dump_value(&eval.lexenv),
         features: eval.features.iter().copied().map(dump_sym_id).collect(),

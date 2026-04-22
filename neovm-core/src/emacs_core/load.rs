@@ -1153,9 +1153,6 @@ where
     F: FnOnce(&mut super::eval::Context) -> Result<Value, EvalError>,
 {
     let old_lexical = eval.lexical_binding();
-    let old_load_file = eval.obarray().symbol_value("load-file-name").cloned();
-    let old_load_true_file = eval.obarray().symbol_value("load-true-file-name").cloned();
-    let old_current_load_list = eval.obarray().symbol_value("current-load-list").cloned();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
     let old_macro_cache_disabled = eval.macro_cache_disabled;
 
@@ -1180,15 +1177,6 @@ where
     }
 
     let roots = eval.save_specpdl_roots();
-    if let Some(ref v) = old_load_file {
-        eval.push_specpdl_root(*v);
-    }
-    if let Some(ref v) = old_load_true_file {
-        eval.push_specpdl_root(*v);
-    }
-    if let Some(ref v) = old_current_load_list {
-        eval.push_specpdl_root(*v);
-    }
     if let Some(v) = old_reader_load_file {
         eval.push_specpdl_root(v);
     }
@@ -1199,9 +1187,13 @@ where
     eval.push_specpdl_root(load_true_file_value);
     let current_load_list = Value::cons(load_file_value, Value::NIL);
     eval.push_specpdl_root(current_load_list);
-    eval.set_variable("load-file-name", load_file_value);
-    eval.set_variable("load-true-file-name", load_true_file_value);
-    eval.set_variable("current-load-list", current_load_list);
+    // GNU Fload specbinds these (`lread.c`) so assignments inside the
+    // loaded file affect only the dynamic load context and unwind at load
+    // exit. This matters during pdump: the dumped top-level value must be the
+    // pre-load default, not the dynamic loadup.el filename.
+    eval.specbind(intern("load-file-name"), load_file_value);
+    eval.specbind(intern("load-true-file-name"), load_true_file_value);
+    eval.specbind(intern("current-load-list"), current_load_list);
     // Set the reader's #$ thread-local so value_reader produces the
     // actual file path string (matching GNU lread.c Vload_file_name).
     super::value_reader::set_reader_load_file_name(Some(load_file_value));
@@ -1220,23 +1212,9 @@ where
     eval.set_lexical_binding(old_lexical);
     // Restore lexenv via specpdl unbind_to, matching GNU's
     // readevalloop cleanup. This pops the LexicalEnv entry we
-    // pushed above, restoring self.lexenv to its pre-load value.
+    // pushed above, along with load-file-name/load-true-file-name/
+    // current-load-list dynamic bindings, restoring their pre-load values.
     eval.unbind_to(specpdl_count);
-    if let Some(old) = old_load_file {
-        eval.set_variable("load-file-name", old);
-    } else {
-        eval.set_variable("load-file-name", Value::NIL);
-    }
-    if let Some(old) = old_load_true_file {
-        eval.set_variable("load-true-file-name", old);
-    } else {
-        eval.set_variable("load-true-file-name", Value::NIL);
-    }
-    if let Some(old) = old_current_load_list {
-        eval.set_variable("current-load-list", old);
-    } else {
-        eval.set_variable("current-load-list", Value::NIL);
-    }
     eval.restore_specpdl_roots(roots);
 
     result
@@ -2096,8 +2074,9 @@ fn normalized_bootstrap_features(extra_features: &[&str]) -> Vec<String> {
 // Bump when bootstrap image semantics change in ways an older dump cannot
 // represent correctly. V16 invalidates older caches because category-table
 // ownership moved from a parallel manager into dumped Lisp objects. V18
-// refreshes caches after the GNU-matching `cl-lib` runtime surface fix.
-const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 18;
+// refreshes caches after the GNU-matching `cl-lib` runtime surface fix. V19
+// stops serializing dynamic load context bindings as top-level values.
+const BOOTSTRAP_IMAGE_SCHEMA_VERSION: u32 = 19;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadupDumpMode {

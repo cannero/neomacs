@@ -34,6 +34,28 @@ fn test_pdump_round_trip_basic() {
 }
 
 #[test]
+fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+
+    let sym = intern("pdump-dynamic-plain-var");
+    eval.obarray
+        .set_symbol_value_id(sym, Value::symbol("default-value"));
+    eval.specbind(sym, Value::symbol("dynamic-value"));
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("dynamic-plain.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    assert_eq!(
+        loaded.obarray.symbol_value_id(sym),
+        Some(&Value::symbol("default-value")),
+        "pdump must serialize the top-level value, not the active dynamic binding"
+    );
+}
+
+#[test]
 fn test_dump_symbol_data_bincode_round_trip() {
     crate::test_utils::init_test_tracing();
 

@@ -1063,6 +1063,16 @@ fn runtime_startup_state_clears_top_level_eval_state() {
         eval.top_level_eval_state_is_clean(),
         "runtime startup state should end at a clean top-level evaluator surface"
     );
+    assert_eq!(
+        eval.obarray().symbol_value("load-file-name"),
+        Some(&Value::NIL),
+        "runtime startup state should not retain loadup.el as load-file-name"
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("load-true-file-name"),
+        Some(&Value::NIL),
+        "runtime startup state should not retain loadup.el as load-true-file-name"
+    );
 }
 
 /// Legacy bootstrap load sequence, retained for partial-bootstrap test utilities.
