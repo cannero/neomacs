@@ -1278,6 +1278,192 @@ fn save_some_buffers_after_edit_via_cx_s() {
 }
 
 #[test]
+fn insert_file_via_cx_i_inserts_contents_at_point() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "insert-source.txt", "inserted alpha\ninserted beta\n");
+    write_home_file(&neo, "insert-source.txt", "inserted alpha\ninserted beta\n");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "insert-target.txt",
+        "target header\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x i");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Insert file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/insert-source.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("target header"))
+            && grid.iter().any(|row| row.contains("inserted alpha"))
+            && grid.iter().any(|row| row.contains("inserted beta"))
+            && grid.iter().any(|row| row.contains("insert-target.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "insert_file_via_cx_i_inserts_contents_at_point",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn find_alternate_file_via_cx_cv_replaces_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "alternate-new.txt", "new alternate body\n");
+    write_home_file(&neo, "alternate-new.txt", "new alternate body\n");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "alternate-old.txt",
+        "old alternate body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-v");
+    let prompt_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Find alternate file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "find_alternate_file_via_cx_cv_replaces_buffer/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a C-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/alternate-new.txt");
+    }
+    let typed_path = |grid: &[String]| grid.iter().any(|row| row.contains("alternate-new.txt"));
+    gnu.read_until(Duration::from_secs(6), typed_path);
+    neo.read_until(Duration::from_secs(8), typed_path);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "find_alternate_file_via_cx_cv_replaces_buffer/before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alternate-new.txt"))
+            && grid.iter().any(|row| row.contains("new alternate body"))
+            && !grid.iter().any(|row| row.contains("old alternate body"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "find_alternate_file_via_cx_cv_replaces_buffer",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn copy_to_register_and_insert_register_via_cx_r_s_i() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "register-usage.txt",
+        "alpha register\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC C-e C-x r s");
+    let copy_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Copy to register:"));
+    gnu.read_until(Duration::from_secs(6), copy_prompt);
+    neo.read_until(Duration::from_secs(8), copy_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-> C-x r i");
+    let insert_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Insert register:"));
+    gnu.read_until(Duration::from_secs(6), insert_prompt);
+    neo.read_until(Duration::from_secs(8), insert_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("register-usage.txt"))
+            && grid
+                .iter()
+                .filter(|row| row.contains("alpha register"))
+                .count()
+                >= 2
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "copy_to_register_and_insert_register_via_cx_r_s_i",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn kill_and_yank_rectangle_via_cx_r_k_y() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "rectangle-usage.txt",
+        "aa11xx\nbb22yy\ncc33zz\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-n C-f C-f C-x r k");
+    let killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aaxx"))
+            && grid.iter().any(|row| row.contains("bbyy"))
+            && grid.iter().any(|row| row.contains("cczz"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("kill_and_yank_rectangle_via_cx_r_k_y/kill", &gnu, &neo, 2);
+
+    send_both(&mut gnu, &mut neo, "C-x r y");
+    let yanked = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aa11xx"))
+            && grid.iter().any(|row| row.contains("bb22yy"))
+            && grid.iter().any(|row| row.contains("cc33zz"))
+    };
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("kill_and_yank_rectangle_via_cx_r_k_y/yank", &gnu, &neo, 2);
+}
+
+#[test]
 fn kill_buffer_after_find_file_via_cx_k() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
