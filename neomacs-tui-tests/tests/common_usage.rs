@@ -2037,6 +2037,80 @@ fn open_rectangle_via_cx_r_o_shifts_text_right() {
 }
 
 #[test]
+fn clear_rectangle_via_cx_r_c_blanks_selected_columns() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "clear-rectangle.txt",
+        "ab12zz\ncd34zz\nef56zz\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-n C-f C-f C-x r c");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("ab  zz"))
+            && grid.iter().any(|row| row.contains("cd  zz"))
+            && grid.iter().any(|row| row.contains("ef  zz"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "clear_rectangle_via_cx_r_c_blanks_selected_columns",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "clear_rectangle_via_cx_r_c_blanks_selected_columns",
+        &mut gnu,
+        &mut neo,
+        "clear-rectangle.txt",
+        "ab  zz\ncd  zz\nef  zz\n",
+    );
+}
+
+#[test]
+fn delete_rectangle_via_cx_r_d_shifts_suffix_left() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-rectangle.txt",
+        "ab12zz\ncd34zz\nef56zz\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-n C-f C-f C-x r d");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("abzz"))
+            && grid.iter().any(|row| row.contains("cdzz"))
+            && grid.iter().any(|row| row.contains("efzz"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_rectangle_via_cx_r_d_shifts_suffix_left",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "delete_rectangle_via_cx_r_d_shifts_suffix_left",
+        &mut gnu,
+        &mut neo,
+        "delete-rectangle.txt",
+        "abzz\ncdzz\nefzz\n",
+    );
+}
+
+#[test]
 fn string_rectangle_via_cx_r_t_replaces_columns() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -2074,6 +2148,43 @@ fn string_rectangle_via_cx_r_t_replaces_columns() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn rectangle_number_lines_via_cx_r_n_numbers_selected_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "rectangle-number-lines.txt",
+        "apple\nbanana\ncherry\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC C-n C-n C-x r N");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("1 apple"))
+            && grid.iter().any(|row| row.contains("2 banana"))
+            && grid.iter().any(|row| row.contains("3 cherry"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "rectangle_number_lines_via_cx_r_n_numbers_selected_lines",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "rectangle_number_lines_via_cx_r_n_numbers_selected_lines",
+        &mut gnu,
+        &mut neo,
+        "rectangle-number-lines.txt",
+        "1 apple\n2 banana\n3 cherry\n",
     );
 }
 
