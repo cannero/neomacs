@@ -2823,6 +2823,102 @@ fn forward_and_backward_sentence_via_me_ma() {
 }
 
 #[test]
+fn forward_and_backward_sexp_via_cmeta_f_b() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sexp-motion.el",
+        "(alpha beta) gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let forward_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("(alpha beta)X gamma"));
+    gnu.read_until(Duration::from_secs(6), forward_ready);
+    neo.read_until(Duration::from_secs(8), forward_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "DEL C-M-b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"^");
+
+    let backward_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("^(alpha beta) gamma"))
+            && !grid.iter().any(|row| row.contains("(alpha beta)X gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), backward_ready);
+    neo.read_until(Duration::from_secs(8), backward_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_and_backward_sexp_via_cmeta_f_b", &gnu, &neo, 2);
+}
+
+#[test]
+fn kill_sexp_via_cmeta_k_kills_following_expression() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-sexp.el",
+        "(alpha beta) gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-M-k");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("! gamma"))
+            && !grid.iter().any(|row| row.contains("(alpha beta) gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "kill_sexp_via_cmeta_k_kills_following_expression",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn mark_sexp_via_cmeta_spc_then_kill_region() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-sexp.el",
+        "(alpha beta) gamma\n",
+        "C-x C-f",
+    );
+
+    // C-M-SPC is ESC followed by C-@ (NUL) in a terminal.
+    send_both_raw(&mut gnu, &mut neo, b"\x1b\x00");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("! gamma"))
+            && !grid.iter().any(|row| row.contains("(alpha beta) gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("mark_sexp_via_cmeta_spc_then_kill_region", &gnu, &neo, 2);
+}
+
+#[test]
 fn open_line_via_co() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
