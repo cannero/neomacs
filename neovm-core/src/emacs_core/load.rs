@@ -2473,6 +2473,13 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
             .map(|(name, value)| Value::string(format!("{name}={value}")))
             .collect::<Vec<_>>(),
     );
+    {
+        let obarray = eval.obarray_mut();
+        obarray.make_special("initial-environment");
+        obarray.make_special("process-environment");
+    }
+    eval.set_variable("initial-environment", process_environment.clone());
+    eval.set_variable("process-environment", process_environment.clone());
     let system_name = super::builtins_extra::builtin_system_name(vec![])
         .unwrap_or_else(|_| Value::string("localhost"));
     let user_full_name = super::builtins_extra::builtin_user_full_name(vec![])
@@ -2497,8 +2504,6 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
         ("exec-directory", Value::NIL),
         ("configure-info-directory", Value::NIL),
         ("charset-map-path", Value::NIL),
-        ("initial-environment", process_environment.clone()),
-        ("process-environment", process_environment),
         ("path-separator", Value::string(path_separator)),
         ("file-name-coding-system", Value::NIL),
         ("default-file-name-coding-system", Value::NIL),

@@ -2757,8 +2757,12 @@ impl Context {
         // warnings.el defcustom — needed before warnings.el loads
         obarray.set_symbol_value("warning-minimum-log-level", Value::keyword(":warning"));
         obarray.set_symbol_value("warning-minimum-level", Value::keyword(":warning"));
+        // GNU callproc.c defines these with DEFVAR_LISP, so lexical-binding
+        // Lisp must treat them as dynamically scoped special variables.
         obarray.set_symbol_value("process-environment", Value::NIL);
+        obarray.make_special("process-environment");
         obarray.set_symbol_value("initial-environment", Value::NIL);
+        obarray.make_special("initial-environment");
         obarray.set_symbol_value("path-separator", Value::string(":"));
         obarray.set_symbol_value("shared-game-score-directory", Value::NIL);
         obarray.set_symbol_value("system-messages-locale", Value::NIL);

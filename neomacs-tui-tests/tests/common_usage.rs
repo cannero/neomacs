@@ -1260,6 +1260,60 @@ fn info_directory_via_ch_i_opens_info_buffer() {
 }
 
 #[test]
+fn calendar_via_mx_opens_calendar_and_q_quits() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "calendar");
+    let day_header_count = |grid: &[String]| {
+        grid.iter()
+            .map(|row| row.matches("Su Mo Tu We Th Fr Sa").count())
+            .sum::<usize>()
+    };
+    let calendar_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Calendar")) && day_header_count(grid) >= 3
+    };
+    gnu.read_until(Duration::from_secs(8), calendar_ready);
+    neo.read_until(Duration::from_secs(10), calendar_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !calendar_ready(&gnu.text_grid()) || !calendar_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "calendar_via_mx_opens_calendar_and_q_quits/open",
+            &gnu,
+            &neo,
+        );
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("Calendar")),
+            "{label} should display the Calendar mode line"
+        );
+        assert!(
+            day_header_count(&grid) >= 3,
+            "{label} should show Gregorian calendar day headers"
+        );
+    }
+    assert_pair_nearly_matches(
+        "calendar_via_mx_opens_calendar_and_q_quits/open",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"q");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "calendar_via_mx_opens_calendar_and_q_quits/quit",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn find_file_other_window_via_cx4_cf() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -2598,6 +2652,79 @@ fn bookmark_set_and_jump_via_cx_r_m_b() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("bookmark_set_and_jump_via_cx_r_m_b", &gnu, &neo, 2);
+}
+
+#[test]
+fn bookmark_list_via_cx_r_l_shows_saved_bookmark() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bookmark-list.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-x r m");
+    let set_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Set bookmark named"));
+    gnu.read_until(Duration::from_secs(8), set_prompt);
+    neo.read_until(Duration::from_secs(10), set_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"list-spot");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r l");
+    let list_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Bookmark List*"))
+            && grid.iter().any(|row| row.contains("Bookmark Name"))
+            && grid.iter().any(|row| row.contains("list-spot"))
+            && grid.iter().any(|row| row.contains("bookmark-list.txt"))
+    };
+    gnu.read_until(Duration::from_secs(8), list_ready);
+    neo.read_until(Duration::from_secs(10), list_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !list_ready(&gnu.text_grid()) || !list_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "bookmark_list_via_cx_r_l_shows_saved_bookmark/open",
+            &gnu,
+            &neo,
+        );
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Bookmark List*")),
+            "{label} should display the bookmark list buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("list-spot")),
+            "{label} should list the newly created bookmark"
+        );
+    }
+    assert_pair_nearly_matches(
+        "bookmark_list_via_cx_r_l_shows_saved_bookmark/open",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"q");
+    let source_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("bookmark-list.txt"))
+            && grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), source_ready);
+    neo.read_until(Duration::from_secs(8), source_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "bookmark_list_via_cx_r_l_shows_saved_bookmark/quit",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
@@ -4834,6 +4961,126 @@ fn shell_command_on_region_with_prefix_replaces_region_via_mbar() {
         &neo,
         2,
     );
+}
+
+#[test]
+fn compile_via_mx_runs_command_in_compilation_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "compile");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Compile command:"));
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(10), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "compile_via_mx_runs_command_in_compilation_buffer/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a C-k");
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"printf 'tui-compile-ok\\n'");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*compilation*"))
+            && grid.iter().any(|row| row.contains("tui-compile-ok"))
+            && grid
+                .iter()
+                .any(|row| row.contains("finished") || row.contains("exited"))
+    };
+    gnu.read_until(Duration::from_secs(12), ready);
+    neo.read_until(Duration::from_secs(14), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "compile_via_mx_runs_command_in_compilation_buffer",
+            &gnu,
+            &neo,
+        );
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*compilation*")),
+            "{label} should display the compilation buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("tui-compile-ok")),
+            "{label} should show compilation command output"
+        );
+    }
+    assert_pair_nearly_matches(
+        "compile_via_mx_runs_command_in_compilation_buffer",
+        &gnu,
+        &neo,
+        5,
+    );
+}
+
+#[test]
+fn grep_via_mx_lists_matching_file_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "grep-usage.txt",
+        "alpha needle one\nbeta plain\ngamma needle two\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "grep");
+    let prompt_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Run grep (like this):"));
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(10), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "grep_via_mx_lists_matching_file_lines/prompt",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a C-k");
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"grep -n needle grep-usage.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*grep*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("grep-usage.txt:1:alpha needle one"))
+            && grid
+                .iter()
+                .any(|row| row.contains("grep-usage.txt:3:gamma needle two"))
+    };
+    gnu.read_until(Duration::from_secs(12), ready);
+    neo.read_until(Duration::from_secs(14), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids("grep_via_mx_lists_matching_file_lines", &gnu, &neo);
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*grep*")),
+            "{label} should display the grep buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("alpha needle one"))
+                && grid.iter().any(|row| row.contains("gamma needle two")),
+            "{label} should show matching grep lines"
+        );
+    }
+    assert_pair_nearly_matches("grep_via_mx_lists_matching_file_lines", &gnu, &neo, 5);
 }
 
 #[test]
