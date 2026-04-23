@@ -939,6 +939,142 @@ fn switch_to_messages_buffer_via_cx_b() {
 }
 
 #[test]
+fn switch_to_file_buffer_via_cx_b_restores_existing_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "switch-alpha.txt",
+        "alpha first\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "switch-beta.txt",
+        "beta second\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let prompt_ready = |grid: &[String]| {
+        grid.last()
+            .is_some_and(|row| row.contains("Switch to buffer:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"switch-alpha.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("switch-alpha.txt"))
+            && grid.iter().any(|row| row.contains("alpha first"))
+            && !grid.iter().any(|row| row.contains("beta second"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "switch_to_file_buffer_via_cx_b_restores_existing_buffer",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn previous_and_next_buffer_via_mx_cycle_recent_file_buffers() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "cycle-alpha.txt",
+        "alpha cycle\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "cycle-beta.txt",
+        "beta cycle\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "previous-buffer");
+    let alpha_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("cycle-alpha.txt"))
+            && grid.iter().any(|row| row.contains("alpha cycle"))
+            && !grid.iter().any(|row| row.contains("beta cycle"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_ready);
+    neo.read_until(Duration::from_secs(8), alpha_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "previous_and_next_buffer_via_mx_cycle_recent_file_buffers/previous",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "next-buffer");
+    let beta_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("cycle-beta.txt"))
+            && grid.iter().any(|row| row.contains("beta cycle"))
+            && !grid.iter().any(|row| row.contains("alpha cycle"))
+    };
+    gnu.read_until(Duration::from_secs(6), beta_ready);
+    neo.read_until(Duration::from_secs(8), beta_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "previous_and_next_buffer_via_mx_cycle_recent_file_buffers/next",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn overwrite_mode_via_mx_replaces_character_at_point() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "overwrite-usage.txt",
+        "abcdef\nsecond\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a");
+    invoke_mx_command(&mut gnu, &mut neo, "overwrite-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "Z");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Zbcdef"))
+            && !grid.iter().any(|row| row.contains("Zabcdef"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "overwrite_mode_via_mx_replaces_character_at_point",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn keyboard_quit_from_mx_via_cg() {
     let (mut gnu, mut neo) = boot_pair("");
 
