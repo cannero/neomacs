@@ -787,6 +787,219 @@ fn dired_delete_current_file_via_d_confirms_and_removes_listing() {
 }
 
 #[test]
+fn make_directory_via_mx_creates_directory_on_disk() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "make-directory");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Make directory:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "make_directory_via_mx_creates_directory_on_disk/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/mx-made-dir");
+    }
+    let typed_ready = |grid: &[String]| grid.iter().any(|row| row.contains("mx-made-dir"));
+    gnu.read_until(Duration::from_secs(6), typed_ready);
+    neo.read_until(Duration::from_secs(8), typed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "make_directory_via_mx_creates_directory_on_disk/before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let gnu_dir = gnu.home_dir().join("mx-made-dir");
+    let neo_dir = neo.home_dir().join("mx-made-dir");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        if gnu_dir.is_dir() && neo_dir.is_dir() {
+            break;
+        }
+    }
+
+    assert!(
+        gnu_dir.is_dir(),
+        "GNU should create directory via M-x make-directory"
+    );
+    assert!(
+        neo_dir.is_dir(),
+        "Neomacs should create directory via M-x make-directory"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "make_directory_via_mx_creates_directory_on_disk",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn rename_file_via_mx_moves_file_on_disk() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "rename-source.txt", "rename me\n");
+    write_home_file(&neo, "rename-source.txt", "rename me\n");
+
+    invoke_mx_command(&mut gnu, &mut neo, "rename-file");
+    let source_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Rename file:"));
+    gnu.read_until(Duration::from_secs(6), source_prompt);
+    neo.read_until(Duration::from_secs(8), source_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "rename_file_via_mx_moves_file_on_disk/source-prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/rename-source.txt");
+    }
+    let source_typed = |grid: &[String]| grid.iter().any(|row| row.contains("rename-source.txt"));
+    gnu.read_until(Duration::from_secs(6), source_typed);
+    neo.read_until(Duration::from_secs(8), source_typed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "rename_file_via_mx_moves_file_on_disk/source-before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let dest_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("to file:"));
+    gnu.read_until(Duration::from_secs(6), dest_prompt);
+    neo.read_until(Duration::from_secs(8), dest_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "rename_file_via_mx_moves_file_on_disk/dest-prompt",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/rename-dest.txt");
+    }
+    let dest_typed = |grid: &[String]| grid.iter().any(|row| row.contains("rename-dest.txt"));
+    gnu.read_until(Duration::from_secs(6), dest_typed);
+    neo.read_until(Duration::from_secs(8), dest_typed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "rename_file_via_mx_moves_file_on_disk/dest-before-ret",
+        &gnu,
+        &neo,
+        3,
+    );
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let gnu_src = gnu.home_dir().join("rename-source.txt");
+    let neo_src = neo.home_dir().join("rename-source.txt");
+    let gnu_dest = gnu.home_dir().join("rename-dest.txt");
+    let neo_dest = neo.home_dir().join("rename-dest.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        if !gnu_src.exists() && !neo_src.exists() && gnu_dest.exists() && neo_dest.exists() {
+            break;
+        }
+    }
+
+    assert!(
+        !gnu_src.exists(),
+        "GNU rename-file should remove source path"
+    );
+    assert!(
+        !neo_src.exists(),
+        "Neomacs rename-file should remove source path"
+    );
+    assert_eq!(
+        fs::read_to_string(&gnu_dest).expect("read GNU renamed file"),
+        "rename me\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_dest).expect("read Neomacs renamed file"),
+        "rename me\n"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("rename_file_via_mx_moves_file_on_disk", &gnu, &neo, 2);
+}
+
+#[test]
+fn delete_file_via_mx_removes_file_from_disk() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "delete-direct.txt", "delete me\n");
+    write_home_file(&neo, "delete-direct.txt", "delete me\n");
+
+    invoke_mx_command(&mut gnu, &mut neo, "delete-file");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Delete file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "delete_file_via_mx_removes_file_from_disk/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/delete-direct.txt");
+    }
+    let typed_ready = |grid: &[String]| grid.iter().any(|row| row.contains("delete-direct.txt"));
+    gnu.read_until(Duration::from_secs(6), typed_ready);
+    neo.read_until(Duration::from_secs(8), typed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "delete_file_via_mx_removes_file_from_disk/before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let gnu_path = gnu.home_dir().join("delete-direct.txt");
+    let neo_path = neo.home_dir().join("delete-direct.txt");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        if !gnu_path.exists() && !neo_path.exists() {
+            break;
+        }
+    }
+
+    assert!(
+        !gnu_path.exists(),
+        "GNU delete-file should remove target path"
+    );
+    assert!(
+        !neo_path.exists(),
+        "Neomacs delete-file should remove target path"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("delete_file_via_mx_removes_file_from_disk", &gnu, &neo, 2);
+}
+
+#[test]
 fn rename_buffer_via_cx_x_r_updates_current_buffer_name() {
     let (mut gnu, mut neo) = boot_pair("");
 

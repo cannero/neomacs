@@ -5626,6 +5626,14 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         Value::list(vec![Value::symbol("interactive"), Value::string("r")])
     );
     assert_eq!(
+        builtin_interactive_form(&mut eval, vec![Value::symbol("rename-file")])
+            .expect("interactive-form should expose builtin file rename spec"),
+        Value::list(vec![
+            Value::symbol("interactive"),
+            Value::string("fRename file: \nGRename %s to file: \np"),
+        ])
+    );
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("goto-char")])
             .expect("interactive-form should expose computed builtin form"),
         Value::list(vec![

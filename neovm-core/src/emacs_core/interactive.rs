@@ -262,6 +262,9 @@ pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
             ]),
             Value::symbol("current-prefix-arg"),
         ]))),
+        "rename-file" => Some(interactive_form_from_string_spec(
+            "fRename file: \nGRename %s to file: \np",
+        )),
         "self-insert-command" => Some(interactive_form_from_spec_value(Value::list(vec![
             Value::symbol("list"),
             Value::list(vec![
@@ -1499,7 +1502,10 @@ fn interactive_args_from_string_code_in_vm_runtime(
     }
 
     let mut args = Vec::new();
+    let mut visible_args = Vec::new();
     for (letter, prompt) in parsed.entries {
+        let prompt = interactive_prompt_with_visible_args(shared, &prompt, &visible_args)?;
+        let args_before = args.len();
         match letter {
             'a' | 'C' => {
                 let letter_args = [Value::heap_string(prompt.clone())];
@@ -1759,6 +1765,12 @@ fn interactive_args_from_string_code_in_vm_runtime(
             }
             _ => return Ok(None),
         }
+        visible_args.extend(
+            args[args_before..]
+                .iter()
+                .copied()
+                .map(interactive_visible_arg),
+        );
     }
 
     Ok(Some(args))
@@ -2289,6 +2301,36 @@ fn parse_interactive_code_entries(
     parsed
 }
 
+fn interactive_prompt_with_visible_args(
+    eval: &mut Context,
+    prompt: &crate::heap_types::LispString,
+    visible_args: &[Value],
+) -> Result<crate::heap_types::LispString, Flow> {
+    let mut format_args = Vec::with_capacity(visible_args.len() + 1);
+    format_args.push(Value::heap_string(prompt.clone()));
+    format_args.extend_from_slice(visible_args);
+    let formatted = super::builtins::dispatch_builtin(eval, "format-message", format_args)
+        .expect("format-message builtin should be registered")?;
+    formatted.as_lisp_string().cloned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), formatted],
+        )
+    })
+}
+
+fn interactive_visible_arg(value: Value) -> Value {
+    if let Some(string) = value.as_lisp_string() {
+        Value::heap_string(string.clone())
+    } else if let Some(name) = value.as_symbol_name() {
+        Value::string(name)
+    } else if let Some(number) = value.as_fixnum() {
+        Value::string(number.to_string())
+    } else {
+        Value::string(format!("{value}"))
+    }
+}
+
 fn invalid_interactive_control_letter_error(letter: char) -> Flow {
     let codepoint = letter as u32;
     signal(
@@ -2312,7 +2354,10 @@ fn interactive_args_from_string_code(
     }
 
     let mut args = Vec::new();
+    let mut visible_args = Vec::new();
     for (letter, prompt) in parsed.entries {
+        let prompt = interactive_prompt_with_visible_args(eval, &prompt, &visible_args)?;
+        let args_before = args.len();
         match letter {
             'a' => args.push(super::minibuffer::builtin_read_command(
                 eval,
@@ -2450,6 +2495,12 @@ fn interactive_args_from_string_code(
             }
             _ => return Err(invalid_interactive_control_letter_error(letter)),
         }
+        visible_args.extend(
+            args[args_before..]
+                .iter()
+                .copied()
+                .map(interactive_visible_arg),
+        );
     }
 
     Ok(Some(args))
