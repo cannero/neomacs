@@ -3200,6 +3200,37 @@ fn open_line_via_co() {
 }
 
 #[test]
+fn split_line_via_cmeta_o_moves_tail_down() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "split-line.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< M-f C-M-o");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha"))
+            && grid.iter().any(|row| row.contains("      beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("split_line_via_cmeta_o_moves_tail_down", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "split_line_via_cmeta_o_moves_tail_down",
+        &mut gnu,
+        &mut neo,
+        "split-line.txt",
+        "alpha \n      beta gamma\n",
+    );
+}
+
+#[test]
 fn newline_via_cm() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -4664,6 +4695,96 @@ fn sort_numeric_fields_second_field_via_prefix_orders_lines() {
         &mut neo,
         "sort-numeric-fields.txt",
         "bravo 2\ncharlie 7\nalpha 10\n",
+    );
+}
+
+#[test]
+fn sort_paragraphs_via_mx_orders_paragraph_blocks() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-paragraphs.txt",
+        "zeta paragraph\ncontinues here\n\nalpha paragraph\ncontinues here\n\ngamma paragraph\ncontinues here\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-paragraphs");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(alpha) = text.find("alpha paragraph") else {
+            return false;
+        };
+        let Some(gamma) = text.find("gamma paragraph") else {
+            return false;
+        };
+        let Some(zeta) = text.find("zeta paragraph") else {
+            return false;
+        };
+        alpha < gamma && gamma < zeta
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "sort_paragraphs_via_mx_orders_paragraph_blocks",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "sort_paragraphs_via_mx_orders_paragraph_blocks",
+        &mut gnu,
+        &mut neo,
+        "sort-paragraphs.txt",
+        "alpha paragraph\ncontinues here\n\ngamma paragraph\ncontinues here\n\nzeta paragraph\ncontinues here\n",
+    );
+}
+
+#[test]
+fn delete_duplicate_lines_via_mx_keeps_first_occurrences() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-duplicate-lines.txt",
+        "alpha\nbeta\nalpha\ngamma\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "delete-duplicate-lines");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        text.contains("alpha")
+            && text.contains("beta")
+            && text.contains("gamma")
+            && grid
+                .iter()
+                .any(|row| row.contains("Deleted 2 duplicate lines"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_duplicate_lines_via_mx_keeps_first_occurrences",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "delete_duplicate_lines_via_mx_keeps_first_occurrences",
+        &mut gnu,
+        &mut neo,
+        "delete-duplicate-lines.txt",
+        "alpha\nbeta\ngamma\n",
     );
 }
 
