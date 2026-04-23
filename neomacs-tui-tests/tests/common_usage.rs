@@ -1111,6 +1111,91 @@ fn describe_key_find_file_via_chk() {
 }
 
 #[test]
+fn help_with_tutorial_via_ch_t_opens_tutorial_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "t");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("TUTORIAL"))
+            && grid.iter().any(|row| row.contains("Emacs tutorial"))
+            && grid.iter().any(|row| row.contains("CONTROL key"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("TUTORIAL")),
+            "{label} should show the tutorial buffer name"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Emacs tutorial")),
+            "{label} should show the tutorial heading"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("CONTROL key")),
+            "{label} should show the tutorial contents"
+        );
+    }
+    assert_top_rows_nearly_match(
+        "help_with_tutorial_via_ch_t_opens_tutorial_buffer",
+        &gnu,
+        &neo,
+        18,
+        3,
+    );
+}
+
+#[test]
+fn info_directory_via_ch_i_opens_info_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "i");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("*info*") || row.contains("*Info*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("INFO tree") || row.contains("Directory node"))
+            && grid.iter().any(|row| row.contains("Emacs"))
+    };
+    gnu.read_until(Duration::from_secs(12), ready);
+    neo.read_until(Duration::from_secs(20), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids("info_directory_via_ch_i_opens_info_buffer", &gnu, &neo);
+    }
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("*info*") || row.contains("*Info*")),
+            "{label} should show the Info buffer name"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("INFO tree") || row.contains("Directory node")),
+            "{label} should show the Info directory"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Emacs")),
+            "{label} should show Emacs entries in the Info directory"
+        );
+    }
+    assert_top_rows_nearly_match(
+        "info_directory_via_ch_i_opens_info_buffer",
+        &gnu,
+        &neo,
+        18,
+        3,
+    );
+}
+
+#[test]
 fn find_file_other_window_via_cx4_cf() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1771,6 +1856,69 @@ fn find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq() {
     );
     assert_pair_nearly_matches(
         "find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn view_file_via_mx_opens_view_mode_and_q_quits() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(
+        &gnu,
+        "view-file.txt",
+        "view mode first line\nview mode second line\n",
+    );
+    write_home_file(
+        &neo,
+        "view-file.txt",
+        "view mode first line\nview mode second line\n",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "view-file");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("View file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "view_file_via_mx_opens_view_mode_and_q_quits/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/view-file.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("view-file.txt"))
+            && grid.iter().any(|row| row.contains("view mode first line"))
+            && grid.iter().any(|row| row.contains("View"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "view_file_via_mx_opens_view_mode_and_q_quits/view",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "q");
+    let scratch_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && !grid.iter().any(|row| row.contains("view-file.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "view_file_via_mx_opens_view_mode_and_q_quits/quit",
         &gnu,
         &neo,
         2,
@@ -4398,6 +4546,55 @@ fn eval_last_sexp_via_cx_ce_prints_echo_area_value() {
 }
 
 #[test]
+fn eval_expression_via_mcolon_prints_echo_area_value() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_via_mcolon_prints_echo_area_value/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"(+ 2 3)");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("5 (#o5, #x5"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .rev()
+                .take(4)
+                .any(|row| row.contains("5 (#o5, #x5")),
+            "{label} should show eval-expression's integer value formats"
+        );
+    }
+    assert_pair_nearly_matches(
+        "eval_expression_via_mcolon_prints_echo_area_value",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn shell_command_via_mbang_displays_short_output() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -4663,6 +4860,58 @@ fn quit_describe_bindings_via_q() {
 }
 
 #[test]
+fn apropos_command_find_file_via_ch_a_lists_matches() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "a");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Search for command"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "apropos_command_find_file_via_ch_a_lists_matches/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"find-file");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Apropos*"))
+            && grid.iter().any(|row| row.contains("find-file"))
+            && grid.iter().any(|row| row.contains("C-x C-f"))
+    };
+    gnu.read_until(Duration::from_secs(10), ready);
+    neo.read_until(Duration::from_secs(15), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Apropos*")),
+            "{label} should show *Apropos* after C-h a"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("find-file")),
+            "{label} apropos-command should list find-file"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("C-x C-f")),
+            "{label} apropos-command should show find-file's default binding"
+        );
+    }
+    assert_pair_nearly_matches(
+        "apropos_command_find_file_via_ch_a_lists_matches",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn describe_function_find_file_via_ch_f() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "f");
@@ -4774,6 +5023,54 @@ fn describe_key_briefly_find_file_via_ch_c() {
             "{label} describe-key-briefly should mention find-file"
         );
     }
+}
+
+#[test]
+fn where_is_find_file_via_ch_w_reports_key_binding() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "w");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Where is command"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "where_is_find_file_via_ch_w_reports_key_binding/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"find-file");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("find-file is on") && row.contains("C-x C-f"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .rev()
+                .take(4)
+                .any(|row| { row.contains("find-file is on") && row.contains("C-x C-f") }),
+            "{label} where-is should report the default find-file binding"
+        );
+    }
+    assert_pair_nearly_matches(
+        "where_is_find_file_via_ch_w_reports_key_binding",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]

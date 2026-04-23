@@ -4337,6 +4337,24 @@ fn define_key_accepts_optional_remove_arg() {
     assert_eq!(result, "OK t");
 }
 
+#[test]
+fn map_keymap_make_keymap_reports_char_table_bindings() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-keymap))
+                 (seen nil))
+             (define-key m "\C-x" 'Control-X-prefix)
+             (define-key m "\C-z" 'suspend-emacs)
+             (map-keymap
+              (lambda (key binding)
+                (when (memq key '(24 26))
+                  (setq seen (cons (list key binding) seen))))
+              m)
+             (nreverse seen))"#,
+    );
+    assert_eq!(result, "OK ((24 Control-X-prefix) (26 suspend-emacs))");
+}
+
 // -------------------------------------------------------------------
 // where-is-internal
 // -------------------------------------------------------------------

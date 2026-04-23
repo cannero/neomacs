@@ -175,7 +175,7 @@ impl TextPropertyTable {
             }
         }
 
-        self.merge_adjacent();
+        self.merge_adjacent_around(start, end);
         changed
     }
 
@@ -229,9 +229,9 @@ impl TextPropertyTable {
             }
         }
 
-        // Remove empty intervals and merge adjacent.
-        self.cleanup();
-        self.merge_adjacent();
+        // Remove empty intervals and merge only the affected neighborhood.
+        self.cleanup_range(start, end);
+        self.merge_adjacent_around(start, end);
         removed
     }
 
@@ -256,8 +256,8 @@ impl TextPropertyTable {
             }
         }
 
-        self.cleanup();
-        self.merge_adjacent();
+        self.cleanup_range(start, end);
+        self.merge_adjacent_around(start, end);
     }
 
     /// Return the next position at or after `pos` where any text property
@@ -398,13 +398,11 @@ impl TextPropertyTable {
         let mut gaps = Vec::new();
         let mut cursor = start;
 
-        for interval in self.intervals.values() {
-            if interval.start >= end {
-                break;
-            }
-            if interval.end <= cursor {
-                continue;
-            }
+        for interval in self
+            .intervals
+            .range(start..end)
+            .map(|(_, interval)| interval)
+        {
             if interval.start > cursor {
                 gaps.push((cursor, interval.start));
             }
@@ -425,6 +423,18 @@ impl TextPropertyTable {
     /// Remove intervals with no properties.
     fn cleanup(&mut self) {
         self.intervals.retain(|_, iv| !iv.is_empty_props());
+    }
+
+    /// Remove empty intervals that can only have been created in `[start, end)`.
+    fn cleanup_range(&mut self, start: usize, end: usize) {
+        let keys: Vec<usize> = self
+            .intervals
+            .range(start..end)
+            .filter_map(|(&key, interval)| interval.is_empty_props().then_some(key))
+            .collect();
+        for key in keys {
+            self.intervals.remove(&key);
+        }
     }
 
     /// Merge adjacent intervals that have identical property maps.
@@ -456,6 +466,59 @@ impl TextPropertyTable {
             merged.insert(interval.start, interval);
         }
         self.intervals = merged;
+    }
+
+    /// Merge adjacent equal intervals only near a changed range.
+    ///
+    /// GNU's interval operations split and update the affected interval chain;
+    /// they don't rescan the whole buffer after every property write.  The
+    /// only possible new merge points are inside the changed range and at its
+    /// two boundaries, so restrict compaction to that neighborhood.
+    fn merge_adjacent_around(&mut self, start: usize, end: usize) {
+        if self.intervals.len() < 2 {
+            return;
+        }
+
+        let mut keys = Vec::new();
+        if let Some((&key, _)) = self.intervals.range(..=start).next_back() {
+            keys.push(key);
+        }
+        keys.extend(self.intervals.range(start..=end).map(|(&key, _)| key));
+        if let Some((&key, _)) = self
+            .intervals
+            .range((std::ops::Bound::Excluded(end), std::ops::Bound::Unbounded))
+            .next()
+        {
+            keys.push(key);
+        }
+
+        keys.sort_unstable();
+        keys.dedup();
+        if keys.len() < 2 {
+            return;
+        }
+
+        let mut intervals: Vec<PropertyInterval> = keys
+            .into_iter()
+            .filter_map(|key| self.intervals.remove(&key))
+            .collect();
+        intervals.sort_by_key(|interval| interval.start);
+
+        let mut merged: Vec<PropertyInterval> = Vec::with_capacity(intervals.len());
+        for interval in intervals {
+            if let Some(active) = merged.last_mut()
+                && active.end == interval.start
+                && props_equal(&active.properties, &interval.properties)
+            {
+                active.end = interval.end;
+                continue;
+            }
+            merged.push(interval);
+        }
+
+        for interval in merged {
+            self.intervals.insert(interval.start, interval);
+        }
     }
 
     fn interval_containing(&self, pos: usize) -> Option<&PropertyInterval> {

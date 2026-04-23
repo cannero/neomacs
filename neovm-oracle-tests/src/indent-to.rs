@@ -23,3 +23,14 @@ fn oracle_indent_to_respects_tab_width_and_indent_tabs_mode() {
                             (append (buffer-string) nil))))"#;
     assert_oracle_parity_with_bootstrap(form);
 }
+
+#[test]
+fn oracle_indent_to_honors_inhibit_read_only_binding() {
+    let form = r#"(with-temp-buffer
+                    (setq buffer-read-only t)
+                    (let ((inhibit-read-only t))
+                      (list (indent-to 6 1)
+                            (current-column)
+                            (buffer-string))))"#;
+    assert_oracle_parity_with_bootstrap(form);
+}

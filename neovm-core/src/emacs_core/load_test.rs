@@ -2416,7 +2416,7 @@ fn bootstrap_runtime_preserves_gnu_global_prefix_links() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command scroll-down-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command scroll-down-command Control-X-prefix split-window-below split-window-right keyboard-escape-quit suspend-frame)"
     );
 }
 
@@ -2559,7 +2559,7 @@ fn normalize_runtime_surface_preserves_partial_bindings_global_prefix_links() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-frame)"
     );
 }
 
@@ -2581,7 +2581,7 @@ fn partial_bootstrap_through_simple_preserves_gnu_prefix_maps() {
     );
     assert_eq!(
         rendered,
-        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-emacs)"
+        "OK (ESC-prefix execute-extended-command Control-X-prefix ctl-x-4-prefix ctl-x-5-prefix (keymap (112 . project-other-tab-command) (100 . dired-other-tab)) keyboard-escape-quit suspend-frame)"
     );
 }
 

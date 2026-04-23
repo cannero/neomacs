@@ -122,20 +122,8 @@ fn indent_tabs_mode_in_state(
         .is_none_or(|value| value.is_truthy())
 }
 
-fn buffer_read_only_active_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buf: &Buffer,
-) -> bool {
-    if buf.get_read_only() {
-        return true;
-    }
-    dynamic_buffer_or_global_symbol_value(obarray, dynamic, Some(buf), "buffer-read-only")
-        .is_some_and(|value| value.is_truthy())
-}
-
 fn buffer_read_only_active(eval: &super::eval::Context, buf: &Buffer) -> bool {
-    buffer_read_only_active_in_state(&eval.obarray, &[], buf)
+    super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf)
 }
 
 #[derive(Clone, Copy)]
@@ -387,7 +375,7 @@ pub(crate) fn builtin_move_to_column(
         return Ok(Value::fixnum(0));
     };
     let tabw = tab_width_in_state(&ctx.obarray, &[], Some(buf));
-    let read_only = buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
+    let read_only = super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf);
     let pt = buf.pt_byte.clamp(buf.begv_byte, buf.zv_byte);
     let (bol, eol) = line_bounds(buf, pt);
     let line = buf.buffer_substring_lisp_string(bol, eol);
@@ -498,7 +486,7 @@ pub(crate) fn builtin_indent_to(
         return Ok(Value::fixnum(mincol as i64));
     }
 
-    if buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
+    if super::editfns::buffer_read_only_active_in_state(&ctx.obarray, &[], buf) {
         return Err(signal("buffer-read-only", vec![buf.name_value()]));
     }
 

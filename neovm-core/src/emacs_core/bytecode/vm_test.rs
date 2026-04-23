@@ -3558,7 +3558,7 @@ fn vm_map_keymap_builtins_use_shared_state_and_vm_callbacks() {
                     (map-keymap 'vm-record-binding child)
                     (reverse seen))))"#
         ),
-        "OK ((child-binding parent-binding) (child-binding parent-binding))"
+        "OK ((child-binding) (child-binding parent-binding))"
     );
 }
 

@@ -15,6 +15,14 @@ use super::keymap::{
     make_sparse_list_keymap, maybe_keymap_in_obarray, maybe_keymap_in_runtime,
 };
 
+fn map_keymap_binding_value(binding: Value) -> Value {
+    if binding == Value::T {
+        Value::NIL
+    } else {
+        binding
+    }
+}
+
 /// Validate that a value is a keymap, returning it if so.
 /// Accepts:
 /// - Cons cells starting with 'keymap
@@ -725,23 +733,29 @@ pub(crate) struct KeymapIterationPlan {
 }
 
 pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
-    let Some(entries) = list_to_vec(&keymap) else {
-        return KeymapIterationPlan {
-            bindings: Vec::new(),
-            parent: Value::NIL,
-        };
-    };
-
     let mut bindings = Vec::new();
     let mut parent = Value::NIL;
+    let mut cursor = if is_list_keymap(&keymap) {
+        keymap.cons_cdr()
+    } else {
+        keymap
+    };
+    let mut steps = 0usize;
 
-    for (i, entry) in entries.iter().enumerate() {
-        if i == 0 && entry.is_symbol_named("keymap") {
-            continue;
+    while cursor.is_cons() {
+        steps += 1;
+        if steps > 100_000 {
+            break;
         }
 
-        if is_list_keymap(entry) {
-            parent = *entry;
+        if is_list_keymap(&cursor) {
+            parent = cursor;
+            break;
+        }
+
+        let entry = cursor.cons_car();
+        if is_list_keymap(&entry) {
+            parent = entry;
             break;
         }
 
@@ -749,20 +763,31 @@ pub(crate) fn plan_keymap_iteration(keymap: Value) -> KeymapIterationPlan {
             ValueKind::Cons => {
                 let pair_car = entry.cons_car();
                 let pair_cdr = entry.cons_cdr();
-                if !pair_cdr.is_nil() {
-                    bindings.push((pair_car, pair_cdr));
-                }
+                bindings.push((pair_car, map_keymap_binding_value(pair_cdr)));
             }
             ValueKind::Veclike(VecLikeType::Vector) => {
-                let items = entry.as_vector_data().unwrap().clone();
-                for (idx, binding) in items.iter().enumerate() {
-                    if !binding.is_nil() {
-                        bindings.push((Value::fixnum(idx as i64), *binding));
+                if crate::emacs_core::chartable::is_char_table(&entry) {
+                    let _ = crate::emacs_core::chartable::for_each_char_table_mapping(
+                        &entry,
+                        |event, binding| {
+                            bindings.push((event, map_keymap_binding_value(binding)));
+                            Ok(())
+                        },
+                    );
+                } else {
+                    let items = entry.as_vector_data().unwrap().clone();
+                    for (idx, binding) in items.iter().enumerate() {
+                        bindings.push((
+                            Value::fixnum(idx as i64),
+                            map_keymap_binding_value(*binding),
+                        ));
                     }
                 }
             }
             _ => {}
         }
+
+        cursor = cursor.cons_cdr();
     }
 
     KeymapIterationPlan { bindings, parent }
