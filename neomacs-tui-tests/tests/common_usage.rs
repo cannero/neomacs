@@ -2734,6 +2734,78 @@ fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
 }
 
 #[test]
+fn set_variable_fill_column_via_mx_updates_buffer_local_value() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "set-variable");
+    let variable_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Set variable"));
+    gnu.read_until(Duration::from_secs(6), variable_prompt);
+    neo.read_until(Duration::from_secs(8), variable_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "set_variable_fill_column_via_mx_updates_buffer_local_value/variable_prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"fill-column");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let value_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Set fill-column") && row.contains("to value"))
+    };
+    gnu.read_until(Duration::from_secs(6), value_prompt);
+    neo.read_until(Duration::from_secs(8), value_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("Set fill-column") && row.contains("to value")),
+            "{label} should prompt for fill-column's new value\n{}",
+            grid.join("\n")
+        );
+    }
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"55");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    let eval_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), eval_prompt);
+    neo.read_until(Duration::from_secs(8), eval_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "fill-column=%S" fill-column)"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("fill-column=55"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "set_variable_fill_column_via_mx_updates_buffer_local_value",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn recenter_top_bottom_cycle_via_cl() {
     let (mut gnu, mut neo) = boot_pair("");
     let mut contents = String::new();
@@ -3323,6 +3395,55 @@ fn shell_command_via_mbang_displays_short_output() {
 }
 
 #[test]
+fn shell_command_on_region_with_prefix_replaces_region_via_mbar() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "shell-command-region.txt",
+        "alpha\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h C-u M-|");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Shell command on region:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "shell_command_on_region_with_prefix_replaces_region_via_mbar/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"tr a-z A-Z");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("ALPHA"))
+            && grid.iter().any(|row| row.contains("BETA"))
+            && !grid.iter().any(|row| row.contains("alpha"))
+            && !grid.iter().any(|row| row.contains("beta"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "shell_command_on_region_with_prefix_replaces_region_via_mbar",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -3881,6 +4002,73 @@ fn mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy() {
 
     assert_pair_nearly_matches(
         "mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn narrow_to_region_once_then_widen_via_cx_n_n_w() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "narrow-widen.txt",
+        "top line\nmiddle visible\nbottom line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-SPC C-n C-x n n");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Use this command?"))
+            || grid
+                .iter()
+                .any(|row| row.contains("disabled command narrow-to-region"))
+    };
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(12), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("narrow-to-region")),
+            "{label} should show disabled-command help for narrow-to-region"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Use this command?")),
+            "{label} should ask before running disabled narrow-to-region"
+        );
+    }
+
+    send_both_raw(&mut gnu, &mut neo, b" ");
+    let narrowed_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("middle visible"))
+            && !grid.iter().any(|row| row.contains("top line"))
+            && !grid.iter().any(|row| row.contains("bottom line"))
+    };
+    gnu.read_until(Duration::from_secs(8), narrowed_ready);
+    neo.read_until(Duration::from_secs(12), narrowed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "narrow_to_region_once_then_widen_via_cx_n_n_w/narrowed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x n w");
+    let widened_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("top line"))
+            && grid.iter().any(|row| row.contains("middle visible"))
+            && grid.iter().any(|row| row.contains("bottom line"))
+    };
+    gnu.read_until(Duration::from_secs(6), widened_ready);
+    neo.read_until(Duration::from_secs(8), widened_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "narrow_to_region_once_then_widen_via_cx_n_n_w",
         &gnu,
         &neo,
         2,

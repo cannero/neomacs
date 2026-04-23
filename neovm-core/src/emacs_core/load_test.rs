@@ -3652,6 +3652,117 @@ fn bootstrap_runtime_command_loop_universal_argument_prefix_reaches_following_co
 }
 
 #[test]
+fn bootstrap_runtime_command_loop_raw_universal_argument_reaches_form_interactive_command() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .create_buffer("*raw-universal-argument-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*raw-universal-argument-target*")
+             (setq neo-raw-universal-argument-seen :unset)
+             (defun neo-raw-universal-argument-probe (raw after)
+               (interactive (list current-prefix-arg prefix-arg))
+               (setq neo-raw-universal-argument-seen (list raw after)))
+             (global-set-key (kbd "M-|") #'neo-raw-universal-argument-probe))"#,
+    )
+    .expect("setup raw universal argument probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('u', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-u");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('|'),
+    ))
+    .expect("queue |");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("raw universal argument loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(&mut eval, "neo-raw-universal-argument-seen");
+    assert_eq!(observed, "OK ((4) nil)");
+}
+
+#[test]
+fn bootstrap_runtime_minibuffer_restores_raw_universal_argument_for_form_interactive_command() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*raw-prefix-minibuffer-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*raw-prefix-minibuffer-target*")
+             (setq neo-raw-prefix-minibuffer-seen :unset)
+             (defun neo-raw-prefix-minibuffer-probe (text raw after)
+               (interactive
+                (list (read-from-minibuffer "Probe: ")
+                      current-prefix-arg
+                      prefix-arg))
+               (setq neo-raw-prefix-minibuffer-seen (list text raw after)))
+             (global-set-key (kbd "M-|") #'neo-raw-prefix-minibuffer-probe))"#,
+    )
+    .expect("setup raw prefix minibuffer probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('u', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-u");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('|'),
+    ))
+    .expect("queue |");
+    for ch in "ok".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue minibuffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("raw prefix minibuffer loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(&mut eval, "neo-raw-prefix-minibuffer-seen");
+    assert_eq!(observed, r#"OK ("ok" (4) nil)"#);
+}
+
+#[test]
 fn bootstrap_runtime_disabled_command_from_visited_file_restores_single_selected_file_window() {
     init_test_tracing();
     let dir = tempdir().expect("visited-file disabled-command tempdir");

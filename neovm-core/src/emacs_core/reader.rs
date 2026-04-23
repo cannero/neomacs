@@ -785,8 +785,14 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let history_name = minibuffer_history_name(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
-    // Save state
+    // Save state.  GNU read_minibuf saves Vcurrent_prefix_arg in
+    // minibuf_save_list and restores it during read_minibuf_unwind;
+    // minibuffer commands may clobber it while reading input.
     let saved_buffer_id = buffers.current_buffer().map(|b| b.id);
+    let saved_current_prefix_arg = obarray
+        .symbol_value("current-prefix-arg")
+        .copied()
+        .unwrap_or(Value::NIL);
 
     // Find or create *Minibuf-N* buffer
     let minibuf_depth = minibuffers.depth() + 1;
@@ -905,6 +911,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         "minibuffer-depth",
         Value::fixnum(minibuffers.depth() as i64),
     );
+    obarray.set_symbol_value("current-prefix-arg", saved_current_prefix_arg);
     exit_hook_result?;
 
     // Handle the recursive edit result
@@ -1281,7 +1288,15 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
     let history_name = minibuffer_history_name(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
+    // Save state.  GNU read_minibuf saves Vcurrent_prefix_arg in
+    // minibuf_save_list and restores it during read_minibuf_unwind;
+    // minibuffer commands may clobber it while reading input.
     let saved_buffer_id = shared.buffers.current_buffer().map(|b| b.id);
+    let saved_current_prefix_arg = shared
+        .obarray
+        .symbol_value("current-prefix-arg")
+        .copied()
+        .unwrap_or(Value::NIL);
     let recursive_depth = shared.recursive_command_loop_depth();
 
     let minibuf_depth = shared.minibuffers.depth() + 1;
@@ -1412,6 +1427,9 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
         "minibuffer-depth",
         Value::fixnum(shared.minibuffers.depth() as i64),
     );
+    shared
+        .obarray
+        .set_symbol_value("current-prefix-arg", saved_current_prefix_arg);
     exit_hook_result?;
 
     match edit_result {
