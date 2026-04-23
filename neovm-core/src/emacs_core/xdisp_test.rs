@@ -1355,11 +1355,11 @@ fn test_window_text_pixel_size_tty_frame_uses_char_cell_metrics() {
     .unwrap();
     assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
     assert_eq!(result.cons_car(), Value::fixnum(4));
-    assert_eq!(result.cons_cdr(), Value::fixnum(1));
+    assert_eq!(result.cons_cdr(), Value::fixnum(2));
 }
 
 #[test]
-fn test_window_text_pixel_size_ignores_only_final_implicit_line() {
+fn test_window_text_pixel_size_matches_gnu_trailing_line_semantics() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
     let buf_id = eval.buffers.current_buffer().expect("current buffer").id;
@@ -1383,6 +1383,26 @@ fn test_window_text_pixel_size_ignores_only_final_implicit_line() {
     assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
     assert_eq!(result.cons_car(), Value::fixnum(5));
     assert_eq!(result.cons_cdr(), Value::fixnum(3));
+
+    let result = builtin_window_text_pixel_size_ctx(
+        &mut eval,
+        vec![
+            Value::fixnum(selected_window),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
+            Value::fixnum(24),
+            Value::T,
+        ],
+    )
+    .unwrap();
+    assert!(result.is_cons(), "expected cons, got {:?}", result.kind());
+    assert_eq!(result.cons_car(), Value::fixnum(5));
+    assert_eq!(
+        result.cons_cdr(),
+        Value::fixnum(3),
+        "TO=t trims trailing blank lines before adding the mode line"
+    );
 }
 
 #[test]

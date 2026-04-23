@@ -152,6 +152,50 @@ fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
 }
 
 #[test]
+fn vm_handler_bind_1_runs_for_void_variable_before_outer_condition_case() {
+    crate::test_utils::init_test_tracing();
+    with_vm_eval_full_context_state(
+        "(let (seen)
+           (condition-case err
+               (handler-bind-1
+                 (lambda () missing-variable)
+                 '(error)
+                 (lambda (err) (setq seen err)))
+             (error (list seen err))))",
+        false,
+        |result, eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK ((void-variable missing-variable) (void-variable missing-variable))"
+            );
+            assert_eq!(eval.condition_stack_depth_for_test(), 0);
+        },
+    );
+}
+
+#[test]
+fn vm_handler_bind_1_runs_for_eval_void_variable_before_outer_condition_case() {
+    crate::test_utils::init_test_tracing();
+    with_vm_eval_full_context_state(
+        "(let (seen)
+           (condition-case err
+               (handler-bind-1
+                 (lambda () (eval 'missing-variable t))
+                 '(error)
+                 (lambda (err) (setq seen err)))
+             (error (list seen err))))",
+        false,
+        |result, eval| {
+            assert_eq!(
+                crate::emacs_core::error::format_eval_result(&result),
+                "OK ((void-variable missing-variable) (void-variable missing-variable))"
+            );
+            assert_eq!(eval.condition_stack_depth_for_test(), 0);
+        },
+    );
+}
+
+#[test]
 fn vm_handler_bind_1_runs_inside_signal_dynamic_extent() {
     crate::test_utils::init_test_tracing();
     // user-error is defined in subr.el → use bootstrap context.
@@ -9250,6 +9294,6 @@ fn vm_backtrace_and_recursion_builtins_use_shared_runtime_state() {
                  (backtrace-frame--internal 'ignore 0 nil)
                  (integerp (recursion-depth))))"
         ),
-        "OK (t nil 1 nil nil t)"
+        "OK (t nil 2 1 nil t)"
     );
 }

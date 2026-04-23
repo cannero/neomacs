@@ -739,6 +739,82 @@ fn backtrace_frame_internal_surfaces_unevalled_frame() {
 }
 
 #[test]
+fn handler_bind_sees_signaling_eval_frames_before_unwind() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let result = eval.eval_str(
+        r#"(let (seen-eval seen-progn)
+                 (condition-case nil
+                     (handler-bind-1
+                       (lambda () (eval '(progn hb-missing-symbol) t))
+                       '(error)
+                       (lambda (_err)
+                         (mapbacktrace
+                          (lambda (evald func args _flags)
+                            (if (and evald
+                                     (eq func 'eval)
+                                     (equal args '((progn hb-missing-symbol) t)))
+                                (setq seen-eval t))
+                            (if (and (null evald)
+                                     (eq func 'progn)
+                                     (equal args '(hb-missing-symbol)))
+                                (setq seen-progn t))))))
+                   (error nil))
+                 (list seen-eval seen-progn))"#,
+    );
+
+    assert!(
+        result.is_ok(),
+        "handler-bind probe failed: {}",
+        format_eval_result(&result)
+    );
+    let result = result.unwrap();
+
+    assert_eq!(
+        super::super::print::print_value(&result),
+        "(t t)",
+        "GNU keeps eval and inner UNEVALLED form frames visible while handler-bind runs"
+    );
+}
+
+#[test]
+fn handler_bind_sees_eval_symbol_frame_before_feval_unwind() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let result = eval.eval_str(
+        r#"(let (seen-eval)
+                 (condition-case nil
+                     (handler-bind-1
+                       (lambda () (eval 'hb-missing-symbol t))
+                       '(error)
+                       (lambda (_err)
+                         (mapbacktrace
+                          (lambda (evald func args _flags)
+                            (if (and evald
+                                     (eq func 'eval)
+                                     (equal args '(hb-missing-symbol t)))
+                                (setq seen-eval t))))))
+                   (error nil))
+                 seen-eval)"#,
+    );
+
+    assert!(
+        result.is_ok(),
+        "handler-bind eval-symbol probe failed: {}",
+        format_eval_result(&result)
+    );
+    let result = result.unwrap();
+
+    assert_eq!(
+        super::super::print::print_value(&result),
+        "t",
+        "GNU keeps the active eval frame visible while a bare-symbol eval signal is handled"
+    );
+}
+
+#[test]
 fn backtrace_helper_stubs_shape_and_errors() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -770,6 +846,37 @@ fn backtrace_helper_stubs_shape_and_errors() {
             if sig.symbol_name() == "wrong-type-argument"
                 && sig.data == vec![Value::symbol("wholenump"), Value::NIL]
     ));
+
+    eval.push_backtrace_frame(Value::symbol("outer-frame"), &[]);
+    eval.push_backtrace_frame(Value::symbol("base-frame"), &[]);
+    assert_eq!(
+        builtin_backtrace_locals(
+            &mut eval,
+            vec![Value::fixnum(1), Value::symbol("base-frame")]
+        )
+        .expect("base function should be accepted"),
+        Value::NIL
+    );
+    assert_eq!(
+        builtin_backtrace_debug(
+            &mut eval,
+            vec![Value::fixnum(1), Value::T, Value::symbol("base-frame")]
+        )
+        .expect("backtrace-debug should accept a non-numeric flag and function base"),
+        Value::T
+    );
+    assert_eq!(
+        builtin_backtrace_eval(
+            &mut eval,
+            vec![
+                Value::fixnum(42),
+                Value::fixnum(1),
+                Value::symbol("base-frame")
+            ]
+        )
+        .expect("backtrace-eval should accept expression, frame number, and function base"),
+        Value::fixnum(42)
+    );
 }
 
 #[test]

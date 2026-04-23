@@ -4,8 +4,8 @@ use super::{
     TtyTerminalHost, adopt_existing_primary_gui_frame, bootstrap_buffers,
     bootstrap_default_font_name, bootstrap_display_config, bootstrap_frame_metrics,
     classify_early_cli_action, configure_gnu_startup_state, current_layout_frame_id,
-    face_height_to_pixels, maybe_install_tty_redisplay_callback, parse_startup_options,
-    publish_gui_frame, raw_loadup_command_line, raw_loadup_startup_surface,
+    default_controlling_tty_name, face_height_to_pixels, maybe_install_tty_redisplay_callback,
+    parse_startup_options, publish_gui_frame, raw_loadup_command_line, raw_loadup_startup_surface,
     render_fingerprint_text, render_help_text, render_startup_image_error, render_version_text,
     run_gnu_startup, should_enable_live_tty_io, startup_dimensions, sync_live_gui_frame_titles,
     sync_selected_gui_chrome_state,
@@ -1153,6 +1153,8 @@ fn neo_window_system_initialization_defers_neomacs_only_setup_until_window_setup
 #[test]
 fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
     let mut eval = Context::new();
+    let scratch = eval.buffer_manager_mut().create_buffer("*scratch*");
+    let frame_id = eval.frame_manager_mut().create_frame("F1", 80, 25, scratch);
     let startup = StartupOptions {
         frontend: FrontendKind::Tty,
         forwarded_args: vec!["neomacs".to_string(), "-q".to_string()],
@@ -1164,7 +1166,7 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
         no_loadup: false,
         no_build_details: false,
     };
-    configure_gnu_startup_state(&mut eval, FrameId(7), &startup);
+    configure_gnu_startup_state(&mut eval, frame_id, &startup);
 
     assert_eq!(
         eval.obarray().symbol_value("window-system"),
@@ -1184,6 +1186,21 @@ fn configure_gnu_startup_state_clears_window_system_for_tty_boots() {
     assert_eq!(
         eval.obarray().symbol_value("command-line-args-left"),
         Some(&Value::list(vec![Value::string("-q")]))
+    );
+    let frame = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("selected TTY frame should exist");
+    assert_eq!(
+        frame.parameter("tty"),
+        Some(Value::string(default_controlling_tty_name()))
+    );
+    assert_eq!(
+        frame.parameter("tty-type"),
+        std::env::var("TERM")
+            .ok()
+            .filter(|value| !value.is_empty())
+            .map(Value::string)
     );
 }
 

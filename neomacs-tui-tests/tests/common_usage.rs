@@ -231,9 +231,11 @@ fn fido_bottom_start() -> usize {
 }
 
 fn bottom_nonempty_rows(session: &TuiSession, first_row: usize) -> Vec<String> {
-    session
-        .text_grid()
-        .into_iter()
+    bottom_nonempty_rows_from_grid(&session.text_grid(), first_row)
+}
+
+fn bottom_nonempty_rows_from_grid(grid: &[String], first_row: usize) -> Vec<String> {
+    grid.iter()
         .skip(first_row)
         .map(|row| row.trim().to_string())
         .filter(|row| !row.is_empty())
@@ -323,6 +325,14 @@ fn assert_describe_mode_help_content(label: &str, gnu: &TuiSession, neo: &TuiSes
             );
         }
     }
+}
+
+fn backtrace_ready(grid: &[String]) -> bool {
+    grid.iter().any(|row| row.contains("*Backtrace*"))
+        && grid.iter().any(|row| row.contains("Debugger entered"))
+        && grid
+            .iter()
+            .any(|row| row.contains("void-variable") || row.contains("value as variable is void"))
 }
 
 fn wait_for_fido_mx_candidates(gnu: &mut TuiSession, neo: &mut TuiSession, query: &str) {
@@ -941,6 +951,60 @@ fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
     abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
     assert_pair_nearly_matches(
         "fido_vertical_mode_mx_find_f_matches_gnu_then_cg/abort",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn fido_vertical_mode_enabled_interactively_mx_shows_initial_candidates() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "fido-vertical-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    let candidates_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("M-x"))
+            && bottom_nonempty_rows_from_grid(grid, fido_bottom_start()).len() >= 6
+            && ["cd", "5x5", "gdb"]
+                .iter()
+                .all(|candidate| grid.iter().any(|row| row.contains(candidate)))
+    };
+    gnu.read_until(Duration::from_secs(6), candidates_ready);
+    neo.read_until(Duration::from_secs(8), candidates_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !candidates_ready(&gnu.text_grid()) || !candidates_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "fido_vertical_mode_enabled_interactively_mx_shows_initial_candidates",
+            &gnu,
+            &neo,
+        );
+    }
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("M-x")),
+            "{label} should leave the M-x prompt active"
+        );
+        assert!(
+            bottom_nonempty_rows(session, fido_bottom_start()).len() >= 6,
+            "{label} should show vertical command candidates for an empty M-x query"
+        );
+        for candidate in ["cd", "5x5", "gdb"] {
+            assert!(
+                grid.iter().any(|row| row.contains(candidate)),
+                "{label} should include {candidate} in the initial M-x candidates"
+            );
+        }
+    }
+
+    abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
+    assert_pair_nearly_matches(
+        "fido_vertical_mode_enabled_interactively_mx_shows_initial_candidates/abort",
         &gnu,
         &neo,
         2,
@@ -4546,6 +4610,45 @@ fn eval_last_sexp_via_cx_ce_prints_echo_area_value() {
 }
 
 #[test]
+fn eval_last_sexp_error_via_cx_ce_opens_backtrace() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both_raw(&mut gnu, &mut neo, b"hello");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x C-e");
+
+    gnu.read_until(Duration::from_secs(6), backtrace_ready);
+    neo.read_until(Duration::from_secs(8), backtrace_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !backtrace_ready(&gnu.text_grid()) || !backtrace_ready(&neo.text_grid()) {
+        dump_pair_grids("eval_last_sexp_error_via_cx_ce_opens_backtrace", &gnu, &neo);
+    }
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Backtrace*")),
+            "{label} should display the Backtrace buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Debugger entered")),
+            "{label} should show debugger entry text"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("hello")),
+            "{label} should show the void variable in the backtrace"
+        );
+    }
+    assert_pair_nearly_matches(
+        "eval_last_sexp_error_via_cx_ce_opens_backtrace",
+        &gnu,
+        &neo,
+        4,
+    );
+}
+
+#[test]
 fn eval_expression_via_mcolon_prints_echo_area_value() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -4591,6 +4694,62 @@ fn eval_expression_via_mcolon_prints_echo_area_value() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn eval_expression_error_via_mcolon_opens_backtrace() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_error_via_mcolon_opens_backtrace/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"missing-variable");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    gnu.read_until(Duration::from_secs(6), backtrace_ready);
+    neo.read_until(Duration::from_secs(8), backtrace_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !backtrace_ready(&gnu.text_grid()) || !backtrace_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "eval_expression_error_via_mcolon_opens_backtrace",
+            &gnu,
+            &neo,
+        );
+    }
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Backtrace*")),
+            "{label} should display the Backtrace buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Debugger entered")),
+            "{label} should show debugger entry text"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("missing-variable")),
+            "{label} should show the void variable in the backtrace"
+        );
+    }
+    assert_pair_nearly_matches(
+        "eval_expression_error_via_mcolon_opens_backtrace",
+        &gnu,
+        &neo,
+        4,
     );
 }
 

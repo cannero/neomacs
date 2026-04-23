@@ -159,6 +159,22 @@ fn tty_runtime_can_report_terminal_type_and_color_capability() {
 }
 
 #[test]
+fn tty_runtime_can_name_the_live_tty_terminal() {
+    crate::test_utils::init_test_tracing();
+    reset_terminal_thread_locals();
+    configure_terminal_runtime(
+        TerminalRuntimeConfig::interactive(Some("xterm-256color".to_string()), 256)
+            .with_name("/dev/tty"),
+    );
+
+    let mut eval = Context::new();
+    assert_eq!(
+        builtin_terminal_name(&mut eval, vec![]).unwrap(),
+        Value::string("/dev/tty")
+    );
+}
+
+#[test]
 fn tty_display_color_cells_returns_zero() {
     crate::test_utils::init_test_tracing();
     reset_terminal_thread_locals();

@@ -1085,6 +1085,53 @@ fn fit_window_to_buffer_invalid_window_designators_signal_error() {
 }
 
 #[test]
+fn window_resize_apply_preserves_lisp_computed_vertical_sizes() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_one_with_frame(
+        r#"(let* ((w1 (selected-window))
+                  (w2 (split-window-internal w1 nil nil nil))
+                  (root (frame-root-window))
+                  (root-pixels (window-pixel-height root))
+                  (char-height (frame-char-height)))
+             (let* ((frame (window-frame root))
+                    (small-pixels (min (* 5 char-height)
+                                       (max char-height (- root-pixels char-height))))
+                    (large-pixels (- root-pixels small-pixels)))
+               (set-window-new-pixel root root-pixels)
+               (set-window-new-pixel w1 large-pixels)
+               (set-window-new-pixel w2 small-pixels)
+             (list (window-resize-apply frame nil)
+                     (= (window-pixel-height w1) large-pixels)
+                     (= (window-pixel-height w2) small-pixels)
+                     (= (+ (window-pixel-height w1)
+                           (window-pixel-height w2))
+                        root-pixels))))"#,
+    );
+    assert_eq!(result, "OK (t t t t)");
+}
+
+#[test]
+fn display_buffer_fit_window_to_buffer_shrinks_new_window() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_one_with_frame(
+        r#"(let ((buf (get-buffer-create "*fit-window-probe*")))
+             (with-current-buffer buf
+               (erase-buffer)
+               (insert "a\nb\nc\n"))
+             (let ((window
+                    (display-buffer
+                     buf
+                     '((display-buffer-below-selected)
+                       . ((window-height . fit-window-to-buffer))))))
+               (list (eq window-combination-limit 'window-size)
+                     (window-live-p window)
+                     (not (null (window-combined-p window)))
+                     (= (window-total-height window) window-min-height))))"#,
+    );
+    assert_eq!(result, "OK (t t t t)");
+}
+
+#[test]
 fn window_list_1_callable_paths_return_live_windows() {
     crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame(

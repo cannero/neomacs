@@ -3553,6 +3553,7 @@ impl<'a> Vm<'a> {
             // Matches GNU Emacs where exec_byte_code delegates to funcall_general.
             _ => self.ctx.funcall_general_untraced(func_val, args),
         };
+        let result = self.ctx.dispatch_signal_result_if_needed(result);
         self.ctx.unbind_to(bt_count);
         result
     }

@@ -6560,7 +6560,7 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     );
     obarray.set_symbol_value("recenter-redisplay", Value::symbol("tty"));
     obarray.set_symbol_value("window-combination-resize", Value::NIL);
-    obarray.set_symbol_value("window-combination-limit", Value::NIL);
+    obarray.set_symbol_value("window-combination-limit", Value::symbol("window-size"));
     obarray.set_symbol_value("delete-frame-functions", Value::NIL);
     obarray.set_symbol_value("after-delete-frame-functions", Value::NIL);
     obarray.set_symbol_value("window-buffer-change-functions", Value::NIL);

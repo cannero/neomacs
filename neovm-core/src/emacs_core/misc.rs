@@ -584,48 +584,62 @@ pub(crate) fn builtin_backtrace_frames_from_thread(
     ])]))
 }
 
-/// `(backtrace--locals FRAME &optional BASE)` -- batch-compatible helper.
+/// `(backtrace--locals NFRAMES &optional BASE)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_locals(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("backtrace--locals", &args, 1)?;
     expect_max_args("backtrace--locals", &args, 2)?;
-    let frame = expect_wholenump(&args[0])?;
-    if frame == 0 {
+    let nframes = expect_wholenump(&args[0])? as usize;
+    if nframes == 0 {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("wholenump"), Value::fixnum(-1)],
         ));
     }
-    if let Some(base) = args.get(1) {
-        let _ = expect_wholenump(base)?;
+    let base = args.get(1).copied().unwrap_or(Value::NIL);
+    let frames = runtime_backtrace_frames_from_base(eval, base)?;
+    if frames.get(nframes).is_none() || frames.get(nframes - 1).is_none() {
+        return Err(signal(
+            "error",
+            vec![Value::string("Activation frame not found!")],
+        ));
     }
     Ok(Value::NIL)
 }
 
-/// `(backtrace-debug FRAME INDEX &optional FLAG)` -- batch-compatible helper.
+/// `(backtrace-debug LEVEL FLAG &optional BASE)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_debug(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("backtrace-debug", &args, 2)?;
     expect_max_args("backtrace-debug", &args, 3)?;
-    let _ = expect_wholenump(&args[0])?;
-    let _ = expect_wholenump(&args[1])?;
-    Ok(args[0])
+    let _level = expect_wholenump(&args[0])?;
+    if let Some(base) = args.get(2) {
+        let _ = runtime_backtrace_frames_from_base(eval, *base)?;
+    }
+    Ok(args[1])
 }
 
-/// `(backtrace-eval FRAME INDEX &optional FLAG)` -- batch-compatible helper.
+/// `(backtrace-eval EXP NFRAMES &optional BASE)` -- batch-compatible helper.
 pub(crate) fn builtin_backtrace_eval(
-    _eval: &mut super::eval::Context,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_min_args("backtrace-eval", &args, 2)?;
     expect_max_args("backtrace-eval", &args, 3)?;
-    let _ = expect_wholenump(&args[0])?;
-    let _ = expect_wholenump(&args[1])?;
-    Ok(Value::NIL)
+    let nframes = expect_wholenump(&args[1])? as usize;
+    let base = args.get(2).copied().unwrap_or(Value::NIL);
+    let frames = runtime_backtrace_frames_from_base(eval, base)?;
+    if frames.get(nframes).is_none() {
+        return Err(signal(
+            "error",
+            vec![Value::string("Activation frame not found!")],
+        ));
+    }
+    eval.eval_value(&args[0])
 }
 
 fn runtime_backtrace_indirect_function(

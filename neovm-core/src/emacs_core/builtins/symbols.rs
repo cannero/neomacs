@@ -4215,7 +4215,14 @@ pub(crate) fn builtin_handler_bind_1(
         });
     }
 
-    let body_result = eval.apply(bodyfun, vec![]);
+    let body_result = match eval.apply(bodyfun, vec![]) {
+        Ok(value) => Ok(value),
+        Err(Flow::Signal(sig)) => match eval.dispatch_signal_if_needed(sig) {
+            Ok(dispatched) => Err(Flow::Signal(dispatched)),
+            Err(flow) => Err(flow),
+        },
+        Err(flow) => Err(flow),
+    };
     eval.truncate_condition_stack(condition_stack_base);
     eval.restore_specpdl_roots(scope);
     body_result

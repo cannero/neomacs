@@ -1559,15 +1559,14 @@ impl Frame {
         self.title = Value::NIL;
     }
 
-    /// Recalculate minibuffer bounds based on the root window's current bounds.
+    /// Recalculate minibuffer bounds after an operation that changes only the
+    /// window tree.
     ///
-    /// Like GNU Emacs's `resize_frame_windows()` which sets:
-    ///   `m->pixel_top = r->pixel_top + r->pixel_height`
-    ///
-    /// Must be called after any operation that changes the window tree
-    /// (split, delete, resize).
+    /// This must not call `sync_window_area_bounds`: GNU's `window-resize-apply`
+    /// has already computed child sizes, and resyncing the whole frame would
+    /// redistribute the tree and lose those sizes.
     pub fn recalculate_minibuffer_bounds(&mut self) {
-        self.sync_window_area_bounds();
+        self.reposition_minibuffer_below_root();
     }
 
     /// Get the selected window.
@@ -1778,6 +1777,11 @@ impl Frame {
         let root_bounds = self.window_text_area_bounds();
         resize_window_subtree(&mut self.root_window, root_bounds);
 
+        self.reposition_minibuffer_below_root();
+    }
+
+    pub fn reposition_minibuffer_below_root(&mut self) {
+        let root_bounds = *self.root_window.bounds();
         if let Some(mini) = self.minibuffer_leaf.as_mut() {
             let mini_h = mini
                 .bounds()

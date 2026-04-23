@@ -637,9 +637,32 @@ impl BootstrapDisplayConfig {
     }
 }
 
-fn detect_tty_runtime() -> TerminalRuntimeConfig {
-    let tty_type = std::env::var("TERM").ok().filter(|value| !value.is_empty());
-    TerminalRuntimeConfig::interactive(tty_type, detect_tty_color_cells())
+fn detect_tty_type() -> Option<String> {
+    std::env::var("TERM").ok().filter(|value| !value.is_empty())
+}
+
+fn default_controlling_tty_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        "CONOUT$"
+    }
+    #[cfg(not(windows))]
+    {
+        "/dev/tty"
+    }
+}
+
+fn detect_tty_name(_startup: &StartupOptions) -> String {
+    // GNU `init_display_interactive` calls `init_tty(NULL, TERM, ...)` for
+    // normal `-nw`; `init_tty` names that controlling terminal DEV_TTY, not
+    // `ttyname(0)`.  `-t` device handoff is still not implemented here, so the
+    // live Neomacs terminal remains the current controlling tty.
+    default_controlling_tty_name().to_string()
+}
+
+fn detect_tty_runtime(startup: &StartupOptions) -> TerminalRuntimeConfig {
+    TerminalRuntimeConfig::interactive(detect_tty_type(), detect_tty_color_cells())
+        .with_name(detect_tty_name(startup))
 }
 
 fn detect_tty_color_cells() -> i64 {
@@ -1605,7 +1628,7 @@ pub fn run(mode: RuntimeMode) {
         FrontendKind::Tty => {
             if should_enable_live_tty_io(&startup) {
                 reset_terminal_host();
-                configure_terminal_runtime(detect_tty_runtime());
+                configure_terminal_runtime(detect_tty_runtime(&startup));
             } else {
                 reset_terminal_host();
                 reset_terminal_runtime();
@@ -2390,6 +2413,9 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
         FrontendKind::Tty => {
             eval.set_variable("window-system", Value::NIL);
             eval.set_variable("initial-window-system", Value::NIL);
+            if should_enable_live_tty_io(startup) {
+                seed_live_tty_frame_parameters(eval, frame_id, startup);
+            }
             (Value::make_frame(frame_id.0), Value::NIL, Value::NIL)
         }
     };
@@ -2409,6 +2435,19 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
     // with_mirrored_evaluator.  Users who want it can set this to nil in
     // their init file.
     eval.set_variable("inhibit-startup-screen", Value::T);
+}
+
+fn seed_live_tty_frame_parameters(eval: &mut Context, frame_id: FrameId, startup: &StartupOptions) {
+    let tty_name = detect_tty_name(startup);
+    let tty_type = detect_tty_type();
+    if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
+        frame.set_parameter(Value::symbol("tty"), Value::string(tty_name));
+        if let Some(tty_type) = tty_type {
+            frame.set_parameter(Value::symbol("tty-type"), Value::string(tty_type));
+        } else {
+            frame.remove_parameter(Value::symbol("tty-type"));
+        }
+    }
 }
 
 fn ensure_gnu_startup_terminal_frame(eval: &mut Context, opening_frame_id: FrameId) -> FrameId {

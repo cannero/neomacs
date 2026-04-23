@@ -46,6 +46,7 @@ impl TerminalRuntime {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalRuntimeConfig {
+    pub name: Option<String>,
     pub tty_type: Option<String>,
     pub color_cells: i64,
     pub controlling_tty: bool,
@@ -228,6 +229,7 @@ impl TerminalManager {
 impl TerminalRuntimeConfig {
     pub fn inactive() -> Self {
         Self {
+            name: None,
             tty_type: None,
             color_cells: 0,
             controlling_tty: false,
@@ -236,10 +238,16 @@ impl TerminalRuntimeConfig {
 
     pub fn interactive(tty_type: Option<String>, color_cells: i64) -> Self {
         Self {
+            name: None,
             tty_type,
             color_cells: color_cells.max(0),
             controlling_tty: true,
         }
+    }
+
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.name = Some(name.into());
+        self
     }
 }
 
@@ -247,6 +255,9 @@ pub fn configure_terminal_runtime(config: TerminalRuntimeConfig) {
     TERMINAL_MANAGER.with(|slot| {
         let mut manager = slot.borrow_mut();
         let terminal = manager.ensure_initial_terminal();
+        if let Some(name) = config.name {
+            terminal.name = name;
+        }
         terminal.runtime = TerminalRuntime {
             active: config.controlling_tty || config.tty_type.is_some() || config.color_cells > 0,
             tty_type: config.tty_type,
@@ -278,7 +289,9 @@ pub(crate) fn ensure_terminal_runtime_owner(
 pub fn reset_terminal_runtime() {
     TERMINAL_MANAGER.with(|slot| {
         let mut manager = slot.borrow_mut();
-        manager.ensure_initial_terminal().runtime = TerminalRuntime::inactive();
+        let terminal = manager.ensure_initial_terminal();
+        terminal.name = TERMINAL_NAME.to_string();
+        terminal.runtime = TerminalRuntime::inactive();
     });
 }
 

@@ -130,6 +130,35 @@ fn region_text_metrics(bytes: &[u8], multibyte: bool) -> (usize, usize) {
     (lines, max_cols.max(cur_col))
 }
 
+fn trim_window_text_to_non_empty_line_end(bytes: &[u8]) -> &[u8] {
+    let mut last_nonblank = bytes.len();
+    while last_nonblank > 0 && matches!(bytes[last_nonblank - 1], b' ' | b'\t' | b'\n' | b'\r') {
+        last_nonblank -= 1;
+    }
+    if last_nonblank == 0 {
+        return &bytes[..0];
+    }
+
+    let mut end = last_nonblank;
+    while end < bytes.len() && matches!(bytes[end], b' ' | b'\t') {
+        end += 1;
+    }
+    if end < bytes.len() && matches!(bytes[end], b'\n' | b'\r') {
+        end += 1;
+    }
+    &bytes[..end]
+}
+
+fn window_text_pixel_size_includes_mode_line(mode_lines: Option<&Value>) -> bool {
+    mode_lines.is_some_and(|mode| {
+        mode.is_t()
+            || mode.is_symbol_named("t")
+            || mode.is_symbol_named("mode-line")
+            || mode.is_symbol_named("header-line")
+            || mode.is_symbol_named("tab-line")
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Pure builtins
 // ---------------------------------------------------------------------------
@@ -2478,13 +2507,28 @@ pub(crate) fn builtin_window_text_pixel_size_ctx(
         .map(|i| (i.max(1) - 1) as usize)
         .unwrap_or(buf.total_bytes());
 
-    // Count lines and max columns in the region
+    // Count lines and max columns in the region.  GNU's TO=t means
+    // measure through the line ending the last non-empty line, not
+    // through trailing blank lines.
     let mut bytes = Vec::new();
     buf.copy_emacs_bytes_to(from_pos, to_pos.min(buf.total_bytes()), &mut bytes);
-    let (lines, max_cols) = region_text_metrics(&bytes, buf.get_multibyte());
+    let measured = if args
+        .get(2)
+        .is_some_and(|v| v.is_t() || v.is_symbol_named("t"))
+    {
+        trim_window_text_to_non_empty_line_end(&bytes)
+    } else {
+        &bytes
+    };
+    let (lines, max_cols) = region_text_metrics(measured, buf.get_multibyte());
 
     let width = (max_cols as f32 * char_w).ceil() as i64;
-    let height = (lines as f32 * char_h).ceil() as i64;
+    let mode_line_rows = if window_text_pixel_size_includes_mode_line(args.get(5)) {
+        1.0
+    } else {
+        0.0
+    };
+    let height = ((lines as f32 + mode_line_rows) * char_h).ceil() as i64;
 
     Ok(Value::cons(Value::fixnum(width), Value::fixnum(height)))
 }

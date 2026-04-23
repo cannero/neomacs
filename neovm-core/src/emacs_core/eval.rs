@@ -2323,6 +2323,16 @@ impl Context {
         self.dispatch_signal(sig)
     }
 
+    pub(crate) fn dispatch_signal_result_if_needed(&mut self, result: EvalResult) -> EvalResult {
+        match result {
+            Err(Flow::Signal(sig)) => match self.dispatch_signal_if_needed(sig) {
+                Ok(dispatched) => Err(Flow::Signal(dispatched)),
+                Err(flow) => Err(flow),
+            },
+            other => other,
+        }
+    }
+
     fn dispatch_signal(&mut self, mut sig: SignalData) -> Result<SignalData, Flow> {
         if sig.symbol == self.kill_emacs_symbol {
             return Err(Flow::Signal(sig));
@@ -6458,7 +6468,8 @@ impl Context {
             &mut self.specpdl,
             lexical_arg,
         )?;
-        let result = self.eval_value(&form);
+        let eval_result = self.eval_value(&form);
+        let result = self.dispatch_signal_result_if_needed(eval_result);
         finish_eval_with_lexical_arg_in_state(
             &mut self.obarray,
             &mut self.lexenv,
@@ -6797,7 +6808,9 @@ impl Context {
         // the frame UNEVALLED throughout.
         let outer_bt_count = self.specpdl.len();
         self.push_unevalled_backtrace_frame(original_fun, original_args);
-        let result = self.eval_sub_cons_dispatch(original_fun, original_args, outer_bt_count);
+        let dispatch_result =
+            self.eval_sub_cons_dispatch(original_fun, original_args, outer_bt_count);
+        let result = self.dispatch_signal_result_if_needed(dispatch_result);
         self.unbind_to(outer_bt_count);
         result
     }
@@ -9494,6 +9507,7 @@ impl Context {
             // in stacker::maybe_grow.
             self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(function, args))
         });
+        let result = self.dispatch_signal_result_if_needed(result);
         self.unbind_to(bt_count);
         result
     }
@@ -9527,6 +9541,7 @@ impl Context {
         let result = self.maybe_gc_and_quit().and_then(|_| {
             self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
         });
+        let result = self.dispatch_signal_result_if_needed(result);
         self.unbind_to(bt_count);
         result
     }
@@ -9538,6 +9553,7 @@ impl Context {
         let bt_count = self.specpdl.len();
         self.push_backtrace_frame(function, &args);
         let result = self.funcall_general_untraced(function, args);
+        let result = self.dispatch_signal_result_if_needed(result);
         self.unbind_to(bt_count);
         result
     }
