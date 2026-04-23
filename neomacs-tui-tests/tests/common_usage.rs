@@ -2234,6 +2234,47 @@ fn isearch_forward_via_cs() {
 }
 
 #[test]
+fn isearch_repeat_forward_via_cs_cs_moves_to_next_match() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-repeat.txt",
+        "needle first\nmiddle line\nneedle second\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-s");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("I-search"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"needle");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-s RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("needle first"))
+            && grid.iter().any(|row| row.contains("needleX second"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_repeat_forward_via_cs_cs_moves_to_next_match",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn isearch_backward_via_cr() {
     let (mut gnu, mut neo) = boot_pair("");
     let mut contents = String::new();
@@ -3044,6 +3085,50 @@ fn universal_argument_insert_via_cu_8_a() {
 }
 
 #[test]
+fn keyboard_macro_record_and_replay_via_cx_parens_cx_e() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "keyboard-macro.txt",
+        "one\ntwo\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x (");
+    let recording_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Defining kbd macro"));
+    gnu.read_until(Duration::from_secs(6), recording_ready);
+    neo.read_until(Duration::from_secs(8), recording_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    send_both_raw(&mut gnu, &mut neo, b"\x05!");
+    send_both(&mut gnu, &mut neo, "C-n C-a C-x )");
+    let macro_defined = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Keyboard macro defined") || row.contains("End defining"))
+    };
+    gnu.read_until(Duration::from_secs(6), macro_defined);
+    neo.read_until(Duration::from_secs(8), macro_defined);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x e");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("one!")) && grid.iter().any(|row| row.contains("two!"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "keyboard_macro_record_and_replay_via_cx_parens_cx_e",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn transpose_words_via_mt() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -3842,6 +3927,60 @@ fn replace_string_via_mx_replaces_from_point_to_end() {
 
     assert_pair_nearly_matches(
         "replace_string_via_mx_replaces_from_point_to_end",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn replace_regexp_via_mx_replaces_numbers_from_point_to_end() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "replace-regexp.txt",
+        "item-101\nitem-202\nplain\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "replace-regexp");
+
+    let from_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Replace regexp"));
+    gnu.read_until(Duration::from_secs(6), from_prompt);
+    neo.read_until(Duration::from_secs(8), from_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"[0-9][0-9]*");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let to_prompt = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("with:")) || grid.iter().any(|row| row.contains("with "))
+    };
+    gnu.read_until(Duration::from_secs(6), to_prompt);
+    neo.read_until(Duration::from_secs(8), to_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"NUM");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("item-NUM"))
+            && grid.iter().any(|row| row.contains("plain"))
+            && !grid.iter().any(|row| row.contains("item-101"))
+            && !grid.iter().any(|row| row.contains("item-202"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "replace_regexp_via_mx_replaces_numbers_from_point_to_end",
         &gnu,
         &neo,
         2,
