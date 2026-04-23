@@ -2951,11 +2951,7 @@ impl BufferManager {
         Some(())
     }
 
-    /// Switch the current buffer and run buffer-manager-owned transition work.
-    ///
-    /// This is the closest NeoVM equivalent of GNU Emacs's
-    /// `set_buffer_internal_1/2` boundary inside the buffer subsystem.
-    pub fn switch_current(&mut self, id: BufferId) -> bool {
+    fn switch_current_with_recording(&mut self, id: BufferId, record_order: bool) -> bool {
         if !self.buffers.contains_key(&id) {
             return false;
         }
@@ -2965,13 +2961,34 @@ impl BufferManager {
 
         let old_id = self.current;
         self.current = Some(id);
-        self.note_buffer_order_head(id);
+        if record_order {
+            self.note_buffer_order_head(id);
+        }
 
         if let Some(old_id) = old_id {
             let _ = self.record_buffer_state_markers(old_id);
         }
         let _ = self.fetch_buffer_state_markers(id);
         true
+    }
+
+    /// Switch the current buffer and record it as recently selected.
+    ///
+    /// This mirrors GNU Emacs's visible-selection path, where `record_buffer`
+    /// moves a buffer to the head of the buffer lists once the selection is
+    /// meant to count for `other-buffer`.
+    pub fn switch_current(&mut self, id: BufferId) -> bool {
+        self.switch_current_with_recording(id, true)
+    }
+
+    /// Switch the current buffer without changing buffer-list recency.
+    ///
+    /// GNU Emacs uses `set_buffer_internal` for temporary internal work
+    /// without calling `record_buffer`; callers such as `message_dolog`
+    /// rely on that to avoid making `*Messages*` the preferred
+    /// `other-buffer`.
+    pub fn switch_current_unrecorded(&mut self, id: BufferId) -> bool {
+        self.switch_current_with_recording(id, false)
     }
 
     /// Backwards-compatible alias while call sites migrate to `switch_current`.

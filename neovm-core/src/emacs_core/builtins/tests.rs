@@ -5838,14 +5838,6 @@ fn pure_dispatch_internal_placeholder_cluster_matches_compat_contracts() {
             .expect("builtin internal-char-font should accept nil position with char probe");
     assert!(char_font_with_nil_position.is_nil());
 
-    let complete_buffer = dispatch_builtin_pure(
-        "internal-complete-buffer",
-        vec![Value::string("a"), Value::fixnum(1), Value::fixnum(2)],
-    )
-    .expect("builtin internal-complete-buffer should resolve")
-    .expect("builtin internal-complete-buffer should evaluate");
-    assert!(complete_buffer.is_nil());
-
     let describe_syntax =
         dispatch_builtin_pure("internal-describe-syntax-value", vec![Value::fixnum(0)])
             .expect("builtin internal-describe-syntax-value should resolve")

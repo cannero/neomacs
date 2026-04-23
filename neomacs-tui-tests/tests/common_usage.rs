@@ -504,6 +504,67 @@ fn find_file_via_cx_cf() {
 }
 
 #[test]
+fn find_file_tab_completion_via_cx_cf_completes_unique_home_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(
+        &gnu,
+        "completion-unique-target.txt",
+        "completed file body\n",
+    );
+    write_home_file(
+        &neo,
+        "completion-unique-target.txt",
+        "completed file body\n",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Find file:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "find_file_tab_completion_via_cx_cf_completes_unique_home_file/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/completion-uniq");
+    }
+    send_both(&mut gnu, &mut neo, "TAB");
+    let completed = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("completion-unique-target.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), completed);
+    neo.read_until(Duration::from_secs(8), completed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "find_file_tab_completion_via_cx_cf_completes_unique_home_file/completed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("completion-unique-target.txt"))
+            && grid.iter().any(|row| row.contains("completed file body"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "find_file_tab_completion_via_cx_cf_completes_unique_home_file",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn list_directory_via_cx_cd_lists_entries() {
     let (mut gnu, mut neo) = boot_pair("");
     let unique = SystemTime::now()
@@ -1201,6 +1262,78 @@ fn switch_to_file_buffer_via_cx_b_restores_existing_buffer() {
 }
 
 #[test]
+fn switch_to_buffer_tab_completion_via_cx_b_completes_existing_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "buffer-completion-target.txt",
+        "buffer completion body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let switch_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Switch to buffer:"));
+    gnu.read_until(Duration::from_secs(6), switch_prompt);
+    neo.read_until(Duration::from_secs(8), switch_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"*scratch*");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    gnu.read_until(Duration::from_secs(6), switch_prompt);
+    neo.read_until(Duration::from_secs(8), switch_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "switch_to_buffer_tab_completion_via_cx_b_completes_existing_buffer/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"buffer-completion-tar");
+    }
+    send_both(&mut gnu, &mut neo, "TAB");
+    let completed = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("buffer-completion-target.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), completed);
+    neo.read_until(Duration::from_secs(8), completed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "switch_to_buffer_tab_completion_via_cx_b_completes_existing_buffer/completed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("buffer-completion-target.txt"))
+            && grid
+                .iter()
+                .any(|row| row.contains("buffer completion body"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "switch_to_buffer_tab_completion_via_cx_b_completes_existing_buffer",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn previous_and_next_buffer_via_mx_cycle_recent_file_buffers() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -1251,6 +1384,66 @@ fn previous_and_next_buffer_via_mx_cycle_recent_file_buffers() {
         &gnu,
         &neo,
         3,
+    );
+}
+
+#[test]
+fn execute_extended_command_tab_completion_via_mx_completes_unique_command() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mx-command-completion.txt",
+        "abcdef\nsecond\n",
+        "C-x C-f",
+    );
+    send_both(&mut gnu, &mut neo, "C-a");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    let mx_prompt = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
+    gnu.read_until(Duration::from_secs(6), mx_prompt);
+    neo.read_until(Duration::from_secs(8), mx_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "execute_extended_command_tab_completion_via_mx_completes_unique_command/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"overwr");
+    }
+    send_both(&mut gnu, &mut neo, "TAB");
+    let completed = |grid: &[String]| grid.iter().any(|row| row.contains("overwrite-mode"));
+    gnu.read_until(Duration::from_secs(6), completed);
+    neo.read_until(Duration::from_secs(8), completed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "execute_extended_command_tab_completion_via_mx_completes_unique_command/completed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "Z");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Zbcdef"))
+            && !grid.iter().any(|row| row.contains("Zabcdef"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "execute_extended_command_tab_completion_via_mx_completes_unique_command",
+        &gnu,
+        &neo,
+        2,
     );
 }
 

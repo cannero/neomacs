@@ -819,7 +819,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     if active_window_state.is_none() {
         // Batch/no-frame fallback: still switch current buffer so tests without
         // a realized GUI frame can exercise the minibuffer logic.
-        buffers.switch_current(minibuf_id);
+        buffers.switch_current_unrecorded(minibuf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -867,7 +867,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     // Read the minibuffer contents (everything after the prompt)
     let result_text = minibuffer_result_lisp_string(buffers, minibuf_id, prompt_byte_len);
 
-    let _ = buffers.switch_current(minibuf_id);
+    let _ = buffers.switch_current_unrecorded(minibuf_id);
     let exit_hook_result = match run_exit_hook() {
         Err(Flow::Signal(_)) => Ok(Value::NIL),
         other => other,
@@ -899,7 +899,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         );
     }
     if let Some(buf_id) = saved_buffer_id {
-        buffers.switch_current(buf_id);
+        buffers.switch_current_unrecorded(buf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -1321,7 +1321,7 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
         minibuf_id,
     );
     if active_window_state.is_none() {
-        shared.buffers.switch_current(minibuf_id);
+        shared.buffers.switch_current_unrecorded(minibuf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: prompt={:?} minibuf_id={:?} current_buffer={:?} active_window={:?} selected_window={:?}",
@@ -1380,7 +1380,7 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
 
     let result_text = minibuffer_result_lisp_string(&shared.buffers, minibuf_id, prompt_byte_len);
 
-    let _ = shared.buffers.switch_current(minibuf_id);
+    let _ = shared.buffers.switch_current_unrecorded(minibuf_id);
     let exit_hook_result = match shared.run_hook_if_bound("minibuffer-exit-hook") {
         Ok(value) => Ok(value),
         Err(Flow::Signal(_)) => Ok(Value::NIL),
@@ -1412,7 +1412,7 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
         );
     }
     if let Some(buf_id) = saved_buffer_id {
-        shared.buffers.switch_current(buf_id);
+        shared.buffers.switch_current_unrecorded(buf_id);
     }
     tracing::debug!(
         "read-from-minibuffer: restored current_buffer={:?} active_window={:?} selected_window={:?}",

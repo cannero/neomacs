@@ -207,12 +207,12 @@ pub(crate) fn format_mode_line_from_state(
     let target_buffer = resolve_mode_line_buffer_in_state(frames, args.get(2), args.get(3));
     let saved_buffer = buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
-        buffers.switch_current(buffer_id);
+        buffers.switch_current_unrecorded(buffer_id);
     }
 
     if args[0].is_nil() {
         if let Some(buffer_id) = saved_buffer {
-            buffers.switch_current(buffer_id);
+            buffers.switch_current_unrecorded(buffer_id);
         }
         return Ok(Some(Value::string("")));
     }
@@ -234,7 +234,7 @@ pub(crate) fn format_mode_line_from_state(
     );
 
     if let Some(buffer_id) = saved_buffer {
-        buffers.switch_current(buffer_id);
+        buffers.switch_current_unrecorded(buffer_id);
     }
 
     if needs_eval {
@@ -293,7 +293,7 @@ pub fn format_mode_line_for_display(
     let target_buffer = resolve_mode_line_buffer(eval, args.get(2), args.get(3));
     let saved_buffer = eval.buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer
-        && eval.switch_current_buffer(buffer_id).is_err()
+        && eval.set_current_buffer_unrecorded(buffer_id).is_err()
     {
         return Value::string("");
     }
@@ -332,7 +332,7 @@ pub(crate) fn finish_format_mode_line_in_eval(
     let target_buffer = resolve_mode_line_buffer(eval, args.get(2), args.get(3));
     let saved_buffer = eval.buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
-        eval.switch_current_buffer(buffer_id)?;
+        eval.set_current_buffer_unrecorded(buffer_id)?;
     }
 
     let result = if args[0].is_nil() {
@@ -374,7 +374,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     let target_buffer = resolve_mode_line_buffer_in_state(frames, args.get(2), args.get(3));
     let saved_buffer = buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
-        buffers.switch_current(buffer_id);
+        buffers.switch_current_unrecorded(buffer_id);
     }
 
     let result = if args[0].is_nil() {
@@ -400,7 +400,7 @@ pub(crate) fn finish_format_mode_line_in_state_with_eval(
     };
 
     if let Some(buffer_id) = saved_buffer {
-        buffers.switch_current(buffer_id);
+        buffers.switch_current_unrecorded(buffer_id);
     }
     Ok(result)
 }
@@ -416,7 +416,7 @@ pub(crate) fn builtin_format_mode_line_in_vm_runtime(
     let target_buffer = resolve_mode_line_buffer_in_state(&shared.frames, args.get(2), args.get(3));
     let saved_buffer = shared.buffers.current_buffer_id();
     if let Some(buffer_id) = target_buffer {
-        shared.switch_current_buffer(buffer_id)?;
+        shared.set_current_buffer_unrecorded(buffer_id)?;
     }
 
     let result = if args[0].is_nil() {

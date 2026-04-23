@@ -4,6 +4,7 @@ use crate::emacs_core::eval::{
 };
 use crate::emacs_core::fontset;
 use crate::emacs_core::intern::{NIL_SYM_ID, T_SYM_ID, is_canonical_id};
+use crate::emacs_core::minibuffer;
 use crate::emacs_core::symbol::Obarray;
 
 // ===========================================================================
@@ -3641,9 +3642,100 @@ pub(crate) fn builtin_internal_char_font(args: Vec<Value>) -> EvalResult {
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_internal_complete_buffer(args: Vec<Value>) -> EvalResult {
+fn internal_complete_buffer_alist(ctx: &super::eval::Context) -> Value {
+    let entries: Vec<Value> = ctx
+        .buffers
+        .buffer_list()
+        .into_iter()
+        .filter_map(|id| {
+            ctx.buffers
+                .get(id)
+                .map(|buf| Value::cons(buf.name, Value::make_buffer(id)))
+        })
+        .collect();
+    Value::list(entries)
+}
+
+fn completion_string_starts_with_space(value: &Value) -> bool {
+    value
+        .as_lisp_string()
+        .and_then(|string| string.as_bytes().first().copied())
+        == Some(b' ')
+}
+
+fn strip_internal_buffer_completions(completions: Value, total_buffers: usize) -> Value {
+    let Some(items) = super::value::list_to_vec(&completions) else {
+        return completions;
+    };
+
+    let Some(first_non_internal) = items
+        .iter()
+        .position(|item| !completion_string_starts_with_space(item))
+    else {
+        return if items.len() == total_buffers {
+            completions
+        } else {
+            Value::NIL
+        };
+    };
+
+    Value::list(
+        items
+            .into_iter()
+            .skip(first_non_internal)
+            .filter(|item| !completion_string_starts_with_space(item))
+            .collect(),
+    )
+}
+
+pub(crate) fn builtin_internal_complete_buffer(
+    ctx: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("internal-complete-buffer", &args, 3)?;
-    let _ = expect_strict_string(&args[0])?;
+    let string = args[0].as_lisp_string().cloned().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
+    let predicate = args[1];
+    let flag = args[2];
+    let buffer_alist = internal_complete_buffer_alist(ctx);
+
+    if flag.is_nil() {
+        return minibuffer::builtin_try_completion(ctx, vec![args[0], buffer_alist, predicate]);
+    }
+
+    if flag.is_t() {
+        let completions = minibuffer::builtin_all_completions(
+            ctx,
+            vec![args[0], buffer_alist, predicate, Value::NIL],
+        )?;
+        if string.schars() > 0 {
+            return Ok(completions);
+        }
+        return Ok(strip_internal_buffer_completions(
+            completions,
+            ctx.buffers.buffer_list().len(),
+        ));
+    }
+
+    if eq_value(&flag, &Value::symbol("lambda")) {
+        return minibuffer::builtin_test_completion(ctx, vec![args[0], buffer_alist, predicate]);
+    }
+
+    if eq_value(&flag, &Value::symbol("metadata")) {
+        return Ok(Value::list(vec![
+            Value::symbol("metadata"),
+            Value::cons(Value::symbol("category"), Value::symbol("buffer")),
+            Value::cons(
+                Value::symbol("cycle-sort-function"),
+                Value::symbol("identity"),
+            ),
+        ]));
+    }
+
     Ok(Value::NIL)
 }
 

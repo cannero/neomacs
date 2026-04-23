@@ -4966,7 +4966,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "internal-complete-buffer",
-        |_ctx, args| builtin_internal_complete_buffer(args),
+        |ctx, args| builtin_internal_complete_buffer(ctx, args),
         3,
         Some(3),
     );

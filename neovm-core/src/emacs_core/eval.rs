@@ -4673,11 +4673,24 @@ impl Context {
         self.sync_current_buffer_runtime_state()
     }
 
+    pub(crate) fn set_current_buffer_unrecorded(
+        &mut self,
+        id: crate::buffer::BufferId,
+    ) -> Result<(), Flow> {
+        if !self.buffers.switch_current_unrecorded(id) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Selecting deleted buffer")],
+            ));
+        }
+        self.sync_current_buffer_runtime_state()
+    }
+
     pub fn restore_current_buffer_if_live(&mut self, id: crate::buffer::BufferId) {
         if self.buffers.get(id).is_none() {
             return;
         }
-        let _ = self.buffers.switch_current(id);
+        let _ = self.buffers.switch_current_unrecorded(id);
         let _ = self.sync_current_buffer_runtime_state();
     }
 

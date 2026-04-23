@@ -5064,6 +5064,243 @@ fn bootstrap_runtime_command_execute_rename_buffer_reads_gnu_interactive_form() 
 }
 
 #[test]
+fn bootstrap_runtime_read_buffer_to_switch_ret_uses_other_buffer_default() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(let ((buf (get-buffer-create "buffer-completion-target.txt")))
+             (switch-to-buffer buf)
+             (switch-to-buffer "*scratch*")
+             (list (buffer-name (current-buffer))
+                   (buffer-name (other-buffer (current-buffer)))))"#,
+    );
+    assert_eq!(setup, "OK (\"*scratch*\" \"buffer-completion-target.txt\")");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .apply(
+            Value::symbol("read-buffer-to-switch"),
+            vec![Value::string("Switch to buffer: ")],
+        )
+        .expect("read-buffer-to-switch should accept RET default");
+    assert_eq!(result, Value::string("buffer-completion-target.txt"));
+}
+
+#[test]
+fn bootstrap_runtime_internal_complete_buffer_except_matches_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let ((buf (get-buffer-create "buffer-completion-target.txt")))
+             (switch-to-buffer buf)
+             (switch-to-buffer "*scratch*")
+             (let ((table (internal-complete-buffer-except)))
+               (list
+                (try-completion "buffer-completion-tar" table nil)
+                (all-completions "buffer-completion-tar" table nil)
+                (test-completion "buffer-completion-target.txt" table nil))))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (\"buffer-completion-target.txt\" (\"buffer-completion-target.txt\") t)"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_read_buffer_to_switch_tab_completes_existing_buffer() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(let ((buf (get-buffer-create "buffer-completion-target.txt")))
+             (switch-to-buffer buf)
+             (switch-to-buffer "*scratch*")
+             (list (buffer-name (current-buffer))
+                   (buffer-name (other-buffer (current-buffer)))))"#,
+    );
+    assert_eq!(setup, "OK (\"*scratch*\" \"buffer-completion-target.txt\")");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "buffer-completion-tar".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue buffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Tab),
+    ))
+    .expect("queue TAB");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .apply(
+            Value::symbol("read-buffer-to-switch"),
+            vec![Value::string("Switch to buffer: ")],
+        )
+        .expect("read-buffer-to-switch should complete existing buffer");
+    assert_eq!(
+        result,
+        Value::string("buffer-completion-target.txt"),
+        "TAB completion should produce the only matching buffer, got {result}"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_message_logging_does_not_change_other_buffer_order() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let ((buf (get-buffer-create "buffer-completion-target.txt")))
+             (switch-to-buffer buf)
+             (switch-to-buffer "*scratch*")
+             (message "hi")
+             (list
+              (mapcar #'buffer-name (buffer-list))
+              (buffer-name (other-buffer (current-buffer)))))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK ((\"*scratch*\" \"buffer-completion-target.txt\" \" *Minibuf-0*\" \"*Messages*\") \"buffer-completion-target.txt\")"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_cx_b_uses_recent_file_buffer_as_second_default() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let file_dir = tempdir().expect("temp dir");
+    let file_path = file_dir.path().join("buffer-completion-target.txt");
+    fs::write(&file_path, "buffer completion body\n").expect("write test file");
+
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch buffer");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop switch-buffer test should have a selected frame"
+    );
+
+    let _ = eval.eval_str_each(
+        r#"(progn
+             (setq neo-cxb-default-log nil)
+             (setq neo-cxb-switch-count 0)
+             (defun neo--capture-read-buffer-to-switch (orig prompt &rest rest)
+               (let ((default (buffer-name (other-buffer (current-buffer)))))
+                 (push default neo-cxb-default-log)
+                 (apply orig prompt rest)))
+             (defun neo--stop-after-second-switch (&rest _)
+               (setq neo-cxb-switch-count (1+ neo-cxb-switch-count))
+               (when (= neo-cxb-switch-count 2)
+                 (exit-recursive-edit)))
+             (advice-add 'read-buffer-to-switch :around #'neo--capture-read-buffer-to-switch)
+             (advice-add 'switch-to-buffer :after #'neo--stop-after-second-switch))"#,
+    );
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    let find_file = crate::keyboard::KeySequence::from_description("C-x C-f")
+        .expect("C-x C-f sequence");
+    for event in find_file.events {
+        tx.send(crate::keyboard::InputEvent::key_press(event))
+            .expect("queue C-x C-f");
+    }
+    for ch in file_path.display().to_string().chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue file path chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET for find-file");
+
+    let switch_buffer = crate::keyboard::KeySequence::from_description("C-x b")
+        .expect("C-x b sequence");
+    for event in switch_buffer.events.iter().cloned() {
+        tx.send(crate::keyboard::InputEvent::key_press(event))
+            .expect("queue first C-x b");
+    }
+    for ch in "*scratch*".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue scratch target");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET for first switch-to-buffer");
+
+    for event in switch_buffer.events {
+        tx.send(crate::keyboard::InputEvent::key_press(event))
+            .expect("queue second C-x b");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET for second switch-to-buffer");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("switch-buffer command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(prog1
+              (nreverse neo-cxb-default-log)
+            (advice-remove 'read-buffer-to-switch #'neo--capture-read-buffer-to-switch)
+            (advice-remove 'switch-to-buffer #'neo--stop-after-second-switch)
+            (fmakunbound 'neo--capture-read-buffer-to-switch)
+            (fmakunbound 'neo--stop-after-second-switch)
+            (makunbound 'neo-cxb-default-log)
+            (makunbound 'neo-cxb-switch-count))"#,
+    );
+    assert_eq!(
+        rendered,
+        "OK (\"*scratch*\" \"buffer-completion-target.txt\")",
+        "interactive C-x C-f / C-x b flow should keep the visited file as the second switch default"
+    );
+}
+
+#[test]
 fn bootstrap_runtime_call_interactively_autoloaded_describe_function_reads_prompt_from_input_rx() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

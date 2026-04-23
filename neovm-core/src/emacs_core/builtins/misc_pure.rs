@@ -45,7 +45,7 @@ fn message_dolog(ctx: &mut super::eval::Context, msg: &crate::heap_types::LispSt
     // Insert the message text at the end, followed by newline.
     // Save and restore current buffer like GNU does.
     let old_buf = ctx.buffers.current_buffer().map(|b| b.id);
-    ctx.buffers.switch_current(buf_id);
+    let _ = ctx.set_current_buffer_unrecorded(buf_id);
     if let Some(buf) = ctx.buffers.get_mut(buf_id) {
         let end = buf.point_max();
         buf.goto_char(end);
@@ -58,7 +58,7 @@ fn message_dolog(ctx: &mut super::eval::Context, msg: &crate::heap_types::LispSt
         buf.insert("\n");
     }
     if let Some(old) = old_buf {
-        ctx.buffers.switch_current(old);
+        ctx.restore_current_buffer_if_live(old);
     }
 }
 
