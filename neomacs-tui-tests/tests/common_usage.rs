@@ -4532,6 +4532,142 @@ fn sort_lines_region_via_mx_orders_lines() {
 }
 
 #[test]
+fn reverse_region_via_mx_reverses_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "reverse-region.txt",
+        "one\ntwo\nthree\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "reverse-region");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(three) = text.find("three") else {
+            return false;
+        };
+        let Some(two) = text.find("two") else {
+            return false;
+        };
+        let Some(one) = text.find("one") else {
+            return false;
+        };
+        three < two && two < one
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("reverse_region_via_mx_reverses_lines", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "reverse_region_via_mx_reverses_lines",
+        &mut gnu,
+        &mut neo,
+        "reverse-region.txt",
+        "three\ntwo\none\n",
+    );
+}
+
+#[test]
+fn sort_fields_second_field_via_prefix_orders_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-fields.txt",
+        "3 banana\n2 apple\n1 cherry\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h C-u 2");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-fields");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(apple) = text.find("2 apple") else {
+            return false;
+        };
+        let Some(banana) = text.find("3 banana") else {
+            return false;
+        };
+        let Some(cherry) = text.find("1 cherry") else {
+            return false;
+        };
+        apple < banana && banana < cherry
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "sort_fields_second_field_via_prefix_orders_lines",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "sort_fields_second_field_via_prefix_orders_lines",
+        &mut gnu,
+        &mut neo,
+        "sort-fields.txt",
+        "2 apple\n3 banana\n1 cherry\n",
+    );
+}
+
+#[test]
+fn sort_numeric_fields_second_field_via_prefix_orders_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-numeric-fields.txt",
+        "alpha 10\nbravo 2\ncharlie 7\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h C-u 2");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-numeric-fields");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(two) = text.find("bravo 2") else {
+            return false;
+        };
+        let Some(seven) = text.find("charlie 7") else {
+            return false;
+        };
+        let Some(ten) = text.find("alpha 10") else {
+            return false;
+        };
+        two < seven && seven < ten
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "sort_numeric_fields_second_field_via_prefix_orders_lines",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "sort_numeric_fields_second_field_via_prefix_orders_lines",
+        &mut gnu,
+        &mut neo,
+        "sort-numeric-fields.txt",
+        "bravo 2\ncharlie 7\nalpha 10\n",
+    );
+}
+
+#[test]
 fn flush_lines_via_mx_deletes_matching_lines() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
