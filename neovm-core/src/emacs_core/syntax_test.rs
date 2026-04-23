@@ -1154,6 +1154,31 @@ fn scan_lists_basic_and_backward_nil() {
     )
     .unwrap();
     assert_eq!(backward, Value::NIL);
+
+    let second_list = builtin_scan_lists(
+        &mut eval,
+        vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(0)],
+    )
+    .unwrap();
+    assert_eq!(second_list, Value::NIL);
+}
+
+#[test]
+fn scan_lists_depth_exits_containing_list() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert("(progn\n  (message \"x\")\n  )tail\n");
+    }
+
+    let forward = builtin_scan_lists(
+        &mut eval,
+        vec![Value::fixnum(24), Value::fixnum(1), Value::fixnum(1)],
+    )
+    .unwrap();
+    assert_eq!(forward, Value::fixnum(27));
 }
 
 #[test]

@@ -844,6 +844,195 @@ fn scan_sexps_with_options(
     Ok(buf.text.char_to_emacs_byte(idx))
 }
 
+fn skip_string_forward(
+    buf: &Buffer,
+    chars: &[char],
+    mut idx: usize,
+    stop: usize,
+    table: &SyntaxTable,
+    honor_properties: bool,
+    delimiter: char,
+    delimiter_class: SyntaxClass,
+) -> Result<usize, String> {
+    while idx < stop {
+        let c = chars[idx];
+        let class = effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
+        if class == delimiter_class
+            && (delimiter_class == SyntaxClass::StringFence || c == delimiter)
+        {
+            return Ok(idx + 1);
+        }
+        if matches!(class, SyntaxClass::Escape | SyntaxClass::CharQuote) {
+            idx += 1;
+        }
+        idx += 1;
+    }
+
+    Err("Scan error: unbalanced parentheses".to_string())
+}
+
+fn skip_string_backward(
+    buf: &Buffer,
+    chars: &[char],
+    mut idx: usize,
+    stop: usize,
+    table: &SyntaxTable,
+    honor_properties: bool,
+    delimiter: char,
+    delimiter_class: SyntaxClass,
+) -> Result<usize, String> {
+    while idx > stop {
+        idx -= 1;
+        let c = chars[idx];
+        let class = effective_syntax_entry_for_abs_char(buf, table, c, idx, honor_properties).class;
+        if class == delimiter_class
+            && (delimiter_class == SyntaxClass::StringFence || c == delimiter)
+        {
+            return Ok(idx);
+        }
+    }
+
+    Err("Scan error: unbalanced parentheses".to_string())
+}
+
+fn scan_lists_with_options(
+    buf: &Buffer,
+    table: &SyntaxTable,
+    from: usize,
+    count: i64,
+    initial_depth: i64,
+    honor_properties: bool,
+) -> Result<Option<usize>, String> {
+    let chars = buffer_chars_in_range(buf, 0, buf.total_bytes());
+    let mut idx = from;
+    let start = buf.point_min_char();
+    let stop = buf.point_max_char();
+    let mut depth = initial_depth;
+    let min_depth = if depth > 0 { 0 } else { depth };
+
+    if count > 0 {
+        let mut remaining = count;
+        while remaining > 0 {
+            let mut found = false;
+            while idx < stop {
+                let ch = chars[idx];
+                let class =
+                    effective_syntax_entry_for_abs_char(buf, table, ch, idx, honor_properties)
+                        .class;
+                idx += 1;
+
+                match class {
+                    SyntaxClass::Open => {
+                        depth += 1;
+                        if depth == 0 {
+                            found = true;
+                            break;
+                        }
+                    }
+                    SyntaxClass::Close => {
+                        depth -= 1;
+                        if depth == 0 {
+                            found = true;
+                            break;
+                        }
+                        if depth < min_depth {
+                            return Err(
+                                "Scan error: containing expression ends prematurely".to_string()
+                            );
+                        }
+                    }
+                    SyntaxClass::StringDelim | SyntaxClass::StringFence => {
+                        idx = skip_string_forward(
+                            buf,
+                            &chars,
+                            idx,
+                            stop,
+                            table,
+                            honor_properties,
+                            ch,
+                            class,
+                        )?;
+                    }
+                    SyntaxClass::Escape | SyntaxClass::CharQuote => {
+                        if idx >= stop {
+                            return Err("Scan error: unbalanced parentheses".to_string());
+                        }
+                        idx += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            if depth != 0 {
+                return Err("Scan error: unbalanced parentheses".to_string());
+            }
+            if !found {
+                return Ok(None);
+            }
+            remaining -= 1;
+        }
+        Ok(Some(idx))
+    } else if count < 0 {
+        let mut remaining = count;
+        while remaining < 0 {
+            let mut found = false;
+            while idx > start {
+                idx -= 1;
+                let ch = chars[idx];
+                let class =
+                    effective_syntax_entry_for_abs_char(buf, table, ch, idx, honor_properties)
+                        .class;
+
+                match class {
+                    SyntaxClass::Close => {
+                        depth += 1;
+                        if depth == 0 {
+                            found = true;
+                            break;
+                        }
+                    }
+                    SyntaxClass::Open => {
+                        depth -= 1;
+                        if depth == 0 {
+                            found = true;
+                            break;
+                        }
+                        if depth < min_depth {
+                            return Err(
+                                "Scan error: containing expression ends prematurely".to_string()
+                            );
+                        }
+                    }
+                    SyntaxClass::StringDelim | SyntaxClass::StringFence => {
+                        idx = skip_string_backward(
+                            buf,
+                            &chars,
+                            idx,
+                            start,
+                            table,
+                            honor_properties,
+                            ch,
+                            class,
+                        )?;
+                    }
+                    _ => {}
+                }
+            }
+
+            if depth != 0 {
+                return Err("Scan error: unbalanced parentheses".to_string());
+            }
+            if !found {
+                return Ok(None);
+            }
+            remaining += 1;
+        }
+        Ok(Some(idx))
+    } else {
+        Ok(Some(idx))
+    }
+}
+
 /// Scan one sexp forward from char index `start`.
 fn scan_sexp_forward(
     buf: &Buffer,
@@ -2873,7 +3062,7 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
             ));
         }
     };
-    let _depth = match args[2].kind() {
+    let depth = match args[2].kind() {
         ValueKind::Fixnum(n) => n,
         other => {
             return Err(signal(
@@ -2889,17 +3078,15 @@ pub(crate) fn builtin_scan_lists(ctx: &mut super::eval::Context, args: Vec<Value
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     let table = SyntaxTable::for_buffer(buf);
 
-    let from_char = if from > 0 { from as usize - 1 } else { 0 };
-    let from_byte = buf
-        .text
-        .char_to_emacs_byte(from_char.min(buf.text.char_count()));
+    let point_min = buf.point_min_char() as i64 + 1;
+    let point_max = buf.point_max_char() as i64 + 1;
+    let clipped_from = from.clamp(point_min, point_max);
+    let from_char = (clipped_from - 1) as usize;
 
     let honor_properties = parse_sexp_lookup_properties_enabled(ctx);
-    match scan_sexps_with_options(buf, &table, from_byte, count, honor_properties) {
-        Ok(new_byte) => Ok(Value::fixnum(
-            buf.text.emacs_byte_to_char(new_byte) as i64 + 1,
-        )),
-        Err(_) if count < 0 => Ok(Value::NIL),
+    match scan_lists_with_options(buf, &table, from_char, count, depth, honor_properties) {
+        Ok(Some(new_char)) => Ok(Value::fixnum(new_char as i64 + 1)),
+        Ok(None) => Ok(Value::NIL),
         Err(msg) => Err(signal("scan-error", vec![Value::string(&msg)])),
     }
 }

@@ -3001,6 +3001,63 @@ fn forward_and_backward_list_via_cmeta_n_p() {
 }
 
 #[test]
+fn insert_parentheses_via_m_open_paren() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "insert-parentheses.el",
+        "alpha\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-(");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"beta");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(beta) alpha"))
+            && !grid.iter().any(|row| row.contains("betaalpha"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("insert_parentheses_via_m_open_paren", &gnu, &neo, 2);
+}
+
+#[test]
+fn move_past_close_and_reindent_via_m_close_paren() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "move-past-close.el",
+        "(progn\n  (message \"x\")\n  )tail\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-n C-n M-)");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(progn"))
+            && grid.iter().any(|row| row.contains("  (message \"x\"))"))
+            && grid.iter().any(|row| row.contains("tail"))
+            && !grid.iter().any(|row| row.contains("  )tail"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "move_past_close_and_reindent_via_m_close_paren",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn beginning_and_end_of_defun_via_cmeta_a_e() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

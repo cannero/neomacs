@@ -7421,7 +7421,7 @@ fn vm_syntax_navigation_builtins_use_shared_runtime_state() {
                        (scan-lists 1 2 0)
                        (scan-sexps (point-max) -1)))"#
         ),
-        "OK (8 10 9)"
+        "OK (8 nil 9)"
     );
 }
 
