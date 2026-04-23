@@ -4162,6 +4162,9 @@ fn vm_time_builtins_use_direct_timefns_dispatch() {
                         '(0 1 900000 0))
                  (time-less-p '(0 1 0 0) '(0 2 0 0))
                  (time-equal-p '(0 1 0 0) '(0 1 0 0))
+                 (time-equal-p nil nil)
+                 (not (time-equal-p nil '(0 0 0 0)))
+                 (time-equal-p 'not-a-time 'not-a-time)
                  (equal (current-time-string '(0 0 0 0) t)
                         "Thu Jan  1 00:00:00 1970")
                  (equal (current-time-zone nil t) '(0 "GMT"))
@@ -4171,7 +4174,7 @@ fn vm_time_builtins_use_direct_timefns_dispatch() {
                         '(0 0 0 1 1 1970 4 nil 0))
                  (equal (time-convert '(0 42 0 0) 'integer) 42))"#
         ),
-        r#"OK (4 t t t t t t t t t t t t t)"#
+        r#"OK (4 t t t t t t t t t t t t t t t t)"#
     );
 }
 

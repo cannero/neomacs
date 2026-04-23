@@ -615,6 +615,16 @@ pub(crate) fn builtin_time_less_p(args: Vec<Value>) -> EvalResult {
 /// `(time-equal-p A B)` -> t or nil
 pub(crate) fn builtin_time_equal_p(args: Vec<Value>) -> EvalResult {
     expect_args("time-equal-p", &args, 2)?;
+    // GNU timefns.c:time_cmp first treats identical Lisp objects as equal,
+    // so `(time-equal-p nil nil)' and other `eq' inputs avoid validation.
+    if args[0] == args[1] {
+        return Ok(Value::T);
+    }
+    // GNU Ftime_equal_p also avoids interpreting one nil as "current time"
+    // when the other argument is non-nil.
+    if args[0].is_nil() || args[1].is_nil() {
+        return Ok(Value::NIL);
+    }
     let a = parse_time(&args[0])?;
     let b = parse_time(&args[1])?;
     Ok(Value::bool_val(a.equal(b)))

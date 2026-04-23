@@ -2005,6 +2005,47 @@ fn kill_and_yank_rectangle_via_cx_r_k_y() {
 }
 
 #[test]
+fn string_rectangle_via_cx_r_t_replaces_columns() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "string-rectangle.txt",
+        "abcd 1\nefgh 2\nkeep 3\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC C-n C-f C-f C-f C-f C-x r t");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("String rectangle"));
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(10), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"BOX");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("BOX 1"))
+            && grid.iter().any(|row| row.contains("BOX 2"))
+            && grid.iter().any(|row| row.contains("keep 3"))
+            && !grid.iter().any(|row| row.contains("abcd 1"))
+            && !grid.iter().any(|row| row.contains("efgh 2"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(10), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "string_rectangle_via_cx_r_t_replaces_columns",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn point_to_register_and_jump_to_register_via_cx_r_spc_j() {
     let (mut gnu, mut neo) = boot_pair("");
     let mut contents = String::new();
@@ -2053,6 +2094,78 @@ fn point_to_register_and_jump_to_register_via_cx_r_spc_j() {
         &neo,
         2,
     );
+}
+
+#[test]
+fn bookmark_set_and_jump_via_cx_r_m_b() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bookmark-jump.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-x r m");
+    let set_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Set bookmark named"));
+    gnu.read_until(Duration::from_secs(8), set_prompt);
+    neo.read_until(Duration::from_secs(10), set_prompt);
+    let gnu_grid = gnu.text_grid();
+    let neo_grid = neo.text_grid();
+    assert!(
+        set_prompt(&gnu_grid),
+        "GNU should prompt to set bookmark\n{}",
+        gnu_grid.join("\n")
+    );
+    assert!(
+        set_prompt(&neo_grid),
+        "Neomacs should prompt to set bookmark\n{}",
+        neo_grid.join("\n")
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"jump-spot");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-< C-x r b");
+    let jump_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Jump to bookmark"));
+    gnu.read_until(Duration::from_secs(8), jump_prompt);
+    neo.read_until(Duration::from_secs(10), jump_prompt);
+    let gnu_grid = gnu.text_grid();
+    let neo_grid = neo.text_grid();
+    assert!(
+        jump_prompt(&gnu_grid),
+        "GNU should prompt to jump to bookmark\n{}",
+        gnu_grid.join("\n")
+    );
+    assert!(
+        jump_prompt(&neo_grid),
+        "Neomacs should prompt to jump to bookmark\n{}",
+        neo_grid.join("\n")
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"jump-spot");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha line"))
+            && grid.iter().any(|row| row.contains("Xbeta line"))
+            && grid.iter().any(|row| row.contains("gamma line"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(10), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("bookmark_set_and_jump_via_cx_r_m_b", &gnu, &neo, 2);
 }
 
 #[test]
@@ -2268,6 +2381,51 @@ fn isearch_repeat_forward_via_cs_cs_moves_to_next_match() {
 
     assert_pair_nearly_matches(
         "isearch_repeat_forward_via_cs_cs_moves_to_next_match",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn isearch_delete_char_recovers_from_failed_search() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-delete-char.txt",
+        "alpha target\nomega line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-s");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("I-search"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"targetx");
+    }
+    let failing_search = |grid: &[String]| grid.iter().any(|row| row.contains("Failing I-search"));
+    gnu.read_until(Duration::from_secs(6), failing_search);
+    neo.read_until(Duration::from_secs(8), failing_search);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    send_both(&mut gnu, &mut neo, "DEL RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha target!"))
+            && grid.iter().any(|row| row.contains("omega line"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_delete_char_recovers_from_failed_search",
         &gnu,
         &neo,
         2,
