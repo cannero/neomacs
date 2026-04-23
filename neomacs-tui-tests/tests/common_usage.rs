@@ -1194,6 +1194,39 @@ fn switch_to_buffer_other_window_via_cx4_b_displays_messages() {
 }
 
 #[test]
+fn kill_buffer_and_window_via_cx4_0_restores_single_window() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-buffer-window.txt",
+        "temporary other-window file\n",
+        "C-x 4 C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 4 0");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*scratch*"))
+            && !grid
+                .iter()
+                .any(|row| row.contains("kill-buffer-window.txt"))
+            && !grid
+                .iter()
+                .any(|row| row.contains("temporary other-window file"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "kill_buffer_and_window_via_cx4_0_restores_single_window",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "split-window.txt", "split line 1\nsplit line 2\n");
@@ -1221,6 +1254,50 @@ fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
 
     assert_pair_nearly_matches(
         "split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn split_window_right_then_open_file_in_other_window_via_cx3_cxo_cx_cf() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(
+        &gnu,
+        "split-window-right.txt",
+        "right split line 1\nright split line 2\n",
+    );
+    write_home_file(
+        &neo,
+        "split-window-right.txt",
+        "right split line 1\nright split line 2\n",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 3");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x o");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let minibuffer_path = "~/split-window-right.txt";
+    gnu.send(minibuffer_path.as_bytes());
+    neo.send(minibuffer_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("right split line 1"))
+            && grid
+                .iter()
+                .any(|row| row.contains("split-window-right.txt"))
+            && grid.iter().any(|row| row.contains("*scratch*"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "split_window_right_then_open_file_in_other_window_via_cx3_cxo_cx_cf",
         &gnu,
         &neo,
         2,
@@ -3487,6 +3564,56 @@ fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn fill_region_via_mx_wraps_active_region() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "fill-region.txt",
+        "alpha beta gamma delta epsilon zeta eta theta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x f");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Change fill-column from"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"20");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "fill-region");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.trim() == "alpha beta gamma")
+            && grid.iter().any(|row| row.trim() == "delta epsilon zeta")
+            && grid.iter().any(|row| row.trim() == "eta theta")
+            && !grid
+                .iter()
+                .any(|row| row.contains("alpha beta gamma delta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("fill_region_via_mx_wraps_active_region", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "fill_region_via_mx_wraps_active_region",
+        &mut gnu,
+        &mut neo,
+        "fill-region.txt",
+        "alpha beta gamma\ndelta epsilon zeta\neta theta\n",
     );
 }
 
