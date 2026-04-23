@@ -2919,6 +2919,119 @@ fn mark_sexp_via_cmeta_spc_then_kill_region() {
 }
 
 #[test]
+fn beginning_and_end_of_defun_via_cmeta_a_e() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "defun-motion.el",
+        "(defun first ()\n  1)\n\n(defun second ()\n  2)\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-> C-M-a");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"^");
+
+    let beginning_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("^(defun second ()"));
+    gnu.read_until(Duration::from_secs(6), beginning_ready);
+    neo.read_until(Duration::from_secs(8), beginning_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "DEL C-M-e");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let end_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(defun first ()"))
+            && grid.iter().any(|row| row.contains("(defun second ()"))
+            && grid.iter().any(|row| row.contains("  2)!"))
+    };
+    gnu.read_until(Duration::from_secs(6), end_ready);
+    neo.read_until(Duration::from_secs(8), end_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("beginning_and_end_of_defun_via_cmeta_a_e", &gnu, &neo, 2);
+}
+
+#[test]
+fn mark_defun_via_cmeta_h_then_kill_region() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-defun.el",
+        "(defun first ()\n  1)\n\n(defun second ()\n  2)\n\nafter\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-> C-M-a C-M-h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(defun first ()"))
+            && grid.iter().any(|row| row.contains("!"))
+            && grid.iter().any(|row| row.contains("after"))
+            && !grid.iter().any(|row| row.contains("defun second"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("mark_defun_via_cmeta_h_then_kill_region", &gnu, &neo, 2);
+}
+
+#[test]
+fn narrow_to_defun_once_then_widen_via_cx_n_d_w() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "narrow-defun.el",
+        "(defun first ()\n  1)\n\n(defun second ()\n  2)\n\nafter\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-> C-M-a C-n C-x n d");
+    let narrowed_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(defun second ()"))
+            && grid.iter().any(|row| row.contains("  2)"))
+            && !grid.iter().any(|row| row.contains("(defun first ()"))
+            && !grid.iter().any(|row| row.contains("after"))
+    };
+    gnu.read_until(Duration::from_secs(8), narrowed_ready);
+    neo.read_until(Duration::from_secs(12), narrowed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "narrow_to_defun_once_then_widen_via_cx_n_d_w/narrowed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x n w M-<");
+    let widened_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(defun first ()"))
+            && grid.iter().any(|row| row.contains("(defun second ()"))
+            && grid.iter().any(|row| row.contains("after"))
+    };
+    gnu.read_until(Duration::from_secs(6), widened_ready);
+    neo.read_until(Duration::from_secs(8), widened_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "narrow_to_defun_once_then_widen_via_cx_n_d_w",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn open_line_via_co() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
