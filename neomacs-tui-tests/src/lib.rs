@@ -282,6 +282,8 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
         "TAB" => return vec![b'\t'],
         "ESC" => return vec![0x1b],
         "SPC" => return vec![b' '],
+        "C-SPC" | "C-@" => return vec![0x00],
+        "C-M-SPC" | "C-M-@" => return vec![0x1b, 0x00],
         "DEL" => return vec![0x7f],
         "BS" => return vec![0x08],
         _ => {}
@@ -311,6 +313,19 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
 
     // Plain character or multi-byte
     key.as_bytes().to_vec()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::emacs_key;
+
+    #[test]
+    fn emacs_key_maps_control_space_to_terminal_nul() {
+        assert_eq!(emacs_key("C-SPC"), vec![0x00]);
+        assert_eq!(emacs_key("C-@"), vec![0x00]);
+        assert_eq!(emacs_key("C-M-SPC"), vec![0x1b, 0x00]);
+        assert_eq!(emacs_key("C-M-@"), vec![0x1b, 0x00]);
+    }
 }
 
 // ── Screen diffing ───────────────────────────────────────────────────

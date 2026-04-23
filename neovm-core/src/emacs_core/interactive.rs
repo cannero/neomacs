@@ -239,6 +239,7 @@ pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
             Some(interactive_form_from_string_spec("^P"))
         }
         "set-mark-command" => Some(interactive_form_from_string_spec("P")),
+        "narrow-to-region" => Some(interactive_form_from_string_spec("r")),
         "move-to-column" => Some(interactive_form_from_string_spec("NMove to column: ")),
         "goto-char" => Some(interactive_form_from_spec_value(Value::list(vec![
             Value::symbol("goto-char--read-natnum-interactive"),

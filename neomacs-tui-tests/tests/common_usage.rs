@@ -2005,6 +2005,38 @@ fn kill_and_yank_rectangle_via_cx_r_k_y() {
 }
 
 #[test]
+fn open_rectangle_via_cx_r_o_shifts_text_right() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "open-rectangle.txt",
+        "ab12\ncd34\nef56\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-n C-f C-f C-x r o");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("ab  12"))
+            && grid.iter().any(|row| row.contains("cd  34"))
+            && grid.iter().any(|row| row.contains("ef  56"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("open_rectangle_via_cx_r_o_shifts_text_right", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "open_rectangle_via_cx_r_o_shifts_text_right",
+        &mut gnu,
+        &mut neo,
+        "open-rectangle.txt",
+        "ab  12\ncd  34\nef  56\n",
+    );
+}
+
+#[test]
 fn string_rectangle_via_cx_r_t_replaces_columns() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -2916,6 +2948,42 @@ fn mark_sexp_via_cmeta_spc_then_kill_region() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("mark_sexp_via_cmeta_spc_then_kill_region", &gnu, &neo, 2);
+}
+
+#[test]
+fn transpose_sexps_via_cmeta_t_swaps_adjacent_expressions() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "transpose-sexps.el",
+        "(foo) (bar)\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-M-f C-M-t");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(bar) (foo)"))
+            && !grid.iter().any(|row| row.contains("(foo) (bar)"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "transpose_sexps_via_cmeta_t_swaps_adjacent_expressions",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "transpose_sexps_via_cmeta_t_swaps_adjacent_expressions",
+        &mut gnu,
+        &mut neo,
+        "transpose-sexps.el",
+        "(bar) (foo)\n",
+    );
 }
 
 #[test]
@@ -3910,6 +3978,44 @@ fn tabify_region_via_mx_converts_spaces_before_save() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn indent_rigidly_with_prefix_via_mx_indents_region() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "indent-rigidly.txt",
+        "alpha\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h C-u 4");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "indent-rigidly");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("    alpha"))
+            && grid.iter().any(|row| row.contains("    beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "indent_rigidly_with_prefix_via_mx_indents_region",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "indent_rigidly_with_prefix_via_mx_indents_region",
+        &mut gnu,
+        &mut neo,
+        "indent-rigidly.txt",
+        "    alpha\n    beta\n",
     );
 }
 

@@ -3601,6 +3601,56 @@ fn bootstrap_runtime_command_loop_disabled_command_consumes_space_reply_once() {
 }
 
 #[test]
+fn bootstrap_runtime_disabled_narrow_to_region_uses_live_region_after_space_reply() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*disabled-narrow-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*disabled-narrow-target*")
+             (erase-buffer)
+             (insert "top line\nmiddle visible\nbottom line\n")
+             (goto-char (point-min)))"#,
+    )
+    .expect("setup disabled narrow-to-region probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for event in [
+        crate::keyboard::KeyEvent::char_with_mods('n', crate::keyboard::Modifiers::ctrl()),
+        crate::keyboard::KeyEvent::char_with_mods(' ', crate::keyboard::Modifiers::ctrl()),
+        crate::keyboard::KeyEvent::char_with_mods('n', crate::keyboard::Modifiers::ctrl()),
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+        crate::keyboard::KeyEvent::char('n'),
+        crate::keyboard::KeyEvent::char('n'),
+        crate::keyboard::KeyEvent::char(' '),
+    ] {
+        tx.send(crate::keyboard::InputEvent::key_press(event))
+            .expect("queue disabled narrow-to-region event");
+    }
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("disabled narrow-to-region loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(with-current-buffer "*disabled-narrow-target*"
+             (list (point-min) (point-max) (buffer-string) (buffer-narrowed-p)))"#,
+    );
+    assert_eq!(observed, "OK (10 25 \"middle visible\n\" t)");
+}
+
+#[test]
 fn bootstrap_runtime_command_loop_universal_argument_prefix_reaches_following_command() {
     init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

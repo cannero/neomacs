@@ -5621,6 +5621,11 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         Value::list(vec![Value::symbol("interactive"), Value::string("^p")])
     );
     assert_eq!(
+        builtin_interactive_form(&mut eval, vec![Value::symbol("narrow-to-region")])
+            .expect("interactive-form should expose builtin region spec"),
+        Value::list(vec![Value::symbol("interactive"), Value::string("r")])
+    );
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("goto-char")])
             .expect("interactive-form should expose computed builtin form"),
         Value::list(vec![
