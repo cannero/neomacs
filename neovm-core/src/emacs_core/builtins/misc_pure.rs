@@ -111,25 +111,34 @@ pub(crate) fn builtin_message(ctx: &mut super::eval::Context, args: Vec<Value>) 
     // even for a single string argument.  This converts %% -> % and
     // applies text-quoting (curly quotes).
     let formatted = super::strings::builtin_format_message(ctx, args.clone())?;
+    // GNU Fmessage returns the formatted Lisp object after display/logging
+    // side effects. Keep that object rooted while those side effects allocate.
+    let root_scope = ctx.save_vm_roots();
+    ctx.push_vm_frame_root(formatted);
     let msg = match formatted.as_lisp_string() {
         Some(string) => string.clone(),
         None => crate::heap_types::LispString::from_emacs_bytes(Vec::new()),
     };
-    match message_echo_result(ctx, &msg)? {
-        Some(displayed) => ctx.set_current_message(Some(displayed.clone())),
-        None => ctx.clear_current_message(),
-    }
-    // GNU Emacs message_dolog: log to *Messages* buffer
-    message_dolog(ctx, &msg);
-    tracing::info!(msg = %super::runtime_string_from_lisp_string(&msg));
-    // GNU Emacs editfns.c: in batch mode, message prints to stderr with newline.
-    if ctx.noninteractive() {
-        use std::io::Write;
-        let text = super::runtime_string_from_lisp_string(&msg);
-        let _ = std::io::stderr().write_all(text.as_bytes());
-        let _ = std::io::stderr().write_all(b"\n");
-        let _ = std::io::stderr().flush();
-    }
+    let side_effects = (|| {
+        match message_echo_result(ctx, &msg)? {
+            Some(displayed) => ctx.set_current_message(Some(displayed.clone())),
+            None => ctx.clear_current_message(),
+        }
+        // GNU Emacs message_dolog: log to *Messages* buffer
+        message_dolog(ctx, &msg);
+        tracing::info!(msg = %super::runtime_string_from_lisp_string(&msg));
+        // GNU Emacs editfns.c: in batch mode, message prints to stderr with newline.
+        if ctx.noninteractive() {
+            use std::io::Write;
+            let text = super::runtime_string_from_lisp_string(&msg);
+            let _ = std::io::stderr().write_all(text.as_bytes());
+            let _ = std::io::stderr().write_all(b"\n");
+            let _ = std::io::stderr().flush();
+        }
+        Ok(())
+    })();
+    ctx.restore_vm_roots(root_scope);
+    side_effects?;
     Ok(formatted)
 }
 

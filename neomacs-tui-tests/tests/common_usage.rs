@@ -860,6 +860,55 @@ fn list_buffers_after_find_file() {
 }
 
 #[test]
+fn ibuffer_via_mx_lists_file_buffer_and_q_quits() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "ibuffer-usage.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "ibuffer");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Ibuffer*"))
+            && grid.iter().any(|row| row.contains("ibuffer-usage.txt"))
+            && grid.iter().any(|row| row.contains("Commands:"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(10), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids("ibuffer_via_mx_lists_file_buffer_and_q_quits", &gnu, &neo);
+    }
+    assert_pair_nearly_matches(
+        "ibuffer_via_mx_lists_file_buffer_and_q_quits/list",
+        &gnu,
+        &neo,
+        5,
+    );
+
+    send_both(&mut gnu, &mut neo, "q");
+    let quit_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("ibuffer-usage.txt"))
+            && grid.iter().any(|row| row.contains("alpha line"))
+            && !grid.iter().any(|row| row.contains("*Ibuffer*"))
+    };
+    gnu.read_until(Duration::from_secs(6), quit_ready);
+    neo.read_until(Duration::from_secs(8), quit_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "ibuffer_via_mx_lists_file_buffer_and_q_quits/quit",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn switch_to_messages_buffer_via_cx_b() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -4964,6 +5013,86 @@ fn shell_command_on_region_with_prefix_replaces_region_via_mbar() {
 }
 
 #[test]
+fn shell_via_mx_runs_interactive_command_in_comint_buffer() {
+    let init = std::env::temp_dir().join("neomacs-common-usage-shell.el");
+    fs::write(
+        &init,
+        ";;; -*- lexical-binding: t; -*-\n\
+         (setq explicit-shell-file-name \"/bin/sh\"\n\
+               explicit-sh-args '(\"-i\"))\n\
+         (setenv \"ENV\" nil)\n\
+         (setenv \"BASH_ENV\" nil)\n\
+         (setenv \"PS1\" \"tui-sh> \")\n",
+    )
+    .expect("write shell init file");
+    let extra_args = format!("-l {}", init.display());
+    let (mut gnu, mut neo) = boot_pair(&extra_args);
+
+    invoke_mx_command(&mut gnu, &mut neo, "shell");
+    let shell_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*shell*"))
+            && grid.iter().any(|row| row.contains("tui-sh>"))
+    };
+    gnu.read_until(Duration::from_secs(10), shell_ready);
+    neo.read_until(Duration::from_secs(14), shell_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !shell_ready(&gnu.text_grid()) || !shell_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "shell_via_mx_runs_interactive_command_in_comint_buffer/prompt",
+            &gnu,
+            &neo,
+        );
+    }
+    assert_pair_nearly_matches(
+        "shell_via_mx_runs_interactive_command_in_comint_buffer/prompt",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"printf 'tui-interactive-shell-ok\\n'");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let command_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("tui-interactive-shell-ok"))
+            && grid.iter().filter(|row| row.contains("tui-sh>")).count() >= 2
+    };
+    gnu.read_until(Duration::from_secs(10), command_ready);
+    neo.read_until(Duration::from_secs(14), command_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !command_ready(&gnu.text_grid()) || !command_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "shell_via_mx_runs_interactive_command_in_comint_buffer",
+            &gnu,
+            &neo,
+        );
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("tui-interactive-shell-ok")),
+            "{label} should show interactive shell command output"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("*shell*")),
+            "{label} should stay in the shell buffer"
+        );
+    }
+    assert_pair_nearly_matches(
+        "shell_via_mx_runs_interactive_command_in_comint_buffer",
+        &gnu,
+        &neo,
+        6,
+    );
+}
+
+#[test]
 fn compile_via_mx_runs_command_in_compilation_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -6591,4 +6720,34 @@ fn comment_region_via_msemicolon() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("comment_region_via_msemicolon", &gnu, &neo, 2);
+}
+
+#[test]
+fn comment_line_via_mx_comments_current_line_and_moves_to_next() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "comment-line.el",
+        "(message \"alpha\")\n(message \"beta\")\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "comment-line");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains(";; (message \"alpha\")"))
+            && grid.iter().any(|row| row.contains("(message \"beta\")"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "comment_line_via_mx_comments_current_line_and_moves_to_next",
+        &gnu,
+        &neo,
+        2,
+    );
 }

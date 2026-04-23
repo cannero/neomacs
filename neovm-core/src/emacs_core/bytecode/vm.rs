@@ -117,6 +117,27 @@ impl<'a> Vm<'a> {
         self.ctx.push_vm_frame_root(value);
     }
 
+    fn cleanup_bytecode_frame(
+        &mut self,
+        result: EvalResult,
+        condition_stack_base: usize,
+        specpdl_base: usize,
+        frame_base: usize,
+    ) -> EvalResult {
+        // GNU bytecode.c keeps a bytecode return value in `TOP` while
+        // unwinding back to the caller. Neomacs uses recursive Rust frames,
+        // so root the result while this frame removes condition/specpdl state
+        // and truncates its bytecode stack slice.
+        let root_scope = self.ctx.save_vm_roots();
+        self.ctx.push_eval_result_roots(&result);
+        self.ctx.truncate_condition_stack(condition_stack_base);
+        self.ctx.unbind_to(specpdl_base);
+        self.ctx.bc_buf.truncate(frame_base);
+        self.ctx.bc_frames.pop();
+        self.ctx.restore_vm_roots(root_scope);
+        result
+    }
+
     fn with_frame_roots<T>(
         &mut self,
         func: &ByteCodeFunction,
@@ -356,11 +377,12 @@ impl<'a> Vm<'a> {
                 }
                 let result =
                     self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
-                self.ctx.truncate_condition_stack(condition_stack_base);
-                self.ctx.unbind_to(specpdl_base);
-                self.ctx.bc_buf.truncate(frame_base);
-                self.ctx.bc_frames.pop();
-                return result;
+                return self.cleanup_bytecode_frame(
+                    result,
+                    condition_stack_base,
+                    specpdl_base,
+                    frame_base,
+                );
             }
 
             // Dynamic bytecode functions: each param needs a specbind so
@@ -410,11 +432,12 @@ impl<'a> Vm<'a> {
                 );
             }
             let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
-            self.ctx.truncate_condition_stack(condition_stack_base);
-            self.ctx.unbind_to(specpdl_base);
-            self.ctx.bc_buf.truncate(frame_base);
-            self.ctx.bc_frames.pop();
-            return result;
+            return self.cleanup_bytecode_frame(
+                result,
+                condition_stack_base,
+                specpdl_base,
+                frame_base,
+            );
         }
 
         // No params: set up lexenv for lexical closures/functions, then run.
@@ -432,12 +455,7 @@ impl<'a> Vm<'a> {
         }
 
         let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
-        self.ctx.truncate_condition_stack(condition_stack_base);
-
-        self.ctx.unbind_to(specpdl_base);
-        self.ctx.bc_buf.truncate(frame_base);
-        self.ctx.bc_frames.pop();
-        result
+        self.cleanup_bytecode_frame(result, condition_stack_base, specpdl_base, frame_base)
     }
 
     fn run_loop(
@@ -620,12 +638,18 @@ impl<'a> Vm<'a> {
                     if let (Some((called_name, alias_target)), Some(writeback_args)) =
                         (writeback_names.as_ref(), writeback_args.as_ref())
                     {
+                        let root_scope = self.ctx.save_vm_roots();
+                        self.push_dynamic_vm_root(result);
+                        for value in writeback_args.iter().copied() {
+                            self.push_dynamic_vm_root(value);
+                        }
                         self.maybe_writeback_mutating_first_arg(
                             called_name,
                             alias_target.as_deref(),
                             writeback_args,
                             &result,
                         );
+                        self.ctx.restore_vm_roots(root_scope);
                     }
                     stk_push!(result);
                     // Mirrors GNU `bytecode.c:781`: poll quit after every
@@ -664,12 +688,18 @@ impl<'a> Vm<'a> {
                         if let (Some((called_name, alias_target)), Some(writeback_args)) =
                             (writeback_names.as_ref(), writeback_args.as_ref())
                         {
+                            let root_scope = self.ctx.save_vm_roots();
+                            self.push_dynamic_vm_root(result);
+                            for value in writeback_args.iter().copied() {
+                                self.push_dynamic_vm_root(value);
+                            }
                             self.maybe_writeback_mutating_first_arg(
                                 called_name,
                                 alias_target.as_deref(),
                                 writeback_args,
                                 &result,
                             );
+                            self.ctx.restore_vm_roots(root_scope);
                         }
                         stk_push!(result);
                     }
@@ -1532,7 +1562,13 @@ impl<'a> Vm<'a> {
                     } else {
                         vm_try!(builtins::builtin_aset(call_args.clone()))
                     };
+                    let root_scope = self.ctx.save_vm_roots();
+                    self.push_dynamic_vm_root(result);
+                    for value in call_args.iter().copied() {
+                        self.push_dynamic_vm_root(value);
+                    }
                     self.maybe_writeback_mutating_first_arg("aset", None, &call_args, &result);
+                    self.ctx.restore_vm_roots(root_scope);
                     stk_push!(result);
                 }
 
@@ -1745,12 +1781,18 @@ impl<'a> Vm<'a> {
                         )
                     };
                     if let Some(writeback_args) = writeback_args.as_ref() {
+                        let root_scope = self.ctx.save_vm_roots();
+                        self.push_dynamic_vm_root(result);
+                        for value in writeback_args.iter().copied() {
+                            self.push_dynamic_vm_root(value);
+                        }
                         self.maybe_writeback_mutating_first_arg(
                             &name,
                             None,
                             writeback_args,
                             &result,
                         );
+                        self.ctx.restore_vm_roots(root_scope);
                     }
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
@@ -1777,12 +1819,18 @@ impl<'a> Vm<'a> {
                     // neomacs MORE advisable than GNU, breaking parity.
                     let result = vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args));
                     if let Some(writeback_args) = writeback_args.as_ref() {
+                        let root_scope = self.ctx.save_vm_roots();
+                        self.push_dynamic_vm_root(result);
+                        for value in writeback_args.iter().copied() {
+                            self.push_dynamic_vm_root(value);
+                        }
                         self.maybe_writeback_mutating_first_arg(
                             &name,
                             None,
                             writeback_args,
                             &result,
                         );
+                        self.ctx.restore_vm_roots(root_scope);
                     }
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
@@ -3554,8 +3602,7 @@ impl<'a> Vm<'a> {
             _ => self.ctx.funcall_general_untraced(func_val, args),
         };
         let result = self.ctx.dispatch_signal_result_if_needed(result);
-        self.ctx.unbind_to(bt_count);
-        result
+        self.ctx.unbind_to_with_result(bt_count, result)
     }
 
     /// Execute a compiled function without param binding (for inline compilation).
@@ -3571,11 +3618,7 @@ impl<'a> Vm<'a> {
         let specpdl_base = self.ctx.specpdl.len();
         let mut bind_stack: Vec<usize> = Vec::new();
         let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
-        self.ctx.truncate_condition_stack(condition_stack_base);
-        self.ctx.unbind_to(specpdl_base);
-        self.ctx.bc_buf.truncate(frame_base);
-        self.ctx.bc_frames.pop();
-        result
+        self.cleanup_bytecode_frame(result, condition_stack_base, specpdl_base, frame_base)
     }
 
     fn resume_nonlocal(

@@ -6815,8 +6815,7 @@ impl Context {
         let dispatch_result =
             self.eval_sub_cons_dispatch(original_fun, original_args, outer_bt_count);
         let result = self.dispatch_signal_result_if_needed(dispatch_result);
-        self.unbind_to(outer_bt_count);
-        result
+        self.unbind_to_with_result(outer_bt_count, result)
     }
 
     fn eval_sub_cons_dispatch(
@@ -6917,13 +6916,12 @@ impl Context {
             self.push_backtrace_frame(original_fun, &arg_values);
             let expanded =
                 self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
-            self.unbind_to(bt_count);
+            let expanded = self.unbind_to_with_result(bt_count, expanded);
             let expanded = expanded?;
             let expanded_root_count = self.specpdl.len();
             self.push_specpdl_root(expanded);
             let result = self.eval_sub(expanded);
-            self.unbind_to(expanded_root_count);
-            return result;
+            return self.unbind_to_with_result(expanded_root_count, result);
         }
         if cons_head_symbol_id(&func) == Some(macro_symbol()) {
             // Cons-cell macro: (macro . fn) — GNU eval.c:2730
@@ -6932,13 +6930,12 @@ impl Context {
             let bt_count = self.specpdl.len();
             self.push_backtrace_frame(original_fun, &arg_values);
             let expanded = self.with_macro_expansion_scope(|eval| eval.apply(macro_fn, arg_values));
-            self.unbind_to(bt_count);
+            let expanded = self.unbind_to_with_result(bt_count, expanded);
             let expanded = expanded?;
             let expanded_root_count = self.specpdl.len();
             self.push_specpdl_root(expanded);
             let result = self.eval_sub(expanded);
-            self.unbind_to(expanded_root_count);
-            return result;
+            return self.unbind_to_with_result(expanded_root_count, result);
         }
 
         // GNU eval.c:2606-2614: for SUBRP `fun`, check arity
@@ -9458,6 +9455,24 @@ impl Context {
             .push(value);
     }
 
+    pub(crate) fn push_eval_result_roots(&mut self, result: &EvalResult) {
+        match result {
+            Ok(value) => self.push_vm_frame_root(*value),
+            Err(Flow::Signal(sig)) => {
+                for value in sig.data.iter().copied() {
+                    self.push_vm_frame_root(value);
+                }
+                if let Some(raw_data) = sig.raw_data {
+                    self.push_vm_frame_root(raw_data);
+                }
+            }
+            Err(Flow::Throw { tag, value }) => {
+                self.push_vm_frame_root(*tag);
+                self.push_vm_frame_root(*value);
+            }
+        }
+    }
+
     pub(crate) fn save_vm_roots(&mut self) -> VmRootScopeState {
         let pushed_vm_root_frame = self.vm_root_frames.is_empty();
         if pushed_vm_root_frame {
@@ -9494,6 +9509,17 @@ impl Context {
         }
     }
 
+    pub(crate) fn unbind_to_with_result(&mut self, count: usize, result: EvalResult) -> EvalResult {
+        // GNU eval.c `unbind_to(count, value)` carries VALUE through cleanup.
+        // In Rust the value is not on the C stack/register root set, so keep
+        // all heap payloads rooted while unwind-protect/watchers may allocate.
+        let root_scope = self.save_vm_roots();
+        self.push_eval_result_roots(&result);
+        self.unbind_to(count);
+        self.restore_vm_roots(root_scope);
+        result
+    }
+
     fn apply_internal(
         &mut self,
         function: Value,
@@ -9512,8 +9538,7 @@ impl Context {
             self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(function, args))
         });
         let result = self.dispatch_signal_result_if_needed(result);
-        self.unbind_to(bt_count);
-        result
+        self.unbind_to_with_result(bt_count, result)
     }
 
     /// Apply a function value to evaluated arguments.
@@ -9546,8 +9571,7 @@ impl Context {
             self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
         });
         let result = self.dispatch_signal_result_if_needed(result);
-        self.unbind_to(bt_count);
-        result
+        self.unbind_to_with_result(bt_count, result)
     }
 
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
@@ -9558,8 +9582,7 @@ impl Context {
         self.push_backtrace_frame(function, &args);
         let result = self.funcall_general_untraced(function, args);
         let result = self.dispatch_signal_result_if_needed(result);
-        self.unbind_to(bt_count);
-        result
+        self.unbind_to_with_result(bt_count, result)
     }
 
     pub(crate) fn funcall_general_untraced(
@@ -9975,8 +9998,7 @@ impl Context {
             invalid_fn,
             rewrite_builtin_wrong_arity,
         );
-        self.unbind_to(bt_count);
-        result
+        self.unbind_to_with_result(bt_count, result)
     }
 
     #[inline]
@@ -9992,8 +10014,7 @@ impl Context {
         self.push_backtrace_frame(frame_function, &args);
         let result =
             self.apply_named_callable_core(name, args, invalid_fn, rewrite_builtin_wrong_arity);
-        self.unbind_to(bt_count);
-        result
+        self.unbind_to_with_result(bt_count, result)
     }
 
     fn apply_named_callable_by_id_core(
