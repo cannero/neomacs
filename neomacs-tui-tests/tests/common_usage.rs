@@ -2919,6 +2919,88 @@ fn mark_sexp_via_cmeta_spc_then_kill_region() {
 }
 
 #[test]
+fn down_list_and_backward_up_list_via_cmeta_d_u() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "list-depth.el",
+        "(outer (inner item) tail)\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-M-d");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"^");
+
+    let down_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("(^outer (inner item) tail)"))
+    };
+    gnu.read_until(Duration::from_secs(6), down_ready);
+    neo.read_until(Duration::from_secs(8), down_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "DEL C-M-u");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let up_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("!(outer (inner item) tail)"))
+            && !grid
+                .iter()
+                .any(|row| row.contains("(^outer (inner item) tail)"))
+    };
+    gnu.read_until(Duration::from_secs(6), up_ready);
+    neo.read_until(Duration::from_secs(8), up_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "down_list_and_backward_up_list_via_cmeta_d_u",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn forward_and_backward_list_via_cmeta_n_p() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "list-motion.el",
+        "(one (nested)) (two)\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-M-n");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"^");
+
+    let forward_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("(one (nested))^ (two)"));
+    gnu.read_until(Duration::from_secs(6), forward_ready);
+    neo.read_until(Duration::from_secs(8), forward_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "DEL C-M-p");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let backward_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("!(one (nested)) (two)"))
+            && !grid.iter().any(|row| row.contains("(one (nested))^ (two)"))
+    };
+    gnu.read_until(Duration::from_secs(6), backward_ready);
+    neo.read_until(Duration::from_secs(8), backward_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("forward_and_backward_list_via_cmeta_n_p", &gnu, &neo, 2);
+}
+
+#[test]
 fn beginning_and_end_of_defun_via_cmeta_a_e() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
