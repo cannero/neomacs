@@ -3487,6 +3487,40 @@ fn split_line_via_cmeta_o_moves_tail_down() {
 }
 
 #[test]
+fn tab_to_tab_stop_via_mi_inserts_to_next_tab_column() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "tab-to-tab-stop.txt", "ab\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-f C-f M-i");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"cd");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("ab") && row.contains("cd"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "tab_to_tab_stop_via_mi_inserts_to_next_tab_column",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "tab_to_tab_stop_via_mi_inserts_to_next_tab_column",
+        &mut gnu,
+        &mut neo,
+        "tab-to-tab-stop.txt",
+        "ab\tcd\n",
+    );
+}
+
+#[test]
 fn newline_via_cm() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -3564,6 +3598,43 @@ fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn center_line_via_mx_uses_fill_column() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "center-line.txt", "title\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-x f");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Change fill-column from"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"20");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "center-line");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.starts_with("       title"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("center_line_via_mx_uses_fill_column", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "center_line_via_mx_uses_fill_column",
+        &mut gnu,
+        &mut neo,
+        "center-line.txt",
+        "       title\n",
     );
 }
 
@@ -5212,6 +5283,56 @@ fn keep_lines_via_mx_preserves_matching_lines() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("keep_lines_via_mx_preserves_matching_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn how_many_via_mx_reports_regexp_match_count() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "how-many.txt",
+        "foo\nbar foo\nfoo\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "how-many");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("How many matches for regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"foo");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("3 occurrences"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .rev()
+                .take(4)
+                .any(|row| row.contains("3 occurrences")),
+            "{label} should report three regexp matches in the echo area"
+        );
+    }
+    assert_pair_nearly_matches("how_many_via_mx_reports_regexp_match_count", &gnu, &neo, 2);
 }
 
 #[test]
