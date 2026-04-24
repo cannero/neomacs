@@ -10023,6 +10023,70 @@ fn narrow_to_region_once_then_widen_via_cx_n_n_w() {
 }
 
 #[test]
+fn narrow_to_page_once_then_widen_via_cx_n_p_w() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "narrow-page.txt",
+        "first page a\nfirst page b\n\x0c\nsecond page a\nsecond page b\n\x0c\nthird page a\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-s second page a RET C-x n p");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Use this command?"))
+            || grid
+                .iter()
+                .any(|row| row.contains("disabled command narrow-to-page"))
+    };
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(12), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("narrow-to-page")),
+            "{label} should show disabled-command help for narrow-to-page"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Use this command?")),
+            "{label} should ask before running disabled narrow-to-page"
+        );
+    }
+
+    send_both_raw(&mut gnu, &mut neo, b" ");
+    let narrowed_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("second page a"))
+            && grid.iter().any(|row| row.contains("second page b"))
+            && !grid.iter().any(|row| row.contains("first page a"))
+            && !grid.iter().any(|row| row.contains("third page a"))
+    };
+    gnu.read_until(Duration::from_secs(8), narrowed_ready);
+    neo.read_until(Duration::from_secs(12), narrowed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "narrow_to_page_once_then_widen_via_cx_n_p_w/narrowed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x n w");
+    send_both(&mut gnu, &mut neo, "M-<");
+    let widened_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("first page a"))
+            && grid.iter().any(|row| row.contains("second page a"))
+            && grid.iter().any(|row| row.contains("third page a"))
+    };
+    gnu.read_until(Duration::from_secs(6), widened_ready);
+    neo.read_until(Duration::from_secs(8), widened_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("narrow_to_page_once_then_widen_via_cx_n_p_w", &gnu, &neo, 2);
+}
+
+#[test]
 fn forward_paragraph_via_m_close_brace() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
