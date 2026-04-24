@@ -4185,6 +4185,32 @@ fn recent_input_events_are_bounded() {
 }
 
 #[test]
+fn recent_keys_include_cmds_reports_command_markers() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.record_input_event(Value::fixnum('x' as i64));
+    ev.record_recent_command(Value::symbol("forward-char"));
+
+    let plain = ev.eval_str("(recent-keys)").expect("plain recent-keys");
+    assert_eq!(
+        plain.as_vector_data().expect("plain recent-keys vector"),
+        &vec![Value::fixnum('x' as i64)]
+    );
+
+    let with_commands = ev
+        .eval_str("(recent-keys t)")
+        .expect("recent-keys include commands");
+    let items = with_commands
+        .as_vector_data()
+        .expect("recent-keys include commands vector");
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0], Value::fixnum('x' as i64));
+    assert!(items[1].is_cons());
+    assert!(items[1].cons_car().is_nil());
+    assert_eq!(items[1].cons_cdr(), Value::symbol("forward-char"));
+}
+
+#[test]
 fn eval_and_compile_defines_function() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

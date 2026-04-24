@@ -1058,6 +1058,14 @@ impl KBoard {
         self.dribble_event(event);
     }
 
+    pub fn record_recent_command(&mut self, command: Value) {
+        self.recent_input_events
+            .push(Value::cons(Value::NIL, command));
+        if self.recent_input_events.len() > crate::emacs_core::eval::RECENT_INPUT_EVENT_LIMIT {
+            self.recent_input_events.remove(0);
+        }
+    }
+
     pub fn recent_input_events(&self) -> &[Value] {
         &self.recent_input_events
     }
@@ -1450,6 +1458,10 @@ impl KeyboardRuntime {
         }
     }
 
+    pub fn record_recent_command(&mut self, command: Value) {
+        self.kboard.record_recent_command(command);
+    }
+
     pub fn recent_input_events(&self) -> &[Value] {
         &self.kboard.recent_input_events
     }
@@ -1618,6 +1630,10 @@ impl CommandLoop {
             self.num_nonmacro_input_events = self.num_nonmacro_input_events.saturating_add(1);
         }
         self.keyboard.record_input_event(event);
+    }
+
+    pub fn record_recent_command(&mut self, command: Value) {
+        self.keyboard.record_recent_command(command);
     }
 
     pub fn recent_input_events(&self) -> &[Value] {
@@ -4553,6 +4569,10 @@ impl crate::emacs_core::eval::Context {
     pub(crate) fn record_input_event(&mut self, event: Value) {
         self.assign("last-input-event", event);
         self.command_loop.record_input_event(event);
+    }
+
+    pub(crate) fn record_recent_command(&mut self, command: Value) {
+        self.command_loop.record_recent_command(command);
     }
 
     pub(crate) fn record_nonmenu_input_event(&mut self, event: Value) {

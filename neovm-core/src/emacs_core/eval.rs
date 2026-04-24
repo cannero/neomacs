@@ -5215,6 +5215,7 @@ impl Context {
             // instead of bypassing the Lisp-side wrapper. That keeps
             // disabled-command handling and related command-execute
             // behavior aligned with GNU for real keyboard invocations.
+            self.record_recent_command(remapped);
             let exec_result = self.dispatch_command_in_loop(binding);
 
             // Keep the selected window's point and current buffer/runtime view

@@ -9527,6 +9527,39 @@ fn where_is_find_file_via_ch_w_reports_key_binding() {
 }
 
 #[test]
+fn view_lossage_via_ch_l_shows_recent_keys_and_commands() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-f C-b C-h l");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| row.contains("C-f"))
+            && grid.iter().any(|row| row.contains("forward-char"))
+            && grid.iter().any(|row| row.contains("C-b"))
+            && grid.iter().any(|row| row.contains("backward-char"))
+            && grid.iter().any(|row| row.contains("C-h l"))
+            && grid.iter().any(|row| row.contains("view-lossage"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "view_lossage_via_ch_l_shows_recent_keys_and_commands/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_pair_nearly_matches(
+        "view_lossage_via_ch_l_shows_recent_keys_and_commands",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn query_replace_via_mpercent_bang() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
