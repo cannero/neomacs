@@ -1878,6 +1878,43 @@ fn toggle_truncate_lines_reports_enabled_and_disabled() {
 }
 
 #[test]
+fn auto_revert_mode_toggles_file_buffer_lighter() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "auto-revert-mode.txt",
+        "watched\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "auto-revert-mode");
+    let enabled_ready = |grid: &[String]| grid.iter().any(|row| row.contains(" ARev"));
+    gnu.read_until(Duration::from_secs(6), enabled_ready);
+    neo.read_until(Duration::from_secs(8), enabled_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "auto_revert_mode_toggles_file_buffer_lighter/enabled",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "auto-revert-mode");
+    let disabled_ready = |grid: &[String]| !grid.iter().any(|row| row.contains(" ARev"));
+    gnu.read_until(Duration::from_secs(6), disabled_ready);
+    neo.read_until(Duration::from_secs(8), disabled_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "auto_revert_mode_toggles_file_buffer_lighter/disabled",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn visual_line_mode_shows_wrap_lighter() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -7407,6 +7444,65 @@ fn grep_via_mx_lists_matching_file_lines() {
         );
     }
     assert_pair_nearly_matches("grep_via_mx_lists_matching_file_lines", &gnu, &neo, 5);
+}
+
+#[test]
+fn diff_buffer_with_file_via_mx_shows_unsaved_changes() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "diff-buffer-file.txt",
+        "alpha\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"changed\n");
+    let edited = |grid: &[String]| grid.iter().any(|row| row.contains("changed"));
+    gnu.read_until(Duration::from_secs(6), edited);
+    neo.read_until(Duration::from_secs(8), edited);
+
+    invoke_mx_command(&mut gnu, &mut neo, "diff-buffer-with-file");
+    let buffer_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Buffer:"));
+    gnu.read_until(Duration::from_secs(6), buffer_prompt);
+    neo.read_until(Duration::from_secs(8), buffer_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let diff_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Diff*"))
+            && grid.iter().any(|row| row.contains("+changed"))
+            && grid.iter().any(|row| row.contains(" alpha"))
+    };
+    gnu.read_until(Duration::from_secs(10), diff_ready);
+    neo.read_until(Duration::from_secs(14), diff_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !diff_ready(&gnu.text_grid()) || !diff_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "diff_buffer_with_file_via_mx_shows_unsaved_changes",
+            &gnu,
+            &neo,
+        );
+    }
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*Diff*")),
+            "{label} should display the diff buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("+changed"))
+                && grid.iter().any(|row| row.contains(" alpha")),
+            "{label} should show added and context diff lines"
+        );
+    }
+    assert_pair_nearly_matches(
+        "diff_buffer_with_file_via_mx_shows_unsaved_changes",
+        &gnu,
+        &neo,
+        10,
+    );
 }
 
 #[test]

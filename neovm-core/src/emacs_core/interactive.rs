@@ -1400,6 +1400,18 @@ fn interactive_mark_arg_in_buffers(buffers: &crate::buffer::BufferManager) -> Re
     Ok(Value::fixnum(mark_char))
 }
 
+fn interactive_current_buffer_default(buffers: &crate::buffer::BufferManager) -> Value {
+    buffers
+        .current_buffer_id()
+        .map(Value::make_buffer)
+        .unwrap_or(Value::NIL)
+}
+
+fn interactive_other_buffer_default(buffers: &mut crate::buffer::BufferManager) -> Value {
+    let avoid = interactive_current_buffer_default(buffers);
+    super::builtins::other_buffer_impl(buffers, vec![avoid]).unwrap_or(Value::NIL)
+}
+
 fn interactive_string_code_returns_no_args_without_eval(
     code: &crate::heap_types::LispString,
 ) -> bool {
@@ -1535,7 +1547,8 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 )?);
             }
             'b' => {
-                let letter_args = [Value::heap_string(prompt.clone()), Value::NIL, Value::T];
+                let default = interactive_current_buffer_default(&shared.buffers);
+                let letter_args = [Value::heap_string(prompt.clone()), default, Value::T];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
                     super::minibuffer::read_buffer_completing_args(
@@ -1550,7 +1563,8 @@ fn interactive_args_from_string_code_in_vm_runtime(
                 )?);
             }
             'B' => {
-                let letter_args = [Value::heap_string(prompt.clone()), Value::NIL, Value::NIL];
+                let default = interactive_other_buffer_default(&mut shared.buffers);
+                let letter_args = [Value::heap_string(prompt.clone()), default, Value::NIL];
                 super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
                 let completing_args = {
                     super::minibuffer::read_buffer_completing_args(
@@ -2379,12 +2393,19 @@ fn interactive_args_from_string_code(
             )?),
             'b' => args.push(super::minibuffer::builtin_read_buffer(
                 eval,
-                vec![Value::heap_string(prompt), Value::NIL, Value::T],
+                vec![
+                    Value::heap_string(prompt),
+                    interactive_current_buffer_default(&eval.buffers),
+                    Value::T,
+                ],
             )?),
-            'B' => args.push(super::minibuffer::builtin_read_buffer(
-                eval,
-                vec![Value::heap_string(prompt), Value::NIL, Value::NIL],
-            )?),
+            'B' => {
+                let default = interactive_other_buffer_default(&mut eval.buffers);
+                args.push(super::minibuffer::builtin_read_buffer(
+                    eval,
+                    vec![Value::heap_string(prompt), default, Value::NIL],
+                )?)
+            }
             'c' => args.push(super::reader::builtin_read_char(
                 eval,
                 vec![Value::heap_string(prompt)],
