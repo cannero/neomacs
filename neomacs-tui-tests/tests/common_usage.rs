@@ -8458,6 +8458,50 @@ fn shell_command_via_mbang_displays_short_output() {
 }
 
 #[test]
+fn shell_command_with_prefix_inserts_output_at_point_via_cu_mbang() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "shell-command-insert.txt",
+        "start\nend\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-e C-u M-!");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Shell command:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "shell_command_with_prefix_inserts_output_at_point_via_cu_mbang/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"printf shell-out");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("startshell-out"))
+            && grid.iter().any(|row| row.contains("end"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "shell_command_with_prefix_inserts_output_at_point_via_cu_mbang",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn async_shell_command_via_mampersand_displays_output_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
 
