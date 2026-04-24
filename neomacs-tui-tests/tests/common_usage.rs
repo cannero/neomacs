@@ -1959,6 +1959,98 @@ fn bury_and_unbury_buffer_via_mx_moves_current_buffer_to_end() {
 }
 
 #[test]
+fn clone_buffer_via_mx_creates_independent_scratch_copy() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"original clone body");
+    }
+    let original_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("original clone body"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("*scratch*"))
+    };
+    gnu.read_until(Duration::from_secs(6), original_ready);
+    neo.read_until(Duration::from_secs(8), original_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "clone-buffer");
+    let clone_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("original clone body"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("*scratch*<2>"))
+    };
+    gnu.read_until(Duration::from_secs(8), clone_ready);
+    neo.read_until(Duration::from_secs(12), clone_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !clone_ready(&gnu.text_grid()) || !clone_ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "clone_buffer_via_mx_creates_independent_scratch_copy/clone-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            clone_ready(&grid),
+            "{label} should show an independent cloned scratch buffer:\n{}",
+            grid.join("\n")
+        );
+    }
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"clone-only edit");
+    }
+    let clone_edited = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("clone-only edit"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("*scratch*<2>"))
+    };
+    gnu.read_until(Duration::from_secs(6), clone_edited);
+    neo.read_until(Duration::from_secs(8), clone_edited);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(format "clone-check %S/%S" (buffer-name) (with-current-buffer "*scratch*" (save-excursion (goto-char (point-min)) (search-forward "clone-only edit" nil t))))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let clone_check = |grid: &[String]| {
+        grid.iter().any(|row| {
+            row.contains("clone-check") && row.contains("*scratch*<2>") && row.contains("/nil")
+        })
+    };
+    gnu.read_until(Duration::from_secs(8), clone_check);
+    neo.read_until(Duration::from_secs(12), clone_check);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            clone_check(&grid),
+            "{label} should keep clone edits out of the original scratch buffer:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "clone_buffer_via_mx_creates_independent_scratch_copy",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn execute_extended_command_tab_completion_via_mx_completes_unique_command() {
     let (mut gnu, mut neo) = boot_pair("");
 
