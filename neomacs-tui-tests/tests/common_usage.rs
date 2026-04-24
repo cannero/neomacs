@@ -1800,6 +1800,63 @@ fn overwrite_mode_via_mx_replaces_character_at_point() {
 }
 
 #[test]
+fn delete_selection_mode_replaces_active_region_with_typed_text() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-selection.txt",
+        "alpha beta\nsecond\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "delete-selection-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-a C-SPC M-f");
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("X beta"))
+            && !grid.iter().any(|row| row.contains("Xalpha beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_selection_mode_replaces_active_region_with_typed_text",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn electric_pair_mode_inserts_matching_delimiter() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(&mut gnu, &mut neo, "electric-pair.txt", "seed\n", "C-x C-f");
+
+    invoke_mx_command(&mut gnu, &mut neo, "electric-pair-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-a");
+    send_both_raw(&mut gnu, &mut neo, b"(");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("()seed"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "electric_pair_mode_inserts_matching_delimiter",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn keyboard_quit_from_mx_via_cg() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -3023,6 +3080,54 @@ fn view_file_via_mx_opens_view_mode_and_q_quits() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn view_hello_file_pages_down_and_up_via_cv_mv() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "view-hello-file");
+    let hello_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("This is a list of ways"))
+            && grid.iter().any(|row| row.contains("HELLO"))
+    };
+    gnu.read_until(Duration::from_secs(8), hello_ready);
+    neo.read_until(Duration::from_secs(12), hello_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "view_hello_file_pages_down_and_up_via_cv_mv/open",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-v");
+    let paged_down = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("LANGUAGE"))
+            || grid.iter().any(|row| row.contains("Adlam"))
+            || grid.iter().any(|row| row.contains("Braille"))
+    };
+    gnu.read_until(Duration::from_secs(8), paged_down);
+    neo.read_until(Duration::from_secs(12), paged_down);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "view_hello_file_pages_down_and_up_via_cv_mv/page-down",
+        &gnu,
+        &neo,
+        6,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-v");
+    gnu.read_until(Duration::from_secs(8), hello_ready);
+    neo.read_until(Duration::from_secs(12), hello_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "view_hello_file_pages_down_and_up_via_cv_mv/page-up",
+        &gnu,
+        &neo,
+        4,
     );
 }
 
