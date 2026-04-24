@@ -265,6 +265,18 @@ pub(crate) fn builtin_subr_interactive_form(name: &str) -> Option<Value> {
         "rename-file" => Some(interactive_form_from_string_spec(
             "fRename file: \nGRename %s to file: \np",
         )),
+        "insert-char" => Some(interactive_form_from_spec_value(Value::list(vec![
+            Value::symbol("list"),
+            Value::list(vec![
+                Value::symbol("read-char-by-name"),
+                Value::string("Insert character (Unicode name or hex): "),
+            ]),
+            Value::list(vec![
+                Value::symbol("prefix-numeric-value"),
+                Value::symbol("current-prefix-arg"),
+            ]),
+            Value::T,
+        ]))),
         "self-insert-command" => Some(interactive_form_from_spec_value(Value::list(vec![
             Value::symbol("list"),
             Value::list(vec![

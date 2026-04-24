@@ -3174,6 +3174,43 @@ fn insert_file_via_cx_i_inserts_contents_at_point() {
 }
 
 #[test]
+fn insert_char_hex_via_cx8ret_inserts_named_character() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "insert-char.txt", "alpha\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "M-> C-x 8 RET");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Insert character (Unicode name or hex):"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"41");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("alphaA"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "insert_char_hex_via_cx8ret_inserts_named_character",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "insert_char_hex_via_cx8ret_inserts_named_character",
+        &mut gnu,
+        &mut neo,
+        "insert-char.txt",
+        "alpha\nA\n",
+    );
+}
+
+#[test]
 fn find_file_read_only_then_toggle_and_save_via_cx_cr_cx_cq() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -9349,6 +9386,35 @@ fn count_words_region_via_mequals() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("count_words_region_via_mequals", &gnu, &neo, 2);
+}
+
+#[test]
+fn count_words_buffer_via_mx_reports_buffer_totals() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "count-words-buffer.txt",
+        "Alpha beta.\nGamma delta.\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "count-words");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Buffer has") && row.contains("4 words"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "count_words_buffer_via_mx_reports_buffer_totals",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]

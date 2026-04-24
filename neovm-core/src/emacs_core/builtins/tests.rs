@@ -5634,6 +5634,25 @@ fn interactive_form_eval_uses_symbol_properties_and_builtin_subr_specs() {
         ])
     );
     assert_eq!(
+        builtin_interactive_form(&mut eval, vec![Value::symbol("insert-char")])
+            .expect("interactive-form should expose builtin character reader spec"),
+        Value::list(vec![
+            Value::symbol("interactive"),
+            Value::list(vec![
+                Value::symbol("list"),
+                Value::list(vec![
+                    Value::symbol("read-char-by-name"),
+                    Value::string("Insert character (Unicode name or hex): "),
+                ]),
+                Value::list(vec![
+                    Value::symbol("prefix-numeric-value"),
+                    Value::symbol("current-prefix-arg"),
+                ]),
+                Value::T,
+            ]),
+        ])
+    );
+    assert_eq!(
         builtin_interactive_form(&mut eval, vec![Value::symbol("goto-char")])
             .expect("interactive-form should expose computed builtin form"),
         Value::list(vec![
