@@ -2205,6 +2205,61 @@ fn abbrev_mode_expands_defined_global_abbrev() {
 }
 
 #[test]
+fn define_global_abbrev_then_list_abbrevs_via_mx() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "define-global-abbrev");
+    let abbrev_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Define global abbrev:"));
+    gnu.read_until(Duration::from_secs(6), abbrev_prompt);
+    neo.read_until(Duration::from_secs(8), abbrev_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"omw");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let expansion_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Expansion for omw:"));
+    gnu.read_until(Duration::from_secs(6), expansion_prompt);
+    neo.read_until(Duration::from_secs(8), expansion_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"on my way");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "list-abbrevs");
+    let list_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Abbrevs*"))
+            && grid.iter().any(|row| row.contains("global-abbrev-table"))
+            && grid.iter().any(|row| row.contains("omw"))
+            && grid.iter().any(|row| row.contains("on my way"))
+    };
+    gnu.read_until(Duration::from_secs(8), list_ready);
+    neo.read_until(Duration::from_secs(10), list_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            list_ready(&grid),
+            "{label} should list the defined global abbrev:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "define_global_abbrev_then_list_abbrevs_via_mx",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn subword_mode_moves_through_camel_case_parts() {
     let (mut gnu, mut neo) = boot_pair("");
 
