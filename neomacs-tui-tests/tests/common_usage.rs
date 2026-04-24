@@ -4096,6 +4096,114 @@ fn list_registers_via_mx_displays_nonempty_register() {
 }
 
 #[test]
+fn number_to_register_and_increment_register_via_cx_r_n_plus() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "number-register.txt", "7\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "C-x r n");
+    let number_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Number to register:"));
+    gnu.read_until(Duration::from_secs(6), number_prompt);
+    neo.read_until(Duration::from_secs(8), number_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-u 5 C-x r +");
+    let increment_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Increment register:"));
+    gnu.read_until(Duration::from_secs(6), increment_prompt);
+    neo.read_until(Duration::from_secs(8), increment_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "view-register");
+    let view_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("View register:"));
+    gnu.read_until(Duration::from_secs(6), view_prompt);
+    neo.read_until(Duration::from_secs(8), view_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"n");
+    }
+
+    let output_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Output*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("Register n contains 12"))
+    };
+    gnu.read_until(Duration::from_secs(8), output_ready);
+    neo.read_until(Duration::from_secs(12), output_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "number_to_register_and_increment_register_via_cx_r_n_plus",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn append_and_prepend_to_register_then_insert_via_mx() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "append-prepend-register.txt",
+        "middle\nend\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-a C-SPC C-e");
+    invoke_mx_command(&mut gnu, &mut neo, "append-to-register");
+    let append_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Append to register:"));
+    gnu.read_until(Duration::from_secs(6), append_prompt);
+    neo.read_until(Duration::from_secs(8), append_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"r");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-n C-a C-SPC C-e");
+    invoke_mx_command(&mut gnu, &mut neo, "prepend-to-register");
+    let prepend_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Prepend to register:"));
+    gnu.read_until(Duration::from_secs(6), prepend_prompt);
+    neo.read_until(Duration::from_secs(8), prepend_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"r");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-> RET C-x r i");
+    let insert_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Insert register:"));
+    gnu.read_until(Duration::from_secs(6), insert_prompt);
+    neo.read_until(Duration::from_secs(8), insert_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"r");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("endmiddle"))
+            && grid.iter().filter(|row| row.contains("middle")).count() >= 2
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "append_and_prepend_to_register_then_insert_via_mx",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn bookmark_set_and_jump_via_cx_r_m_b() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
