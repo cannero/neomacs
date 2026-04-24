@@ -4092,6 +4092,86 @@ fn isearch_forward_symbol_via_ms_underscore_respects_symbol_boundaries() {
 }
 
 #[test]
+fn isearch_forward_regexp_via_cmeta_s_matches_pattern() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-regexp-forward.txt",
+        "alpha 123 target\nalpha abc target\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-M-s");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Regexp I-search"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br"alpha [0-9]+ target");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha 123! target"))
+            && grid.iter().any(|row| row.contains("alpha abc target"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_forward_regexp_via_cmeta_s_matches_pattern",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn isearch_backward_regexp_via_cmeta_r_matches_previous_pattern() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-regexp-backward.txt",
+        "item alpha\nplain middle\nitem beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-> C-M-r");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Regexp I-search backward"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br"item .+");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("item alpha"))
+            && grid.iter().any(|row| row.contains("item beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_backward_regexp_via_cmeta_r_matches_previous_pattern",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn kill_region_and_yank_via_cw_cy() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
