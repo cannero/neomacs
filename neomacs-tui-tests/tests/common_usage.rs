@@ -8136,6 +8136,48 @@ fn replace_regexp_via_mx_replaces_numbers_from_point_to_end() {
 }
 
 #[test]
+fn align_regexp_via_mx_aligns_equals_in_region() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "align-regexp.txt",
+        "aa=1\nlong=2\nb=3\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "align-regexp");
+
+    let prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Align regexp:"));
+    gnu.read_until(Duration::from_secs(6), prompt);
+    neo.read_until(Duration::from_secs(8), prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"=");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aa   =1"))
+            && grid.iter().any(|row| row.contains("long =2"))
+            && grid.iter().any(|row| row.contains("b    =3"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("align_regexp_via_mx_aligns_equals_in_region", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "align_regexp_via_mx_aligns_equals_in_region",
+        &mut gnu,
+        &mut neo,
+        "align-regexp.txt",
+        "aa\t=1\nlong\t=2\nb\t=3\n",
+    );
+}
+
+#[test]
 fn sort_lines_region_via_mx_orders_lines() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -8171,6 +8213,75 @@ fn sort_lines_region_via_mx_orders_lines() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("sort_lines_region_via_mx_orders_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn sort_regexp_fields_via_mx_orders_lines_by_numeric_text_key() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-regexp-fields.txt",
+        "id 20 pear\nid 03 apple\nid 11 banana\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-regexp-fields");
+
+    let record_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Regexp specifying records to sort:"))
+    };
+    gnu.read_until(Duration::from_secs(6), record_prompt);
+    neo.read_until(Duration::from_secs(8), record_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"^.*$");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let key_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Regexp specifying key within record:"))
+    };
+    gnu.read_until(Duration::from_secs(6), key_prompt);
+    neo.read_until(Duration::from_secs(8), key_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"\([0-9][0-9]\)"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(three) = text.find("id 03 apple") else {
+            return false;
+        };
+        let Some(eleven) = text.find("id 11 banana") else {
+            return false;
+        };
+        let Some(twenty) = text.find("id 20 pear") else {
+            return false;
+        };
+        three < eleven && eleven < twenty
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "sort_regexp_fields_via_mx_orders_lines_by_numeric_text_key",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "sort_regexp_fields_via_mx_orders_lines_by_numeric_text_key",
+        &mut gnu,
+        &mut neo,
+        "sort-regexp-fields.txt",
+        "id 03 apple\nid 11 banana\nid 20 pear\n",
+    );
 }
 
 #[test]
