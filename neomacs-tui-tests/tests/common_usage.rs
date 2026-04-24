@@ -4924,6 +4924,160 @@ fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
 }
 
 #[test]
+fn auto_fill_mode_wraps_inserted_text_after_fill_column() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(&mut gnu, &mut neo, "auto-fill.txt", "seed\n", "C-x C-f");
+    send_both(&mut gnu, &mut neo, "C-x h C-w");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "C-x f");
+    let fill_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Change fill-column from"))
+    };
+    gnu.read_until(Duration::from_secs(6), fill_prompt);
+    neo.read_until(Duration::from_secs(8), fill_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"20");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    invoke_mx_command(&mut gnu, &mut neo, "auto-fill-mode");
+    let enabled = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Auto-Fill mode enabled"))
+    };
+    gnu.read_until(Duration::from_secs(6), enabled);
+    neo.read_until(Duration::from_secs(8), enabled);
+    assert!(
+        enabled(&gnu.text_grid()),
+        "GNU should report Auto Fill mode enabled\n{}",
+        gnu.text_grid().join("\n")
+    );
+    assert!(
+        enabled(&neo.text_grid()),
+        "Neomacs should report Auto Fill mode enabled\n{}",
+        neo.text_grid().join("\n")
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"alpha beta gamma delta epsilon zeta ");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta gamma"))
+            && grid.iter().any(|row| row.contains("delta epsilon zeta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    assert!(
+        ready(&gnu.text_grid()),
+        "GNU should auto-fill inserted text\n{}",
+        gnu.text_grid().join("\n")
+    );
+    assert!(
+        ready(&neo.text_grid()),
+        "Neomacs should auto-fill inserted text\n{}",
+        neo.text_grid().join("\n")
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "auto_fill_mode_wraps_inserted_text_after_fill_column",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn set_fill_prefix_then_fill_paragraph_via_cx_dot_mq() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "fill-prefix.txt",
+        "> alpha beta gamma delta epsilon zeta eta theta iota kappa lambda\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x f");
+    let fill_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Change fill-column from"))
+    };
+    gnu.read_until(Duration::from_secs(6), fill_prompt);
+    neo.read_until(Duration::from_secs(8), fill_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"26");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-< C-f C-f C-x .");
+    let prefix_ready = |grid: &[String]| grid.iter().any(|row| row.contains("fill-prefix:"));
+    gnu.read_until(Duration::from_secs(6), prefix_ready);
+    neo.read_until(Duration::from_secs(8), prefix_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-q");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("> alpha beta gamma"))
+            && grid.iter().any(|row| row.contains("> delta epsilon zeta"))
+            && grid
+                .iter()
+                .any(|row| row.contains("> eta theta iota kappa"))
+            && grid.iter().any(|row| row.contains("> lambda"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "set_fill_prefix_then_fill_paragraph_via_cx_dot_mq",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn not_modified_via_mtilde_prevents_next_save_from_writing_edit() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "not-modified.txt",
+        "original text\n",
+        "C-x C-f",
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"changed ");
+    let edited = |grid: &[String]| grid.iter().any(|row| row.contains("changed original text"));
+    gnu.read_until(Duration::from_secs(6), edited);
+    neo.read_until(Duration::from_secs(8), edited);
+
+    send_both(&mut gnu, &mut neo, "M-~ C-x C-s");
+    let saved = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("No changes need to be saved"))
+    };
+    gnu.read_until(Duration::from_secs(6), saved);
+    neo.read_until(Duration::from_secs(8), saved);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "not_modified_via_mtilde_prevents_next_save_from_writing_edit",
+        &gnu,
+        &neo,
+        2,
+    );
+    assert_home_file_contents(&gnu, &neo, "not-modified.txt", "original text\n");
+}
+
+#[test]
 fn center_line_via_mx_uses_fill_column() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(&mut gnu, &mut neo, "center-line.txt", "title\n", "C-x C-f");

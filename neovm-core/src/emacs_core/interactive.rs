@@ -3222,7 +3222,30 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
     } else {
         tracing::warn!("self-insert-command: no current buffer");
     }
+    if self_insert_should_auto_fill(eval, ch)
+        && !dynamic_or_global_symbol_value(eval, "auto-fill-function")
+            .unwrap_or(Value::NIL)
+            .is_nil()
+    {
+        eval.apply(Value::symbol("internal-auto-fill"), vec![])?;
+    }
+    eval.apply(
+        Value::symbol("run-hooks"),
+        vec![Value::symbol("post-self-insert-hook")],
+    )?;
     Ok(Value::NIL)
+}
+
+fn self_insert_should_auto_fill(eval: &Context, ch: char) -> bool {
+    let Some(auto_fill_chars) = dynamic_or_global_symbol_value(eval, "auto-fill-chars") else {
+        return ch == ' ' || ch == '\n';
+    };
+    if crate::emacs_core::chartable::is_char_table(&auto_fill_chars) {
+        return crate::emacs_core::chartable::ct_lookup(&auto_fill_chars, ch as i64)
+            .map(|value| !value.is_nil())
+            .unwrap_or(false);
+    }
+    ch == ' ' || ch == '\n'
 }
 
 /// `(keyboard-quit)` -- cancel the current command sequence.
