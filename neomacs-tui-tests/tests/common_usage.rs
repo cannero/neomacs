@@ -1449,6 +1449,86 @@ fn delete_directory_via_mx_removes_empty_directory() {
 }
 
 #[test]
+fn copy_directory_via_mx_copies_nested_tree() {
+    let (mut gnu, mut neo) = boot_pair("");
+    for session in [&gnu, &neo] {
+        let source = session.home_dir().join("copy-source-dir");
+        fs::create_dir_all(source.join("nested")).expect("create copy-directory fixture");
+        fs::write(source.join("alpha.txt"), "alpha copy\n").expect("write alpha fixture");
+        fs::write(source.join("nested").join("beta.txt"), "beta copy\n")
+            .expect("write nested beta fixture");
+    }
+
+    invoke_mx_command(&mut gnu, &mut neo, "copy-directory");
+    let source_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Copy directory:"));
+    gnu.read_until(Duration::from_secs(6), source_prompt);
+    neo.read_until(Duration::from_secs(8), source_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "copy_directory_via_mx_copies_nested_tree/source-prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/copy-source-dir");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let dest_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Copy directory") && row.contains(" to:"))
+    };
+    gnu.read_until(Duration::from_secs(6), dest_prompt);
+    neo.read_until(Duration::from_secs(8), dest_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/copy-dest-dir");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let gnu_dest = gnu.home_dir().join("copy-dest-dir");
+    let neo_dest = neo.home_dir().join("copy-dest-dir");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        if gnu_dest.join("alpha.txt").exists()
+            && neo_dest.join("alpha.txt").exists()
+            && gnu_dest.join("nested").join("beta.txt").exists()
+            && neo_dest.join("nested").join("beta.txt").exists()
+        {
+            break;
+        }
+    }
+
+    assert_eq!(
+        fs::read_to_string(gnu_dest.join("alpha.txt")).expect("read GNU copied alpha"),
+        "alpha copy\n"
+    );
+    assert_eq!(
+        fs::read_to_string(neo_dest.join("alpha.txt")).expect("read Neo copied alpha"),
+        "alpha copy\n"
+    );
+    assert_eq!(
+        fs::read_to_string(gnu_dest.join("nested").join("beta.txt"))
+            .expect("read GNU copied nested beta"),
+        "beta copy\n"
+    );
+    assert_eq!(
+        fs::read_to_string(neo_dest.join("nested").join("beta.txt"))
+            .expect("read Neo copied nested beta"),
+        "beta copy\n"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("copy_directory_via_mx_copies_nested_tree", &gnu, &neo, 2);
+}
+
+#[test]
 fn rename_buffer_via_cx_x_r_updates_current_buffer_name() {
     let (mut gnu, mut neo) = boot_pair("");
 
