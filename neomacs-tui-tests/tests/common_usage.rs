@@ -4012,6 +4012,86 @@ fn isearch_backward_via_cr() {
 }
 
 #[test]
+fn isearch_forward_word_via_ms_w_matches_words_across_whitespace() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-word.txt",
+        "intro line\nalpha\n   beta target\nalpha-x beta miss\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-s w");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("word I-search"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"alpha beta");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta! target"))
+            && grid.iter().any(|row| row.contains("alpha-x beta miss"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_forward_word_via_ms_w_matches_words_across_whitespace",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn isearch_forward_symbol_via_ms_underscore_respects_symbol_boundaries() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "isearch-symbol.el",
+        "foo_bar\nfoo done\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-s _");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("symbol I-search"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"foo");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("foo_bar"))
+            && grid.iter().any(|row| row.contains("foo! done"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "isearch_forward_symbol_via_ms_underscore_respects_symbol_boundaries",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn kill_region_and_yank_via_cw_cy() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
