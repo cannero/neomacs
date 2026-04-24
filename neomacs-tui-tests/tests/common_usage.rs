@@ -1424,6 +1424,35 @@ fn list_buffers_after_find_file() {
 }
 
 #[test]
+fn clone_indirect_buffer_other_window_via_cx4_c() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "clone-indirect.txt",
+        "alpha line\nbeta line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 4 c");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("clone-indirect.txt<2>"))
+            && grid.iter().filter(|row| row.contains("alpha line")).count() >= 2
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "clone_indirect_buffer_other_window_via_cx4_c",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn ibuffer_via_mx_lists_file_buffer_and_q_quits() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -8649,6 +8678,54 @@ fn count_words_region_via_mequals() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("count_words_region_via_mequals", &gnu, &neo, 2);
+}
+
+#[test]
+fn count_lines_page_via_cx_l_reports_current_page() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "count-lines-page.txt",
+        "one\ntwo\nthree\nfour\nfive\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-n C-x l");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Page has"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "count_lines_page_via_cx_l_reports_current_page",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn what_line_via_mx_reports_current_line() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "what-line.txt",
+        "alpha\nbeta\ngamma\ndelta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-n");
+    invoke_mx_command(&mut gnu, &mut neo, "what-line");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Line 3"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("what_line_via_mx_reports_current_line", &gnu, &neo, 2);
 }
 
 #[test]
