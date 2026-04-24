@@ -4873,6 +4873,41 @@ fn newline_via_cm() {
 }
 
 #[test]
+fn newline_and_indent_via_cj_trims_trailing_space_and_indents() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "newline-and-indent.el",
+        "(let ((alpha 1))   beta)\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-j");
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"gamma");
+    }
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(let ((alpha 1))"))
+            && grid.iter().any(|row| row.contains("gamma   beta)"))
+            && !grid.iter().any(|row| row.contains("1))   "))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "newline_and_indent_via_cj_trims_trailing_space_and_indents",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn set_fill_column_then_fill_paragraph_via_cx_f_mq() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -5647,6 +5682,52 @@ fn just_one_space_via_mspc() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("just_one_space_via_mspc", &gnu, &neo, 2);
+}
+
+#[test]
+fn cycle_spacing_via_repeated_mspc_collapses_deletes_and_restores() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "cycle-spacing.txt",
+        "alpha   beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-SPC");
+    let collapsed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta"))
+            && !grid.iter().any(|row| row.contains("alpha   beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), collapsed);
+    neo.read_until(Duration::from_secs(8), collapsed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-SPC");
+    let deleted = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alphabeta"))
+            && !grid.iter().any(|row| row.contains("alpha beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), deleted);
+    neo.read_until(Duration::from_secs(8), deleted);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-SPC");
+    let restored = |grid: &[String]| grid.iter().any(|row| row.contains("alpha   beta"));
+    gnu.read_until(Duration::from_secs(6), restored);
+    neo.read_until(Duration::from_secs(8), restored);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "cycle_spacing_via_repeated_mspc_collapses_deletes_and_restores",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
@@ -8224,6 +8305,47 @@ fn comment_line_via_mx_comments_current_line_and_moves_to_next() {
 
     assert_pair_nearly_matches(
         "comment_line_via_mx_comments_current_line_and_moves_to_next",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn comment_line_via_cx_csemicolon_toggles_current_line() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "comment-line-toggle.el",
+        "(message \"alpha\")\n(message \"beta\")\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-;");
+    let commented = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains(";; (message \"alpha\")"))
+            && grid.iter().any(|row| row.contains("(message \"beta\")"))
+    };
+    gnu.read_until(Duration::from_secs(6), commented);
+    neo.read_until(Duration::from_secs(8), commented);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "C-p C-x C-;");
+    let uncommented = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("(message \"alpha\")"))
+            && !grid
+                .iter()
+                .any(|row| row.contains(";; (message \"alpha\")"))
+            && grid.iter().any(|row| row.contains("(message \"beta\")"))
+    };
+    gnu.read_until(Duration::from_secs(6), uncommented);
+    neo.read_until(Duration::from_secs(8), uncommented);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "comment_line_via_cx_csemicolon_toggles_current_line",
         &gnu,
         &neo,
         2,
