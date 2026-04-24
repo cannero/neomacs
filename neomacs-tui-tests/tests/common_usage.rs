@@ -1800,6 +1800,109 @@ fn overwrite_mode_via_mx_replaces_character_at_point() {
 }
 
 #[test]
+fn display_line_numbers_mode_shows_buffer_line_numbers() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "display-line-numbers.txt",
+        "alpha\nbeta\ngamma\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "display-line-numbers-mode");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("1 alpha"))
+            && grid.iter().any(|row| row.contains("2 beta"))
+            && grid.iter().any(|row| row.contains("3 gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "display_line_numbers_mode_shows_buffer_line_numbers",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn toggle_truncate_lines_reports_enabled_and_disabled() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "truncate-lines.txt",
+        "a very long line that can be wrapped or truncated depending on buffer display settings\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "toggle-truncate-lines");
+    let enabled = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("Truncate long lines enabled"))
+    };
+    gnu.read_until(Duration::from_secs(6), enabled);
+    neo.read_until(Duration::from_secs(8), enabled);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "toggle_truncate_lines_reports_enabled_and_disabled/enabled",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "toggle-truncate-lines");
+    let disabled = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("Truncate long lines disabled"))
+    };
+    gnu.read_until(Duration::from_secs(6), disabled);
+    neo.read_until(Duration::from_secs(8), disabled);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "toggle_truncate_lines_reports_enabled_and_disabled/disabled",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn visual_line_mode_shows_wrap_lighter() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "visual-line.txt",
+        "a long prose line that visual line mode treats as a display line for ordinary movement commands\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "visual-line-mode");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("visual-line.txt") && row.contains("Wrap"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("visual_line_mode_shows_wrap_lighter", &gnu, &neo, 2);
+}
+
+#[test]
 fn delete_selection_mode_replaces_active_region_with_typed_text() {
     let (mut gnu, mut neo) = boot_pair("");
 
