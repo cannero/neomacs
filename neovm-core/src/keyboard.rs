@@ -3135,7 +3135,7 @@ impl crate::emacs_core::eval::Context {
                         crate::emacs_core::builtins::keymaps::builtin_key_description(vec![key_vec])
                     {
                         if let Some(s) = desc.as_utf8_str() {
-                            let echo_msg = format!("{}-", s);
+                            let echo_msg = s.to_string();
                             self.set_current_message(Some(LispString::from_utf8(&echo_msg)));
                         }
                     }

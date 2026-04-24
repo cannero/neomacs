@@ -1860,13 +1860,13 @@ fn read_key_sequence_prefix_echo_does_not_log_to_messages_buffer() {
     assert_eq!(binding, Value::symbol("neomacs-test-prefix-target-command"));
     assert!(
         ev.current_message_text()
-            .is_some_and(|message| message.contains("C-x-")),
+            .is_some_and(|message| message.contains("C-x")),
         "prefix echo should still update the echo area"
     );
     if let Some(messages_id) = ev.buffers.find_buffer_by_name("*Messages*") {
         let messages = ev.buffers.get(messages_id).expect("*Messages* live");
         assert!(
-            !messages.buffer_string().contains("C-x-"),
+            !messages.buffer_string().contains("C-x"),
             "GNU prefix-key echo uses message3_nolog and must not log to *Messages*"
         );
     }

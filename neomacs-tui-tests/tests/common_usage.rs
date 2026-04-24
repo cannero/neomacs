@@ -73,6 +73,26 @@ fn scratch_ready(grid: &[String]) -> bool {
 }
 
 #[test]
+fn control_x_prefix_echo_has_no_trailing_dash() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    let gnu_echo = gnu.row_text(ROWS - 1).trim_end().to_string();
+    let neo_echo = neo.row_text(ROWS - 1).trim_end().to_string();
+    assert_ne!(
+        neo_echo, "C-x-",
+        "Neomacs should not eagerly append a dash to C-x prefix echo"
+    );
+    assert_eq!(
+        neo_echo.ends_with('-'),
+        gnu_echo.ends_with('-'),
+        "Neomacs prefix echo should match GNU trailing-dash state"
+    );
+}
+
+#[test]
 fn terminal_resize_updates_frame_geometry() {
     const TARGET_ROWS: u16 = 30;
     const TARGET_COLS: u16 = 100;
