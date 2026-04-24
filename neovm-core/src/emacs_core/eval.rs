@@ -1449,6 +1449,8 @@ pub struct Context {
     pub(crate) treesit: super::treesit::TreeSitterManager,
     /// Minibuffer runtime state — active minibuffer stack, prompt metadata, and history.
     pub(crate) minibuffers: MinibufferManager,
+    /// Count of completed minibuffer reads observed by the evaluator.
+    pub(crate) interactive_minibuffer_read_count: u64,
     /// Current echo-area message text, mirroring GNU `current-message`.
     pub(crate) current_message: Option<crate::heap_types::LispString>,
     /// Window that was selected when the active minibuffer session began.
@@ -4142,6 +4144,7 @@ impl Context {
             interactive: InteractiveRegistry::new(),
             treesit: super::treesit::TreeSitterManager::new(),
             minibuffers: MinibufferManager::new(),
+            interactive_minibuffer_read_count: 0,
             current_message: None,
             minibuffer_selected_window: None,
             active_minibuffer_window: None,
@@ -4291,6 +4294,7 @@ impl Context {
             interactive,
             treesit: super::treesit::TreeSitterManager::new(),
             minibuffers: MinibufferManager::new(),
+            interactive_minibuffer_read_count: 0,
             current_message: None,
             minibuffer_selected_window: None,
             active_minibuffer_window: None,
@@ -11587,6 +11591,15 @@ impl Context {
         // (0 outside the loop, 1 at top level), so translate here to the
         // GNU-visible level used by mode-line and minibuffer semantics.
         self.command_loop.recursive_depth.saturating_sub(1)
+    }
+
+    pub(crate) fn interactive_minibuffer_read_count(&self) -> u64 {
+        self.interactive_minibuffer_read_count
+    }
+
+    pub(crate) fn note_interactive_minibuffer_read(&mut self) {
+        self.interactive_minibuffer_read_count =
+            self.interactive_minibuffer_read_count.saturating_add(1);
     }
 
     fn sync_current_buffer_to_selected_window(&mut self) {

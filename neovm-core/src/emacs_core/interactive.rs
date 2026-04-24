@@ -373,6 +373,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
     };
     let context =
         InteractiveInvocationContext::from_keys_arg_in_state(eval.read_command_keys(), args.get(2));
+    let record_flag = args.get(1).is_some_and(|value| value.is_truthy());
     finish_call_interactively_in_eval(
         eval,
         CallInteractivelyPlan {
@@ -380,6 +381,7 @@ pub(crate) fn builtin_call_interactively(eval: &mut Context, args: Vec<Value>) -
             resolved_symbol,
             func,
             context,
+            record_flag,
         },
     )
 }
@@ -2756,6 +2758,7 @@ pub(crate) struct CallInteractivelyPlan {
     resolved_symbol: Option<SymId>,
     pub(crate) func: Value,
     context: InteractiveInvocationContext,
+    record_flag: bool,
 }
 
 pub(crate) fn plan_call_interactively_in_state(
@@ -2780,19 +2783,54 @@ pub(crate) fn plan_call_interactively_in_state(
     };
     let context =
         InteractiveInvocationContext::from_keys_arg_in_state(read_command_keys, args.get(2));
+    let record_flag = args.get(1).is_some_and(|value| value.is_truthy());
     Ok(CallInteractivelyPlan {
         invocation_function: func_val,
         resolved_symbol,
         func,
         context,
+        record_flag,
     })
+}
+
+fn record_call_interactively_command_history(
+    eval: &mut Context,
+    invocation_function: Value,
+    call_args: &[Value],
+) -> Result<(), Flow> {
+    let mut command = Vec::with_capacity(call_args.len() + 1);
+    command.push(invocation_function);
+    command.extend(call_args.iter().copied());
+    let command = Value::list(command);
+
+    if eval.obarray.fboundp("add-to-history") {
+        let _ = eval.apply(
+            Value::symbol("add-to-history"),
+            vec![
+                Value::symbol("command-history"),
+                command,
+                Value::NIL,
+                Value::T,
+            ],
+        )?;
+    } else {
+        let existing = eval.eval_symbol("command-history").unwrap_or(Value::NIL);
+        eval.assign("command-history", Value::cons(command, existing));
+    }
+    Ok(())
 }
 
 pub(crate) fn finish_call_interactively_in_eval(
     eval: &mut Context,
     mut plan: CallInteractivelyPlan,
 ) -> EvalResult {
+    let minibuffer_reads_before = eval.interactive_minibuffer_read_count();
     let (_, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
+    let should_record =
+        plan.record_flag || eval.interactive_minibuffer_read_count() != minibuffer_reads_before;
+    if should_record {
+        record_call_interactively_command_history(eval, plan.invocation_function, &call_args)?;
+    }
     let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
     funcall_args.push(plan.invocation_function);
     funcall_args.extend(call_args);

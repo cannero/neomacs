@@ -6,6 +6,7 @@
 //! - `string-pixel-width` — batch-compatible display-column width
 
 use super::error::{EvalResult, Flow, signal};
+use super::timefns::zone_offset_name_for_time;
 use super::value::*;
 
 // ---------------------------------------------------------------------------
@@ -196,8 +197,8 @@ const MONTH_ABBREVS: [&str; 12] = [
 /// `%l` 12-hour space-padded, `%I` 12-hour zero-padded, `%p` AM/PM,
 /// `%P` am/pm, `%n` newline, `%t` tab, `%%` literal `%`.
 ///
-/// If TIME is nil, uses current system time.  ZONE is currently ignored (UTC
-/// assumed).
+/// If TIME is nil, uses current system time.  ZONE follows GNU Emacs
+/// `format-time-string`.
 pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
     expect_min_args("format-time-string", &args, 1)?;
     if args.len() > 3 {
@@ -235,8 +236,9 @@ pub(crate) fn builtin_format_time_string(args: Vec<Value>) -> EvalResult {
         current_unix_timestamp()
     };
 
-    let tm = unix_to_broken_down(timestamp);
-    let formatted = format_time(&format_str, &tm);
+    let (offset_secs, zone_name) = zone_offset_name_for_time(args.get(2), timestamp)?;
+    let tm = unix_to_broken_down(timestamp.saturating_add(offset_secs));
+    let formatted = format_time(&format_str, &tm, offset_secs, &zone_name);
     Ok(Value::string(formatted))
 }
 
@@ -251,7 +253,24 @@ fn current_unix_timestamp() -> i64 {
 }
 
 /// Format a broken-down time according to a strftime-like format string.
-fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
+fn format_numeric_zone_offset(offset_secs: i64) -> String {
+    let sign = if offset_secs < 0 { '-' } else { '+' };
+    let abs_secs = offset_secs.abs();
+    if abs_secs % 60 == 0 {
+        let total_minutes = abs_secs / 60;
+        format!("{}{:02}{:02}", sign, total_minutes / 60, total_minutes % 60)
+    } else {
+        format!(
+            "{}{:02}{:02}{:02}",
+            sign,
+            abs_secs / 3600,
+            (abs_secs % 3600) / 60,
+            abs_secs % 60
+        )
+    }
+}
+
+fn format_time(fmt: &str, tm: &BrokenDownTime, zone_offset_secs: i64, zone_name: &str) -> String {
     let mut result = String::new();
     let chars: Vec<char> = fmt.chars().collect();
     let mut i = 0;
@@ -354,8 +373,8 @@ fn format_time(fmt: &str, tm: &BrokenDownTime) -> String {
                 }
                 'p' => result.push_str(if tm.hour < 12 { "AM" } else { "PM" }),
                 'P' => result.push_str(if tm.hour < 12 { "am" } else { "pm" }),
-                'Z' => result.push_str("UTC"),
-                'z' => result.push_str("+0000"),
+                'Z' => result.push_str(zone_name),
+                'z' => result.push_str(&format_numeric_zone_offset(zone_offset_secs)),
                 'j' => {
                     if suppress_pad {
                         result.push_str(&(tm.yearday + 1).to_string());

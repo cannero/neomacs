@@ -1291,11 +1291,7 @@ fn move_overlay_evaporates_zero_width_overlay() {
     crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
-    builtin_overlay_put(
-        &mut eval,
-        vec![ov, Value::symbol("evaporate"), Value::T],
-    )
-    .unwrap();
+    builtin_overlay_put(&mut eval, vec![ov, Value::symbol("evaporate"), Value::T]).unwrap();
 
     builtin_move_overlay(&mut eval, vec![ov, Value::fixnum(4), Value::fixnum(4)]).unwrap();
 
@@ -1312,11 +1308,7 @@ fn move_deleted_evaporating_overlay_into_empty_range_keeps_it_deleted() {
     crate::test_utils::init_test_tracing();
     let mut eval = eval_with_text("hello world");
     let ov = builtin_make_overlay(&mut eval, vec![Value::fixnum(1), Value::fixnum(6)]).unwrap();
-    builtin_overlay_put(
-        &mut eval,
-        vec![ov, Value::symbol("evaporate"), Value::T],
-    )
-    .unwrap();
+    builtin_overlay_put(&mut eval, vec![ov, Value::symbol("evaporate"), Value::T]).unwrap();
     builtin_delete_overlay(&mut eval, vec![ov]).unwrap();
 
     builtin_move_overlay(&mut eval, vec![ov, Value::fixnum(4), Value::fixnum(4)]).unwrap();

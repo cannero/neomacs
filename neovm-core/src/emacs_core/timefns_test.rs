@@ -433,6 +433,17 @@ fn builtin_current_time_zone_default() {
 }
 
 #[test]
+fn builtin_current_time_string_honors_explicit_zone_argument() {
+    crate::test_utils::init_test_tracing();
+    let result = builtin_current_time_string(vec![
+        Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+        Value::fixnum(3600),
+    ])
+    .unwrap();
+    assert_eq!(result.as_utf8_str().unwrap(), "Thu Jan  1 01:00:00 1970");
+}
+
+#[test]
 fn builtin_encode_time_known() {
     crate::test_utils::init_test_tracing();
     let result = builtin_encode_time(vec![

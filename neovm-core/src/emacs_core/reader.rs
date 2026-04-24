@@ -78,6 +78,142 @@ fn minibuffer_result_lisp_string(
     empty_runtime_lisp_string(true)
 }
 
+#[derive(Clone, Copy, Debug)]
+struct MinibufferHistorySpec {
+    variable_value: Value,
+    history_name: Option<SymId>,
+    position: Value,
+}
+
+fn default_minibuffer_history_spec() -> MinibufferHistorySpec {
+    let default_history = intern("minibuffer-history");
+    MinibufferHistorySpec {
+        variable_value: Value::from_sym_id(default_history),
+        history_name: Some(default_history),
+        position: Value::fixnum(0),
+    }
+}
+
+fn normalize_minibuffer_history_position(position: Value) -> Value {
+    if position.is_nil() {
+        Value::fixnum(0)
+    } else {
+        position
+    }
+}
+
+fn minibuffer_history_spec(hist_arg: Option<&Value>) -> MinibufferHistorySpec {
+    let Some(hist) = hist_arg.copied() else {
+        return default_minibuffer_history_spec();
+    };
+
+    match hist.kind() {
+        ValueKind::Nil => default_minibuffer_history_spec(),
+        ValueKind::Symbol(id) if hist == Value::T => MinibufferHistorySpec {
+            variable_value: Value::T,
+            history_name: None,
+            position: Value::fixnum(0),
+        },
+        ValueKind::Symbol(id) => MinibufferHistorySpec {
+            variable_value: Value::from_sym_id(id),
+            history_name: Some(id),
+            position: Value::fixnum(0),
+        },
+        ValueKind::Cons => {
+            let history_var = hist.cons_car();
+            let position = normalize_minibuffer_history_position(hist.cons_cdr());
+            match history_var.kind() {
+                ValueKind::Nil => MinibufferHistorySpec {
+                    position,
+                    ..default_minibuffer_history_spec()
+                },
+                ValueKind::Symbol(id) if history_var == Value::T => MinibufferHistorySpec {
+                    variable_value: Value::T,
+                    history_name: None,
+                    position,
+                },
+                ValueKind::Symbol(id) => MinibufferHistorySpec {
+                    variable_value: Value::from_sym_id(id),
+                    history_name: Some(id),
+                    position,
+                },
+                _ => default_minibuffer_history_spec(),
+            }
+        }
+        _ => default_minibuffer_history_spec(),
+    }
+}
+
+fn minibuffer_history_limit(obarray: &Obarray, history_name: SymId) -> Option<usize> {
+    let configured = obarray
+        .get_property_id(history_name, intern("history-length"))
+        .or_else(|| obarray.symbol_value("history-length").copied());
+
+    match configured {
+        Some(value) if value == Value::T => None,
+        Some(value) if value.is_fixnum() => {
+            let limit = value.xfixnum();
+            if limit <= 0 {
+                Some(0)
+            } else {
+                Some(limit as usize)
+            }
+        }
+        Some(_) => None,
+        None => Some(100),
+    }
+}
+
+fn add_to_minibuffer_history_variable(
+    obarray: &mut Obarray,
+    history_name: SymId,
+    value: &crate::heap_types::LispString,
+) {
+    if value.as_bytes().is_empty() {
+        return;
+    }
+
+    let new_value = Value::heap_string(value.clone());
+    let current = obarray
+        .symbol_value_id(history_name)
+        .copied()
+        .unwrap_or(Value::NIL);
+    let mut history_items = if current.is_nil() {
+        Vec::new()
+    } else if let Some(items) = list_to_vec(&current) {
+        items
+    } else {
+        return;
+    };
+
+    if history_items.first().copied() == Some(new_value) {
+        return;
+    }
+
+    if obarray
+        .symbol_value("history-delete-duplicates")
+        .is_some_and(|value| value.is_truthy())
+    {
+        history_items.retain(|entry| *entry != new_value);
+    }
+
+    history_items.insert(0, new_value);
+
+    match minibuffer_history_limit(obarray, history_name) {
+        Some(0) => history_items.clear(),
+        Some(max) if history_items.len() > max => history_items.truncate(max),
+        _ => {}
+    }
+
+    obarray.set_symbol_value_id(history_name, Value::list(history_items));
+}
+
+fn history_add_new_input_enabled(obarray: &Obarray) -> bool {
+    obarray
+        .symbol_value("history-add-new-input")
+        .is_none_or(|value| value.is_truthy())
+}
+
 fn expect_string(value: &Value) -> Result<String, Flow> {
     match value.kind() {
         ValueKind::String => Ok(reader_string_text(value).expect("checked string")),
@@ -689,7 +825,7 @@ fn finish_read_from_minibuffer_in_eval_with_setup(
 ) -> EvalResult {
     let eval_ptr = std::ptr::NonNull::from(&mut *eval);
     let command_loop_depth = eval.recursive_command_loop_depth();
-    finish_read_from_minibuffer_in_state_with_recursive_edit(
+    let result = finish_read_from_minibuffer_in_state_with_recursive_edit(
         &mut eval.obarray,
         &mut eval.buffers,
         &mut eval.frames,
@@ -722,7 +858,11 @@ fn finish_read_from_minibuffer_in_eval_with_setup(
                 .unwrap()
                 .minibuffer_command_loop_inner()
         },
-    )
+    );
+    if result.is_ok() {
+        eval.note_interactive_minibuffer_read();
+    }
+    result
 }
 
 pub(crate) fn builtin_read_from_minibuffer_in_runtime(
@@ -782,7 +922,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
     let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
-    let history_name = minibuffer_history_name(args.get(4));
+    let history_spec = minibuffer_history_spec(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
     // Save state.  GNU read_minibuf saves Vcurrent_prefix_arg in
@@ -791,6 +931,14 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let saved_buffer_id = buffers.current_buffer().map(|b| b.id);
     let saved_current_prefix_arg = obarray
         .symbol_value("current-prefix-arg")
+        .copied()
+        .unwrap_or(Value::NIL);
+    let saved_minibuffer_history_variable = obarray
+        .symbol_value("minibuffer-history-variable")
+        .copied()
+        .unwrap_or(Value::from_sym_id(intern("minibuffer-history")));
+    let saved_minibuffer_history_position = obarray
+        .symbol_value("minibuffer-history-position")
         .copied()
         .unwrap_or(Value::NIL);
 
@@ -840,7 +988,7 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         minibuf_id,
         &prompt,
         initial_input.as_ref(),
-        history_name,
+        history_spec.history_name,
     )?;
     state.command_loop_depth = recursive_depth;
 
@@ -858,6 +1006,8 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     // Set minibuffer-related variables
     obarray.set_symbol_value("minibuffer-prompt", Value::heap_string(prompt.clone()));
     obarray.set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
+    obarray.set_symbol_value("minibuffer-history-variable", history_spec.variable_value);
+    obarray.set_symbol_value("minibuffer-history-position", history_spec.position);
 
     run_setup_hook()?;
 
@@ -871,6 +1021,12 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
     let exit_hook_result = match run_exit_hook() {
         Err(Flow::Signal(_)) => Ok(Value::NIL),
         other => other,
+    };
+
+    let exited_normally = match &edit_result {
+        Ok(_) => true,
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") => !value.is_truthy(),
+        _ => false,
     };
 
     match &edit_result {
@@ -912,7 +1068,24 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
         Value::fixnum(minibuffers.depth() as i64),
     );
     obarray.set_symbol_value("current-prefix-arg", saved_current_prefix_arg);
+    obarray.set_symbol_value(
+        "minibuffer-history-variable",
+        saved_minibuffer_history_variable,
+    );
+    obarray.set_symbol_value(
+        "minibuffer-history-position",
+        saved_minibuffer_history_position,
+    );
     exit_hook_result?;
+
+    if exited_normally
+        && history_add_new_input_enabled(obarray)
+        && let Some(history_name) = history_spec.history_name
+    {
+        add_to_minibuffer_history_variable(obarray, history_name, &result_text);
+        let max_length = minibuffer_history_limit(obarray, history_name).unwrap_or(usize::MAX);
+        minibuffers.add_to_history_lisp(history_name, result_text.clone(), max_length);
+    }
 
     // Handle the recursive edit result
     match edit_result {
@@ -939,18 +1112,6 @@ pub(crate) fn finish_read_from_minibuffer_in_state_with_recursive_edit(
             Ok(Value::heap_string(result_text))
         }
         Err(flow) => Err(flow),
-    }
-}
-
-fn minibuffer_history_name(hist_arg: Option<&Value>) -> Option<crate::emacs_core::SymId> {
-    match hist_arg.copied().unwrap_or(Value::NIL).kind() {
-        ValueKind::Symbol(id) => Some(id),
-        ValueKind::Cons => hist_arg
-            .copied()
-            .unwrap_or(Value::NIL)
-            .cons_car()
-            .as_symbol_id(),
-        _ => None,
     }
 }
 
@@ -1285,7 +1446,7 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
     let initial_input = args.get(1).and_then(reader_initial_input_lisp_string);
     let keymap_arg = args.get(2).copied().unwrap_or(Value::NIL);
     let read_arg = args.get(3).copied().unwrap_or(Value::NIL);
-    let history_name = minibuffer_history_name(args.get(4));
+    let history_spec = minibuffer_history_spec(args.get(4));
     let default_val = args.get(5).copied().unwrap_or(Value::NIL);
 
     // Save state.  GNU read_minibuf saves Vcurrent_prefix_arg in
@@ -1295,6 +1456,16 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
     let saved_current_prefix_arg = shared
         .obarray
         .symbol_value("current-prefix-arg")
+        .copied()
+        .unwrap_or(Value::NIL);
+    let saved_minibuffer_history_variable = shared
+        .obarray
+        .symbol_value("minibuffer-history-variable")
+        .copied()
+        .unwrap_or(Value::from_sym_id(intern("minibuffer-history")));
+    let saved_minibuffer_history_position = shared
+        .obarray
+        .symbol_value("minibuffer-history-position")
         .copied()
         .unwrap_or(Value::NIL);
     let recursive_depth = shared.recursive_command_loop_depth();
@@ -1347,7 +1518,7 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
             minibuf_id,
             &prompt,
             initial_input.as_ref(),
-            history_name,
+            history_spec.history_name,
         )?;
         state.command_loop_depth = recursive_depth;
     }
@@ -1368,6 +1539,12 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
     shared
         .obarray
         .set_symbol_value("minibuffer-depth", Value::fixnum(minibuf_depth as i64));
+    shared
+        .obarray
+        .set_symbol_value("minibuffer-history-variable", history_spec.variable_value);
+    shared
+        .obarray
+        .set_symbol_value("minibuffer-history-position", history_spec.position);
     run_before_setup_hook(shared)?;
     shared.run_hook_if_bound("minibuffer-setup-hook")?;
 
@@ -1385,6 +1562,12 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
         Ok(value) => Ok(value),
         Err(Flow::Signal(_)) => Ok(Value::NIL),
         Err(flow) => Err(flow),
+    };
+
+    let exited_normally = match &edit_result {
+        Ok(_) => true,
+        Err(Flow::Throw { tag, value }) if tag.is_symbol_named("exit") => !value.is_truthy(),
+        _ => false,
     };
 
     match &edit_result {
@@ -1430,9 +1613,29 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
     shared
         .obarray
         .set_symbol_value("current-prefix-arg", saved_current_prefix_arg);
+    shared.obarray.set_symbol_value(
+        "minibuffer-history-variable",
+        saved_minibuffer_history_variable,
+    );
+    shared.obarray.set_symbol_value(
+        "minibuffer-history-position",
+        saved_minibuffer_history_position,
+    );
     exit_hook_result?;
 
-    match edit_result {
+    if exited_normally
+        && history_add_new_input_enabled(&shared.obarray)
+        && let Some(history_name) = history_spec.history_name
+    {
+        add_to_minibuffer_history_variable(&mut shared.obarray, history_name, &result_text);
+        let max_length =
+            minibuffer_history_limit(&shared.obarray, history_name).unwrap_or(usize::MAX);
+        shared
+            .minibuffers
+            .add_to_history_lisp(history_name, result_text.clone(), max_length);
+    }
+
+    let result = match edit_result {
         Ok(_) | Err(Flow::Throw { .. }) => {
             if !read_arg.is_nil() && !result_text.as_bytes().is_empty() {
                 let read_result = read_from_string_impl(
@@ -1452,7 +1655,11 @@ fn finish_read_from_minibuffer_in_vm_runtime_with_setup(
             Ok(Value::heap_string(result_text))
         }
         Err(flow) => Err(flow),
+    };
+    if result.is_ok() {
+        shared.note_interactive_minibuffer_read();
     }
+    result
 }
 
 pub(crate) fn finish_completing_read_in_vm_runtime(

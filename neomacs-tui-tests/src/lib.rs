@@ -36,6 +36,7 @@ pub struct TuiSession {
     pty: pty_process::blocking::Pty,
     _child: std::process::Child,
     parser: vt100::Parser,
+    recent_output: Vec<u8>,
     home: PathBuf,
     pub name: String,
 }
@@ -89,6 +90,7 @@ impl TuiSession {
             pty,
             _child: child,
             parser,
+            recent_output: Vec::new(),
             home,
             name: name.to_string(),
         }
@@ -170,6 +172,11 @@ impl TuiSession {
                 match self.pty.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
+                        self.recent_output.extend_from_slice(&buf[..n]);
+                        if self.recent_output.len() > 262_144 {
+                            let drain = self.recent_output.len() - 262_144;
+                            self.recent_output.drain(..drain);
+                        }
                         self.parser.process(&buf[..n]);
                         last_activity = Some(Instant::now());
                     }
@@ -255,6 +262,16 @@ impl TuiSession {
         (0..rows).map(|r| self.row_text(r)).collect()
     }
 
+    /// Clear the accumulated raw PTY output captured by [`read`].
+    pub fn clear_recent_output(&mut self) {
+        self.recent_output.clear();
+    }
+
+    /// Borrow the recent raw PTY output captured by [`read`].
+    pub fn recent_output(&self) -> &[u8] {
+        &self.recent_output
+    }
+
     /// Return the isolated HOME directory used for this session.
     pub fn home_dir(&self) -> &std::path::Path {
         &self.home
@@ -318,6 +335,7 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::emacs_key;
+    use std::fmt::Write as _;
 
     #[test]
     fn emacs_key_maps_control_space_to_terminal_nul() {
@@ -325,6 +343,22 @@ mod tests {
         assert_eq!(emacs_key("C-@"), vec![0x00]);
         assert_eq!(emacs_key("C-M-SPC"), vec![0x1b, 0x00]);
         assert_eq!(emacs_key("C-M-@"), vec![0x1b, 0x00]);
+    }
+
+    #[test]
+    fn vt100_parser_does_not_render_decscusr_cursor_shape_as_text() {
+        let mut parser = vt100::Parser::new(2, 40, 0);
+        parser.process(b"\x1b[1;1HList lines matching regexp: \x1b[6 q\x1b[?25h");
+
+        let row = parser.screen().contents_between(0, 0, 0, 40);
+        let trimmed = row.trim_end();
+        if trimmed != "List lines matching regexp:" {
+            let mut bytes = String::new();
+            for byte in b"\x1b[1;1HList lines matching regexp: \x1b[6 q\x1b[?25h" {
+                let _ = write!(&mut bytes, "{byte:02x} ");
+            }
+            panic!("unexpected row {trimmed:?} for bytes [{bytes}]");
+        }
     }
 }
 

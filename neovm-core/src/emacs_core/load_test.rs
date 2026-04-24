@@ -2596,11 +2596,15 @@ fn bootstrap_runtime_preserves_gnu_minibuffer_completion_bindings() {
              (lookup-key minibuffer-local-map "\r")
              (lookup-key minibuffer-local-completion-map (kbd "RET"))
              (lookup-key minibuffer-local-must-match-map (kbd "RET"))
+             (lookup-key minibuffer-local-map (kbd "M-p"))
+             (lookup-key minibuffer-local-completion-map (kbd "M-p"))
+             (eq (keymap-parent minibuffer-local-completion-map)
+                 minibuffer-local-map)
              (lookup-key read-extended-command-mode-map (kbd "M-X")))"#,
     );
     assert_eq!(
         rendered,
-        "OK (exit-minibuffer minibuffer-completion-exit minibuffer-complete-and-exit execute-extended-command-cycle)"
+        "OK (exit-minibuffer minibuffer-completion-exit minibuffer-complete-and-exit previous-history-element previous-history-element t execute-extended-command-cycle)"
     );
 }
 
@@ -2834,6 +2838,130 @@ fn bootstrap_runtime_command_loop_executes_help_describe_function_on_ret() {
         )),
         "OK (t t t)",
         "expected C-h f keyboard path to populate *Help* like GNU"
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_meta_s_o_opens_clean_occur_prompt_from_input_rx() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*occur-keyboard-probe*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "occur-keyboard-probe"))
+             (erase-buffer)
+             (insert "alpha needle one\nbeta plain\ngamma needle two\n")
+             (goto-char (point-min))
+             (setq neo-occur-keyboard-prompt-log nil)
+             (defun neo-occur-keyboard-prompt-probe-command ()
+               (interactive)
+               (setq neo-occur-keyboard-prompt-log
+                     (catch 'neo-occur-keyboard-prompt-probe
+                       (minibuffer-with-setup-hook
+                           (lambda ()
+                             (throw 'neo-occur-keyboard-prompt-probe
+                                    (list (buffer-string)
+                                          (buffer-substring-no-properties
+                                           (point-min) (point-max))
+                                          (minibuffer-prompt-end)
+                                          (current-message))))
+                         (call-interactively 'occur))))
+               (exit-recursive-edit))
+             (define-key search-map "o" #'neo-occur-keyboard-prompt-probe-command))"#,
+    )
+    .expect("define occur keyboard prompt probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('s', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-s");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('o'),
+    ))
+    .expect("queue o");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+    assert_eq!(
+        eval_rendered(&mut eval, "neo-occur-keyboard-prompt-log"),
+        r#"OK (#("List lines matching regexp: " 0 28 (rear-nonsticky t front-sticky t field t)) "List lines matching regexp: " 29 nil)"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_meta_x_ret_opens_clean_nested_grep_prompt_from_input_rx() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*grep-keyboard-probe*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "grep-keyboard-probe"))
+             (erase-buffer)
+             (insert "alpha needle one\nbeta plain\ngamma needle two\n")
+             (goto-char (point-min))
+             (setq neo-grep-keyboard-prompt-log nil)
+             (defun neo-grep-keyboard-prompt-probe-command ()
+               (interactive)
+               (let ((default-directory temporary-file-directory))
+                 (setq neo-grep-keyboard-prompt-log
+                       (catch 'neo-grep-keyboard-prompt-probe
+                         (minibuffer-with-setup-hook
+                             (lambda ()
+                               (throw 'neo-grep-keyboard-prompt-probe
+                                      (list (buffer-string)
+                                            (buffer-substring-no-properties
+                                             (point-min) (point-max))
+                                            (minibuffer-prompt-end)
+                                            (current-message))))
+                           (call-interactively 'grep))))
+                 (exit-recursive-edit))))"#,
+    )
+    .expect("define grep keyboard prompt probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-x");
+    for ch in "neo-grep-keyboard-prompt-probe-command".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("command loop should exit normally");
+    assert_eq!(result, Value::NIL);
+    assert_eq!(
+        eval_rendered(&mut eval, "neo-grep-keyboard-prompt-log"),
+        r#"OK (#("Run grep (like this): grep --color=auto -nH --null -e " 0 22 (rear-nonsticky t front-sticky t field t)) "Run grep (like this): grep --color=auto -nH --null -e " 23 nil)"#
     );
 }
 
@@ -3284,6 +3412,38 @@ fn bootstrap_runtime_read_key_sequence_from_input_rx_follows_help_describe_bindi
         .expect("read C-h b sequence from input_rx");
     assert_eq!(keys, vec![Value::fixnum(8), Value::fixnum('b' as i64)]);
     assert_eq!(binding, Value::symbol("describe-bindings"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_from_input_rx_follows_repeat_complex_command_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue C-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue first ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue second ESC");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    let (keys, binding) = eval
+        .read_key_sequence()
+        .expect("read C-x ESC ESC sequence from input_rx");
+    assert_eq!(
+        keys,
+        vec![Value::fixnum(24), Value::fixnum(27), Value::fixnum(27)]
+    );
+    assert_eq!(binding, Value::symbol("repeat-complex-command"));
 }
 
 #[test]
@@ -3810,6 +3970,468 @@ fn bootstrap_runtime_minibuffer_restores_raw_universal_argument_for_form_interac
 
     let observed = eval_rendered(&mut eval, "neo-raw-prefix-minibuffer-seen");
     assert_eq!(observed, r#"OK ("ok" (4) nil)"#);
+}
+
+#[test]
+fn bootstrap_runtime_read_from_minibuffer_binds_requested_history_variable_and_persists_input() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .create_buffer("*read-expression-history-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*read-expression-history-target*")
+             (setq neo-read-expression-history-probe-result nil
+                   read-expression-history nil
+                   minibuffer-history nil)
+             (defun neo-read-expression-history-probe ()
+               (interactive)
+               (let ((value
+                      (minibuffer-with-setup-hook
+                          (lambda ()
+                            (setq neo-read-expression-history-probe-result
+                                  (list minibuffer-history-variable
+                                        minibuffer-history-position)))
+                        (read-from-minibuffer "Eval: " nil read--expression-map t
+                                              'read-expression-history))))
+                 (setq neo-read-expression-history-probe-result
+                       (list neo-read-expression-history-probe-result
+                             value
+                             read-expression-history
+                             minibuffer-history))
+                 (exit-recursive-edit)))
+             (global-set-key (kbd "M-|") #'neo-read-expression-history-probe))"#,
+    )
+    .expect("setup read-expression-history probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('|'),
+    ))
+    .expect("queue |");
+    for ch in "(+ 1 2)".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue minibuffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("history probe loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(&mut eval, "neo-read-expression-history-probe-result");
+    assert_eq!(
+        observed,
+        r#"OK ((read-expression-history 0) (+ 1 2) ("(+ 1 2)") nil)"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_completing_read_persists_requested_history_variable() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .create_buffer("*completing-read-history-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*completing-read-history-target*")
+             (setq neo-completing-read-history-probe-result nil
+                   extended-command-history nil)
+             (defun neo-completing-read-history-probe ()
+               (interactive)
+               (let ((value
+                      (completing-read "Choose: "
+                                       '("calendar" "calculator")
+                                       nil t nil
+                                       'extended-command-history)))
+                 (setq neo-completing-read-history-probe-result
+                       (list value extended-command-history))
+                 (exit-recursive-edit)))
+             (global-set-key (kbd "M-'") #'neo-completing-read-history-probe))"#,
+    )
+    .expect("setup completing-read history probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('\''),
+    ))
+    .expect("queue '");
+    for ch in "calendar".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue minibuffer chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("completing-read probe loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(&mut eval, "neo-completing-read-history-probe-result");
+    assert_eq!(observed, r#"OK ("calendar" ("calendar"))"#);
+}
+
+#[test]
+fn bootstrap_runtime_read_extended_command_recall_uses_extended_command_history() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*read-extended-command-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    eval.eval_str(
+        r#"(progn
+             (switch-to-buffer "*read-extended-command-target*")
+             (setq neo-read-extended-command-probe-result nil
+                   extended-command-history nil)
+             (defun neo-read-extended-command-probe ()
+               (interactive)
+               (let ((first (read-extended-command))
+                     second)
+                 (setq second (read-extended-command))
+                 (setq neo-read-extended-command-probe-result
+                       (list first second extended-command-history))
+                 (exit-recursive-edit)))
+             (global-set-key (kbd "M-'") #'neo-read-extended-command-probe))"#,
+    )
+    .expect("setup read-extended-command history probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('\''),
+    ))
+    .expect("queue '");
+    for ch in "calendar".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue first command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue first RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Escape),
+    ))
+    .expect("queue second ESC");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('p'),
+    ))
+    .expect("queue second p");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue second RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("read-extended-command probe loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(&mut eval, "neo-read-extended-command-probe-result");
+    assert_eq!(observed, r#"OK ("calendar" "calendar" ("calendar"))"#);
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_meta_p_recalls_mx_history_with_numeric_position() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*m-x-history-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop history test should have a selected frame"
+    );
+
+    eval.eval_str(
+        r#"(progn
+             (setq neo-mx-history-count 0
+                   neo-mx-history-probe-result nil)
+             (defun neo-mx-history-probe-command ()
+               (interactive)
+               (setq neo-mx-history-count (1+ neo-mx-history-count))
+               (when (= neo-mx-history-count 2)
+                 (exit-recursive-edit)))
+             (defun neo-mx-history-stop ()
+               (interactive)
+               (exit-recursive-edit))
+             (defun neo-mx-history-capture (&rest args)
+               (setq neo-mx-history-probe-result
+                     (list args
+                           minibuffer-history-position
+                           minibuffer-history-variable
+                           current-prefix-arg
+                           (local-variable-p 'minibuffer-history-position)
+                           (local-variable-p 'minibuffer-history-variable)
+                           (buffer-name (current-buffer)))))
+             (advice-add 'previous-history-element :before #'neo-mx-history-capture)
+             (global-set-key (kbd "M-'") #'neo-mx-history-stop))"#,
+    )
+    .expect("setup M-x history command-loop probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue first M-x");
+    for ch in "neo-mx-history-probe-command".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue first command chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue first RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue second M-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('p', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-p history recall");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue second RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue fallback C-g");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('\'', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue fallback stop command");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("M-x history command-loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(list neo-mx-history-count neo-mx-history-probe-result)"#,
+    );
+    assert_eq!(
+        observed,
+        r#"OK (2 ((1) 0 extended-command-history nil nil nil " *Minibuf-1*"))"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_command_loop_meta_p_recalls_calendar_after_quit() {
+    init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*m-x-calendar-history-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(
+        eval.frames.select_frame(frame_id),
+        "runtime command-loop calendar history test should have a selected frame"
+    );
+
+    eval.eval_str(
+        r#"(progn
+             (setq neo-mx-calendar-history-probe-result nil)
+             (defun neo-mx-calendar-history-stop ()
+               (interactive)
+               (exit-recursive-edit))
+             (defun neo-mx-calendar-history-capture (orig &rest args)
+               (condition-case err
+                   (let ((result (apply orig args)))
+                     (setq neo-mx-calendar-history-probe-result
+                           (list 'ok
+                                 args
+                                 minibuffer-history-position
+                                 minibuffer-history-variable
+                                 current-prefix-arg
+                                 (local-variable-p 'minibuffer-history-position)
+                                 (local-variable-p 'minibuffer-history-variable)
+                                 (buffer-name (current-buffer))
+                                 (minibuffer-contents-no-properties)))
+                     result)
+                 (error
+                  (setq neo-mx-calendar-history-probe-result
+                        (list 'error
+                              err
+                              args
+                              minibuffer-history-position
+                              minibuffer-history-variable
+                              current-prefix-arg
+                              (local-variable-p 'minibuffer-history-position)
+                              (local-variable-p 'minibuffer-history-variable)
+                              (buffer-name (current-buffer))
+                              (minibuffer-contents-no-properties)))
+                  (signal (car err) (cdr err)))))
+             (advice-add 'previous-history-element
+                         :around #'neo-mx-calendar-history-capture)
+             (global-set-key (kbd "M-'") #'neo-mx-calendar-history-stop))"#,
+    )
+    .expect("setup calendar M-x history probe");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue first M-x");
+    for ch in "calendar".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue calendar chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue calendar RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char('q'),
+    ))
+    .expect("queue calendar quit");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('x', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue second M-x");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('p', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue M-p history recall");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue second RET");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('g', crate::keyboard::Modifiers::ctrl()),
+    ))
+    .expect("queue fallback C-g");
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::char_with_mods('\'', crate::keyboard::Modifiers::meta()),
+    ))
+    .expect("queue fallback stop command");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let result = eval
+        .recursive_edit_inner()
+        .expect("calendar M-x history command-loop should exit normally");
+    assert_eq!(result, Value::NIL);
+
+    let observed = eval_rendered(
+        &mut eval,
+        r#"(list
+             (eq (nth 0 neo-mx-calendar-history-probe-result) 'ok)
+             (equal (nth 1 neo-mx-calendar-history-probe-result) '(1))
+             (= (nth 2 neo-mx-calendar-history-probe-result) 1)
+             (eq (nth 3 neo-mx-calendar-history-probe-result)
+                 'extended-command-history)
+             (equal (nth 8 neo-mx-calendar-history-probe-result) "calendar")
+             (buffer-name (current-buffer))
+             (buffer-name (window-buffer (selected-window))))"#,
+    );
+    assert_eq!(observed, r#"OK (t t t t t "*Calendar*" "*Calendar*")"#);
+}
+
+#[test]
+fn bootstrap_runtime_previous_history_element_recalls_read_expression_history_entry() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .unwrap_or_else(|| eval.buffers.create_buffer("*scratch*"));
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (setq read-expression-history '("(+ 1 2)")
+                   minibuffer-history nil)
+             (catch 'neo-read-expression-history-recall
+               (minibuffer-with-setup-hook
+                   (lambda ()
+                     (previous-history-element 1)
+                     (throw 'neo-read-expression-history-recall
+                            (list (buffer-substring-no-properties
+                                   (point-min) (point-max))
+                                  (minibuffer-contents-no-properties)
+                                  read-expression-history
+                                  minibuffer-history)))
+                 (read-from-minibuffer "Eval: " nil read--expression-map t
+                                       'read-expression-history))))"#,
+    );
+    assert_eq!(
+        rendered,
+        r#"OK ("Eval: (+ 1 2)" "(+ 1 2)" ("(+ 1 2)") nil)"#
+    );
 }
 
 #[test]
@@ -5064,6 +5686,225 @@ fn bootstrap_runtime_command_execute_rename_buffer_reads_gnu_interactive_form() 
 }
 
 #[test]
+fn bootstrap_runtime_command_execute_goto_line_records_command_history_for_repeat_complex_command()
+{
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "goto-history"))
+             (erase-buffer)
+             (insert "line 1\nline 2\nline 3\n")
+             (goto-char (point-min))
+             (buffer-name (current-buffer)))"#,
+    );
+    assert_eq!(setup, "OK \"goto-history\"");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    for ch in "2".chars() {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(Value::fixnum(ch as i64));
+    }
+    eval.command_loop.keyboard.kboard.unread_events.push_back(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return).to_emacs_event_value(),
+    );
+
+    let result = eval
+        .apply(
+            Value::symbol("command-execute"),
+            vec![Value::symbol("goto-line")],
+        )
+        .expect("command-execute should read goto-line args");
+    assert!(
+        result.as_fixnum().is_some(),
+        "goto-line should return a destination position, got {result}"
+    );
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(list
+             (lookup-key ctl-x-map "\e\e")
+             (equal (car command-history) '(goto-line 2 nil nil t)))"#,
+    );
+    assert_eq!(rendered, "OK (repeat-complex-command t)");
+}
+
+#[test]
+fn bootstrap_runtime_command_execute_goto_line_installs_gnu_prompt_text() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "goto-prompt-probe"))
+             (erase-buffer)
+             (insert "plain line\nsecond line\n")
+             (goto-char (point-min))
+             (buffer-name (current-buffer)))"#,
+    );
+    assert_eq!(setup, "OK \"goto-prompt-probe\"");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(catch 'neo-goto-line-prompt-probe
+             (minibuffer-with-setup-hook
+                 (lambda ()
+                   (throw 'neo-goto-line-prompt-probe
+                          (list (buffer-string)
+                                (buffer-substring-no-properties (point-min) (point-max))
+                                (minibuffer-prompt-end))))
+               (call-interactively 'goto-line)))"#,
+    );
+    assert_eq!(
+        rendered,
+        r#"OK (#("Goto line: " 0 11 (rear-nonsticky t front-sticky t field t)) "Goto line: " 12)"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_repeat_complex_command_reads_gnu_redo_form_from_command_history() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "repeat-complex-command-probe"))
+             (erase-buffer)
+             (insert "line 1\nline 2\nline 3\n")
+             (goto-char (point-min))
+             (buffer-name (current-buffer)))"#,
+    );
+    assert_eq!(setup, "OK \"repeat-complex-command-probe\"");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let ((command-history '((goto-line 2 nil nil t))))
+             (catch 'neo-repeat-complex-command-probe
+               (minibuffer-with-setup-hook
+                   (lambda ()
+                     (throw 'neo-repeat-complex-command-probe
+                            (list (buffer-string)
+                                  (buffer-substring-no-properties (point-min) (point-max))
+                                  (minibuffer-prompt-end))))
+                 (call-interactively 'repeat-complex-command))))"#,
+    );
+    assert_eq!(
+        rendered,
+        r#"OK (#("Redo: (goto-line 2 nil nil t)" 0 6 (rear-nonsticky t front-sticky t field t)) "Redo: (goto-line 2 nil nil t)" 7)"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_occur_installs_clean_gnu_prompt_text() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let setup = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (switch-to-buffer (get-buffer-create "occur-prompt-probe"))
+             (erase-buffer)
+             (insert "needle\nhaystack\n")
+             (goto-char (point-min))
+             (buffer-name (current-buffer)))"#,
+    );
+    assert_eq!(setup, "OK \"occur-prompt-probe\"");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(catch 'neo-occur-prompt-probe
+             (minibuffer-with-setup-hook
+                 (lambda ()
+                   (throw 'neo-occur-prompt-probe
+                          (list (buffer-string)
+                                (buffer-substring-no-properties (point-min) (point-max))
+                                (minibuffer-prompt-end)
+                                (current-message))))
+               (call-interactively 'occur)))"#,
+    );
+    assert_eq!(
+        rendered,
+        r#"OK (#("List lines matching regexp: " 0 28 (rear-nonsticky t front-sticky t field t)) "List lines matching regexp: " 29 nil)"#
+    );
+}
+
+#[test]
+fn bootstrap_runtime_grep_installs_clean_gnu_prompt_text_and_default_command() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let probe_dir = tempdir().expect("tempdir");
+    let probe_path = probe_dir.path().join("grep-prompt-probe.txt");
+
+    let setup = eval_rendered(
+        &mut eval,
+        &format!(
+            r#"(progn
+             (switch-to-buffer (get-buffer-create "grep-prompt-probe"))
+             (erase-buffer)
+             (insert "needle\nhaystack\n")
+             (write-region (point-min) (point-max) "{}" nil 'silent)
+             (buffer-name (current-buffer)))"#,
+            probe_path.display()
+        ),
+    );
+    assert_eq!(setup, "OK \"grep-prompt-probe\"");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    drop(tx);
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(catch 'neo-grep-prompt-probe
+             (let ((default-directory temporary-file-directory))
+               (minibuffer-with-setup-hook
+                   (lambda ()
+                     (throw 'neo-grep-prompt-probe
+                            (list (buffer-string)
+                                  (buffer-substring-no-properties (point-min) (point-max))
+                                  (minibuffer-prompt-end)
+                                  (current-message))))
+                 (call-interactively 'grep))))"#,
+    );
+    assert_eq!(
+        rendered,
+        r#"OK (#("Run grep (like this): grep --color=auto -nH --null -e " 0 22 (rear-nonsticky t front-sticky t field t)) "Run grep (like this): grep --color=auto -nH --null -e " 23 nil)"#
+    );
+}
+
+#[test]
 fn bootstrap_runtime_read_buffer_to_switch_ret_uses_other_buffer_default() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -5230,8 +6071,8 @@ fn bootstrap_runtime_command_loop_cx_b_uses_recent_file_buffer_as_second_default
     );
 
     let (tx, rx) = crossbeam_channel::unbounded();
-    let find_file = crate::keyboard::KeySequence::from_description("C-x C-f")
-        .expect("C-x C-f sequence");
+    let find_file =
+        crate::keyboard::KeySequence::from_description("C-x C-f").expect("C-x C-f sequence");
     for event in find_file.events {
         tx.send(crate::keyboard::InputEvent::key_press(event))
             .expect("queue C-x C-f");
@@ -5247,8 +6088,8 @@ fn bootstrap_runtime_command_loop_cx_b_uses_recent_file_buffer_as_second_default
     ))
     .expect("queue RET for find-file");
 
-    let switch_buffer = crate::keyboard::KeySequence::from_description("C-x b")
-        .expect("C-x b sequence");
+    let switch_buffer =
+        crate::keyboard::KeySequence::from_description("C-x b").expect("C-x b sequence");
     for event in switch_buffer.events.iter().cloned() {
         tx.send(crate::keyboard::InputEvent::key_press(event))
             .expect("queue first C-x b");
@@ -5294,8 +6135,7 @@ fn bootstrap_runtime_command_loop_cx_b_uses_recent_file_buffer_as_second_default
             (makunbound 'neo-cxb-switch-count))"#,
     );
     assert_eq!(
-        rendered,
-        "OK (\"*scratch*\" \"buffer-completion-target.txt\")",
+        rendered, "OK (\"*scratch*\" \"buffer-completion-target.txt\")",
         "interactive C-x C-f / C-x b flow should keep the visited file as the second switch default"
     );
 }

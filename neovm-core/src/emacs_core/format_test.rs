@@ -54,8 +54,11 @@ fn format_percent_s_uses_recursive_princ_semantics_for_lists() {
 fn format_time_string_epoch() {
     crate::test_utils::init_test_tracing();
     // Unix epoch: 1970-01-01 00:00:00 UTC (Thursday)
-    let result =
-        builtin_format_time_string(vec![Value::string("%Y-%m-%d %H:%M:%S"), Value::fixnum(0)]);
+    let result = builtin_format_time_string(vec![
+        Value::string("%Y-%m-%d %H:%M:%S"),
+        Value::fixnum(0),
+        Value::T,
+    ]);
     assert_eq!(
         result.unwrap().as_utf8_str().unwrap(),
         "1970-01-01 00:00:00"
@@ -66,14 +69,14 @@ fn format_time_string_epoch() {
 fn format_time_string_day_name() {
     crate::test_utils::init_test_tracing();
     // 1970-01-01 is a Thursday.
-    let result = builtin_format_time_string(vec![Value::string("%A"), Value::fixnum(0)]);
+    let result = builtin_format_time_string(vec![Value::string("%A"), Value::fixnum(0), Value::T]);
     assert_eq!(result.unwrap().as_utf8_str().unwrap(), "Thursday");
 }
 
 #[test]
 fn format_time_string_month_name() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_format_time_string(vec![Value::string("%B"), Value::fixnum(0)]);
+    let result = builtin_format_time_string(vec![Value::string("%B"), Value::fixnum(0), Value::T]);
     assert_eq!(result.unwrap().as_utf8_str().unwrap(), "January");
 }
 
@@ -81,8 +84,11 @@ fn format_time_string_month_name() {
 fn format_time_string_known_date() {
     crate::test_utils::init_test_tracing();
     // 2000-01-01 00:00:00 UTC = 946684800
-    let result =
-        builtin_format_time_string(vec![Value::string("%Y-%m-%d %A"), Value::fixnum(946684800)]);
+    let result = builtin_format_time_string(vec![
+        Value::string("%Y-%m-%d %A"),
+        Value::fixnum(946684800),
+        Value::T,
+    ]);
     assert_eq!(
         result.unwrap().as_utf8_str().unwrap(),
         "2000-01-01 Saturday"
@@ -92,21 +98,26 @@ fn format_time_string_known_date() {
 #[test]
 fn format_time_string_literal_percent() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_format_time_string(vec![Value::string("100%%"), Value::fixnum(0)]);
+    let result =
+        builtin_format_time_string(vec![Value::string("100%%"), Value::fixnum(0), Value::T]);
     assert_eq!(result.unwrap().as_utf8_str().unwrap(), "100%");
 }
 
 #[test]
 fn format_time_string_timezone() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_format_time_string(vec![Value::string("%Z"), Value::fixnum(0)]);
-    assert_eq!(result.unwrap().as_utf8_str().unwrap(), "UTC");
+    let result = builtin_format_time_string(vec![Value::string("%Z"), Value::fixnum(0), Value::T]);
+    assert_eq!(result.unwrap().as_utf8_str().unwrap(), "GMT");
 }
 
 #[test]
 fn format_time_string_iso_format() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_format_time_string(vec![Value::string("%F %T"), Value::fixnum(946684800)]);
+    let result = builtin_format_time_string(vec![
+        Value::string("%F %T"),
+        Value::fixnum(946684800),
+        Value::T,
+    ]);
     assert_eq!(
         result.unwrap().as_utf8_str().unwrap(),
         "2000-01-01 00:00:00"
@@ -117,8 +128,11 @@ fn format_time_string_iso_format() {
 fn format_time_string_ampm() {
     crate::test_utils::init_test_tracing();
     // 2000-01-01 15:30:00 UTC = 946684800 + 15*3600 + 30*60 = 946740600
-    let result =
-        builtin_format_time_string(vec![Value::string("%I:%M %p"), Value::fixnum(946740600)]);
+    let result = builtin_format_time_string(vec![
+        Value::string("%I:%M %p"),
+        Value::fixnum(946740600),
+        Value::T,
+    ]);
     assert_eq!(result.unwrap().as_utf8_str().unwrap(), "03:30 PM");
 }
 
@@ -131,6 +145,20 @@ fn format_time_string_no_time_uses_current() {
     // Should return a 4-digit year.
     let year_str = result.unwrap();
     assert_eq!(year_str.as_utf8_str().unwrap().len(), 4);
+}
+
+#[test]
+fn format_time_string_honors_explicit_zone_argument() {
+    crate::test_utils::init_test_tracing();
+    let result = builtin_format_time_string(vec![
+        Value::string("%Y-%m-%d %H:%M:%S %z %Z"),
+        Value::list(vec![Value::fixnum(0), Value::fixnum(0)]),
+        Value::fixnum(3600),
+    ]);
+    assert_eq!(
+        result.unwrap().as_utf8_str().unwrap(),
+        "1970-01-01 01:00:00 +0100 +01"
+    );
 }
 
 // ===================================================================

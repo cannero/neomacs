@@ -546,6 +546,18 @@ fn zone_rule_to_offset_name(rule: &ZoneRule, epoch_secs: i64) -> (i64, String) {
     }
 }
 
+pub(crate) fn zone_offset_name_for_time(
+    zone: Option<&Value>,
+    epoch_secs: i64,
+) -> Result<(i64, String), Flow> {
+    let rule = if let Some(zone) = zone {
+        parse_zone_rule(zone)?
+    } else {
+        TIME_ZONE_RULE.with(|slot| slot.borrow().clone())
+    };
+    Ok(zone_rule_to_offset_name(&rule, epoch_secs))
+}
+
 fn require_integer_component(value: &Value) -> Result<i64, Flow> {
     value.as_int().ok_or_else(|| {
         signal(
@@ -633,7 +645,6 @@ pub(crate) fn builtin_time_equal_p(args: Vec<Value>) -> EvalResult {
 /// `(current-time-string &optional TIME ZONE)` -> human-readable string.
 ///
 /// Returns a string like `"Mon Jan  2 15:04:05 2006"`.
-/// ZONE is ignored; UTC is always used.
 pub(crate) fn builtin_current_time_string(args: Vec<Value>) -> EvalResult {
     expect_min_max_args("current-time-string", &args, 0, 2)?;
     let tm = if args.is_empty() || args[0].is_nil() {
@@ -641,7 +652,8 @@ pub(crate) fn builtin_current_time_string(args: Vec<Value>) -> EvalResult {
     } else {
         parse_time(&args[0])?
     };
-    let dt = decode_epoch_secs(tm.secs);
+    let (offset_secs, _) = zone_offset_name_for_time(args.get(1), tm.secs)?;
+    let dt = decode_epoch_secs(tm.secs.saturating_add(offset_secs));
 
     // Format: "Dow Mon DD HH:MM:SS YYYY"
     // Day of month is right-justified in a 2-char field (space-padded).
