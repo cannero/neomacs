@@ -10121,6 +10121,81 @@ fn keep_lines_via_mx_preserves_matching_lines() {
 }
 
 #[test]
+fn copy_matching_lines_via_mx_accumulates_matches_for_yank() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "copy-matching-lines.txt",
+        "keep alpha\ndrop beta\nkeep gamma\ndrop delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "copy-matching-lines");
+
+    let regexp_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Copy lines containing match"))
+    };
+    gnu.read_until(Duration::from_secs(6), regexp_prompt);
+    neo.read_until(Duration::from_secs(8), regexp_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"keep");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let copied = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("Copied 2 matching lines"))
+    };
+    gnu.read_until(Duration::from_secs(6), copied);
+    neo.read_until(Duration::from_secs(8), copied);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let switch_prompt = |grid: &[String]| {
+        grid.last()
+            .is_some_and(|row| row.contains("Switch to buffer:"))
+    };
+    gnu.read_until(Duration::from_secs(6), switch_prompt);
+    neo.read_until(Duration::from_secs(8), switch_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"copy-matching-yank");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let yank_buffer = |grid: &[String]| grid.iter().any(|row| row.contains("copy-matching-yank"));
+    gnu.read_until(Duration::from_secs(6), yank_buffer);
+    neo.read_until(Duration::from_secs(8), yank_buffer);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-y");
+    let yanked = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("keep alpha"))
+            && grid.iter().any(|row| row.contains("keep gamma"))
+            && !grid.iter().any(|row| row.contains("drop beta"))
+            && !grid.iter().any(|row| row.contains("drop delta"))
+    };
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "copy_matching_lines_via_mx_accumulates_matches_for_yank",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn how_many_via_mx_reports_regexp_match_count() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
