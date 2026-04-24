@@ -6331,16 +6331,24 @@ impl Context {
     }
 
     pub(crate) fn pop_unread_command_event(&mut self) -> Option<Value> {
+        let event = self.pop_unread_command_event_unrecorded()?;
+        self.record_input_event(event);
+        Some(event)
+    }
+
+    pub(crate) fn pop_unread_command_event_unrecorded(&mut self) -> Option<Value> {
         let current = match self.eval_symbol("unread-command-events") {
             Ok(value) => value,
             Err(_) => Value::NIL,
         };
         match current.kind() {
             ValueKind::Cons => {
-                let head = current.cons_car();
+                let mut head = current.cons_car();
                 let tail = current.cons_cdr();
                 self.assign("unread-command-events", tail);
-                self.record_input_event(head);
+                if head.is_cons() && head.cons_car() == Value::T {
+                    head = head.cons_cdr();
+                }
                 Some(head)
             }
             _ => None,

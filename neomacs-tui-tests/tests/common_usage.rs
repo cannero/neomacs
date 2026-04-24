@@ -4006,6 +4006,45 @@ fn kill_and_yank_rectangle_via_cx_r_k_y() {
 }
 
 #[test]
+fn copy_rectangle_as_kill_then_yank_via_cx_r_mw_y() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "copy-rectangle.txt",
+        "aa11xx\nbb22yy\n--\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-f C-f C-x r M-w");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-x r y");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aa11xx"))
+            && grid.iter().any(|row| row.contains("bb2211yy"))
+            && grid.iter().any(|row| row.contains("--  22"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "copy_rectangle_as_kill_then_yank_via_cx_r_mw_y",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "copy_rectangle_as_kill_then_yank_via_cx_r_mw_y",
+        &mut gnu,
+        &mut neo,
+        "copy-rectangle.txt",
+        "aa11xx\nbb2211yy\n--  22\n",
+    );
+}
+
+#[test]
 fn open_rectangle_via_cx_r_o_shifts_text_right() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -8522,6 +8561,48 @@ fn sort_lines_region_via_mx_orders_lines() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("sort_lines_region_via_mx_orders_lines", &gnu, &neo, 2);
+}
+
+#[test]
+fn sort_pages_region_via_mx_orders_pages() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-pages.txt",
+        "zeta page\nz body\n\x0calpha page\na body\n\x0cmango page\nm body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-pages");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(alpha) = text.find("alpha page") else {
+            return false;
+        };
+        let Some(mango) = text.find("mango page") else {
+            return false;
+        };
+        let Some(zeta) = text.find("zeta page") else {
+            return false;
+        };
+        alpha < mango && mango < zeta
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("sort_pages_region_via_mx_orders_pages", &gnu, &neo, 2);
+    save_current_file_and_assert_contents(
+        "sort_pages_region_via_mx_orders_pages",
+        &mut gnu,
+        &mut neo,
+        "sort-pages.txt",
+        "alpha page\na body\n\x0cmango page\nm body\nzeta page\nz body\n\x0c\n",
+    );
 }
 
 #[test]

@@ -582,6 +582,9 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
     let mods = render_modifiers_to_modifiers(modifiers);
 
     let key = match keysym {
+        // Raw TTY ESC is GNU's `meta-prefix-char` character, not the named
+        // GUI Escape function key.
+        0x1B => Key::Char('\u{1b}'),
         // Control characters (Ctrl + letter): winit gives us the control
         // character (0x01-0x1A) as the keysym when Ctrl is held.  Convert
         // back to the corresponding letter and force the ctrl modifier.
@@ -3383,6 +3386,9 @@ impl crate::emacs_core::eval::Context {
 
         loop {
             self.sync_keyboard_terminal_owner();
+            if let Some(event) = self.pop_unread_command_event_unrecorded() {
+                return Ok(Some(event));
+            }
             if let Some(event) = self.command_loop.keyboard.take_unread_selection_event() {
                 return Ok(Some(event));
             }

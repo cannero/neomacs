@@ -51,7 +51,7 @@ fn parses_utf8_keypress() {
 
 #[test]
 fn parses_escape_and_arrow_sequences() {
-    assert_eq!(parse_key_bytes(&[0x1B]), Some((XK_ESCAPE, 0)));
+    assert_eq!(parse_key_bytes(&[0x1B]), Some((0x1B, 0)));
     assert_eq!(parse_key_bytes(&[0x1B, b'[', b'A']), Some((XK_UP, 0)));
     assert_eq!(
         parse_key_bytes(&[0x1B, b'[', b'1', b';', b'5', b'A']),

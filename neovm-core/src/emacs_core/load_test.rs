@@ -3303,6 +3303,98 @@ fn bootstrap_runtime_read_key_sequence_follows_meta_x_command() {
 }
 
 #[test]
+fn bootstrap_runtime_read_key_sequence_follows_meta_binding_in_prefix_map() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    for event in [
+        Value::fixnum(24),
+        Value::fixnum('r' as i64),
+        crate::keyboard::KeyEvent::char_with_mods('w', crate::keyboard::Modifiers::meta())
+            .to_emacs_event_value(),
+    ] {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(event);
+    }
+
+    let (keys, binding) = eval.read_key_sequence().expect("read C-x r M-w sequence");
+    assert_eq!(
+        keys,
+        vec![
+            Value::fixnum(24),
+            Value::fixnum('r' as i64),
+            Value::fixnum(('w' as i64) | crate::emacs_core::keyboard::pure::KEY_CHAR_META),
+        ]
+    );
+    assert_eq!(binding, Value::symbol("copy-rectangle-as-kill"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_follows_escape_meta_prefix_in_prefix_map() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    for event in [
+        Value::fixnum(24),
+        Value::fixnum('r' as i64),
+        Value::fixnum(27),
+        Value::fixnum('w' as i64),
+    ] {
+        eval.command_loop
+            .keyboard
+            .kboard
+            .unread_events
+            .push_back(event);
+    }
+
+    let (keys, binding) = eval.read_key_sequence().expect("read C-x r ESC w sequence");
+    assert_eq!(
+        keys,
+        vec![
+            Value::fixnum(24),
+            Value::fixnum('r' as i64),
+            Value::fixnum(27),
+            Value::fixnum('w' as i64),
+        ]
+    );
+    assert_eq!(binding, Value::symbol("copy-rectangle-as-kill"));
+}
+
+#[test]
+fn bootstrap_runtime_read_key_sequence_reads_unread_command_event_cons_marker() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    eval.set_variable(
+        "unread-command-events",
+        Value::list(vec![
+            Value::cons(Value::T, Value::fixnum(24)),
+            Value::fixnum('r' as i64),
+            Value::fixnum('y' as i64),
+        ]),
+    );
+
+    let (keys, binding) = eval
+        .read_key_sequence()
+        .expect("read C-x r y from unread-command-events");
+    assert_eq!(
+        keys,
+        vec![
+            Value::fixnum(24),
+            Value::fixnum('r' as i64),
+            Value::fixnum('y' as i64),
+        ]
+    );
+    assert_eq!(binding, Value::symbol("yank-rectangle"));
+}
+
+#[test]
 fn bootstrap_runtime_read_key_sequence_follows_help_command_keymap_prefix() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

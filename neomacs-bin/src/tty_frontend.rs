@@ -8,8 +8,8 @@ use crossbeam_channel::{select, unbounded};
 use neomacs_display_runtime::thread_comm::{InputEvent, RenderCommand, RenderComms};
 use neovm_core::keyboard::{
     RENDER_CTRL_MASK, RENDER_META_MASK, RENDER_SHIFT_MASK, XK_BACKSPACE, XK_DELETE, XK_DOWN,
-    XK_END, XK_ESCAPE, XK_F1, XK_HOME, XK_INSERT, XK_LEFT, XK_PAGE_DOWN, XK_PAGE_UP, XK_RETURN,
-    XK_RIGHT, XK_TAB, XK_UP,
+    XK_END, XK_F1, XK_HOME, XK_INSERT, XK_LEFT, XK_PAGE_DOWN, XK_PAGE_UP, XK_RETURN, XK_RIGHT,
+    XK_TAB, XK_UP,
 };
 
 const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
@@ -230,7 +230,7 @@ where
     }
 
     let Some(second) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-        return Ok(Some((XK_ESCAPE, 0)));
+        return Ok(Some((0x1B, 0)));
     };
 
     match second {
@@ -300,7 +300,7 @@ where
     F: FnMut(i32) -> io::Result<Option<u8>>,
 {
     let Some(final_byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-        return Ok(Some((XK_ESCAPE, 0)));
+        return Ok(Some((0x1B, 0)));
     };
 
     Ok(match final_byte {
@@ -325,7 +325,7 @@ where
     let mut bytes = Vec::new();
     loop {
         let Some(byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-            return Ok(Some((XK_ESCAPE, 0)));
+            return Ok(Some((0x1B, 0)));
         };
         bytes.push(byte);
         if (0x40..=0x7E).contains(&byte) || bytes.len() >= 16 {

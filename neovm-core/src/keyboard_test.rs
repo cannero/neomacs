@@ -533,6 +533,15 @@ fn keysym_ctrl_g_from_control_char_no_modifier() {
 }
 
 #[test]
+fn keysym_raw_tty_escape_is_meta_prefix_char() {
+    crate::test_utils::init_test_tracing();
+    let event = keysym_to_key_event(0x1B, 0).unwrap();
+    assert_eq!(event.key, Key::Char('\u{1b}'));
+    assert!(event.modifiers.is_empty());
+    assert_eq!(event.to_emacs_event_value(), Value::fixnum(27));
+}
+
+#[test]
 fn keysym_ctrl_x_from_printable_with_modifier() {
     crate::test_utils::init_test_tracing();
     // Ctrl+x when winit gives keysym 0x78 ('x') with ctrl modifier
