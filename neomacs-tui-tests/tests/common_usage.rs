@@ -3022,6 +3022,74 @@ fn delete_selected_other_window_via_cx0() {
 }
 
 #[test]
+fn window_configuration_to_register_and_jump_via_cx_r_w_j() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "window-register.txt",
+        "alpha window register\nbeta window register\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 2");
+    let split_ready = |grid: &[String]| {
+        grid.iter()
+            .filter(|row| row.contains("window-register.txt"))
+            .count()
+            >= 2
+    };
+    gnu.read_until(Duration::from_secs(6), split_ready);
+    neo.read_until(Duration::from_secs(8), split_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r w");
+    let window_register_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Window configuration to register:"))
+    };
+    gnu.read_until(Duration::from_secs(6), window_register_prompt);
+    neo.read_until(Duration::from_secs(8), window_register_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x 1");
+    let single_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("window-register.txt"))
+            && grid
+                .iter()
+                .filter(|row| row.contains("window-register.txt"))
+                .count()
+                == 1
+    };
+    gnu.read_until(Duration::from_secs(6), single_ready);
+    neo.read_until(Duration::from_secs(8), single_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r j");
+    let jump_register_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Jump to register:"));
+    gnu.read_until(Duration::from_secs(6), jump_register_prompt);
+    neo.read_until(Duration::from_secs(8), jump_register_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+
+    gnu.read_until(Duration::from_secs(6), split_ready);
+    neo.read_until(Duration::from_secs(8), split_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "window_configuration_to_register_and_jump_via_cx_r_w_j",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn write_file_after_edit_via_cx_cw() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -3110,6 +3178,56 @@ fn write_file_after_edit_via_cx_cw() {
     neo.read_until(Duration::from_secs(8), recentered);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     assert_pair_nearly_matches("write_file_after_edit_via_cx_cw", &gnu, &neo, 2);
+}
+
+#[test]
+fn set_visited_file_name_via_mx_saves_current_buffer_under_new_name() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "set-visited-source.txt",
+        "visited file body\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "set-visited-file-name");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Set visited file name:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/set-visited-dest.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let renamed_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("set-visited-dest.txt"))
+            && grid.iter().any(|row| row.contains("visited file body"))
+    };
+    gnu.read_until(Duration::from_secs(6), renamed_ready);
+    neo.read_until(Duration::from_secs(8), renamed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    save_current_file_and_assert_contents(
+        "set_visited_file_name_via_mx_saves_current_buffer_under_new_name",
+        &mut gnu,
+        &mut neo,
+        "set-visited-dest.txt",
+        "visited file body\n",
+    );
+    assert_home_file_contents(&gnu, &neo, "set-visited-source.txt", "visited file body\n");
+
+    assert_pair_nearly_matches(
+        "set_visited_file_name_via_mx_saves_current_buffer_under_new_name",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
