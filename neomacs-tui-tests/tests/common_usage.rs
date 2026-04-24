@@ -8421,6 +8421,53 @@ fn sort_numeric_fields_second_field_via_prefix_orders_lines() {
 }
 
 #[test]
+fn sort_columns_via_mx_orders_lines_by_marked_columns() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "sort-columns.txt",
+        "id 20 pear\nid 03 apple\nid 11 banana\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-f C-f C-f C-SPC C-n C-n C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "sort-columns");
+
+    let ready = |grid: &[String]| {
+        let text = grid.join("\n");
+        let Some(three) = text.find("id 03 apple") else {
+            return false;
+        };
+        let Some(eleven) = text.find("id 11 banana") else {
+            return false;
+        };
+        let Some(twenty) = text.find("id 20 pear") else {
+            return false;
+        };
+        three < eleven && eleven < twenty
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "sort_columns_via_mx_orders_lines_by_marked_columns",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "sort_columns_via_mx_orders_lines_by_marked_columns",
+        &mut gnu,
+        &mut neo,
+        "sort-columns.txt",
+        "id 03 apple\nid 11 banana\nid 20 pear\n",
+    );
+}
+
+#[test]
 fn sort_paragraphs_via_mx_orders_paragraph_blocks() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -8680,6 +8727,34 @@ fn mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy() {
         &neo,
         2,
     );
+}
+
+#[test]
+fn mark_page_then_kill_region_via_cx_cp_cw() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-page.txt",
+        "first-a\nfirst-b\n\x0c\nsecond-a\nsecond-b\n\x0c\nthird-a\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-< C-s second-a RET C-x C-p");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-w");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("first-a"))
+            && grid.iter().any(|row| row.contains("third-a"))
+            && !grid.iter().any(|row| row.contains("second-a"))
+            && !grid.iter().any(|row| row.contains("second-b"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("mark_page_then_kill_region_via_cx_cp_cw", &gnu, &neo, 2);
 }
 
 #[test]
