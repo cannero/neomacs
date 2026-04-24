@@ -6620,6 +6620,75 @@ fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
 }
 
 #[test]
+fn mark_word_then_kill_region_via_mat_cw() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "mark-word.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-@ C-w");
+    let killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(" beta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "C-e SPC C-y");
+    let yanked = |grid: &[String]| grid.iter().any(|row| row.contains(" beta gamma alpha"));
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("mark_word_then_kill_region_via_mat_cw", &gnu, &neo, 2);
+}
+
+#[test]
+fn append_next_kill_via_cmeta_w_combines_following_region_kill() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "append-next-kill.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-@ C-w");
+    let first_killed = |grid: &[String]| grid.iter().any(|row| row.contains(" beta gamma"));
+    gnu.read_until(Duration::from_secs(6), first_killed);
+    neo.read_until(Duration::from_secs(8), first_killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-@ C-M-w C-w");
+    let second_killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(" gamma"))
+            && !grid.iter().any(|row| row.contains(" beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), second_killed);
+    neo.read_until(Duration::from_secs(8), second_killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "C-e SPC C-y");
+    let yanked = |grid: &[String]| grid.iter().any(|row| row.contains(" gamma alpha beta"));
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "append_next_kill_via_cmeta_w_combines_following_region_kill",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn delete_indentation_via_mcaret() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
