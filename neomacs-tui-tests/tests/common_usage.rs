@@ -7636,6 +7636,49 @@ fn goto_char_via_mg_c() {
 }
 
 #[test]
+fn beginning_and_end_of_buffer_via_mless_mgreater() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "buffer-boundaries.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let at_end = |grid: &[String]| grid.iter().any(|row| row.contains("gamma lineX"));
+    gnu.read_until(Duration::from_secs(6), at_end);
+    neo.read_until(Duration::from_secs(8), at_end);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "beginning_and_end_of_buffer_via_mless_mgreater/end",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"Y");
+
+    let at_beginning = |grid: &[String]| grid.iter().any(|row| row.contains("Yalpha line"));
+    gnu.read_until(Duration::from_secs(6), at_beginning);
+    neo.read_until(Duration::from_secs(8), at_beginning);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "beginning_and_end_of_buffer_via_mless_mgreater",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn count_words_region_via_mequals() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
