@@ -3078,6 +3078,159 @@ fn copy_to_buffer_via_mx_replaces_target_buffer_contents() {
 }
 
 #[test]
+fn append_to_buffer_via_mx_inserts_region_at_target_point() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "append-to-buffer-source.txt",
+        "append alpha\nappend beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"append-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let target_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("append-to-buffer-target"))
+    };
+    gnu.read_until(Duration::from_secs(6), target_ready);
+    neo.read_until(Duration::from_secs(8), target_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"target header\n");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"append-to-buffer-source.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    gnu.read_until(Duration::from_secs(6), |grid| {
+        grid.iter().any(|row| row.contains("append alpha"))
+    });
+    neo.read_until(Duration::from_secs(8), |grid| {
+        grid.iter().any(|row| row.contains("append alpha"))
+    });
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "append-to-buffer");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Append to buffer:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"append-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"append-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("target header"))
+            && grid.iter().any(|row| row.contains("append alpha"))
+            && grid.iter().any(|row| row.contains("append beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "append_to_buffer_via_mx_inserts_region_at_target_point",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn prepend_to_buffer_via_mx_inserts_region_before_target_text() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "prepend-to-buffer-source.txt",
+        "prepend alpha\nprepend beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"prepend-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let target_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("prepend-to-buffer-target"))
+    };
+    gnu.read_until(Duration::from_secs(6), target_ready);
+    neo.read_until(Duration::from_secs(8), target_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"target footer\n");
+    }
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"prepend-to-buffer-source.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    gnu.read_until(Duration::from_secs(6), |grid| {
+        grid.iter().any(|row| row.contains("prepend alpha"))
+    });
+    neo.read_until(Duration::from_secs(8), |grid| {
+        grid.iter().any(|row| row.contains("prepend alpha"))
+    });
+
+    send_both(&mut gnu, &mut neo, "C-x h");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "prepend-to-buffer");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Prepend to buffer:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"prepend-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"prepend-to-buffer-target");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("prepend alpha"))
+            && grid.iter().any(|row| row.contains("prepend beta"))
+            && grid.iter().any(|row| row.contains("target footer"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "prepend_to_buffer_via_mx_inserts_region_before_target_text",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn insert_buffer_via_cx_x_i_inserts_named_buffer_contents() {
     let (mut gnu, mut neo) = boot_pair("");
 
