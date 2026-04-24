@@ -10172,6 +10172,52 @@ fn keep_lines_via_mx_preserves_matching_lines() {
 }
 
 #[test]
+fn delete_non_matching_lines_via_mx_alias_preserves_matching_lines() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-non-matching-lines.txt",
+        "keep alpha\ndrop beta\nkeep gamma\ndrop delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "delete-non-matching-lines");
+
+    let regexp_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Keep lines containing match"))
+    };
+    gnu.read_until(Duration::from_secs(6), regexp_prompt);
+    neo.read_until(Duration::from_secs(8), regexp_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"keep");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("keep alpha"))
+            && grid.iter().any(|row| row.contains("keep gamma"))
+            && !grid.iter().any(|row| row.contains("drop beta"))
+            && !grid.iter().any(|row| row.contains("drop delta"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_non_matching_lines_via_mx_alias_preserves_matching_lines",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn kill_matching_lines_via_mx_deletes_and_accumulates_for_yank() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
