@@ -6667,6 +6667,80 @@ fn occur_next_error_via_mg_n_visits_match() {
 }
 
 #[test]
+fn occur_next_and_previous_error_via_cx_backtick_mg_p() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "occur-prev-error.txt",
+        "needle first\nplain middle\nneedle second\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-s o");
+    let occur_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("List lines matching regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), occur_prompt);
+    neo.read_until(Duration::from_secs(8), occur_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"needle");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let occur_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("2 matches"))
+            && grid.iter().any(|row| row.contains("needle first"))
+            && grid.iter().any(|row| row.contains("needle second"))
+    };
+    gnu.read_until(Duration::from_secs(8), occur_ready);
+    neo.read_until(Duration::from_secs(12), occur_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x `");
+    let first_match = |grid: &[String]| {
+        !grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("needle first"))
+            && grid.iter().any(|row| row.contains("plain middle"))
+    };
+    gnu.read_until(Duration::from_secs(6), first_match);
+    neo.read_until(Duration::from_secs(8), first_match);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-g n");
+    let second_match = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("plain middle"))
+            && grid.iter().any(|row| row.contains("needle second"))
+    };
+    gnu.read_until(Duration::from_secs(6), second_match);
+    neo.read_until(Duration::from_secs(8), second_match);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "M-g p");
+    gnu.read_until(Duration::from_secs(6), first_match);
+    neo.read_until(Duration::from_secs(8), first_match);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let edited_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("!needle first"))
+            && grid.iter().any(|row| row.contains("needle second"))
+    };
+    gnu.read_until(Duration::from_secs(6), edited_ready);
+    neo.read_until(Duration::from_secs(8), edited_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "occur_next_and_previous_error_via_cx_backtick_mg_p",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
