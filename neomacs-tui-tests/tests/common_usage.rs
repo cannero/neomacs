@@ -712,6 +712,96 @@ fn dired_find_file_via_ret_visits_current_file() {
 }
 
 #[test]
+fn dired_jump_via_cx_cj_opens_parent_listing_on_current_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("jump");
+    let beta = dir.join("beta.org");
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let beta_path = beta.to_string_lossy().into_owned();
+    gnu.send(beta_path.as_bytes());
+    neo.send(beta_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let file_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta heading"))
+            && grid.iter().any(|row| row.contains("beta.org"))
+    };
+    gnu.read_until(Duration::from_secs(6), file_ready);
+    neo.read_until(Duration::from_secs(8), file_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x C-j");
+    let dired_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Dired by name"))
+            && ["alpha.txt", "beta.org", "nested", "zeta.log"]
+                .iter()
+                .all(|name| grid.iter().any(|row| row.contains(name)))
+    };
+    gnu.read_until(Duration::from_secs(10), dired_ready);
+    neo.read_until(Duration::from_secs(20), dired_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "dired_jump_via_cx_cj_opens_parent_listing_on_current_file/dired",
+        &gnu,
+        &neo,
+        0,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    gnu.read_until(Duration::from_secs(6), file_ready);
+    neo.read_until(Duration::from_secs(8), file_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "dired_jump_via_cx_cj_opens_parent_listing_on_current_file/revisit",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn dired_jump_other_window_via_cx4_cj_keeps_file_and_listing_visible() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let dir = make_shared_dired_fixture("jump-other-window");
+    let beta = dir.join("beta.org");
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let beta_path = beta.to_string_lossy().into_owned();
+    gnu.send(beta_path.as_bytes());
+    neo.send(beta_path.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let file_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("beta heading"))
+            && grid.iter().any(|row| row.contains("beta.org"))
+    };
+    gnu.read_until(Duration::from_secs(6), file_ready);
+    neo.read_until(Duration::from_secs(8), file_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x 4 C-j");
+    let jump_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Dired by name"))
+            && grid.iter().any(|row| row.contains("beta heading"))
+            && ["alpha.txt", "beta.org", "nested", "zeta.log"]
+                .iter()
+                .all(|name| grid.iter().any(|row| row.contains(name)))
+    };
+    gnu.read_until(Duration::from_secs(10), jump_ready);
+    neo.read_until(Duration::from_secs(20), jump_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "dired_jump_other_window_via_cx4_cj_keeps_file_and_listing_visible",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn dired_copy_current_file_via_c_copies_file_and_updates_listing() {
     let (mut gnu, mut neo) = boot_pair("");
     let dir = make_shared_dired_fixture("copy");
