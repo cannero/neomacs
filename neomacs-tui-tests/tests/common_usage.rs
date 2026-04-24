@@ -9452,6 +9452,54 @@ fn describe_variable_fill_column_via_ch_v() {
 }
 
 #[test]
+fn describe_face_default_via_mx_shows_face_attributes() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "describe-face");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Describe face"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "describe_face_default_via_mx_shows_face_attributes/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"default");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| row.contains("Face: default"))
+            && grid.iter().any(|row| row.contains("Documentation:"))
+            && grid.iter().any(|row| row.contains("Family"))
+            && grid.iter().any(|row| row.contains("Foreground"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "describe_face_default_via_mx_shows_face_attributes/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_top_rows_nearly_match(
+        "describe_face_default_via_mx_shows_face_attributes",
+        &gnu,
+        &neo,
+        20,
+        3,
+    );
+}
+
+#[test]
 fn describe_key_briefly_find_file_via_ch_c() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "c");

@@ -726,8 +726,8 @@ pub(crate) fn builtin_buffer_substring(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("buffer-substring", &args, 2)?;
-    let start = expect_int(&args[0])?;
-    let end = expect_int(&args[1])?;
+    let start = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&eval.buffers, &args[1])?;
     let current_id = eval
         .buffers
         .current_buffer_id()
@@ -741,11 +741,7 @@ pub(crate) fn builtin_buffer_substring(
     if start < point_min || start > point_max || end < point_min || end > point_max {
         return Err(signal(
             "args-out-of-range",
-            vec![
-                Value::make_buffer(buf.id),
-                Value::fixnum(start),
-                Value::fixnum(end),
-            ],
+            vec![Value::make_buffer(buf.id), args[0], args[1]],
         ));
     }
     let start = start as usize;

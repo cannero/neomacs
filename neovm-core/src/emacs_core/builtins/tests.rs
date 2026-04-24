@@ -1965,6 +1965,24 @@ fn goto_char_uses_live_marker_position_after_insertions() {
 }
 
 #[test]
+fn buffer_substring_accepts_marker_positions() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"(progn
+                 (insert "abcdef")
+                 (let ((beg (copy-marker 2))
+                       (end (copy-marker 5 t)))
+                   (buffer-substring beg end)))"#,
+        )
+        .expect("evaluation succeeds");
+
+    assert_eq!(format_eval_result(&Ok(result)), r#"OK "bcd""#);
+}
+
+#[test]
 fn char_queries_use_live_marker_positions_after_insertions() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();

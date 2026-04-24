@@ -2650,6 +2650,43 @@ fn bootstrap_minibuffer_complete_and_exit_accepts_exact_must_match_input() {
 }
 
 #[test]
+fn bootstrap_completing_read_multiple_accepts_exact_must_match_input() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let scratch = eval.buffers.create_buffer("*crm-exact-target*");
+    eval.buffers.set_current(scratch);
+    let frame_id = eval.frames.create_frame("F1", 960, 640, scratch);
+    assert!(eval.frames.select_frame(frame_id));
+    eval.eval_str("(require 'crm)").expect("load crm");
+
+    let (tx, rx) = crossbeam_channel::unbounded();
+    for ch in "default".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue input char");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
+    drop(tx);
+
+    eval.input_rx = Some(rx);
+    eval.command_loop.running = true;
+
+    let rendered = format_eval_result(&eval.eval_str(
+        r#"(completing-read-multiple
+            "Describe face"
+            (list "default")
+            nil
+            t)"#,
+    ));
+    assert_eq!(rendered, "OK (\"default\")");
+}
+
+#[test]
 fn bootstrap_runtime_global_obarray_proxy_preserves_completion_semantics() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
