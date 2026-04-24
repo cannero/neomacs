@@ -9452,6 +9452,40 @@ fn describe_variable_fill_column_via_ch_v() {
 }
 
 #[test]
+fn describe_symbol_fill_column_via_ch_o() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "o");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Describe symbol"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches("describe_symbol_fill_column_via_ch_o/prompt", &gnu, &neo, 2);
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"fill-column");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid
+                .iter()
+                .any(|row| row.contains("fill-column is a variable"))
+            && grid
+                .iter()
+                .any(|row| row.contains("Automatically becomes buffer-local"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids("describe_symbol_fill_column_via_ch_o/not-ready", &gnu, &neo);
+    }
+
+    assert_top_rows_nearly_match("describe_symbol_fill_column_via_ch_o", &gnu, &neo, 18, 3);
+}
+
+#[test]
 fn describe_face_default_via_mx_shows_face_attributes() {
     let (mut gnu, mut neo) = boot_pair("");
 
