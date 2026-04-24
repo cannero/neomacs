@@ -2591,8 +2591,17 @@ impl LayoutEngine {
 
         if let Some(echo_message) = echo_message {
             // The echo area is minibuffer content, not post-window chrome.
-            // Render it into the open minibuffer window's first text row.
-            let max_rows_echo = (text_height / char_h).ceil().max(1.0) as usize;
+            // Size the matrix from the echo text itself so the existing
+            // minibuffer auto-resize pass can grow the physical minibuffer
+            // window when a multiline message needs more rows than the
+            // current one-line allocation.
+            let echo_lines = echo_message
+                .split(|ch| ch == '\n' || ch == '\r')
+                .count()
+                .max(1);
+            let frame_rows = _frame_params.height / char_h;
+            let max_mini = max_mini_window_lines(evaluator, frame_rows).ceil().max(1.0) as usize;
+            let max_rows_echo = echo_lines.clamp(1, max_mini);
             let cols_echo = (text_width / char_w).ceil().max(1.0) as usize;
             self.matrix_builder.begin_window(
                 params.window_id as u64,
@@ -2601,33 +2610,37 @@ impl LayoutEngine {
                 params.bounds,
                 params.selected,
             );
-            self.matrix_builder.begin_row(
-                0,
-                neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer,
-            );
-            let (rendered_face, glyphs) = self.render_minibuffer_echo_via_backend(
+            let (rendered_face, rows) = self.render_minibuffer_echo_via_backend(
                 text_width,
                 char_w,
                 default_face_ascent,
-                text_height.max(char_h),
+                char_h,
                 default_resolved,
                 echo_message,
+                max_rows_echo,
             );
             self.matrix_builder
                 .insert_face(rendered_face.id, rendered_face);
-            self.matrix_builder.set_current_row_metrics(
-                params.bounds.y,
-                text_height.max(char_h),
-                default_face_ascent.max(
-                    self.matrix_builder
-                        .faces()
-                        .get(&0)
-                        .map(|face| face.font_ascent.max(0) as f32)
-                        .unwrap_or(0.0),
-                ),
+            let row_ascent = default_face_ascent.max(
+                self.matrix_builder
+                    .faces()
+                    .get(&0)
+                    .map(|face| face.font_ascent.max(0) as f32)
+                    .unwrap_or(0.0),
             );
-            self.matrix_builder.install_current_row_glyphs(glyphs);
-            self.matrix_builder.end_row();
+            for (row_index, glyphs) in rows.into_iter().enumerate() {
+                self.matrix_builder.begin_row(
+                    row_index,
+                    neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer,
+                );
+                self.matrix_builder.set_current_row_metrics(
+                    params.bounds.y + row_index as f32 * char_h,
+                    char_h,
+                    row_ascent,
+                );
+                self.matrix_builder.install_current_row_glyphs(glyphs);
+                self.matrix_builder.end_row();
+            }
             self.matrix_builder.end_window();
             return;
         }
@@ -5441,9 +5454,10 @@ impl LayoutEngine {
         row_height: f32,
         default_resolved: &crate::neovm_bridge::ResolvedFace,
         echo_message: String,
+        max_rows: usize,
     ) -> (
         neomacs_display_protocol::face::Face,
-        Vec<neomacs_display_protocol::glyph_matrix::Glyph>,
+        Vec<Vec<neomacs_display_protocol::glyph_matrix::Glyph>>,
     ) {
         use crate::display_backend::{
             DisplayBackend, GuiDisplayBackend, TtyDisplayBackend, display_text_plain_via_backend,
@@ -5457,34 +5471,38 @@ impl LayoutEngine {
         let rendered_face = sl_face.render_face();
         let char_width = self.status_line_char_width(&sl_face, char_w);
 
-        // Walk the plain string through the backend. No display-property
-        // harvesting, no face runs, no align-to entries: echo-area text is
-        // a single minibuffer row rendered with the default face.
-        let mut tty_backend = TtyDisplayBackend::new();
-        let mut gui_backend = self.font_metrics.as_mut().map(GuiDisplayBackend::new);
-        let backend: &mut dyn DisplayBackend = match gui_backend {
-            Some(ref mut g) => g,
-            None => &mut tty_backend,
-        };
-        display_text_plain_via_backend(
-            backend,
-            &echo_message,
-            &rendered_face,
-            char_width,
-            text_width,
-        );
+        // GNU's echo area displays internal newlines as minibuffer row
+        // breaks. Keep the shared plain-text helper single-row for status
+        // line callers, and split echo text before walking each row.
+        let mut rows = Vec::new();
+        for line in echo_message
+            .split(|ch| ch == '\n' || ch == '\r')
+            .take(max_rows.max(1))
+        {
+            let mut tty_backend = TtyDisplayBackend::new();
+            let mut gui_backend = self.font_metrics.as_mut().map(GuiDisplayBackend::new);
+            let backend: &mut dyn DisplayBackend = match gui_backend {
+                Some(ref mut g) => g,
+                None => &mut tty_backend,
+            };
+            display_text_plain_via_backend(backend, line, &rendered_face, char_width, text_width);
 
-        let mut flush_row =
-            GlyphRow::new(neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer);
-        flush_row.enabled = true;
-        backend.finish_row(flush_row);
-        let glyphs = backend
-            .take_rows()
-            .into_iter()
-            .next()
-            .map(|mut row| std::mem::take(&mut row.glyphs[1]))
-            .unwrap_or_default();
-        (rendered_face, glyphs)
+            let mut flush_row =
+                GlyphRow::new(neomacs_display_protocol::frame_glyphs::GlyphRowRole::Minibuffer);
+            flush_row.enabled = true;
+            backend.finish_row(flush_row);
+            let glyphs = backend
+                .take_rows()
+                .into_iter()
+                .next()
+                .map(|mut row| std::mem::take(&mut row.glyphs[1]))
+                .unwrap_or_default();
+            rows.push(glyphs);
+        }
+        if rows.is_empty() {
+            rows.push(Vec::new());
+        }
+        (rendered_face, rows)
     }
 
     pub(crate) fn status_line_char_width(

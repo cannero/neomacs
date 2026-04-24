@@ -110,6 +110,29 @@ fn window_matrix_text(entry: &neomacs_display_protocol::glyph_matrix::WindowMatr
         .collect()
 }
 
+fn enabled_window_row_texts(
+    entry: &neomacs_display_protocol::glyph_matrix::WindowMatrixEntry,
+) -> Vec<String> {
+    entry
+        .matrix
+        .rows
+        .iter()
+        .filter(|row| row.enabled)
+        .map(|row| {
+            row.glyphs[1]
+                .iter()
+                .filter_map(|glyph| match &glyph.glyph_type {
+                    neomacs_display_protocol::glyph_matrix::GlyphType::Char { ch } => Some(*ch),
+                    neomacs_display_protocol::glyph_matrix::GlyphType::Composite { text } => {
+                        text.chars().next()
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn assert_echo_message_renders_in_minibuffer_window(use_gui_metrics: bool) {
     let mut eval = Context::new();
     let buf_id = eval
@@ -187,6 +210,55 @@ fn assert_echo_message_renders_in_minibuffer_window(use_gui_metrics: bool) {
             .iter()
             .any(|row| row.enabled && row.role == GlyphRowRole::Minibuffer),
         "root window should not own minibuffer echo rows"
+    );
+}
+
+fn assert_multiline_echo_message_uses_minibuffer_rows(use_gui_metrics: bool) {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-minibuffer-echo-lines", 640, 160, buf_id);
+    eval.set_current_message(Some(LispString::from_utf8("ALPHA\nBETA")));
+
+    let mut engine = LayoutEngine::new();
+    if use_gui_metrics {
+        engine.enable_cosmic_metrics();
+    }
+    engine.layout_frame_rust(&mut eval, frame_id);
+
+    let state = engine
+        .last_frame_display_state
+        .as_ref()
+        .expect("display state");
+    let minibuffer_window_id = state
+        .window_infos
+        .iter()
+        .find(|info| info.is_minibuffer)
+        .expect("minibuffer window info")
+        .window_id as u64;
+    let minibuffer_entry = state
+        .window_matrices
+        .iter()
+        .find(|entry| entry.window_id == minibuffer_window_id)
+        .expect("minibuffer matrix");
+    let row_texts = enabled_window_row_texts(minibuffer_entry);
+
+    assert!(
+        row_texts.iter().any(|row| row == "ALPHA"),
+        "expected ALPHA in its own minibuffer row, got {row_texts:?}"
+    );
+    assert!(
+        row_texts.iter().any(|row| row == "BETA"),
+        "expected BETA in its own minibuffer row, got {row_texts:?}"
+    );
+    assert!(
+        !row_texts.iter().any(|row| row.contains("ALPHABETA")),
+        "multiline echo text was flattened into one row: {row_texts:?}"
     );
 }
 
@@ -3533,6 +3605,16 @@ fn layout_frame_rust_keeps_echo_message_in_minibuffer_window_for_tty() {
 #[test]
 fn layout_frame_rust_keeps_echo_message_in_minibuffer_window_for_gui() {
     assert_echo_message_renders_in_minibuffer_window(true);
+}
+
+#[test]
+fn layout_frame_rust_keeps_multiline_echo_rows_for_tty() {
+    assert_multiline_echo_message_uses_minibuffer_rows(false);
+}
+
+#[test]
+fn layout_frame_rust_keeps_multiline_echo_rows_for_gui() {
+    assert_multiline_echo_message_uses_minibuffer_rows(true);
 }
 
 #[test]

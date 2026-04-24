@@ -8597,6 +8597,77 @@ fn shell_command_on_region_with_prefix_replaces_region_via_mbar() {
 }
 
 #[test]
+fn shell_command_on_region_without_prefix_displays_output_buffer_via_mbar() {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!(
+        "neomacs-shell-command-region-output-{}-{unique}.txt",
+        std::process::id()
+    ));
+    fs::write(&path, "alpha\nbeta\n").expect("write shell command region fixture");
+    let file_arg = path.display().to_string();
+    let mut gnu = TuiSession::gnu_emacs(&file_arg);
+    let mut neo = TuiSession::neomacs(&file_arg);
+    let file_name = path
+        .file_name()
+        .expect("fixture file name")
+        .to_string_lossy()
+        .to_string();
+    let file_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(&file_name))
+            && grid.iter().any(|row| row.contains("alpha"))
+    };
+    gnu.read_until(Duration::from_secs(10), file_ready);
+    neo.read_until(Duration::from_secs(16), file_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    send_both(&mut gnu, &mut neo, "C-x h M-|");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Shell command on region:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "shell_command_on_region_without_prefix_displays_output_buffer_via_mbar/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"tr a-z A-Z");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.trim_end() == "ALPHA")
+            && grid.iter().any(|row| row.trim_end() == "BETA")
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "shell_command_on_region_without_prefix_displays_output_buffer_via_mbar/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_pair_nearly_matches(
+        "shell_command_on_region_without_prefix_displays_output_buffer_via_mbar",
+        &gnu,
+        &neo,
+        3,
+    );
+    fs::remove_file(path).expect("remove shell command region fixture");
+}
+
+#[test]
 fn shell_via_mx_runs_interactive_command_in_comint_buffer() {
     let init = std::env::temp_dir().join("neomacs-common-usage-shell.el");
     fs::write(
