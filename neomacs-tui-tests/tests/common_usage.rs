@@ -1903,6 +1903,108 @@ fn visual_line_mode_shows_wrap_lighter() {
 }
 
 #[test]
+fn abbrev_mode_expands_defined_global_abbrev() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(&mut gnu, &mut neo, "abbrev-mode.txt", "seed\n", "C-x C-f");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(progn (define-abbrev global-abbrev-table "btw" "by the way") (message "abbrev ready"))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let setup_ready = |grid: &[String]| grid.iter().any(|row| row.contains("abbrev ready"));
+    gnu.read_until(Duration::from_secs(6), setup_ready);
+    neo.read_until(Duration::from_secs(8), setup_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "abbrev-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-< C-a");
+    send_both_raw(&mut gnu, &mut neo, b"btw ");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("by the way seed"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("abbrev_mode_expands_defined_global_abbrev", &gnu, &neo, 2);
+}
+
+#[test]
+fn subword_mode_moves_through_camel_case_parts() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "subword-mode.txt",
+        "camelCaseIdentifier\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "subword-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "C-a M-f");
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("camelXCaseIdentifier"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("subword_mode_moves_through_camel_case_parts", &gnu, &neo, 2);
+}
+
+#[test]
+fn auto_save_mode_toggles_buffer_auto_save_file_name() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "auto-save-mode.txt",
+        "autosave body\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "auto-save-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "auto-save=%S" (not (null buffer-auto-save-file-name)))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let off_ready = |grid: &[String]| grid.iter().any(|row| row.contains("auto-save=nil"));
+    gnu.read_until(Duration::from_secs(6), off_ready);
+    neo.read_until(Duration::from_secs(8), off_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "auto-save-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "auto-save=%S" (not (null buffer-auto-save-file-name)))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let on_ready = |grid: &[String]| grid.iter().any(|row| row.contains("auto-save=t"));
+    gnu.read_until(Duration::from_secs(6), on_ready);
+    neo.read_until(Duration::from_secs(8), on_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "auto_save_mode_toggles_buffer_auto_save_file_name",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn delete_selection_mode_replaces_active_region_with_typed_text() {
     let (mut gnu, mut neo) = boot_pair("");
 
