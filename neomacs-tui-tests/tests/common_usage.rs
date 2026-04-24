@@ -537,6 +537,41 @@ fn find_file_via_cx_cf() {
 }
 
 #[test]
+fn find_file_literally_via_mx_visits_file_without_modes() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "literal-visit.txt", "literal visit body\n");
+    write_home_file(&neo, "literal-visit.txt", "literal visit body\n");
+
+    invoke_mx_command(&mut gnu, &mut neo, "find-file-literally");
+    let prompt_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Find file literally:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/literal-visit.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("literal-visit.txt"))
+            && grid.iter().any(|row| row.contains("literal visit body"))
+            && grid.iter().any(|row| row.contains("Fundamental"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "find_file_literally_via_mx_visits_file_without_modes",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn switch_buffer_via_cx_b_visits_existing_file_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -1348,6 +1383,69 @@ fn delete_file_via_mx_removes_file_from_disk() {
     neo.read_until(Duration::from_secs(8), scratch_ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     assert_pair_nearly_matches("delete_file_via_mx_removes_file_from_disk", &gnu, &neo, 2);
+}
+
+#[test]
+fn delete_directory_via_mx_removes_empty_directory() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let gnu_dir = gnu.home_dir().join("delete-empty-dir");
+    let neo_dir = neo.home_dir().join("delete-empty-dir");
+    fs::create_dir(&gnu_dir).expect("create GNU empty directory");
+    fs::create_dir(&neo_dir).expect("create Neo empty directory");
+
+    invoke_mx_command(&mut gnu, &mut neo, "delete-directory");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Delete directory:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "delete_directory_via_mx_removes_empty_directory/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/delete-empty-dir");
+    }
+    let typed_ready = |grid: &[String]| grid.iter().any(|row| row.contains("delete-empty-dir"));
+    gnu.read_until(Duration::from_secs(6), typed_ready);
+    neo.read_until(Duration::from_secs(8), typed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "delete_directory_via_mx_removes_empty_directory/before-ret",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    for _ in 0..10 {
+        read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+        if !gnu_dir.exists() && !neo_dir.exists() {
+            break;
+        }
+    }
+
+    assert!(
+        !gnu_dir.exists(),
+        "GNU delete-directory should remove target directory"
+    );
+    assert!(
+        !neo_dir.exists(),
+        "Neomacs delete-directory should remove target directory"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "delete_directory_via_mx_removes_empty_directory",
+        &gnu,
+        &neo,
+        2,
+    );
 }
 
 #[test]
