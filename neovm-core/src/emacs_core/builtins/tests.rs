@@ -8861,19 +8861,13 @@ fn dispatch_builtin_pure_handles_describe_and_delete_terminal_placeholders() {
         .is_none()
     );
 
-    let vec_err = dispatch_builtin_pure(
+    let described = dispatch_builtin_pure(
         "describe-vector",
-        vec![
-            Value::vector(vec![Value::fixnum(1)]),
-            Value::symbol("display-buffer"),
-        ],
+        vec![Value::vector(vec![Value::fixnum(1)])],
     )
     .expect("describe-vector should resolve")
-    .unwrap_err();
-    match vec_err {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "void-function"),
-        other => panic!("expected signal, got {other:?}"),
-    }
+    .expect("describe-vector should evaluate");
+    assert_eq!(described, Value::NIL);
 
     let delete_err = dispatch_builtin_pure("delete-terminal", vec![])
         .expect("delete-terminal should resolve")

@@ -9523,6 +9523,37 @@ fn describe_symbol_fill_column_via_ch_o() {
 }
 
 #[test]
+fn describe_syntax_via_ch_s_shows_syntax_table() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "s");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Help*"))
+            && grid.iter().any(|row| row.contains("syntax table"))
+            && grid.iter().any(|row| row.contains("whitespace"))
+            && grid.iter().any(|row| row.contains("word"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "describe_syntax_via_ch_s_shows_syntax_table/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_top_rows_nearly_match(
+        "describe_syntax_via_ch_s_shows_syntax_table",
+        &gnu,
+        &neo,
+        18,
+        4,
+    );
+}
+
+#[test]
 fn describe_face_default_via_mx_shows_face_attributes() {
     let (mut gnu, mut neo) = boot_pair("");
 

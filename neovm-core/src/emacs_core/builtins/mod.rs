@@ -4586,7 +4586,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "describe-vector",
-        |_ctx, args| builtin_describe_vector(args),
+        |ctx, args| builtin_describe_vector(ctx, args),
         1,
         Some(2),
     );
