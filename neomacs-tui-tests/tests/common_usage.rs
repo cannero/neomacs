@@ -3161,6 +3161,74 @@ fn split_window_right_then_open_file_in_other_window_via_cx3_cxo_cx_cf() {
 }
 
 #[test]
+fn compare_windows_via_mx_advances_both_points_to_first_difference() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "compare-left.txt", "same prefix\nleft side differs\n");
+    write_home_file(&neo, "compare-left.txt", "same prefix\nleft side differs\n");
+    write_home_file(
+        &gnu,
+        "compare-right.txt",
+        "same prefix\nright side differs\n",
+    );
+    write_home_file(
+        &neo,
+        "compare-right.txt",
+        "same prefix\nright side differs\n",
+    );
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "compare-left.txt",
+        "same prefix\nleft side differs\n",
+        "C-x C-f",
+    );
+    send_both(&mut gnu, &mut neo, "C-x 3 C-x o C-x C-f");
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/compare-right.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let both_files_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("left side differs"))
+            && grid.iter().any(|row| row.contains("right side differs"))
+    };
+    gnu.read_until(Duration::from_secs(6), both_files_ready);
+    neo.read_until(Duration::from_secs(8), both_files_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "compare-windows");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "compare-points %S/%S" (point) (window-point (next-window)))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let point_ready = |grid: &[String]| grid.iter().any(|row| row.contains("compare-points 13/13"));
+    gnu.read_until(Duration::from_secs(6), point_ready);
+    neo.read_until(Duration::from_secs(8), point_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            point_ready(&grid),
+            "{label} should leave both windows at first difference:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "compare_windows_via_mx_advances_both_points_to_first_difference",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn other_window_via_cxo() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
