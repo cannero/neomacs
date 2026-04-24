@@ -1506,6 +1506,79 @@ fn keyboard_quit_from_mx_via_cg() {
 }
 
 #[test]
+fn execute_extended_command_history_via_mx_mp_recalls_previous_command() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "calendar");
+    let day_header_count = |grid: &[String]| {
+        grid.iter()
+            .map(|row| row.matches("Su Mo Tu We Th Fr Sa").count())
+            .sum::<usize>()
+    };
+    let calendar_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Calendar")) && day_header_count(grid) >= 3
+    };
+    gnu.read_until(Duration::from_secs(8), calendar_ready);
+    neo.read_until(Duration::from_secs(10), calendar_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "execute_extended_command_history_via_mx_mp_recalls_previous_command/first-calendar",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"q");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "execute_extended_command_history_via_mx_mp_recalls_previous_command/quit",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    let mx_prompt = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
+    gnu.read_until(Duration::from_secs(6), mx_prompt);
+    neo.read_until(Duration::from_secs(8), mx_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "execute_extended_command_history_via_mx_mp_recalls_previous_command/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-p");
+    let recalled = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("M-x calendar") || row.contains("M-X calendar"))
+    };
+    gnu.read_until(Duration::from_secs(6), recalled);
+    neo.read_until(Duration::from_secs(8), recalled);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "execute_extended_command_history_via_mx_mp_recalls_previous_command/recalled",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    gnu.read_until(Duration::from_secs(8), calendar_ready);
+    neo.read_until(Duration::from_secs(10), calendar_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "execute_extended_command_history_via_mx_mp_recalls_previous_command/second-calendar",
+        &gnu,
+        &neo,
+        4,
+    );
+}
+
+#[test]
 fn fido_vertical_mode_mx_find_f_matches_gnu_then_cg() {
     let (mut gnu, mut neo) = boot_fido_vertical_pair();
 
@@ -3312,6 +3385,55 @@ fn bookmark_list_via_cx_r_l_shows_saved_bookmark() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
     assert_pair_nearly_matches(
         "bookmark_list_via_cx_r_l_shows_saved_bookmark/quit",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn file_name_shadow_overlay_does_not_leak_into_occur_prompt() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "C-x C-f");
+    let file_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Find file:"));
+    gnu.read_until(Duration::from_secs(6), file_prompt);
+    neo.read_until(Duration::from_secs(8), file_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"/tmp//shadow-probe");
+    }
+    let shadow_ready = |grid: &[String]| grid.iter().any(|row| row.contains("}"));
+    gnu.read_until(Duration::from_secs(6), shadow_ready);
+    neo.read_until(Duration::from_secs(8), shadow_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    abort_minibuffer_and_wait_for_scratch(&mut gnu, &mut neo);
+
+    send_both(&mut gnu, &mut neo, "M-s o");
+    let occur_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("List lines matching regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), occur_prompt);
+    neo.read_until(Duration::from_secs(8), occur_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for (label, session) in [("GNU", &gnu), ("Neomacs", &neo)] {
+        let prompt_row = session
+            .text_grid()
+            .into_iter()
+            .find(|row| row.contains("List lines matching regexp"))
+            .expect("occur prompt should be visible");
+        assert!(
+            !prompt_row.contains('{') && !prompt_row.contains('}'),
+            "{label} occur prompt should not leak file-name shadow brackets\n{prompt_row}",
+        );
+    }
+
+    assert_pair_nearly_matches(
+        "file_name_shadow_overlay_does_not_leak_into_occur_prompt",
         &gnu,
         &neo,
         2,
@@ -5416,6 +5538,98 @@ fn eval_expression_via_mcolon_prints_echo_area_value() {
 }
 
 #[test]
+fn eval_expression_history_via_mcolon_mp_recalls_previous_expression() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/prompt-1",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"(+ 1 2)");
+    }
+    let first_expr_typed =
+        |grid: &[String]| grid.last().is_some_and(|row| row.contains("Eval: (+ 1 2)"));
+    gnu.read_until(Duration::from_secs(6), first_expr_typed);
+    neo.read_until(Duration::from_secs(8), first_expr_typed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/typed-1",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let first_result = |grid: &[String]| grid.iter().rev().take(4).any(|row| row.contains("3"));
+    gnu.read_until(Duration::from_secs(6), first_result);
+    neo.read_until(Duration::from_secs(8), first_result);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/result-1",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/prompt-2",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "M-p");
+    let recalled = |grid: &[String]| grid.last().is_some_and(|row| row.contains("Eval: (+ 1 2)"));
+    gnu.read_until(Duration::from_secs(6), recalled);
+    neo.read_until(Duration::from_secs(8), recalled);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/recalled",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "DEL DEL");
+    send_both_raw(&mut gnu, &mut neo, b"5)");
+    let edited = |grid: &[String]| grid.last().is_some_and(|row| row.contains("Eval: (+ 1 5)"));
+    gnu.read_until(Duration::from_secs(6), edited);
+    neo.read_until(Duration::from_secs(8), edited);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/edited",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let second_result = |grid: &[String]| grid.iter().rev().take(4).any(|row| row.contains("6"));
+    gnu.read_until(Duration::from_secs(6), second_result);
+    neo.read_until(Duration::from_secs(8), second_result);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "eval_expression_history_via_mcolon_mp_recalls_previous_expression/result-2",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn eval_expression_error_via_mcolon_opens_backtrace() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -7118,6 +7332,120 @@ fn goto_line_via_mg_g() {
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     assert_pair_nearly_matches("goto_line_via_mg_g", &gnu, &neo, 2);
+}
+
+#[test]
+fn repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let contents = (1..=50)
+        .map(|line| match line {
+            2 => "target-two\n".to_string(),
+            35 => "target-thirty-five\n".to_string(),
+            _ => format!("plain numbered line {line:02}\n"),
+        })
+        .collect::<String>();
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "repeat-complex.txt",
+        &contents,
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-g g");
+    let goto_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Goto line:"));
+    gnu.read_until(Duration::from_secs(6), goto_prompt);
+    neo.read_until(Duration::from_secs(8), goto_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/goto-prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"2");
+    }
+    let goto_typed = |grid: &[String]| grid.last().is_some_and(|row| row.contains("Goto line: 2"));
+    gnu.read_until(Duration::from_secs(6), goto_typed);
+    neo.read_until(Duration::from_secs(8), goto_typed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/goto-typed",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let first_target = |grid: &[String]| grid.iter().any(|row| row.contains("target-two"));
+    gnu.read_until(Duration::from_secs(6), first_target);
+    neo.read_until(Duration::from_secs(8), first_target);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/first-target",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x ESC ESC");
+    let redo_prompt = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Redo:"))
+            && grid.iter().any(|row| row.contains("goto-line"))
+            && grid.iter().any(|row| row.contains("2"))
+    };
+    gnu.read_until(Duration::from_secs(6), redo_prompt);
+    neo.read_until(Duration::from_secs(8), redo_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/redo-prompt",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-b DEL 3 5");
+    let redo_edited = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Redo:"))
+            && grid.iter().any(|row| row.contains("goto-line"))
+            && grid.iter().any(|row| row.contains("35"))
+    };
+    gnu.read_until(Duration::from_secs(6), redo_edited);
+    neo.read_until(Duration::from_secs(8), redo_edited);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/redo-edited",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    send_both(&mut gnu, &mut neo, "RET");
+    let second_target = |grid: &[String]| grid.iter().any(|row| row.contains("target-thirty-five"));
+    gnu.read_until(Duration::from_secs(6), second_target);
+    neo.read_until(Duration::from_secs(8), second_target);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/second-target",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    let inserted = |grid: &[String]| grid.iter().any(|row| row.contains("Xtarget-thirty-five"));
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line/final-insert",
+        &gnu,
+        &neo,
+        4,
+    );
 }
 
 #[test]

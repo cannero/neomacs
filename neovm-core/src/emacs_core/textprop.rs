@@ -1853,6 +1853,14 @@ pub(crate) fn builtin_move_overlay_in_buffers(
             object.end = byte_end;
         });
         new_buf.overlays.insert_overlay(overlay);
+        if byte_beg == byte_end
+            && new_buf
+                .overlays
+                .overlay_get_named(overlay, Value::symbol("evaporate"))
+                .is_some_and(|value| value.is_truthy())
+        {
+            let _ = new_buf.overlays.delete_overlay(overlay);
+        }
         Ok(args[0])
     }
 }

@@ -115,6 +115,16 @@ impl OverlayList {
         Self::remove_index_entry(&mut self.by_end, old_end, overlay);
         Self::insert_index_entry(&mut self.by_start, start, overlay);
         Self::insert_index_entry(&mut self.by_end, end, overlay);
+        // GNU Emacs drops empty overlays created by move-overlay when
+        // `evaporate' is non-nil. Minibuffer shadow overlays depend on this
+        // to avoid leaking stale before/after-strings into later prompts.
+        if start == end
+            && self
+                .overlay_get_named(overlay, Value::symbol("evaporate"))
+                .is_some_and(|value| value.is_truthy())
+        {
+            let _ = self.delete_overlay(overlay);
+        }
     }
 
     pub fn overlays_at(&self, pos: usize) -> Vec<Value> {

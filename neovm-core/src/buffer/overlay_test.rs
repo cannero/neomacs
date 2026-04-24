@@ -58,6 +58,19 @@ fn move_overlay_updates_boundaries() {
 }
 
 #[test]
+fn move_overlay_evaporates_zero_width_overlay() {
+    crate::test_utils::init_test_tracing();
+    let mut list = OverlayList::new();
+    let overlay = alloc_overlay(2, 5);
+    list.insert_overlay(overlay);
+    list.overlay_put(overlay, Value::symbol("evaporate"), Value::T)
+        .unwrap();
+    list.move_overlay(overlay, 4, 4);
+    assert!(list.is_empty());
+    assert!(overlay_live_buffer(overlay).is_none());
+}
+
+#[test]
 fn insert_adjusts_front_and_rear_advance() {
     crate::test_utils::init_test_tracing();
     let mut list = OverlayList::new();
