@@ -3323,6 +3323,91 @@ fn delete_selected_other_window_via_cx0() {
 }
 
 #[test]
+fn enlarge_then_balance_windows_via_cx_caret_and_plus() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "resize-windows.txt",
+        "top window\nbottom window\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x 2");
+    let split_ready = |grid: &[String]| {
+        grid.iter()
+            .filter(|row| row.contains("resize-windows.txt"))
+            .count()
+            >= 2
+    };
+    gnu.read_until(Duration::from_secs(6), split_ready);
+    neo.read_until(Duration::from_secs(8), split_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x ^");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(
+            br#"(message "resize-window-taller %S" (> (window-total-height) (window-total-height (next-window))))"#,
+        );
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let taller_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("resize-window-taller t"))
+    };
+    gnu.read_until(Duration::from_secs(6), taller_ready);
+    neo.read_until(Duration::from_secs(8), taller_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            taller_ready(&grid),
+            "{label} should make selected window taller after C-x ^:\n{}",
+            grid.join("\n")
+        );
+    }
+
+    send_both(&mut gnu, &mut neo, "C-x +");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(
+            br#"(message "resize-window-balanced %S" (<= (abs (- (window-total-height) (window-total-height (next-window)))) 1))"#,
+        );
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let balanced_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("resize-window-balanced t"))
+    };
+    gnu.read_until(Duration::from_secs(6), balanced_ready);
+    neo.read_until(Duration::from_secs(8), balanced_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            balanced_ready(&grid),
+            "{label} should balance split window heights after C-x +:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "enlarge_then_balance_windows_via_cx_caret_and_plus",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn window_configuration_to_register_and_jump_via_cx_r_w_j() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
