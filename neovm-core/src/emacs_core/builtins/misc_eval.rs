@@ -947,16 +947,18 @@ pub(crate) fn builtin_bury_buffer_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_bury_buffer_internal_impl(&eval.buffers, args)
+    builtin_bury_buffer_internal_impl(&mut eval.buffers, args)
 }
 
 pub(crate) fn builtin_bury_buffer_internal_impl(
-    buffers: &crate::buffer::BufferManager,
+    buffers: &mut crate::buffer::BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("bury-buffer-internal", &args, 1)?;
     let id = expect_buffer_id(&args[0])?;
-    let _ = buffers.get(id);
+    if buffers.get(id).is_some() {
+        buffers.note_buffer_order_tail(id);
+    }
     Ok(Value::NIL)
 }
 

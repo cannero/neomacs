@@ -1885,6 +1885,80 @@ fn previous_and_next_buffer_via_mx_cycle_recent_file_buffers() {
 }
 
 #[test]
+fn bury_and_unbury_buffer_via_mx_moves_current_buffer_to_end() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bury-alpha.txt",
+        "alpha bury\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bury-beta.txt",
+        "beta bury\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "bury-buffer");
+    let alpha_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("bury-alpha.txt"))
+            && grid.iter().any(|row| row.contains("alpha bury"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("F1  bury-alpha.txt"))
+            && !grid.iter().any(|row| row.contains("beta bury"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_ready);
+    neo.read_until(Duration::from_secs(8), alpha_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            alpha_ready(&grid),
+            "{label} should settle on the previous buffer after bury-buffer:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "bury_and_unbury_buffer_via_mx_moves_current_buffer_to_end/buried",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "unbury-buffer");
+    let beta_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("bury-beta.txt"))
+            && grid.iter().any(|row| row.contains("beta bury"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("F1  bury-beta.txt"))
+            && !grid.iter().any(|row| row.contains("alpha bury"))
+    };
+    gnu.read_until(Duration::from_secs(6), beta_ready);
+    neo.read_until(Duration::from_secs(8), beta_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            beta_ready(&grid),
+            "{label} should settle on the buried buffer after unbury-buffer:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "bury_and_unbury_buffer_via_mx_moves_current_buffer_to_end",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn execute_extended_command_tab_completion_via_mx_completes_unique_command() {
     let (mut gnu, mut neo) = boot_pair("");
 

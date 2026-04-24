@@ -3457,6 +3457,33 @@ fn buffer_list_moves_selected_buffer_to_front_like_gnu() {
 }
 
 #[test]
+fn bury_buffer_internal_moves_buffer_to_end_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::Context::new();
+    let scratch = eval
+        .buffers
+        .find_buffer_by_name("*scratch*")
+        .expect("scratch");
+    eval.frames.create_frame("F1", 800, 600, scratch);
+    let messages =
+        builtin_get_buffer_create(&mut eval, vec![Value::string("*Messages*")]).expect("messages");
+    let target = builtin_get_buffer_create(&mut eval, vec![Value::string("bury-order-target")])
+        .expect("target");
+
+    crate::emacs_core::window_cmds::builtin_switch_to_buffer(
+        &mut eval,
+        vec![Value::string("bury-order-target")],
+    )
+    .expect("switch-to-buffer");
+    builtin_bury_buffer_internal(&mut eval, vec![target]).expect("bury-buffer-internal");
+
+    assert_eq!(
+        builtin_buffer_list(&mut eval, vec![]).expect("buffer-list"),
+        Value::list(vec![Value::make_buffer(scratch), messages, target])
+    );
+}
+
+#[test]
 fn buffer_list_frame_arg_moves_displayed_buffer_to_front_like_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::Context::new();

@@ -2812,6 +2812,20 @@ impl BufferManager {
         self.buffer_order.insert(0, id);
     }
 
+    /// Move a live buffer to the end of buffer-list order.
+    ///
+    /// GNU's `bury-buffer-internal` makes the buffer least preferred for
+    /// `other-buffer`/`last-buffer` by placing it at the tail of the buffer
+    /// list while leaving the current-buffer selection to Lisp callers.
+    pub fn note_buffer_order_tail(&mut self, id: BufferId) -> bool {
+        if !self.buffers.contains_key(&id) {
+            return false;
+        }
+        self.buffer_order.retain(|existing| *existing != id);
+        self.buffer_order.push(id);
+        true
+    }
+
     pub fn note_buffer_display(&mut self, id: BufferId) {
         if self.buffers.contains_key(&id) {
             self.note_buffer_order_head(id);
