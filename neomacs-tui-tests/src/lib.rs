@@ -301,6 +301,8 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
         "SPC" => return vec![b' '],
         "C-SPC" | "C-@" => return vec![0x00],
         "C-M-SPC" | "C-M-@" => return vec![0x1b, 0x00],
+        "C-/" | "C-_" => return vec![0x1f],
+        "C-M-/" | "C-M-_" => return vec![0x1b, 0x1f],
         "DEL" => return vec![0x7f],
         "BS" => return vec![0x08],
         _ => {}
@@ -343,6 +345,10 @@ mod tests {
         assert_eq!(emacs_key("C-@"), vec![0x00]);
         assert_eq!(emacs_key("C-M-SPC"), vec![0x1b, 0x00]);
         assert_eq!(emacs_key("C-M-@"), vec![0x1b, 0x00]);
+        assert_eq!(emacs_key("C-/"), vec![0x1f]);
+        assert_eq!(emacs_key("C-_"), vec![0x1f]);
+        assert_eq!(emacs_key("C-M-/"), vec![0x1b, 0x1f]);
+        assert_eq!(emacs_key("C-M-_"), vec![0x1b, 0x1f]);
     }
 
     #[test]

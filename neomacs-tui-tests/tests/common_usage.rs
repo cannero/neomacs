@@ -432,6 +432,19 @@ fn save_current_file_and_assert_contents(
     );
 }
 
+fn assert_home_file_contents(gnu: &TuiSession, neo: &TuiSession, name: &str, expected: &str) {
+    assert_eq!(
+        fs::read_to_string(gnu.home_dir().join(name)).expect("read GNU home file"),
+        expected,
+        "GNU file contents should match"
+    );
+    assert_eq!(
+        fs::read_to_string(neo.home_dir().join(name)).expect("read Neo home file"),
+        expected,
+        "Neomacs file contents should match"
+    );
+}
+
 fn make_shared_dired_fixture(label: &str) -> std::path::PathBuf {
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -501,6 +514,173 @@ fn find_file_via_cx_cf() {
         "C-x C-f",
     );
     assert_pair_nearly_matches("find_file_via_cx_cf", &gnu, &neo, 2);
+}
+
+#[test]
+fn switch_buffer_via_cx_b_visits_existing_file_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "switch-alpha.txt",
+        "alpha buffer body\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "switch-beta.txt",
+        "beta buffer body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Switch to buffer:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    assert_pair_nearly_matches(
+        "switch_buffer_via_cx_b_visits_existing_file_buffer/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"switch-alpha.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let alpha_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("switch-alpha.txt"))
+            && grid.iter().any(|row| row.contains("alpha buffer body"))
+            && !grid.iter().any(|row| row.contains("beta buffer body"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_ready);
+    neo.read_until(Duration::from_secs(8), alpha_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "switch_buffer_via_cx_b_visits_existing_file_buffer",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn region_kill_yank_and_undo_round_trip() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-yank-undo.txt",
+        "one two three\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-SPC M-f C-w");
+    let killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(" two three"))
+            && !grid.iter().any(|row| row.contains("one two three"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    assert_pair_nearly_matches("region_kill_yank_and_undo_round_trip/killed", &gnu, &neo, 2);
+
+    send_both(&mut gnu, &mut neo, "C-y");
+    let yanked = |grid: &[String]| grid.iter().any(|row| row.contains("one two three"));
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    assert_pair_nearly_matches("region_kill_yank_and_undo_round_trip/yanked", &gnu, &neo, 2);
+
+    send_both(&mut gnu, &mut neo, "C-/");
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    assert_pair_nearly_matches(
+        "region_kill_yank_and_undo_round_trip/undo-yank",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    send_both(&mut gnu, &mut neo, "C-y");
+    gnu.read_until(Duration::from_secs(6), yanked);
+    neo.read_until(Duration::from_secs(8), yanked);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    save_current_file_and_assert_contents(
+        "region_kill_yank_and_undo_round_trip",
+        &mut gnu,
+        &mut neo,
+        "kill-yank-undo.txt",
+        "one two three\n",
+    );
+}
+
+#[test]
+fn query_replace_via_mx_accepts_all_matches_and_saves() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "query-replace.txt",
+        "foo one\nfoo two\nbar\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "query-replace");
+    let from_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Query replace") && !row.contains("with:"))
+    };
+    gnu.read_until(Duration::from_secs(6), from_prompt);
+    neo.read_until(Duration::from_secs(8), from_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"foo");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let to_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("with:"));
+    gnu.read_until(Duration::from_secs(6), to_prompt);
+    neo.read_until(Duration::from_secs(8), to_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"baz");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let replacement_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Query replacing") || row.contains("Replace"))
+    };
+    gnu.read_until(Duration::from_secs(6), replacement_prompt);
+    neo.read_until(Duration::from_secs(8), replacement_prompt);
+    send_both_raw(&mut gnu, &mut neo, b"!");
+
+    let replaced = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("baz one"))
+            && grid.iter().any(|row| row.contains("baz two"))
+    };
+    gnu.read_until(Duration::from_secs(6), replaced);
+    neo.read_until(Duration::from_secs(8), replaced);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "query_replace_via_mx_accepts_all_matches_and_saves",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    save_current_file_and_assert_contents(
+        "query_replace_via_mx_accepts_all_matches_and_saves",
+        &mut gnu,
+        &mut neo,
+        "query-replace.txt",
+        "baz one\nbaz two\nbar\n",
+    );
+    assert_home_file_contents(&gnu, &neo, "query-replace.txt", "baz one\nbaz two\nbar\n");
 }
 
 #[test]

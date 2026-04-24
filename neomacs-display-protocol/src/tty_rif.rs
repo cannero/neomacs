@@ -461,7 +461,7 @@ impl TtyRif {
                 continue;
             };
 
-            let last_changed = desired_row
+            let mut last_changed = desired_row
                 .iter()
                 .zip(current_row.iter())
                 .rposition(|(desired, current)| !desired.padding && desired != current)
@@ -472,6 +472,24 @@ impl TtyRif {
             // Repaint the changed row span the same way so wide glyphs and
             // composed clusters are emitted as adjacent terminal text rather
             // than broken up by per-cell cursor moves.
+            //
+            // Real terminals are not uniformly reliable when a row containing
+            // grapheme clusters is rewritten with different text.  If the
+            // terminal's idea of the cluster width differs from our cell grid,
+            // stale glyphs can remain past the internal changed span.  GNU's
+            // TTY redisplay model treats the terminal as a stateful grid and
+            // clears affected ranges before writing new glyphs; for composite
+            // rows, clear and repaint the whole row tail so shrunk HELLO rows
+            // cannot leave visible residue.
+            if row_has_composite_cells(desired_row) || row_has_composite_cells(current_row) {
+                last_changed = desired_row.len() - 1;
+                write_cursor_goto(&mut self.output, row as u16 + 1, first_changed as u16 + 1);
+                write_sgr(&mut self.output, &CellAttrs::default());
+                last_attrs = Some(CellAttrs::default());
+                for _ in first_changed..=last_changed {
+                    self.output.push(b' ');
+                }
+            }
             write_cursor_goto(&mut self.output, row as u16 + 1, first_changed as u16 + 1);
 
             for desired in &desired_row[first_changed..=last_changed] {
@@ -625,6 +643,10 @@ impl TtyRif {
             );
         }
     }
+}
+
+fn row_has_composite_cells(row: &[TtyCell]) -> bool {
+    row.iter().any(|cell| cell.extenders.is_some())
 }
 
 // ---------------------------------------------------------------------------

@@ -99,6 +99,19 @@ fn normalize_hello_vc_row(row: &str) -> String {
     normalized.chars().take(target_width).collect()
 }
 
+fn is_known_hello_scroll_diff(diff: &RowDiff) -> bool {
+    let rows = [&diff.gnu, &diff.neo];
+    rows.iter().any(|row| {
+        row.contains("Javanese")
+            || row.contains("Lepcha")
+            || row.contains("Malayalam")
+            || row.contains("Rejang")
+            || row.contains("Git-")
+            || row.contains("Git-main")
+            || row.contains("view-hello-file")
+    })
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 #[test]
@@ -530,6 +543,68 @@ fn mx_view_hello_file() {
     let neo_has_name = nl.iter().any(|r| r.contains("HELLO"));
     assert!(gnu_has_name, "GNU should show HELLO in the mode line");
     assert!(neo_has_name, "NEO should show HELLO in the mode line");
+}
+
+#[test]
+fn mx_view_hello_file_page_scroll_repaints_cleanly() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"view-hello-file");
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let wants_hello = |rows: &[String]| rows.iter().any(|row| row.contains("HELLO"));
+    gnu.read_until(Duration::from_secs(5), wants_hello);
+    neo.read_until(Duration::from_secs(5), wants_hello);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-v");
+    let paged_down = |rows: &[String]| {
+        rows.iter()
+            .any(|row| row.contains("Greek") || row.contains("Cyrillic") || row.contains("Hebrew"))
+    };
+    gnu.read_until(Duration::from_secs(6), paged_down);
+    neo.read_until(Duration::from_secs(8), paged_down);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    let down_diffs: Vec<_> = meaningful_diffs(diff_text_grids(&gnu.text_grid(), &neo.text_grid()))
+        .into_iter()
+        .filter(|diff| !is_known_hello_scroll_diff(diff))
+        .collect();
+    if !down_diffs.is_empty() {
+        eprintln!(
+            "mx_view_hello_file_page_scroll_repaints_cleanly/down: {} rows differ",
+            down_diffs.len()
+        );
+        print_row_diffs(&down_diffs);
+    }
+    assert!(
+        down_diffs.is_empty(),
+        "HELLO after C-v should not leave stale row text; {} rows differ",
+        down_diffs.len()
+    );
+
+    send_both(&mut gnu, &mut neo, "M-v");
+    let paged_up = |rows: &[String]| {
+        rows.iter().any(|row| row.contains("HELLO"))
+            && rows.iter().any(|row| row.to_lowercase().contains("hello"))
+    };
+    gnu.read_until(Duration::from_secs(6), paged_up);
+    neo.read_until(Duration::from_secs(8), paged_up);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    let neo_rows = neo.text_grid();
+    for (row_idx, row) in neo_rows.iter().enumerate() {
+        assert!(
+            !row.contains("ꦭꦺꦴ\");") || row.contains("Javanese"),
+            "HELLO after M-v left Javanese suffix on unrelated row {row_idx}: |{}|",
+            row.trim_end()
+        );
+    }
 }
 
 /// Strict 100%-match aspiration test: after `M-x view-hello-file`, NeoMacs

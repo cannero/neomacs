@@ -961,6 +961,43 @@ fn diff_and_render_rewrites_changed_row_span_contiguously() {
 }
 
 #[test]
+fn diff_and_render_preclears_composite_cell_rewrites() {
+    let mut rif = TtyRif::new(10, 5);
+    let attrs = CellAttrs::default();
+
+    rif.desired
+        .set_cluster(0, 0, 'A', "\u{0301}\u{0302}", attrs, false);
+    rif.desired.set(0, 1, 'B', attrs, false);
+    rif.diff_and_render();
+    let _ = rif.take_output();
+
+    rif.desired = rif.current.clone();
+    rif.desired.set_cluster(0, 0, 'A', "\u{0301}", attrs, false);
+    rif.diff_and_render();
+    let output = String::from_utf8(rif.take_output()).expect("utf8 output");
+
+    let first_goto = output
+        .find("\x1b[1;1H")
+        .expect("composite rewrite should move to the changed cell for preclear");
+    let clear_space = output[first_goto..]
+        .find(' ')
+        .map(|offset| first_goto + offset)
+        .expect("composite rewrite should emit a clearing space");
+    let second_goto = output[clear_space..]
+        .find("\x1b[1;1H")
+        .map(|offset| clear_space + offset)
+        .expect("composite rewrite should move back before repainting");
+    assert!(
+        first_goto < clear_space && clear_space < second_goto,
+        "composite rewrites should clear the changed cell before repainting: {output:?}"
+    );
+    assert!(
+        output.contains("A\u{0301}"),
+        "replacement composite should still be painted after preclear: {output:?}"
+    );
+}
+
+#[test]
 fn diff_swaps_current_and_desired() {
     let mut rif = TtyRif::new(10, 5);
     rif.desired.set(0, 0, 'X', CellAttrs::default(), false);
