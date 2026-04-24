@@ -2052,6 +2052,53 @@ fn overwrite_mode_via_mx_replaces_character_at_point() {
 }
 
 #[test]
+fn column_number_mode_via_mx_shows_line_and_column_in_mode_line() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "column-number-mode.txt",
+        "abcde\nsecond line\n",
+        "C-x C-f",
+    );
+    send_both(&mut gnu, &mut neo, "C-n C-f C-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    let line_only = |grid: &[String]| {
+        grid.get(usize::from(ROWS - 2))
+            .is_some_and(|row| row.contains(" L2 ") && !row.contains("(2,2)"))
+    };
+    gnu.read_until(Duration::from_secs(6), line_only);
+    neo.read_until(Duration::from_secs(8), line_only);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "column-number-mode");
+    let line_and_column = |grid: &[String]| {
+        grid.get(usize::from(ROWS - 2))
+            .is_some_and(|row| row.contains("(2,2)"))
+    };
+    gnu.read_until(Duration::from_secs(6), line_and_column);
+    neo.read_until(Duration::from_secs(8), line_and_column);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            line_and_column(&grid),
+            "{label} should show line and column in the mode line:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "column_number_mode_via_mx_shows_line_and_column_in_mode_line",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn display_line_numbers_mode_shows_buffer_line_numbers() {
     let (mut gnu, mut neo) = boot_pair("");
 
