@@ -3231,6 +3231,79 @@ fn set_visited_file_name_via_mx_saves_current_buffer_under_new_name() {
 }
 
 #[test]
+fn rename_visited_file_via_mx_moves_file_and_updates_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "rename-visited-source.txt",
+        "rename visited body\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "rename-visited-file");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Rename visited file to:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/rename-visited-dest.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let gnu_src = gnu.home_dir().join("rename-visited-source.txt");
+    let neo_src = neo.home_dir().join("rename-visited-source.txt");
+    let gnu_dest = gnu.home_dir().join("rename-visited-dest.txt");
+    let neo_dest = neo.home_dir().join("rename-visited-dest.txt");
+    let renamed_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("rename-visited-dest.txt"))
+            && grid.iter().any(|row| row.contains("rename visited body"))
+    };
+    for _ in 0..10 {
+        gnu.read_until(Duration::from_millis(300), renamed_ready);
+        neo.read_until(Duration::from_millis(300), renamed_ready);
+        if !gnu_src.exists() && !neo_src.exists() && gnu_dest.exists() && neo_dest.exists() {
+            break;
+        }
+    }
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert!(
+        !gnu_src.exists(),
+        "GNU rename-visited-file should remove source path"
+    );
+    assert!(
+        !neo_src.exists(),
+        "Neomacs rename-visited-file should remove source path"
+    );
+    assert_eq!(
+        fs::read_to_string(&gnu_dest).expect("read GNU rename-visited destination"),
+        "rename visited body\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&neo_dest).expect("read Neo rename-visited destination"),
+        "rename visited body\n"
+    );
+
+    send_both(&mut gnu, &mut neo, "C-l");
+    gnu.read_until(Duration::from_secs(6), renamed_ready);
+    neo.read_until(Duration::from_secs(8), renamed_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "rename_visited_file_via_mx_moves_file_and_updates_buffer",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn save_buffer_after_edit_via_cx_cs() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -3460,6 +3533,51 @@ fn insert_file_via_cx_i_inserts_contents_at_point() {
 
     assert_pair_nearly_matches(
         "insert_file_via_cx_i_inserts_contents_at_point",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn insert_file_literally_via_mx_inserts_contents_at_point() {
+    let (mut gnu, mut neo) = boot_pair("");
+    write_home_file(&gnu, "literal-source.txt", "literal alpha\nliteral beta\n");
+    write_home_file(&neo, "literal-source.txt", "literal alpha\nliteral beta\n");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "literal-target.txt",
+        "literal target\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M->");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "insert-file-literally");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Insert file literally:"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"~/literal-source.txt");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("literal target"))
+            && grid.iter().any(|row| row.contains("literal alpha"))
+            && grid.iter().any(|row| row.contains("literal beta"))
+            && grid.iter().any(|row| row.contains("literal-target.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "insert_file_literally_via_mx_inserts_contents_at_point",
         &gnu,
         &neo,
         2,
