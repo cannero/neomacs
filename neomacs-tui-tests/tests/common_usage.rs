@@ -5095,6 +5095,58 @@ fn keyboard_macro_record_and_replay_via_cx_parens_cx_e() {
 }
 
 #[test]
+fn keyboard_macro_repeats_via_trailing_e_after_cx_e() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "keyboard-macro-repeat.txt",
+        "one\ntwo\nthree\nfour\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x (");
+    let recording_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Defining kbd macro"));
+    gnu.read_until(Duration::from_secs(6), recording_ready);
+    neo.read_until(Duration::from_secs(8), recording_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    send_both_raw(&mut gnu, &mut neo, b"\x05!");
+    send_both(&mut gnu, &mut neo, "C-n C-a C-x )");
+    let macro_defined = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Keyboard macro defined") || row.contains("End defining"))
+    };
+    gnu.read_until(Duration::from_secs(6), macro_defined);
+    neo.read_until(Duration::from_secs(8), macro_defined);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x e e");
+    let repeated = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("one!"))
+            && grid.iter().any(|row| row.contains("two!"))
+            && grid.iter().any(|row| row.contains("three!"))
+    };
+    gnu.read_until(Duration::from_secs(6), repeated);
+    neo.read_until(Duration::from_secs(8), repeated);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    let inserted = |grid: &[String]| grid.iter().any(|row| row.contains("Xfour"));
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "keyboard_macro_repeats_via_trailing_e_after_cx_e",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn transpose_words_via_mt() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
@@ -7445,6 +7497,34 @@ fn repeat_complex_command_via_cx_esc_esc_edits_and_replays_goto_line() {
         &gnu,
         &neo,
         4,
+    );
+}
+
+#[test]
+fn repeat_last_command_via_cx_z_z_replays_previous_motion() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "repeat-last-command.txt",
+        "alpha\nbeta\ngamma\ndelta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-x z z");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| grid.iter().any(|row| row.contains("Xdelta"));
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "repeat_last_command_via_cx_z_z_replays_previous_motion",
+        &gnu,
+        &neo,
+        2,
     );
 }
 
