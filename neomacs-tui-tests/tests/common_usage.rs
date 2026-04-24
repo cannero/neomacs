@@ -1710,6 +1710,43 @@ fn switch_to_messages_buffer_via_cx_b() {
 }
 
 #[test]
+fn view_echo_area_messages_via_ch_e_shows_messages_buffer_tail() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "common usage echo log")"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    send_help_sequence(&mut gnu, &mut neo, "e");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Messages*"))
+            && grid.iter().any(|row| row.contains("common usage echo log"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "view_echo_area_messages_via_ch_e_shows_messages_buffer_tail/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_pair_nearly_matches(
+        "view_echo_area_messages_via_ch_e_shows_messages_buffer_tail",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn switch_to_file_buffer_via_cx_b_restores_existing_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
 
