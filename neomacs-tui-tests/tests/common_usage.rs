@@ -8022,6 +8022,52 @@ fn shell_command_via_mbang_displays_short_output() {
 }
 
 #[test]
+fn async_shell_command_via_mampersand_displays_output_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-&");
+    let prompt_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Async shell command:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "async_shell_command_via_mampersand_displays_output_buffer/prompt",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"printf tui-async-ok");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Async Shell Command*"))
+            && grid.iter().any(|row| row.contains("tui-async-ok"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            ready(&grid),
+            "{label} should display async shell command output:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "async_shell_command_via_mampersand_displays_output_buffer",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn shell_command_on_region_with_prefix_replaces_region_via_mbar() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

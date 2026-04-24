@@ -2699,6 +2699,7 @@ impl Context {
         obarray.set_symbol_value("emacs-minor-version", Value::fixnum(0));
         obarray.set_symbol_value("emacs-build-number", Value::fixnum(1));
         obarray.set_symbol_value("system-type", Value::symbol("gnu/linux"));
+        obarray.set_symbol_value("system-uses-terminfo", Value::T);
         // GNU Emacs uses unibyte for default-directory during dump because
         // the locale isn't set up yet (see init_buffer in buffer.c).
         obarray.set_symbol_value(

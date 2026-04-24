@@ -2518,6 +2518,7 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
             "temporary-file-directory",
             Value::string(temporary_file_directory),
         ),
+        ("system-uses-terminfo", Value::T),
         ("create-lockfiles", Value::T),
         ("auto-save-list-file-name", Value::NIL),
         ("auto-save-list-file-prefix", Value::NIL),

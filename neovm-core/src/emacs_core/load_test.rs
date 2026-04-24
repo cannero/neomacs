@@ -7419,6 +7419,7 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
         "system-configuration",
         "system-configuration-options",
         "system-configuration-features",
+        "system-uses-terminfo",
         "operating-system-release",
         "delayed-warnings-list",
     ] {
@@ -7468,6 +7469,11 @@ fn ensure_startup_compat_variables_backfills_xfaces_bootstrap_state() {
             .symbol_value("operating-system-release")
             .is_some_and(|value| value.is_nil() || value.is_string()),
         "operating-system-release should be backfilled to nil or a string"
+    );
+    assert_eq!(
+        eval.obarray().symbol_value("system-uses-terminfo").copied(),
+        Some(Value::T),
+        "system-uses-terminfo should match GNU terminfo builds"
     );
     assert_eq!(
         eval.obarray()
