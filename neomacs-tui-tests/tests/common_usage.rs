@@ -4029,6 +4029,73 @@ fn point_to_register_and_jump_to_register_via_cx_r_spc_j() {
 }
 
 #[test]
+fn view_register_via_mx_displays_saved_text() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(progn (set-register ?a "registered text") (message "register ready"))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let setup_ready = |grid: &[String]| grid.iter().any(|row| row.contains("register ready"));
+    gnu.read_until(Duration::from_secs(6), setup_ready);
+    neo.read_until(Duration::from_secs(8), setup_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "view-register");
+    let view_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("View register:"));
+    gnu.read_until(Duration::from_secs(6), view_prompt);
+    neo.read_until(Duration::from_secs(8), view_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"a");
+    }
+
+    let output_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Output*"))
+            && grid.iter().any(|row| row.contains("Register a contains"))
+            && grid.iter().any(|row| row.contains("registered text"))
+    };
+    gnu.read_until(Duration::from_secs(8), output_ready);
+    neo.read_until(Duration::from_secs(12), output_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("view_register_via_mx_displays_saved_text", &gnu, &neo, 3);
+}
+
+#[test]
+fn list_registers_via_mx_displays_nonempty_register() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(progn (set-register ?b "listed text") (message "register list ready"))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let setup_ready = |grid: &[String]| grid.iter().any(|row| row.contains("register list ready"));
+    gnu.read_until(Duration::from_secs(6), setup_ready);
+    neo.read_until(Duration::from_secs(8), setup_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "list-registers");
+
+    let output_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Output*"))
+            && grid.iter().any(|row| row.contains("Register b contains"))
+            && grid.iter().any(|row| row.contains("listed text"))
+    };
+    gnu.read_until(Duration::from_secs(8), output_ready);
+    neo.read_until(Duration::from_secs(12), output_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "list_registers_via_mx_displays_nonempty_register",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn bookmark_set_and_jump_via_cx_r_m_b() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
