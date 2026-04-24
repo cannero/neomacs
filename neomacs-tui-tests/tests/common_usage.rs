@@ -10326,6 +10326,61 @@ fn how_many_via_mx_reports_regexp_match_count() {
 }
 
 #[test]
+fn count_matches_via_mx_alias_reports_regexp_match_count() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "count-matches.txt",
+        "alpha\nalpha beta\nbeta\nalpha\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-<");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    invoke_mx_command(&mut gnu, &mut neo, "count-matches");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("How many matches for regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"alpha");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("3 occurrences"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter()
+                .rev()
+                .take(4)
+                .any(|row| row.contains("3 occurrences")),
+            "{label} should report three regexp matches through count-matches"
+        );
+    }
+    assert_pair_nearly_matches(
+        "count_matches_via_mx_alias_reports_regexp_match_count",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn mark_whole_buffer_then_kill_and_yank_via_cx_h_cw_cy() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
