@@ -4841,6 +4841,14 @@ fn bookmark_set_and_jump_via_cx_r_m_b() {
     let set_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Set bookmark named"));
     gnu.read_until(Duration::from_secs(8), set_prompt);
     neo.read_until(Duration::from_secs(10), set_prompt);
+    assert!(
+        set_prompt(&gnu.text_grid()),
+        "GNU should prompt to set bookmark"
+    );
+    assert!(
+        set_prompt(&neo.text_grid()),
+        "Neomacs should prompt to set bookmark"
+    );
     let gnu_grid = gnu.text_grid();
     let neo_grid = neo.text_grid();
     assert!(
@@ -4968,6 +4976,138 @@ fn bookmark_list_via_cx_r_l_shows_saved_bookmark() {
         &gnu,
         &neo,
         2,
+    );
+}
+
+#[test]
+fn bookmark_rename_and_delete_via_mx_updates_bookmark_list() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bookmark-rename-delete.txt",
+        "alpha line\nbeta line\ngamma line\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-n C-x r m");
+    let set_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Set bookmark named"));
+    gnu.read_until(Duration::from_secs(8), set_prompt);
+    neo.read_until(Duration::from_secs(10), set_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"old-bookmark");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "bookmark-rename");
+    let old_name_prompt =
+        |grid: &[String]| grid.iter().any(|row| row.contains("Old bookmark name"));
+    gnu.read_until(Duration::from_secs(8), old_name_prompt);
+    neo.read_until(Duration::from_secs(10), old_name_prompt);
+    assert!(
+        old_name_prompt(&gnu.text_grid()),
+        "GNU should prompt for old bookmark name:\n{}",
+        gnu.text_grid().join("\n")
+    );
+    assert!(
+        old_name_prompt(&neo.text_grid()),
+        "Neomacs should prompt for old bookmark name:\n{}",
+        neo.text_grid().join("\n")
+    );
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"old-bookmark");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let new_name_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Rename") && row.contains("old-bookmark"))
+    };
+    gnu.read_until(Duration::from_secs(8), new_name_prompt);
+    neo.read_until(Duration::from_secs(10), new_name_prompt);
+    assert!(
+        new_name_prompt(&gnu.text_grid()),
+        "GNU should prompt for new bookmark name:\n{}",
+        gnu.text_grid().join("\n")
+    );
+    assert!(
+        new_name_prompt(&neo.text_grid()),
+        "Neomacs should prompt for new bookmark name:\n{}",
+        neo.text_grid().join("\n")
+    );
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"new-bookmark");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r l");
+    let renamed_list_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Bookmark List*"))
+            && grid.iter().any(|row| row.contains("new-bookmark"))
+            && !grid.iter().any(|row| row.contains("old-bookmark"))
+    };
+    gnu.read_until(Duration::from_secs(8), renamed_list_ready);
+    neo.read_until(Duration::from_secs(10), renamed_list_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "bookmark_rename_and_delete_via_mx_updates_bookmark_list/renamed",
+        &gnu,
+        &neo,
+        4,
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"q");
+    let source_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("bookmark-rename-delete.txt"))
+            && grid.iter().any(|row| row.contains("beta line"))
+    };
+    gnu.read_until(Duration::from_secs(6), source_ready);
+    neo.read_until(Duration::from_secs(8), source_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    invoke_mx_command(&mut gnu, &mut neo, "bookmark-delete");
+    let delete_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Delete bookmark"));
+    gnu.read_until(Duration::from_secs(8), delete_prompt);
+    neo.read_until(Duration::from_secs(10), delete_prompt);
+    assert!(
+        delete_prompt(&gnu.text_grid()),
+        "GNU should prompt to delete bookmark:\n{}",
+        gnu.text_grid().join("\n")
+    );
+    assert!(
+        delete_prompt(&neo.text_grid()),
+        "Neomacs should prompt to delete bookmark:\n{}",
+        neo.text_grid().join("\n")
+    );
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"new-bookmark");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x r l");
+    let deleted_list_ready =
+        |grid: &[String]| grid.iter().any(|row| row.contains("*Bookmark List*"));
+    gnu.read_until(Duration::from_secs(8), deleted_list_ready);
+    neo.read_until(Duration::from_secs(10), deleted_list_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            !grid.iter().any(|row| row.contains("new-bookmark")),
+            "{label} should remove deleted bookmark from bookmark list:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "bookmark_rename_and_delete_via_mx_updates_bookmark_list/deleted",
+        &gnu,
+        &neo,
+        4,
     );
 }
 
