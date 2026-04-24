@@ -1831,6 +1831,92 @@ fn display_line_numbers_mode_shows_buffer_line_numbers() {
 }
 
 #[test]
+fn whitespace_mode_shows_ws_lighter_and_space_marks() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "whitespace-mode.txt",
+        "alpha beta\ngamma delta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(
+            br#"(progn (setq-local whitespace-style '(face spaces space-mark)) (setq-local whitespace-display-mappings '((space-mark ?\s [?~] [?~]))) (message "whitespace ready"))"#,
+        );
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let setup_ready = |grid: &[String]| grid.iter().any(|row| row.contains("whitespace ready"));
+    gnu.read_until(Duration::from_secs(6), setup_ready);
+    neo.read_until(Duration::from_secs(8), setup_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "whitespace-mode");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha~beta"))
+            && grid.iter().any(|row| row.contains("gamma~delta"))
+            && grid.iter().any(|row| row.contains(" ws"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "whitespace_mode_shows_ws_lighter_and_space_marks",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
+fn display_fill_column_indicator_mode_shows_indicator_character() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "fill-column-indicator.txt",
+        "alpha\nbeta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(progn (setq-local fill-column 8 display-fill-column-indicator-character ?|) (message "fci ready"))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+    let setup_ready = |grid: &[String]| grid.iter().any(|row| row.contains("fci ready"));
+    gnu.read_until(Duration::from_secs(6), setup_ready);
+    neo.read_until(Duration::from_secs(8), setup_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "display-fill-column-indicator-mode");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("alpha") && row.contains("|"))
+            && grid
+                .iter()
+                .any(|row| row.contains("beta") && row.contains("|"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "display_fill_column_indicator_mode_shows_indicator_character",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn toggle_truncate_lines_reports_enabled_and_disabled() {
     let (mut gnu, mut neo) = boot_pair("");
 
