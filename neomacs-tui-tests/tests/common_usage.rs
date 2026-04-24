@@ -6111,6 +6111,67 @@ fn grep_via_mx_lists_matching_file_lines() {
 }
 
 #[test]
+fn occur_next_error_via_mg_n_visits_match() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "occur-next-error.txt",
+        "alpha needle one\nbeta plain\ngamma needle two\nneedle three\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-s o");
+    let occur_prompt = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("List lines matching regexp"))
+    };
+    gnu.read_until(Duration::from_secs(6), occur_prompt);
+    neo.read_until(Duration::from_secs(8), occur_prompt);
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"needle");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let occur_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("3 matches"))
+            && grid.iter().any(|row| row.contains("alpha needle one"))
+            && grid.iter().any(|row| row.contains("gamma needle two"))
+            && grid.iter().any(|row| row.contains("needle three"))
+    };
+    gnu.read_until(Duration::from_secs(8), occur_ready);
+    neo.read_until(Duration::from_secs(12), occur_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "M-g n");
+    let jumped_to_source = |grid: &[String]| {
+        !grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("alpha needle one"))
+            && grid.iter().any(|row| row.contains("beta plain"))
+    };
+    gnu.read_until(Duration::from_secs(6), jumped_to_source);
+    neo.read_until(Duration::from_secs(8), jumped_to_source);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    let edited_ready = |grid: &[String]| {
+        !grid.iter().any(|row| row.contains("*Occur*"))
+            && grid.iter().any(|row| row.contains("beta plain"))
+            && grid.iter().any(|row| row.contains("Xneedle"))
+    };
+    gnu.read_until(Duration::from_secs(6), edited_ready);
+    neo.read_until(Duration::from_secs(8), edited_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    if !edited_ready(&gnu.text_grid()) || !edited_ready(&neo.text_grid()) {
+        dump_pair_grids("occur_next_error_via_mg_n_visits_match", &gnu, &neo);
+    }
+
+    assert_pair_nearly_matches("occur_next_error_via_mg_n_visits_match", &gnu, &neo, 3);
+}
+
+#[test]
 fn set_mark_command_then_kill_region_via_cspc_mf_cw() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
