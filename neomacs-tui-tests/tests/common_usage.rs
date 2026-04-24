@@ -6237,6 +6237,76 @@ fn next_and_previous_line_via_cn_cp() {
 }
 
 #[test]
+fn set_goal_column_via_cx_cn_guides_vertical_motion() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "goal-column.txt",
+        "abcdef\nxy\n123456\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-f C-f C-x C-n");
+    let prompt_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("Use this command?"))
+            || grid
+                .iter()
+                .any(|row| row.contains("disabled command set-goal-column"))
+    };
+    gnu.read_until(Duration::from_secs(8), prompt_ready);
+    neo.read_until(Duration::from_secs(12), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("set-goal-column")),
+            "{label} should show disabled-command help for set-goal-column"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("Use this command?")),
+            "{label} should ask before running disabled set-goal-column"
+        );
+    }
+
+    send_both_raw(&mut gnu, &mut neo, b" ");
+    let goal_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Goal column 4"));
+    gnu.read_until(Duration::from_secs(8), goal_ready);
+    neo.read_until(Duration::from_secs(12), goal_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-n C-n M-:");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for session in [&mut gnu, &mut neo] {
+        session.send(br#"(message "goal-column-motion %S/%S" goal-column (current-column))"#);
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let motion_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("goal-column-motion 4/4"))
+    };
+    gnu.read_until(Duration::from_secs(6), motion_ready);
+    neo.read_until(Duration::from_secs(8), motion_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            motion_ready(&grid),
+            "{label} should preserve the goal column across vertical motion:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "set_goal_column_via_cx_cn_guides_vertical_motion",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn forward_and_backward_char_via_cf_cb() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(&mut gnu, &mut neo, "char-motion.txt", "alpha\n", "C-x C-f");
