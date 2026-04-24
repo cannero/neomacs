@@ -2026,6 +2026,58 @@ fn visual_line_mode_shows_wrap_lighter() {
 }
 
 #[test]
+fn outline_minor_mode_hide_sublevels_and_show_all() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "outline-minor.txt",
+        "* Top\nbody under top\n** Child\nchild body\n* Next\nnext body\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "outline-minor-mode");
+    let lighter_ready = |grid: &[String]| grid.iter().any(|row| row.contains(" Outl"));
+    gnu.read_until(Duration::from_secs(6), lighter_ready);
+    neo.read_until(Duration::from_secs(8), lighter_ready);
+
+    invoke_mx_command(&mut gnu, &mut neo, "outline-hide-sublevels");
+    let hidden_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("* Top"))
+            && grid.iter().any(|row| row.contains("* Next"))
+            && !grid.iter().any(|row| row.contains("body under top"))
+            && !grid.iter().any(|row| row.contains("** Child"))
+            && !grid.iter().any(|row| row.contains("child body"))
+    };
+    gnu.read_until(Duration::from_secs(6), hidden_ready);
+    neo.read_until(Duration::from_secs(8), hidden_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "outline_minor_mode_hide_sublevels_and_show_all/hidden",
+        &gnu,
+        &neo,
+        2,
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "outline-show-all");
+    let shown_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("body under top"))
+            && grid.iter().any(|row| row.contains("** Child"))
+            && grid.iter().any(|row| row.contains("child body"))
+    };
+    gnu.read_until(Duration::from_secs(6), shown_ready);
+    neo.read_until(Duration::from_secs(8), shown_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "outline_minor_mode_hide_sublevels_and_show_all/shown",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn abbrev_mode_expands_defined_global_abbrev() {
     let (mut gnu, mut neo) = boot_pair("");
 
@@ -4056,6 +4108,44 @@ fn delete_rectangle_via_cx_r_d_shifts_suffix_left() {
         &mut neo,
         "delete-rectangle.txt",
         "abzz\ncdzz\nefzz\n",
+    );
+}
+
+#[test]
+fn delete_whitespace_rectangle_via_mx_closes_gaps_from_column() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "delete-whitespace-rectangle.txt",
+        "aa  xx\nbb   yy\ncc zz\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-f C-f C-SPC C-n C-n");
+    invoke_mx_command(&mut gnu, &mut neo, "delete-whitespace-rectangle");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("aaxx"))
+            && grid.iter().any(|row| row.contains("bbyy"))
+            && grid.iter().any(|row| row.contains("cczz"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "delete_whitespace_rectangle_via_mx_closes_gaps_from_column",
+        &gnu,
+        &neo,
+        2,
+    );
+    save_current_file_and_assert_contents(
+        "delete_whitespace_rectangle_via_mx_closes_gaps_from_column",
+        &mut gnu,
+        &mut neo,
+        "delete-whitespace-rectangle.txt",
+        "aaxx\nbbyy\ncczz\n",
     );
 }
 

@@ -1136,23 +1136,49 @@ impl<'a, B: LayoutBufferView> RustTextPropAccess<'a, B> {
     /// If no change is found, returns `buffer.zv` as the next boundary.
     pub fn check_invisible(&self, charpos: i64) -> (InvisibleStatus, i64) {
         let bytepos = buffer_charpos_to_bytepos(self.buffer, charpos.max(0) as usize);
-        let invis = self
+        let text_invis = self
             .buffer
             .layout_text()
             .text_props_get_property(bytepos, Value::symbol("invisible"));
+        let mut status = InvisibleStatus::VISIBLE;
         let spec = self
             .buffer
             .layout_buffer_local_value("buffer-invisibility-spec")
             .unwrap_or(Value::T);
-        let status = invisible_prop_status(invis, spec);
+        if let Some(value) = text_invis {
+            status = invisible_prop_status(Some(value), spec);
+        }
+        if !status.hidden {
+            let mut overlay_ids = self.buffer.layout_overlays().overlays_at(bytepos);
+            self.buffer
+                .layout_overlays()
+                .sort_overlay_ids_by_priority_desc(&mut overlay_ids);
+            for oid in overlay_ids {
+                let overlay_invis = self
+                    .buffer
+                    .layout_overlays()
+                    .overlay_get_named(oid, Value::symbol("invisible"));
+                status = invisible_prop_status(overlay_invis, spec);
+                if status.hidden {
+                    break;
+                }
+            }
+        }
 
         // Find the next position where the invisible property changes
-        let next_change = self
+        let next_text_change = self
             .buffer
             .layout_text()
             .text_props_next_change(bytepos)
             .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
             .unwrap_or(self.buffer.layout_point_max_char());
+        let next_overlay_change = self
+            .buffer
+            .layout_overlays()
+            .next_boundary_after(bytepos)
+            .map(|next| buffer_bytepos_to_charpos(self.buffer, next))
+            .unwrap_or(self.buffer.layout_point_max_char());
+        let next_change = next_text_change.min(next_overlay_change);
 
         (status, next_change as i64)
     }

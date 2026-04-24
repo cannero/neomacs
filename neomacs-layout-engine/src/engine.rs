@@ -3034,8 +3034,6 @@ impl LayoutEngine {
                     // GNU displays ellipsis only when the matching
                     // `buffer-invisibility-spec' entry requests it.
                     if invisible.ellipsis {
-                        let ellipsis_start_x = x;
-                        let ellipsis_start_col = col;
                         flush_run(&self.run_buf, ligatures);
                         self.run_buf.clear();
                         let right_limit = content_x + avail_width;
@@ -3043,18 +3041,25 @@ impl LayoutEngine {
                             if x + face_char_w > right_limit {
                                 break;
                             }
+                            let dot_start_x = x;
+                            let dot_start_col = col;
+                            self.matrix_builder.push_char(
+                                '.',
+                                current_face_id.saturating_sub(1),
+                                charpos.max(0) as usize,
+                            );
                             x += face_char_w;
                             col += 1;
+                            output_emitter.emit_synthetic_text_span(
+                                evaluator,
+                                row,
+                                y,
+                                dot_start_x,
+                                x - dot_start_x,
+                                dot_start_col,
+                                col,
+                            );
                         }
-                        output_emitter.emit_synthetic_text_span(
-                            evaluator,
-                            row,
-                            y,
-                            ellipsis_start_x,
-                            x - ellipsis_start_x,
-                            ellipsis_start_col,
-                            col,
-                        );
                     }
 
                     // Check for overlay strings at invisible region boundary.

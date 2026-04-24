@@ -807,6 +807,45 @@ fn text_prop_invisible_matches_members_of_property_list() {
 }
 
 #[test]
+fn overlay_invisible_respects_buffer_invisibility_spec() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    {
+        let buf = evaluator
+            .buffer_manager_mut()
+            .current_buffer_mut()
+            .expect("current buffer");
+        buf.insert("visible folded visible");
+        buf.set_buffer_local(
+            "buffer-invisibility-spec",
+            Value::list(vec![Value::cons(Value::symbol("outline"), Value::T)]),
+        );
+    }
+
+    let _ = eval_lisp(
+        &mut evaluator,
+        "(let ((ov (make-overlay 9 15 nil 'front-advance))) \
+           (overlay-put ov 'invisible 'outline) \
+           ov)",
+    );
+
+    let buf = evaluator
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer");
+    let access = RustTextPropAccess::new(buf);
+
+    let (visible, _) = access.check_invisible(0);
+    assert_eq!(visible, InvisibleStatus::VISIBLE);
+
+    let (folded, next_change) = access.check_invisible(8);
+    assert_eq!(folded, InvisibleStatus::HIDDEN_WITH_ELLIPSIS);
+    assert_eq!(next_change, 14);
+
+    let (visible_again, _) = access.check_invisible(14);
+    assert_eq!(visible_again, InvisibleStatus::VISIBLE);
+}
+
+#[test]
 fn test_text_prop_check_display() {
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator.buffer_manager_mut().create_buffer("*display*");
