@@ -1,0 +1,108 @@
+//! TUI comparisons for common project.el workflows.
+//!
+//! GNU behavior here is driven by `lisp/progmodes/project.el`:
+//! `project-find-file` reads a file from the current project and
+//! `project-dired` opens Dired at `project-root`.
+
+mod support;
+
+use std::fs;
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use support::*;
+
+fn make_git_project_fixture(label: &str) -> PathBuf {
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system time after unix epoch")
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "neomacs-project-root-{label}-{}-{unique}",
+        std::process::id()
+    ));
+    let src = root.join("src");
+    fs::create_dir_all(&src).expect("create project fixture source directory");
+    fs::write(root.join("README.md"), "# Neo project probe\n").expect("write project readme");
+    fs::write(src.join("alpha.el"), "(defun neo-project-alpha () 1)\n")
+        .expect("write alpha source");
+    fs::write(src.join("beta.el"), "(defun neo-project-beta () 2)\n").expect("write beta source");
+
+    let status = Command::new("git")
+        .arg("init")
+        .arg("-q")
+        .arg(&root)
+        .status()
+        .expect("run git init for project fixture");
+    assert!(
+        status.success(),
+        "git init should succeed for project fixture"
+    );
+
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .arg("add")
+        .arg("README.md")
+        .arg("src/alpha.el")
+        .arg("src/beta.el")
+        .status()
+        .expect("run git add for project fixture");
+    assert!(
+        status.success(),
+        "git add should succeed for project fixture"
+    );
+
+    root
+}
+
+#[test]
+fn project_find_file_via_mx_opens_file_relative_to_git_root() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let root = make_git_project_fixture("find-file");
+    let alpha = root.join("src/alpha.el");
+
+    open_file_path(
+        &mut gnu,
+        &mut neo,
+        &alpha,
+        "(defun neo-project-alpha",
+        "C-x C-f",
+    );
+    invoke_mx_command(&mut gnu, &mut neo, "project-find-file");
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(8), |grid| {
+        grid.last().is_some_and(|row| row.contains("Find file"))
+    });
+    gnu.send(b"src/beta.el");
+    neo.send(b"src/beta.el");
+    send_both(&mut gnu, &mut neo, "RET");
+
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(12), |grid| {
+        grid.iter().any(|row| row.contains("beta.el"))
+            && grid
+                .iter()
+                .any(|row| row.contains("(defun neo-project-beta"))
+    });
+}
+
+#[test]
+fn project_dired_via_mx_opens_project_root_listing() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let root = make_git_project_fixture("dired");
+    let alpha = root.join("src/alpha.el");
+
+    open_file_path(
+        &mut gnu,
+        &mut neo,
+        &alpha,
+        "(defun neo-project-alpha",
+        "C-x C-f",
+    );
+    invoke_mx_command(&mut gnu, &mut neo, "project-dired");
+
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(12), |grid| {
+        grid.iter().any(|row| row.contains("Dired by name"))
+            && grid.iter().any(|row| row.contains("README.md"))
+            && grid.iter().any(|row| row.contains("src"))
+    });
+}

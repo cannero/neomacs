@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 use neomacs_tui_tests::*;
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 pub fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
@@ -69,6 +72,33 @@ pub fn open_home_file(
                     .next()
                     .is_some_and(|line| row.contains(line))
             })
+    };
+    gnu.read_until(Duration::from_secs(10), ready);
+    neo.read_until(Duration::from_secs(20), ready);
+    read_both(gnu, neo, Duration::from_secs(1));
+}
+
+pub fn open_file_path(
+    gnu: &mut TuiSession,
+    neo: &mut TuiSession,
+    path: &Path,
+    first_line: &str,
+    keys: &str,
+) {
+    send_both(gnu, neo, keys);
+    let path = path.to_string_lossy();
+    gnu.send(path.as_bytes());
+    neo.send(path.as_bytes());
+    send_both(gnu, neo, "RET");
+
+    let file_name = Path::new(path.as_ref())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("test path should have a utf-8 file name")
+        .to_string();
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(&file_name))
+            && grid.iter().any(|row| row.contains(first_line))
     };
     gnu.read_until(Duration::from_secs(10), ready);
     neo.read_until(Duration::from_secs(20), ready);
