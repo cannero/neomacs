@@ -71,6 +71,36 @@ fn bootstrap_eval_one(src: &str) -> String {
 }
 
 #[test]
+fn symbols_with_pos_enabled_makes_lisp_comparison_primitives_transparent() {
+    let result = eval_one(
+        r#"(progn
+             (setq symbols-with-pos-enabled t)
+             (let* ((head (position-symbol 'indent 42))
+                    (items (list 'indent))
+                    (alist (list (cons 'indent 'ok)))
+                    (rlist (list (cons 'ok 'indent))))
+               (list
+                (eq head 'indent)
+                (eql head 'indent)
+                (equal head 'indent)
+                (memq head items)
+                (memql head items)
+                (member head items)
+                (assq head alist)
+                (assoc head alist)
+                (rassq head rlist)
+                (rassoc head rlist)
+                (delq head (list 'a 'indent 'b))
+                (delete head (list 'a 'indent 'b)))))"#,
+    );
+
+    assert_eq!(
+        result,
+        "OK (t t t (indent) (indent) (indent) (indent . ok) (indent . ok) (ok . indent) (ok . indent) (a b) (a b))"
+    );
+}
+
+#[test]
 fn skip_debugger_matches_raw_unibyte_ignored_error_regex() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

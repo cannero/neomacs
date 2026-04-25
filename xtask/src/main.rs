@@ -175,45 +175,11 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     let theme_loaddefs_el = paths.lisp_root.join("theme-loaddefs.el");
     let ldefs_boot = paths.lisp_root.join("ldefs-boot.el");
 
-    // GNU's bootstrap-clean removes Lisp bytecode and generated autoload
-    // files before building bootstrap-emacs.  Mirror that shape so Neomacs
-    // pbootstrap starts from source Lisp and ldefs-boot.el, then regenerates
-    // loaddefs with bootstrap-neomacs.
+    // GNU's bootstrap-clean removes Lisp bytecode before building
+    // bootstrap-emacs.  Keep primary loaddefs sources available for
+    // pbootstrap/COMPILE_FIRST; GNU removes loaddefs.el later, in
+    // autoloads-force, immediately before regenerating it.
     remove_stale_lisp_bytecode(options, &paths)?;
-
-    print_synthetic_step("force full primary loaddefs regeneration");
-    if options.dry_run {
-        println!("  would remove: {}", loaddefs_el.display());
-        println!("  would remove: {}", theme_loaddefs_el.display());
-        println!(
-            "  would remove: {}",
-            loaddefs_el.with_extension("elc").display()
-        );
-        println!(
-            "  would remove: {}",
-            theme_loaddefs_el.with_extension("elc").display()
-        );
-        println!(
-            "  would remove: {}",
-            ldefs_boot.with_extension("elc").display()
-        );
-        println!(
-            "  would remove: {}",
-            paths.lisp_root.join("emacs-lisp/cl-loaddefs.elc").display()
-        );
-    } else {
-        remove_file_if_exists(&loaddefs_el)?;
-        remove_file_if_exists(&theme_loaddefs_el)?;
-        remove_file_if_exists(&loaddefs_el.with_extension("elc"))?;
-        remove_file_if_exists(&theme_loaddefs_el.with_extension("elc"))?;
-        remove_file_if_exists(&ldefs_boot.with_extension("elc"))?;
-        remove_file_if_exists(&paths.lisp_root.join("emacs-lisp/cl-loaddefs.elc"))?;
-    }
-
-    // Remove secondary loaddefs from previous builds before compiling or
-    // bootstrapping.  They are generated artifacts and should not influence
-    // Neomacs's primary lisp/loaddefs.el or lisp/ldefs-boot.el generation.
-    remove_stale_secondary_loaddefs(options, &paths)?;
 
     run_command(
         options,
@@ -281,6 +247,10 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     let loaddefs_gen = paths.lisp_root.join("emacs-lisp/loaddefs-gen.el");
     let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
     let loaddefs_args = loaddefs_generation_args(&loaddefs_gen, &loaddefs_dirs);
+    remove_primary_loaddefs_for_regeneration(options, &paths, &loaddefs_el, &theme_loaddefs_el)?;
+    // Remove secondary loaddefs from previous builds at the same phase as the
+    // full regeneration, so stale generated files cannot influence the new set.
+    remove_stale_secondary_loaddefs(options, &paths)?;
     run_command(
         options,
         &options.repo_root,
@@ -431,6 +401,35 @@ fn remove_stale_secondary_loaddefs(
         }
     }
     println!("  INFO  removed {removed} stale secondary loaddefs artifacts");
+    Ok(())
+}
+
+fn remove_primary_loaddefs_for_regeneration(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    loaddefs_el: &Path,
+    theme_loaddefs_el: &Path,
+) -> Result<()> {
+    print_synthetic_step("force full primary loaddefs regeneration");
+    let files = [
+        loaddefs_el.to_path_buf(),
+        theme_loaddefs_el.to_path_buf(),
+        loaddefs_el.with_extension("elc"),
+        theme_loaddefs_el.with_extension("elc"),
+        paths.lisp_root.join("ldefs-boot.elc"),
+        paths.lisp_root.join("emacs-lisp/cl-loaddefs.elc"),
+    ];
+
+    if options.dry_run {
+        for file in &files {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    for file in &files {
+        let _ = remove_file_if_exists(file)?;
+    }
     Ok(())
 }
 

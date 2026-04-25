@@ -4206,10 +4206,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(3),
     );
-    ctx.defsubr("delete", |_ctx, args| builtin_delete(args), 2, Some(2));
-    ctx.defsubr("delq", |_ctx, args| builtin_delq(args), 2, Some(2));
+    ctx.defsubr("delete", builtin_delete_with_ctx, 2, Some(2));
+    ctx.defsubr("delq", builtin_delq_with_ctx, 2, Some(2));
     ctx.defsubr("elt", |_ctx, args| builtin_elt(args), 2, Some(2));
-    ctx.defsubr("memql", |_ctx, args| builtin_memql(args), 2, Some(2));
+    ctx.defsubr("memql", builtin_memql_with_ctx, 2, Some(2));
     ctx.defsubr("nconc", |_ctx, args| builtin_nconc(args), 0, None);
     ctx.defsubr("identity", |_ctx, args| builtin_identity(args), 1, Some(1));
     ctx.defsubr("ngettext", |_ctx, args| builtin_ngettext(args), 3, Some(3));
@@ -7493,8 +7493,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
 
     // -- Equality --
     ctx.defsubr_2("eq", builtin_eq_2, 2);
-    ctx.defsubr("eql", |_ctx, args| builtin_eql(args), 2, Some(2));
-    ctx.defsubr("equal", |_ctx, args| builtin_equal(args), 2, Some(2));
+    ctx.defsubr("eql", builtin_eql_with_ctx, 2, Some(2));
+    ctx.defsubr("equal", builtin_equal_with_ctx, 2, Some(2));
 
     // -- Cons / List --
     ctx.defsubr("cons", |_ctx, args| builtin_cons(args), 2, Some(2));
@@ -7511,9 +7511,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("append", |_ctx, args| builtin_append(args), 0, None);
     ctx.defsubr("reverse", |_ctx, args| builtin_reverse(args), 1, Some(1));
     ctx.defsubr("nreverse", |_ctx, args| builtin_nreverse(args), 1, Some(1));
-    ctx.defsubr("member", |_ctx, args| builtin_member(args), 2, Some(2));
-    ctx.defsubr("memq", |_ctx, args| builtin_memq(args), 2, Some(2));
-    ctx.defsubr("assq", |_ctx, args| builtin_assq(args), 2, Some(2));
+    ctx.defsubr("member", builtin_member_with_ctx, 2, Some(2));
+    ctx.defsubr("memq", builtin_memq_with_ctx, 2, Some(2));
+    ctx.defsubr("assq", builtin_assq_with_ctx, 2, Some(2));
     ctx.defsubr(
         "copy-sequence",
         |_ctx, args| builtin_copy_sequence(args),
@@ -7538,18 +7538,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
-        "rassoc",
-        |_ctx, args| super::misc::builtin_rassoc(args),
-        2,
-        Some(2),
-    );
-    ctx.defsubr(
-        "rassq",
-        |_ctx, args| super::misc::builtin_rassq(args),
-        2,
-        Some(2),
-    );
+    ctx.defsubr("rassoc", super::misc::builtin_rassoc_with_ctx, 2, Some(2));
+    ctx.defsubr("rassq", super::misc::builtin_rassq_with_ctx, 2, Some(2));
     ctx.defsubr(
         "make-list",
         |_ctx, args| super::misc::builtin_make_list(args),

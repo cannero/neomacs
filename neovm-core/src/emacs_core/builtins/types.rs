@@ -419,9 +419,34 @@ pub(crate) fn builtin_eql(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool_val(eql_value(&args[0], &args[1])))
 }
 
+pub(crate) fn builtin_eql_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("eql", &args, 2)?;
+    Ok(Value::bool_val(eql_value_swp(
+        &args[0],
+        &args[1],
+        eval.symbols_with_pos_enabled,
+    )))
+}
+
 pub(crate) fn builtin_equal(args: Vec<Value>) -> EvalResult {
     expect_args("equal", &args, 2)?;
     Ok(Value::bool_val(equal_value(&args[0], &args[1], 0)))
+}
+
+pub(crate) fn builtin_equal_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("equal", &args, 2)?;
+    Ok(Value::bool_val(equal_value_swp(
+        &args[0],
+        &args[1],
+        0,
+        eval.symbols_with_pos_enabled,
+    )))
 }
 
 pub(crate) fn builtin_function_equal(args: Vec<Value>) -> EvalResult {

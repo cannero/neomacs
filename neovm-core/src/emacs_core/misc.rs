@@ -168,6 +168,17 @@ pub(crate) fn builtin_copy_alist(args: Vec<Value>) -> EvalResult {
 /// `(rassoc KEY ALIST)` -- find the first entry in ALIST whose cdr equals KEY
 /// (using `equal`).
 pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
+    builtin_rassoc_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_rassoc_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_rassoc_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_rassoc_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("rassoc", &args, 2)?;
     let key = &args[0];
     let alist = &args[1];
@@ -180,7 +191,7 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
                 let pair_cdr = cursor.cons_cdr();
                 if pair_car.is_cons() {
                     let inner_pair_cdr = pair_car.cons_cdr();
-                    if equal_value(&inner_pair_cdr, key, 0) {
+                    if equal_value_swp(&inner_pair_cdr, key, 0, symbols_with_pos_enabled) {
                         return Ok(pair_car);
                     }
                 }
@@ -198,6 +209,17 @@ pub(crate) fn builtin_rassoc(args: Vec<Value>) -> EvalResult {
 
 /// `(rassq KEY ALIST)` -- like rassoc but uses `eq` for comparison.
 pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
+    builtin_rassq_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_rassq_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_rassq_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_rassq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("rassq", &args, 2)?;
     let key = &args[0];
     let alist = &args[1];
@@ -210,7 +232,7 @@ pub(crate) fn builtin_rassq(args: Vec<Value>) -> EvalResult {
                 let pair_cdr = cursor.cons_cdr();
                 if pair_car.is_cons() {
                     let inner_pair_cdr = pair_car.cons_cdr();
-                    if eq_value(&inner_pair_cdr, key) {
+                    if eq_value_swp(&inner_pair_cdr, key, symbols_with_pos_enabled) {
                         return Ok(pair_car);
                     }
                 }

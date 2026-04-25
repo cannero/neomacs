@@ -848,6 +848,17 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
+    builtin_member_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_member_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_member_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_member_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("member", &args, 2)?;
     let target = &args[0];
     let list = args[1];
@@ -865,7 +876,7 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if equal_value(target, &pair_car, 0) {
+                if equal_value_swp(target, &pair_car, 0, symbols_with_pos_enabled) {
                     return Ok(cursor);
                 }
                 cursor = pair_cdr;
@@ -881,6 +892,17 @@ pub(crate) fn builtin_member(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
+    builtin_memq_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_memq_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_memq_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_memq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("memq", &args, 2)?;
     let target = &args[0];
     let list = args[1];
@@ -891,7 +913,7 @@ pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if eq_value(target, &pair_car) {
+                if eq_value_swp(target, &pair_car, symbols_with_pos_enabled) {
                     return Ok(cursor);
                 }
                 cursor = pair_cdr;
@@ -907,6 +929,17 @@ pub(crate) fn builtin_memq(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
+    builtin_memql_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_memql_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_memql_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_memql_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("memql", &args, 2)?;
     let target = &args[0];
     let list = args[1];
@@ -917,7 +950,7 @@ pub(crate) fn builtin_memql(args: Vec<Value>) -> EvalResult {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if eql_value(target, &pair_car) {
+                if eql_value_swp(target, &pair_car, symbols_with_pos_enabled) {
                     return Ok(cursor);
                 }
                 cursor = pair_cdr;
@@ -962,7 +995,7 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                                     }
                                 }
                             } else {
-                                equal_value(key, &entry_key, 0)
+                                equal_value_swp(key, &entry_key, 0, eval.symbols_with_pos_enabled)
                             };
                             if matches {
                                 break Ok(pair_car);
@@ -993,7 +1026,7 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                     let pair_cdr = cursor.cons_cdr();
                     if let ValueKind::Cons = pair_car.kind() {
                         let entry_key = pair_car.cons_car();
-                        if equal_value(key, &entry_key, 0) {
+                        if equal_value_swp(key, &entry_key, 0, eval.symbols_with_pos_enabled) {
                             break Ok(pair_car);
                         }
                     }
@@ -1013,6 +1046,17 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
 }
 
 pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
+    builtin_assq_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_assq_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_assq_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_assq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("assq", &args, 2)?;
     let key = &args[0];
     let list = args[1];
@@ -1025,7 +1069,7 @@ pub(crate) fn builtin_assq(args: Vec<Value>) -> EvalResult {
                 let pair_cdr = cursor.cons_cdr();
                 if let ValueKind::Cons = pair_car.kind() {
                     let entry_key = pair_car.cons_car();
-                    if eq_value(key, &entry_key) {
+                    if eq_value_swp(key, &entry_key, symbols_with_pos_enabled) {
                         return Ok(pair_car);
                     }
                 }
@@ -1183,17 +1227,30 @@ where
 }
 
 pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
+    builtin_delete_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_delete_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_delete_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_delete_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("delete", &args, 2)?;
     let elt = &args[0];
     match args[1].kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| equal_value(elt, item, 0)),
+        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| {
+            equal_value_swp(elt, item, 0, symbols_with_pos_enabled)
+        }),
         ValueKind::Veclike(VecLikeType::Vector) => {
             let items = args[1].as_vector_data().unwrap().clone();
             let mut changed = false;
             let mut kept = Vec::with_capacity(items.len());
             for item in items.iter() {
-                if equal_value(elt, item, 0) {
+                if equal_value_swp(elt, item, 0, symbols_with_pos_enabled) {
                     changed = true;
                 } else {
                     kept.push(*item);
@@ -1211,7 +1268,7 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
             let string = args[1].as_lisp_string().expect("string");
             for cp in super::lisp_string_char_codes(string) {
                 let ch = Value::fixnum(cp as i64);
-                if equal_value(elt, &ch, 0) {
+                if equal_value_swp(elt, &ch, 0, symbols_with_pos_enabled) {
                     changed = true;
                 } else {
                     kept.push(ch);
@@ -1230,11 +1287,24 @@ pub(crate) fn builtin_delete(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_delq(args: Vec<Value>) -> EvalResult {
+    builtin_delq_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_delq_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_delq_with_symbols(args, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_delq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("delq", &args, 2)?;
     let elt = &args[0];
     match args[1].kind() {
         ValueKind::Nil => Ok(Value::NIL),
-        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| eq_value(elt, item)),
+        ValueKind::Cons => delete_from_list_in_place(&args[1], |item| {
+            eq_value_swp(elt, item, symbols_with_pos_enabled)
+        }),
         _ => Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), args[1]],
