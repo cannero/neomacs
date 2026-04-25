@@ -4115,6 +4115,26 @@ fn self_insert_command_uses_last_command_event_character() {
 }
 
 #[test]
+fn self_insert_command_signals_read_only_without_inserting() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = crate::test_utils::runtime_startup_context();
+    let results = eval_all_with(
+        &mut ev,
+        r#"(with-temp-buffer
+             (insert "alpha")
+             (goto-char 1)
+             (setq buffer-read-only t)
+             (let ((last-command-event 88))
+               (list
+                (condition-case err
+                    (self-insert-command 1)
+                  (error (car err)))
+                (buffer-string))))"#,
+    );
+    assert_eq!(results[0], r#"OK (buffer-read-only "alpha")"#);
+}
+
+#[test]
 fn self_insert_command_non_character_second_arg_beeps() {
     // GNU Emacs cmds.c: second arg C is the character to insert.
     // If C is not a character (like `t`), GNU calls bitch_at_user() (beep)

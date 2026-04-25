@@ -3238,6 +3238,8 @@ pub(crate) fn builtin_self_insert_command(eval: &mut Context, args: Vec<Value>) 
         }
     };
 
+    eval.apply(Value::symbol("barf-if-buffer-read-only"), vec![])?;
+
     let repeat_count = repeats as usize;
     let mut text = String::with_capacity(repeat_count * ch.len_utf8());
     for _ in 0..repeat_count {

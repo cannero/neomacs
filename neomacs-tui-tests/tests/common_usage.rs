@@ -3954,6 +3954,58 @@ fn write_file_after_edit_via_cx_cw() {
 }
 
 #[test]
+fn read_only_mode_via_cx_cq_blocks_then_allows_insertion() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "read-only-toggle.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x C-q");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("alpha beta"))
+                && !grid.iter().any(|row| row.contains("Xalpha beta")),
+            "{label} should not insert into a read-only buffer:\n{}",
+            grid.join("\n")
+        );
+    }
+
+    send_both(&mut gnu, &mut neo, "C-g C-x C-q");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let inserted = |grid: &[String]| grid.iter().any(|row| row.contains("Xalpha beta"));
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("Xalpha beta"))
+                && !grid.iter().any(|row| row.contains("XXalpha beta")),
+            "{label} should insert exactly once after read-only-mode is disabled:\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "read_only_mode_via_cx_cq_blocks_then_allows_insertion",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn set_visited_file_name_via_mx_saves_current_buffer_under_new_name() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

@@ -5055,24 +5055,7 @@ impl Context {
                     // Error in command loop — display and restart.
                     // Mirrors cmd_error() in keyboard.c.
                     let sym_name = sig.symbol_name().to_string();
-                    let data_str = sig
-                        .data
-                        .iter()
-                        .map(|v| format!("{}", v))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-
-                    // Display the error in the echo area
-                    let error_msg = if data_str.is_empty() {
-                        sym_name.clone()
-                    } else {
-                        format!("{}: {}", sym_name, data_str)
-                    };
-                    let _ = super::builtins::dispatch_builtin(
-                        self,
-                        "message",
-                        vec![Value::string(&error_msg)],
-                    );
+                    let error_msg = self.display_command_error(&sig);
                     tracing::error!("Command loop error: {}", error_msg);
 
                     // Clear prefix arg on error (like GNU Emacs)
@@ -5088,6 +5071,17 @@ impl Context {
                 }
             }
         }
+    }
+
+    fn display_command_error(&mut self, sig: &SignalData) -> String {
+        let error_data = make_signal_binding_value(sig);
+        let error_msg =
+            crate::emacs_core::errors::builtin_error_message_string(self, vec![error_data])
+                .ok()
+                .and_then(|value| value.as_runtime_string_owned())
+                .unwrap_or_else(|| sig.symbol_name().to_string());
+        let _ = super::builtins::dispatch_builtin(self, "message", vec![Value::string(&error_msg)]);
+        error_msg
     }
 
     /// Main command loop — read key sequence, look up binding, execute.
@@ -5236,15 +5230,8 @@ impl Context {
                         return exec_result;
                     }
                     Flow::Signal(sig) => {
-                        // Log error but continue the loop
-                        // (mirrors cmd_error in keyboard.c)
-                        let data_strs: Vec<String> =
-                            sig.data.iter().map(|v| format!("{}", v)).collect();
-                        tracing::warn!(
-                            "Command error: ({} [{}])",
-                            sig.symbol_name(),
-                            data_strs.join(", ")
-                        );
+                        let error_msg = self.display_command_error(sig);
+                        tracing::warn!("Command error: ({}): {}", sig.symbol_name(), error_msg);
                     }
                 }
             }
