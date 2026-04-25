@@ -137,7 +137,7 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     };
     let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
 
-    let args = lambda_params_to_value(&bc.params);
+    let args = bc.arglist;
     crate::emacs_core::eval::push_scratch_gc_root(args);
 
     // Slot 1: bytecode string.  GNU Emacs stores this as a unibyte string of

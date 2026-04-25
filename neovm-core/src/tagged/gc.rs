@@ -1274,6 +1274,9 @@ impl TaggedHeap {
             VecLikeType::ByteCode => {
                 let obj = ptr as *const ByteCodeObj;
                 let data = unsafe { &(*obj).data };
+                if data.arglist.is_heap_object() {
+                    self.gray_queue.push(data.arglist);
+                }
                 // Trace constants vector
                 for val in &data.constants {
                     if val.is_heap_object() {

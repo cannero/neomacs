@@ -6434,6 +6434,57 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
 }
 
 #[test]
+fn make_byte_code_preserves_gnu_arg_slot_zero() {
+    crate::test_utils::init_test_tracing();
+
+    let lexical_arg_descriptor = Value::fixnum(514);
+    let lexical = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            lexical_arg_descriptor,
+            Value::string(""),
+            Value::vector(vec![]),
+            Value::fixnum(0),
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect("builtin make-byte-code should evaluate");
+    let lexical_bc = lexical
+        .get_bytecode_data()
+        .expect("make-byte-code should produce bytecode data");
+    assert_eq!(lexical_bc.arglist, lexical_arg_descriptor);
+
+    let dynamic_arglist = Value::list(vec![
+        Value::symbol("arg0"),
+        Value::symbol("&optional"),
+        Value::symbol("arg1"),
+    ]);
+    let dynamic = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            dynamic_arglist,
+            Value::string(""),
+            Value::vector(vec![]),
+            Value::fixnum(0),
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect("builtin make-byte-code should evaluate");
+    let dynamic_bc = dynamic
+        .get_bytecode_data()
+        .expect("make-byte-code should produce bytecode data");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&dynamic_bc.arglist)
+            .expect("arg slot should stay a proper list"),
+        vec![
+            Value::symbol("arg0"),
+            Value::symbol("&optional"),
+            Value::symbol("arg1"),
+        ]
+    );
+}
+
+#[test]
 fn make_char_matches_common_gnu_charset_mappings() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

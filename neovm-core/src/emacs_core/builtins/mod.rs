@@ -5067,6 +5067,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
                 constants,
                 max_stack,
                 params: LambdaParams::simple(vec![]),
+                arglist: Value::NIL,
                 lexical: false,
                 env: None,
                 gnu_byte_offset_map: Some(gnu_byte_offset_map),
@@ -7723,9 +7724,24 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr("gethash", |_ctx, args| builtin_gethash(args), 2, Some(3));
-    ctx.defsubr("puthash", |_ctx, args| builtin_puthash(args), 3, Some(3));
-    ctx.defsubr("remhash", |_ctx, args| builtin_remhash(args), 2, Some(2));
+    ctx.defsubr(
+        "gethash",
+        |ctx, args| builtin_gethash_with_symbols(args, ctx.symbols_with_pos_enabled),
+        2,
+        Some(3),
+    );
+    ctx.defsubr(
+        "puthash",
+        |ctx, args| builtin_puthash_with_symbols(args, ctx.symbols_with_pos_enabled),
+        3,
+        Some(3),
+    );
+    ctx.defsubr(
+        "remhash",
+        |ctx, args| builtin_remhash_with_symbols(args, ctx.symbols_with_pos_enabled),
+        2,
+        Some(2),
+    );
     ctx.defsubr("clrhash", |_ctx, args| builtin_clrhash(args), 1, Some(1));
     ctx.defsubr(
         "hash-table-count",

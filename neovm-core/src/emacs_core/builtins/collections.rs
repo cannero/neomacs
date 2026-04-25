@@ -537,12 +537,19 @@ pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
+    builtin_gethash_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_gethash_with_symbols(
+    args: Vec<Value>,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
     expect_min_args("gethash", &args, 2)?;
     let default = if args.len() > 2 { args[2] } else { Value::NIL };
     match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let ht = args[1].as_hash_table().unwrap();
-            let key = args[0].to_hash_key(&ht.test);
+            let key = args[0].to_hash_key_swp(&ht.test, symbols_with_pos_enabled);
             Ok(ht.data.get(&key).cloned().unwrap_or(default))
         }
         _ => Err(signal(
@@ -553,11 +560,18 @@ pub(crate) fn builtin_gethash(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
+    builtin_puthash_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_puthash_with_symbols(
+    args: Vec<Value>,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
     expect_args("puthash", &args, 3)?;
     match args[2].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = args[2].as_hash_table().unwrap().test.clone();
-            let key = args[0].to_hash_key(&test);
+            let key = args[0].to_hash_key_swp(&test, symbols_with_pos_enabled);
             let _ = args[2].with_hash_table_mut(|ht| {
                 let inserting_new_key = !ht.data.contains_key(&key);
                 maybe_resize_hash_table_for_insert(ht, inserting_new_key);
@@ -577,11 +591,18 @@ pub(crate) fn builtin_puthash(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_remhash(args: Vec<Value>) -> EvalResult {
+    builtin_remhash_with_symbols(args, false)
+}
+
+pub(crate) fn builtin_remhash_with_symbols(
+    args: Vec<Value>,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
     expect_args("remhash", &args, 2)?;
     match args[1].kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
             let test = args[1].as_hash_table().unwrap().test.clone();
-            let key = args[0].to_hash_key(&test);
+            let key = args[0].to_hash_key_swp(&test, symbols_with_pos_enabled);
             let _ = args[1].with_hash_table_mut(|ht| {
                 ht.data.remove(&key);
                 ht.key_snapshots.remove(&key);

@@ -4537,6 +4537,7 @@ pub(crate) fn make_byte_code_from_parts(
         constants,
         max_stack,
         params,
+        arglist: *arglist,
         lexical: false,
         env: None,
         gnu_byte_offset_map: Some(gnu_byte_offset_map),

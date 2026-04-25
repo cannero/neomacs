@@ -103,6 +103,7 @@ fn hash_key_to_value(key: &HashKey) -> Value {
             let vals: Vec<Value> = items.iter().map(hash_key_to_value).collect();
             Value::vector(vals)
         }
+        HashKey::SymbolWithPos(_, _) => Value::NIL,
         HashKey::Cycle(index) => Value::string(format!("#{}", index)),
     }
 }

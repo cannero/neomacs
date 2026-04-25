@@ -456,9 +456,7 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             write!(out, "#<subr {}>", resolve_sym(id)).unwrap()
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            let bc = value.get_bytecode_data().unwrap();
-            let params = format_params(&bc.params);
-            write!(out, "#<bytecode {} ({} ops)>", params, bc.ops.len()).unwrap();
+            write_bytecode_literal_stateful(value, out, state);
         }
         ValueKind::Veclike(VecLikeType::Marker) => out.push_str(
             &print_special_handle(value, state.buffers).unwrap_or_else(|| "#<marker>".to_string()),
@@ -499,6 +497,104 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         }
         ValueKind::Unbound => out.push_str("#<unbound>"),
         ValueKind::Unknown => write!(out, "#<unknown {:#x}>", value.0).unwrap(),
+    }
+}
+
+fn with_bytecode_literal_slots<R>(value: &Value, f: impl FnOnce(&[Value]) -> R) -> Option<R> {
+    let bc = value.get_bytecode_data()?.clone();
+    let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
+
+    let arglist = bc.arglist;
+    crate::emacs_core::eval::push_scratch_gc_root(arglist);
+
+    let code = if let Some(bytes) = &bc.gnu_bytecode_bytes {
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.clone()))
+    } else {
+        Value::NIL
+    };
+    crate::emacs_core::eval::push_scratch_gc_root(code);
+
+    let constants = if let Some(env) = bc.env {
+        env
+    } else {
+        Value::vector(bc.constants.clone())
+    };
+    crate::emacs_core::eval::push_scratch_gc_root(constants);
+
+    let depth = Value::fixnum(bc.max_stack as i64);
+    let doc = bc
+        .doc_form
+        .or_else(|| bc.docstring.as_ref().map(|d| Value::heap_string(d.clone())))
+        .unwrap_or(Value::NIL);
+    crate::emacs_core::eval::push_scratch_gc_root(doc);
+
+    let interactive = bc.interactive.unwrap_or(Value::NIL);
+    crate::emacs_core::eval::push_scratch_gc_root(interactive);
+
+    let mut slots = vec![arglist, code, constants, depth, doc];
+    if !interactive.is_nil() {
+        slots.push(interactive);
+    }
+    let result = f(&slots);
+    crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
+    Some(result)
+}
+
+fn write_bytecode_literal_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    let _ = with_bytecode_literal_slots(value, |slots| {
+        if let Some(level) = state.options.print_level {
+            if state.depth >= level {
+                out.push_str("#");
+                return;
+            }
+        }
+        state.depth += 1;
+        out.push_str("#[");
+        for (idx, item) in slots.iter().enumerate() {
+            if let Some(length) = state.options.print_length {
+                if idx as i64 >= length {
+                    if idx > 0 {
+                        out.push(' ');
+                    }
+                    out.push_str("...");
+                    break;
+                }
+            }
+            if idx > 0 {
+                out.push(' ');
+            }
+            write_value_stateful(item, out, state);
+        }
+        out.push(']');
+        state.depth -= 1;
+    });
+}
+
+fn format_bytecode_literal(value: &Value, options: PrintOptions) -> String {
+    with_bytecode_literal_slots(value, |slots| {
+        let parts: Vec<String> = slots
+            .iter()
+            .map(|item| print_value_with_options(item, options))
+            .collect();
+        format!("#[{}]", parts.join(" "))
+    })
+    .unwrap_or_else(|| "#<bytecode>".to_string())
+}
+
+fn append_bytecode_literal_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
+    if with_bytecode_literal_slots(value, |slots| {
+        out.extend_from_slice(b"#[");
+        for (idx, item) in slots.iter().enumerate() {
+            if idx > 0 {
+                out.push(b' ');
+            }
+            append_print_value_bytes(item, out, options);
+        }
+        out.push(b']');
+    })
+    .is_none()
+    {
+        out.extend_from_slice(b"#<bytecode>");
     }
 }
 
@@ -1052,11 +1148,7 @@ pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String 
             let id = value.as_subr_id().unwrap();
             format!("#<subr {}>", resolve_sym(id))
         }
-        ValueKind::Veclike(VecLikeType::ByteCode) => {
-            let bc = value.get_bytecode_data().unwrap();
-            let params = format_params(&bc.params);
-            format!("#<bytecode {} ({} ops)>", params, bc.ops.len())
-        }
+        ValueKind::Veclike(VecLikeType::ByteCode) => format_bytecode_literal(value, options),
         ValueKind::Veclike(VecLikeType::Marker) => {
             print_special_handle(value, None).unwrap_or_else(|| "#<marker>".to_string())
         }
@@ -1227,11 +1319,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
-            let bc = value.get_bytecode_data().unwrap();
-            let params = format_params(&bc.params);
-            out.extend_from_slice(
-                format!("#<bytecode {} ({} ops)>", params, bc.ops.len()).as_bytes(),
-            );
+            append_bytecode_literal_bytes(value, out, options);
         }
         ValueKind::Veclike(VecLikeType::Marker) => out.extend_from_slice(
             print_special_handle(value, None)

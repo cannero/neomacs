@@ -739,6 +739,7 @@ fn test_restore_snapshot_rejects_legacy_unwind_protect_dump_opcode() {
                 optional: vec![],
                 rest: None,
             },
+            arglist: None,
             lexical: false,
             env: None,
             gnu_byte_offset_map: None,

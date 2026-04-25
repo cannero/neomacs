@@ -785,7 +785,7 @@ impl<'a> Vm<'a> {
                     }
 
                     let ht = jump_table.as_hash_table().unwrap();
-                    let key = dispatch.to_hash_key(&ht.test);
+                    let key = dispatch.to_hash_key_swp(&ht.test, self.ctx.symbols_with_pos_enabled);
                     let target = ht.data.get(&key).copied();
 
                     match target {

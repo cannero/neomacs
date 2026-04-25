@@ -8788,6 +8788,7 @@ impl Context {
             constants,
             max_stack,
             params: LambdaParams::simple(vec![]),
+            arglist: Value::NIL,
             lexical: false,
             env: None,
             gnu_byte_offset_map: Some(gnu_byte_offset_map),

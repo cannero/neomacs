@@ -125,6 +125,8 @@ pub struct DumpByteCodeFunction {
     pub max_stack: u16,
     pub params: DumpLambdaParams,
     #[serde(default)]
+    pub arglist: Option<DumpValue>,
+    #[serde(default)]
     pub lexical: bool,
     pub env: Option<DumpValue>,
     pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
@@ -271,6 +273,7 @@ pub enum DumpHashKey {
     HeapRef(u32),
     EqualCons(Box<DumpHashKey>, Box<DumpHashKey>),
     EqualVec(Vec<DumpHashKey>),
+    SymbolWithPos(Box<DumpHashKey>, Box<DumpHashKey>),
     Cycle(u32),
     Text(String),
 }

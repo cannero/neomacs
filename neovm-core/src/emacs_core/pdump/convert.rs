@@ -349,6 +349,7 @@ impl LoadDecoder {
                 constants: Vec::new(),
                 max_stack: 0,
                 params: LambdaParams::simple(Vec::new()),
+                arglist: Value::NIL,
                 lexical: false,
                 env: None,
                 gnu_byte_offset_map: None,
@@ -747,6 +748,7 @@ pub(crate) fn dump_bytecode(
             .collect(),
         max_stack: bc.max_stack,
         params: dump_lambda_params(&bc.params),
+        arglist: Some(encoder.dump_value(&bc.arglist)),
         lexical: bc.lexical,
         env: encoder.dump_opt_value(&bc.env),
         gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|map| {
@@ -790,6 +792,10 @@ pub(crate) fn dump_hash_key(encoder: &mut DumpEncoder, k: &HashKey) -> DumpHashK
         HashKey::EqualVec(v) => {
             DumpHashKey::EqualVec(v.iter().map(|key| dump_hash_key(encoder, key)).collect())
         }
+        HashKey::SymbolWithPos(sym, pos) => DumpHashKey::SymbolWithPos(
+            Box::new(dump_hash_key(encoder, sym)),
+            Box::new(dump_hash_key(encoder, pos)),
+        ),
         HashKey::Cycle(index) => DumpHashKey::Cycle(*index),
         HashKey::Text(text) => DumpHashKey::Text(text.clone()),
     }
@@ -2270,6 +2276,12 @@ pub(crate) fn load_bytecode(
     decoder: &mut LoadDecoder,
     bc: &DumpByteCodeFunction,
 ) -> Result<ByteCodeFunction, DumpError> {
+    let params = load_lambda_params(&bc.params);
+    let arglist = bc
+        .arglist
+        .as_ref()
+        .map(|value| decoder.load_value(value))
+        .unwrap_or_else(|| crate::emacs_core::builtins::lambda_params_to_value(&params));
     Ok(ByteCodeFunction {
         ops: bc.ops.iter().map(load_op).collect::<Result<Vec<_>, _>>()?,
         constants: bc
@@ -2278,7 +2290,8 @@ pub(crate) fn load_bytecode(
             .map(|value| decoder.load_value(value))
             .collect(),
         max_stack: bc.max_stack,
-        params: load_lambda_params(&bc.params),
+        params,
+        arglist,
         lexical: bc.lexical,
         env: decoder.load_opt_value(&bc.env),
         gnu_byte_offset_map: bc.gnu_byte_offset_map.as_ref().map(|pairs| {
@@ -2322,6 +2335,10 @@ pub(crate) fn load_hash_key(decoder: &mut LoadDecoder, k: &DumpHashKey) -> HashK
         DumpHashKey::EqualVec(v) => {
             HashKey::EqualVec(v.iter().map(|item| load_hash_key(decoder, item)).collect())
         }
+        DumpHashKey::SymbolWithPos(sym, pos) => HashKey::SymbolWithPos(
+            Box::new(load_hash_key(decoder, sym)),
+            Box::new(load_hash_key(decoder, pos)),
+        ),
         DumpHashKey::Cycle(index) => HashKey::Cycle(*index),
         DumpHashKey::Text(text) => HashKey::Text(text.clone()),
     }

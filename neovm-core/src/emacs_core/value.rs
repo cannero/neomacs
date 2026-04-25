@@ -503,6 +503,8 @@ pub enum HashKey {
     EqualCons(Box<HashKey>, Box<HashKey>),
     /// Structural vector/record key for `equal`-test hash tables.
     EqualVec(Vec<HashKey>),
+    /// Structural key for symbol-with-pos objects when they are not transparent.
+    SymbolWithPos(Box<HashKey>, Box<HashKey>),
     /// Back-reference marker used when structural objects recurse.
     Cycle(u32),
     /// Owned textual key used for structural hashing.
@@ -527,6 +529,7 @@ impl std::hash::Hash for HashKey {
             HashKey::Keyword(_) => 14,
             HashKey::Cycle(_) => 15,
             HashKey::Text(_) => 16,
+            HashKey::SymbolWithPos(_, _) => 17,
         };
         tag.hash(state);
         match self {
@@ -550,6 +553,10 @@ impl std::hash::Hash for HashKey {
                 for item in items {
                     item.hash(state);
                 }
+            }
+            HashKey::SymbolWithPos(sym, pos) => {
+                sym.hash(state);
+                pos.hash(state);
             }
             HashKey::Cycle(index) => index.hash(state),
             HashKey::Text(text) => text.hash(state),
@@ -575,6 +582,9 @@ impl PartialEq for HashKey {
                 a_car == b_car && a_cdr == b_cdr
             }
             (HashKey::EqualVec(a), HashKey::EqualVec(b)) => a == b,
+            (HashKey::SymbolWithPos(a_sym, a_pos), HashKey::SymbolWithPos(b_sym, b_pos)) => {
+                a_sym == b_sym && a_pos == b_pos
+            }
             (HashKey::Cycle(a), HashKey::Cycle(b)) => a == b,
             (HashKey::Text(a), HashKey::Text(b)) => a == b,
             _ => false,
@@ -1430,7 +1440,7 @@ impl TaggedValue {
         match test {
             HashTableTest::Eq => self.to_eq_key_swp(symbols_with_pos_enabled),
             HashTableTest::Eql => self.to_eql_key_swp(symbols_with_pos_enabled),
-            HashTableTest::Equal => self.to_equal_key(),
+            HashTableTest::Equal => self.to_equal_key_swp(symbols_with_pos_enabled),
         }
     }
 
@@ -1487,10 +1497,24 @@ impl TaggedValue {
 
     fn to_equal_key(&self) -> HashKey {
         let mut seen = Vec::new();
-        self.to_equal_key_depth(0, &mut seen)
+        self.to_equal_key_depth_swp(0, &mut seen, false)
+    }
+
+    fn to_equal_key_swp(&self, symbols_with_pos_enabled: bool) -> HashKey {
+        let mut seen = Vec::new();
+        self.to_equal_key_depth_swp(0, &mut seen, symbols_with_pos_enabled)
     }
 
     fn to_equal_key_depth(&self, depth: usize, seen: &mut Vec<usize>) -> HashKey {
+        self.to_equal_key_depth_swp(depth, seen, false)
+    }
+
+    fn to_equal_key_depth_swp(
+        &self,
+        depth: usize,
+        seen: &mut Vec<usize>,
+        symbols_with_pos_enabled: bool,
+    ) -> HashKey {
         if depth > 200 {
             return self.to_eq_key();
         }
@@ -1500,6 +1524,24 @@ impl TaggedValue {
             ValueKind::Fixnum(n) => HashKey::Int(n),
             ValueKind::Float => HashKey::Float(self.xfloat().to_bits()),
             ValueKind::Symbol(id) => HashKey::Symbol(id),
+            ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
+                let swp = self.as_symbol_with_pos().unwrap();
+                if symbols_with_pos_enabled {
+                    return swp.sym.to_equal_key_depth_swp(
+                        depth + 1,
+                        seen,
+                        symbols_with_pos_enabled,
+                    );
+                }
+                HashKey::SymbolWithPos(
+                    Box::new(swp.sym.to_eq_key()),
+                    Box::new(swp.pos.to_equal_key_depth_swp(
+                        depth + 1,
+                        seen,
+                        symbols_with_pos_enabled,
+                    )),
+                )
+            }
             ValueKind::String => {
                 // Use content for equal hashing
                 if let Some(s) = self.as_utf8_str() {
@@ -1516,8 +1558,8 @@ impl TaggedValue {
                 seen.push(ptr);
                 let car = self.cons_car();
                 let cdr = self.cons_cdr();
-                let car_key = car.to_equal_key_depth(depth + 1, seen);
-                let cdr_key = cdr.to_equal_key_depth(depth + 1, seen);
+                let car_key = car.to_equal_key_depth_swp(depth + 1, seen, symbols_with_pos_enabled);
+                let cdr_key = cdr.to_equal_key_depth_swp(depth + 1, seen, symbols_with_pos_enabled);
                 seen.pop();
                 HashKey::EqualCons(Box::new(car_key), Box::new(cdr_key))
             }
@@ -1534,7 +1576,9 @@ impl TaggedValue {
                 };
                 let keys: Vec<HashKey> = items
                     .iter()
-                    .map(|item| item.to_equal_key_depth(depth + 1, seen))
+                    .map(|item| {
+                        item.to_equal_key_depth_swp(depth + 1, seen, symbols_with_pos_enabled)
+                    })
                     .collect();
                 seen.pop();
                 HashKey::EqualVec(keys)

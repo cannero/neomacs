@@ -1732,6 +1732,7 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         ],
         max_stack: 2,
         params: crate::emacs_core::value::LambdaParams::simple(vec![]),
+        arglist: Value::NIL,
         lexical: false,
         env: None,
         gnu_byte_offset_map: Some(std::collections::HashMap::from([(8usize, 5usize)])),
@@ -1885,6 +1886,7 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         constants: vec![Value::fixnum(42), Value::symbol("done"), Value::fixnum(99)],
         max_stack: 3,
         params: crate::emacs_core::value::LambdaParams::simple(vec![]),
+        arglist: Value::NIL,
         lexical: false,
         env: None,
         gnu_byte_offset_map: None,
@@ -8824,6 +8826,7 @@ fn vm_lambda_parameters_can_shadow_nil_and_t() {
 #[test]
 fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
     crate::test_utils::init_test_tracing();
+    let arg_descriptor = 3 | (4 << 8) | 128;
     let func = ByteCodeFunction {
         ops: vec![
             Op::StackRef(4),
@@ -8836,7 +8839,8 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         ],
         constants: vec![],
         max_stack: 10,
-        params: crate::emacs_core::bytecode::decode::parse_arglist_descriptor(3 | (4 << 8) | 128),
+        params: crate::emacs_core::bytecode::decode::parse_arglist_descriptor(arg_descriptor),
+        arglist: Value::fixnum(arg_descriptor),
         lexical: false,
         env: None,
         gnu_byte_offset_map: None,

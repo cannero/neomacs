@@ -8,6 +8,24 @@ use super::opcode::Op;
 use crate::emacs_core::value::{LambdaParams, Value, ValueKind};
 use crate::heap_types::LispString;
 
+fn arglist_value_from_params(params: &LambdaParams) -> Value {
+    let mut elements = Vec::new();
+    for sym in &params.required {
+        elements.push(Value::from_sym_id(*sym));
+    }
+    if !params.optional.is_empty() {
+        elements.push(Value::symbol("&optional"));
+        for sym in &params.optional {
+            elements.push(Value::from_sym_id(*sym));
+        }
+    }
+    if let Some(rest) = params.rest {
+        elements.push(Value::symbol("&rest"));
+        elements.push(Value::from_sym_id(rest));
+    }
+    Value::list(elements)
+}
+
 /// A compiled bytecode function.
 #[derive(Debug)]
 pub struct ByteCodeFunction {
@@ -19,6 +37,12 @@ pub struct ByteCodeFunction {
     pub max_stack: u16,
     /// Parameter specification.
     pub params: LambdaParams,
+    /// Original GNU byte-code slot 0 value.
+    ///
+    /// Lexical byte-code uses an integer arg descriptor here, while old-style
+    /// dynamic byte-code uses an arglist.  Bytecomp's inliner distinguishes
+    /// those cases through `(aref fn 0)`, so this must round-trip exactly.
+    pub arglist: Value,
     /// Whether the function was compiled with lexical binding enabled.
     pub lexical: bool,
     /// For closures: captured lexical environment as a cons alist.
@@ -66,6 +90,7 @@ impl Clone for ByteCodeFunction {
             constants: self.constants.clone(),
             max_stack: self.max_stack,
             params: self.params.clone(),
+            arglist: self.arglist,
             lexical: self.lexical,
             env: self.env,
             gnu_byte_offset_map: self.gnu_byte_offset_map.clone(),
@@ -79,11 +104,13 @@ impl Clone for ByteCodeFunction {
 
 impl ByteCodeFunction {
     pub fn new(params: LambdaParams) -> Self {
+        let arglist = arglist_value_from_params(&params);
         Self {
             ops: Vec::new(),
             constants: Vec::new(),
             max_stack: 0,
             params,
+            arglist,
             lexical: false,
             env: None,
             gnu_byte_offset_map: None,

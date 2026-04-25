@@ -101,6 +101,45 @@ fn symbols_with_pos_enabled_makes_lisp_comparison_primitives_transparent() {
 }
 
 #[test]
+fn symbols_with_pos_enabled_makes_hash_table_keys_transparent() {
+    let result = eval_one(
+        r#"(progn
+             (setq symbols-with-pos-enabled t)
+             (let* ((head (position-symbol 'indent 42))
+                    (eqtab (make-hash-table :test 'eq))
+                    (eqltab (make-hash-table :test 'eql))
+                    (equaltab (make-hash-table :test 'equal)))
+               (puthash head 'pos eqtab)
+               (puthash 'indent 'bare eqtab)
+               (puthash head 'pos eqltab)
+               (puthash 'indent 'bare eqltab)
+               (puthash head 'pos equaltab)
+               (puthash 'indent 'bare equaltab)
+               (let ((before
+                      (list
+                       (hash-table-count eqtab)
+                       (gethash head eqtab)
+                       (gethash 'indent eqtab)
+                       (hash-table-count eqltab)
+                       (gethash head eqltab)
+                       (gethash 'indent eqltab)
+                       (hash-table-count equaltab)
+                       (gethash head equaltab)
+                       (gethash 'indent equaltab))))
+                 (remhash head eqtab)
+                 (remhash head eqltab)
+                 (remhash head equaltab)
+                 (append before
+                         (list
+                          (hash-table-count eqtab)
+                          (hash-table-count eqltab)
+                          (hash-table-count equaltab))))))"#,
+    );
+
+    assert_eq!(result, "OK (1 bare bare 1 bare bare 1 bare bare 0 0 0)");
+}
+
+#[test]
 fn skip_debugger_matches_raw_unibyte_ignored_error_regex() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -6231,6 +6270,20 @@ fn compiled_literal_reader_form_is_callable_like_gnu() {
            (error (car err)))",
     );
     assert_eq!(result, "OK 42");
+}
+
+#[test]
+fn byte_code_function_prints_readable_gnu_literal() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let* ((fn (make-byte-code nil "\300\207" [42] 1))
+                  (printed (prin1-to-string fn))
+                  (read-back (car (read-from-string printed))))
+             (list (substring printed 0 2)
+                   (byte-code-function-p read-back)
+                   (funcall read-back)))"#,
+    );
+    assert_eq!(result, "OK (\"#[\" t 42)");
 }
 
 #[test]
