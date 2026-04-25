@@ -175,10 +175,12 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     let theme_loaddefs_el = paths.lisp_root.join("theme-loaddefs.el");
     let ldefs_boot = paths.lisp_root.join("ldefs-boot.el");
 
-    // GNU's bootstrap treats lisp/loaddefs.el as generated state: initial
-    // loadup should use ldefs-boot.el, then loaddefs.el is regenerated later.
-    // Remove stale primary generated files before GNU precompile/pbootstrap so
-    // locally corrupt generated output cannot poison a fresh build.
+    // GNU's bootstrap-clean removes Lisp bytecode and generated autoload
+    // files before building bootstrap-emacs.  Mirror that shape so Neomacs
+    // pbootstrap starts from source Lisp and ldefs-boot.el, then regenerates
+    // loaddefs with bootstrap-neomacs.
+    remove_stale_lisp_bytecode(options, &paths)?;
+
     print_synthetic_step("force full primary loaddefs regeneration");
     if options.dry_run {
         println!("  would remove: {}", loaddefs_el.display());
@@ -212,22 +214,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // bootstrapping.  They are generated artifacts and should not influence
     // Neomacs's primary lisp/loaddefs.el or lisp/ldefs-boot.el generation.
     remove_stale_secondary_loaddefs(options, &paths)?;
-
-    // ---------------------------------------------------------------
-    // Pre-compile .el files with GNU Emacs.
-    //
-    // Neomacs loads .elc (byte-compiled) files ~17x faster than .el
-    // source. GNU Emacs's byte compiler is also much faster than
-    // neomacs's interpreted compiler. Use GNU Emacs to pre-compile
-    // all bootstrap .el files before loadup, so neomacs loads fast
-    // bytecoded files instead of interpreting source with expensive
-    // macro expansion.
-    //
-    // This mirrors GNU Emacs's own build: `make` compiles all .el
-    // files, then loads the .elc versions. The difference is GNU
-    // bootstraps its own compiler; we use an external GNU Emacs.
-    // ---------------------------------------------------------------
-    gnu_emacs_precompile(options, &paths)?;
 
     run_command(
         options,
@@ -266,7 +252,7 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?;
     let compile_first_sources: Vec<PathBuf> = compile_first_sources
         .into_iter()
-        .filter(|source| compile_first_needs_rebuild(source))
+        .filter(|source| options.dry_run || compile_first_needs_rebuild(source))
         .collect();
     // Compile one file at a time, each in its own bootstrap-neomacs
     // process.  This matches GNU's make suffix rule which runs
@@ -286,11 +272,11 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // ---------------------------------------------------------------
     // Loaddefs generation: uses the now-compiled .elc files.
     //
-    // This is a fresh-build pipeline, so mirror GNU's autoloads-force
-    // semantics and run loaddefs-generate with GENERATE-FULL non-nil.
-    // Update mode keys off the top-level loaddefs.el timestamp; that can
-    // skip older sources whose secondary loaddefs files (for example
-    // calendar/cal-loaddefs.el) are missing.
+    // This mirrors GNU lisp/Makefile.in's `autoloads-force` target:
+    // bootstrap-neomacs loads loaddefs-gen.elc and runs loaddefs-generate
+    // with GENERATE-FULL non-nil.  The same call writes lisp/loaddefs.el,
+    // lisp/theme-loaddefs.el, and secondary loaddefs such as
+    // org/org-loaddefs.el and dired-loaddefs.el.
     // ---------------------------------------------------------------
     let loaddefs_gen = paths.lisp_root.join("emacs-lisp/loaddefs-gen.el");
     let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
@@ -325,20 +311,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         ],
         &envs,
     )?;
-
-    // ---------------------------------------------------------------
-    // Generate GNU secondary loaddefs files after the dump is built.
-    //
-    // GNU `loaddefs-generate` writes named-cookie and file-local
-    // generated-autoload-file entries to secondary files such as
-    // dired-loaddefs.el, org/org-loaddefs.el, net/tramp-loaddefs.el,
-    // and textmodes/reftex-loaddefs.el.  It must use lisp/loaddefs.el
-    // as the main output so load names are computed correctly, but that
-    // main output belongs to Neomacs.  Generate secondary files only
-    // after Neomacs has produced its dump, and restore the Neomacs-owned
-    // primary files immediately after GNU Emacs returns.
-    // ---------------------------------------------------------------
-    gnu_emacs_generate_secondary_loaddefs(options, &paths)?;
 
     Ok(())
 }
@@ -380,100 +352,56 @@ fn force_loaddefs_generate_eval() -> OsString {
     )
 }
 
-/// Pre-compile bootstrap .el files using GNU Emacs.
-///
-/// Finds all .el files under lisp/ that would benefit from byte-compilation,
-/// filters out files that already have a fresh .elc, and batch-compiles the
-/// rest with GNU Emacs.
-fn gnu_emacs_precompile(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
-    let gnu_emacs = find_gnu_emacs();
-    let Some(gnu_emacs) = gnu_emacs else {
+fn remove_stale_lisp_bytecode(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    let files = generated_lisp_bytecode_files(&paths.lisp_root)?;
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("remove stale Lisp bytecode");
+    if options.dry_run {
         println!(
-            "  SKIP  GNU Emacs pre-compilation (no GNU Emacs found; \
-             set GNU_EMACS=/path/to/emacs to enable)"
+            "  would remove {} .elc files under {}",
+            files.len(),
+            paths.lisp_root.display()
         );
         return Ok(());
-    };
-
-    print_synthetic_step(&format!(
-        "pre-compile .el → .elc with GNU Emacs ({})",
-        gnu_emacs.display()
-    ));
-
-    // Collect all .el files under lisp/ that should be compiled.
-    // Skip files with `no-byte-compile: t` in their header, and files
-    // that already have a fresh .elc.
-    let mut to_compile: Vec<PathBuf> = Vec::new();
-    collect_compilable_el_files(&paths.lisp_root, &paths.lisp_root, &mut to_compile)?;
-    to_compile.retain(|source| compile_first_needs_rebuild(source));
-
-    if to_compile.is_empty() {
-        println!("  SKIP  all .elc files are up to date");
-        return Ok(());
     }
 
-    println!("  INFO  compiling {} .el files", to_compile.len());
-
-    if options.dry_run {
-        for source in &to_compile {
-            println!("  would compile: {}", source.display());
-        }
-        return Ok(());
-    }
-
-    // Build load-path args: -L for each unique directory containing .el files
-    let mut load_dirs: BTreeSet<PathBuf> = BTreeSet::new();
-    for source in &to_compile {
-        if let Some(parent) = source.parent() {
-            load_dirs.insert(parent.to_path_buf());
+    let mut removed = 0usize;
+    for file in &files {
+        if remove_file_if_exists(file)? {
+            removed += 1;
         }
     }
-
-    // Build load-path from the first-level subdirectories under lisp/,
-    // matching GNU Emacs's default load-path structure. This avoids
-    // shadowing issues from deep subdirectories (e.g., cedet/srecode/
-    // compile.el shadowing progmodes/compile.el).
-    let mut load_path_dirs: Vec<PathBuf> = vec![paths.lisp_root.clone()];
-    if let Ok(entries) = fs::read_dir(&paths.lisp_root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                // Skip obsolete and term (matching GNU), and leim (separate tree)
-                if !matches!(name, "obsolete" | "term") {
-                    load_path_dirs.push(path);
-                }
-            }
-        }
-    }
-    load_path_dirs.sort();
-
-    let mut args: Vec<OsString> = vec![OsString::from("--batch")];
-    for dir in &load_path_dirs {
-        args.push(OsString::from("-L"));
-        args.push(dir.as_os_str().to_os_string());
-    }
-    args.push(OsString::from("--eval"));
-    args.push(OsString::from("(setq byte-compile-warnings nil)"));
-    args.push(OsString::from("-f"));
-    args.push(OsString::from("batch-byte-compile"));
-    for source in &to_compile {
-        args.push(source.as_os_str().to_os_string());
-    }
-
-    run_command(options, &options.repo_root, &gnu_emacs, &args, &[])?;
-
-    let compiled = to_compile
-        .iter()
-        .filter(|s| s.with_extension("elc").exists())
-        .count();
-    println!("  INFO  compiled {compiled}/{} .el files", to_compile.len());
-
+    println!("  INFO  removed {removed} stale .elc files");
     Ok(())
 }
 
-fn elisp_string_literal(path: &Path) -> String {
-    format!("{:?}", path.display().to_string())
+fn generated_lisp_bytecode_files(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    collect_lisp_bytecode_files(lisp_root, &mut files)?;
+    files.sort();
+    Ok(files)
+}
+
+fn collect_lisp_bytecode_files(current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    let entries = match fs::read_dir(current) {
+        Ok(e) => e,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            collect_lisp_bytecode_files(&path, out)?;
+        } else if path.extension().is_some_and(|ext| ext == "elc") {
+            out.push(path);
+        }
+    }
+
+    Ok(())
 }
 
 fn remove_stale_secondary_loaddefs(
@@ -557,167 +485,12 @@ fn is_generated_secondary_loaddefs_file(lisp_root: &Path, path: &Path) -> bool {
     file_name == "loaddefs.el" || file_name.ends_with("-loaddefs.el")
 }
 
-fn read_file_snapshot(path: &Path) -> Result<Option<Vec<u8>>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(Some(bytes)),
-        Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-        Err(err) => Err(err.into()),
-    }
-}
-
 fn remove_file_if_exists(path: &Path) -> Result<bool> {
     match fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(false),
         Err(err) => Err(err.into()),
     }
-}
-
-fn restore_file_snapshot(path: &Path, snapshot: Option<&[u8]>) -> Result<()> {
-    match snapshot {
-        Some(bytes) => fs::write(path, bytes)?,
-        None => match fs::remove_file(path) {
-            Ok(()) => {}
-            Err(err) if err.kind() == ErrorKind::NotFound => {}
-            Err(err) => return Err(err.into()),
-        },
-    }
-    Ok(())
-}
-
-/// Generate GNU secondary loaddefs files.  The main output path must be
-/// lisp/loaddefs.el because GNU computes autoload load names relative to it;
-/// Neomacs owns that file, so restore it immediately after GNU generation.
-fn gnu_emacs_generate_secondary_loaddefs(
-    options: &FreshBuildOptions,
-    paths: &PipelinePaths,
-) -> Result<()> {
-    let gnu_emacs = match find_gnu_emacs() {
-        Some(e) => e,
-        None => return Ok(()), // Skip if no GNU Emacs
-    };
-
-    print_synthetic_step("generate secondary loaddefs with GNU Emacs");
-
-    let loaddefs_dirs = loaddefs_dirs(&paths.lisp_root)?;
-    let main_loaddefs = paths.lisp_root.join("loaddefs.el");
-    let cl_loaddefs = paths.lisp_root.join("emacs-lisp/cl-loaddefs.el");
-
-    if options.dry_run {
-        println!(
-            "  would generate secondary loaddefs via main loaddefs: {}",
-            main_loaddefs.display()
-        );
-        return Ok(());
-    }
-
-    let dirs_expr = loaddefs_dirs
-        .iter()
-        .map(|dir| elisp_string_literal(dir))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let main_loaddefs_literal = elisp_string_literal(&main_loaddefs);
-    let generate_expr =
-        format!("(loaddefs-generate (list {dirs_expr}) {main_loaddefs_literal} nil nil nil t)");
-
-    let args = vec![
-        OsString::from("--batch"),
-        OsString::from("-L"),
-        paths.lisp_root.as_os_str().to_os_string(),
-        OsString::from("-L"),
-        paths
-            .lisp_root
-            .join("emacs-lisp")
-            .as_os_str()
-            .to_os_string(),
-        OsString::from("--eval"),
-        OsString::from("(require 'loaddefs-gen)"),
-        OsString::from("--eval"),
-        OsString::from(generate_expr),
-    ];
-
-    let main_snapshot = read_file_snapshot(&main_loaddefs)?;
-    let cl_snapshot = read_file_snapshot(&cl_loaddefs)?;
-
-    let command_result = run_command(options, &options.repo_root, &gnu_emacs, &args, &[]);
-    let main_restore_result = restore_file_snapshot(&main_loaddefs, main_snapshot.as_deref());
-    let cl_restore_result = restore_file_snapshot(&cl_loaddefs, cl_snapshot.as_deref());
-
-    main_restore_result?;
-    cl_restore_result?;
-    command_result?;
-
-    println!("  INFO  generated secondary loaddefs");
-    Ok(())
-}
-
-/// Find a GNU Emacs binary for pre-compilation.
-/// Checks: $GNU_EMACS env var, then `emacs` on PATH.
-/// Validates that the found binary is actually GNU Emacs (not neomacs).
-fn find_gnu_emacs() -> Option<PathBuf> {
-    // Check GNU_EMACS env var first
-    if let Some(path) = env::var_os("GNU_EMACS") {
-        let path = PathBuf::from(path);
-        if path.exists() {
-            return Some(path);
-        }
-    }
-
-    // Try `emacs` on PATH — verify it's GNU Emacs
-    let output = Command::new("emacs").arg("--version").output().ok()?;
-    let version = String::from_utf8_lossy(&output.stdout);
-    if version.contains("GNU Emacs") {
-        return Some(PathBuf::from("emacs"));
-    }
-
-    None
-}
-
-/// Collect all .el files under a directory tree that are candidates for
-/// byte-compilation. Skips files with `no-byte-compile: t`.
-fn collect_compilable_el_files(root: &Path, current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = match fs::read_dir(current) {
-        Ok(e) => e,
-        Err(_) => return Ok(()),
-    };
-
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            // Skip obsolete, term, leim/quail (large generated files)
-            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            if matches!(name, "obsolete" | "term") {
-                continue;
-            }
-            collect_compilable_el_files(root, &path, out)?;
-        } else if path.extension().is_some_and(|ext| ext == "el") {
-            // Skip files with no-byte-compile: t
-            if has_no_byte_compile_cookie(&path) {
-                continue;
-            }
-            out.push(path);
-        }
-    }
-
-    Ok(())
-}
-
-/// Check if a .el file has `no-byte-compile: t` in its header or tail.
-fn has_no_byte_compile_cookie(path: &Path) -> bool {
-    let Ok(bytes) = fs::read(path) else {
-        return false;
-    };
-    let needle = b"no-byte-compile: t";
-    // Check first 1024 bytes (header) and last 500 bytes (Local Variables)
-    let header_end = bytes.len().min(1024);
-    let tail_start = bytes.len().saturating_sub(500);
-    bytes[..header_end]
-        .windows(needle.len())
-        .any(|w| w == needle)
-        || bytes[tail_start..]
-            .windows(needle.len())
-            .any(|w| w == needle)
 }
 
 fn pipeline_paths(options: &FreshBuildOptions) -> PipelinePaths {
@@ -1065,8 +838,8 @@ Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release
 Build the GNU-shaped Neomacs runtime pipeline:
   1. cargo build -p neomacs-bin [--release]
   2. neomacs-temacs --temacs=pbootstrap
-  3. bootstrap-neomacs generates loaddefs / ldefs-boot
-  4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
+  3. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
+  4. bootstrap-neomacs generates loaddefs / ldefs-boot
   5. neomacs-temacs --temacs=pdump
 
 Options:

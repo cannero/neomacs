@@ -82,6 +82,27 @@ COMPILE_FIRST += $(lisp)/emacs-lisp/early.elc
 }
 
 #[test]
+fn generated_lisp_bytecode_files_collects_nested_elc_files() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    fs::create_dir_all(lisp_root.join("emacs-lisp")).unwrap();
+    fs::create_dir_all(lisp_root.join("org")).unwrap();
+    fs::write(lisp_root.join("emacs-lisp/macroexp.elc"), "").unwrap();
+    fs::write(lisp_root.join("org/org.elc"), "").unwrap();
+    fs::write(lisp_root.join("org/org.el"), "").unwrap();
+
+    let files = generated_lisp_bytecode_files(&lisp_root).unwrap();
+
+    assert_eq!(
+        files,
+        vec![
+            lisp_root.join("emacs-lisp/macroexp.elc"),
+            lisp_root.join("org/org.elc"),
+        ]
+    );
+}
+
+#[test]
 fn inject_no_byte_compile_matches_loaddefs_boot_intent() {
     let input = "\
 ;;; loaddefs.el --- generated -*- lexical-binding:t -*-
