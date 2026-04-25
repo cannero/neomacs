@@ -5518,7 +5518,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "set-buffer-redisplay",
-        |_ctx, args| builtin_set_buffer_redisplay(args),
+        builtin_set_buffer_redisplay,
         4,
         Some(4),
     );
@@ -6569,6 +6569,12 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         |_ctx, args| builtin_neomacs_set_mouse_absolute_pixel_position(args),
         0,
         None,
+    );
+    ctx.defsubr(
+        "neomacs-set-cursor-blink",
+        builtin_neomacs_set_cursor_blink,
+        1,
+        Some(2),
     );
     ctx.defsubr(
         "neomacs-display-monitor-attributes-list",

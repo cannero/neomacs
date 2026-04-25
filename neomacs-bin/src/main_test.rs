@@ -704,6 +704,37 @@ fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
 }
 
 #[test]
+fn primary_window_display_host_forwards_cursor_blink_to_renderer() {
+    let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
+    let mut host = PrimaryWindowDisplayHost {
+        cmd_tx,
+        primary_window_adopted: true,
+        primary_frame_id: Some(FrameId(0x100000001)),
+        last_window_titles: Mutex::new(std::collections::HashMap::new()),
+        font_metrics: None,
+        primary_window_size: shared_primary_window_size(843, 489),
+        image_dimensions: Arc::new((
+            Mutex::new(std::collections::HashMap::new()),
+            std::sync::Condvar::new(),
+        )),
+        resolved_images: Mutex::new(std::collections::HashMap::new()),
+    };
+
+    neovm_core::emacs_core::DisplayHost::set_cursor_blink(&mut host, false, 250)
+        .expect("cursor blink command should forward");
+
+    let commands: Vec<_> = cmd_rx.try_iter().collect();
+    assert_eq!(commands.len(), 1);
+    assert!(matches!(
+        &commands[0],
+        RenderCommand::SetCursorBlink {
+            enabled: false,
+            interval_ms: 250,
+        }
+    ));
+}
+
+#[test]
 fn redisplay_title_sync_formats_frame_title_format_for_primary_window() {
     let mut eval = Context::new();
     let _bootstrap = bootstrap_buffers(&mut eval, 843, 489, gui_display());

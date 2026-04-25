@@ -75,7 +75,6 @@ struct RedisplaySignature {
     minibuffer_selected_window: Option<u64>,
     face_change_count: u64,
     obarray_function_epoch: u64,
-    obarray_value_epoch: u64,
     redisplay_generation: u64,
     frame: Option<RedisplayFrameSignature>,
 }
@@ -1258,6 +1257,9 @@ pub trait DisplayHost {
         _request: ImageResolveRequest,
     ) -> Result<Option<ResolvedImage>, String> {
         Ok(None)
+    }
+    fn set_cursor_blink(&mut self, _enabled: bool, _interval_ms: u32) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -5834,7 +5836,6 @@ impl Context {
             minibuffer_selected_window: self.minibuffer_selected_window.map(|id| id.0),
             face_change_count: self.face_change_count,
             obarray_function_epoch: self.obarray.function_epoch(),
-            obarray_value_epoch: self.obarray.value_epoch(),
             redisplay_generation: self.redisplay_generation,
             frame,
         }

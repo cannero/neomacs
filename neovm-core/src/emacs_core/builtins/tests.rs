@@ -4733,18 +4733,22 @@ fn pure_dispatch_buffer_placeholder_mutators_match_compat_contracts() {
         );
     }
 
-    let redisplay = dispatch_builtin_pure(
-        "set-buffer-redisplay",
-        vec![
-            Value::NIL,
-            Value::fixnum(1),
-            Value::fixnum(1),
-            Value::fixnum(0),
-        ],
-    )
-    .expect("builtin set-buffer-redisplay should resolve")
-    .expect("builtin set-buffer-redisplay should evaluate");
-    assert!(redisplay.is_nil());
+    {
+        let mut eval = crate::emacs_core::eval::Context::new();
+        let redisplay = dispatch_builtin(
+            &mut eval,
+            "set-buffer-redisplay",
+            vec![
+                Value::NIL,
+                Value::fixnum(1),
+                Value::fixnum(1),
+                Value::fixnum(0),
+            ],
+        )
+        .expect("builtin set-buffer-redisplay should resolve")
+        .expect("builtin set-buffer-redisplay should evaluate");
+        assert!(redisplay.is_nil());
+    }
 }
 
 #[test]

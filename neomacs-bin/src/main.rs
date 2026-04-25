@@ -1074,6 +1074,15 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         })
     }
 
+    fn set_cursor_blink(&mut self, enabled: bool, interval_ms: u32) -> Result<(), String> {
+        self.cmd_tx
+            .send(RenderCommand::SetCursorBlink {
+                enabled,
+                interval_ms,
+            })
+            .map_err(|err| format!("failed to set cursor blink: {err}"))
+    }
+
     fn resolve_font_for_char(
         &mut self,
         request: FontResolveRequest,

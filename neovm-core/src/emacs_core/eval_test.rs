@@ -219,6 +219,25 @@ impl DisplayHost for RecordingDisplayHost {
     }
 }
 
+struct CursorBlinkRecordingDisplayHost {
+    calls: Rc<RefCell<Vec<(bool, u32)>>>,
+}
+
+impl DisplayHost for CursorBlinkRecordingDisplayHost {
+    fn realize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn resize_gui_frame(&mut self, _request: GuiFrameHostRequest) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn set_cursor_blink(&mut self, enabled: bool, interval_ms: u32) -> Result<(), String> {
+        self.calls.borrow_mut().push((enabled, interval_ms));
+        Ok(())
+    }
+}
+
 #[test]
 fn eval_with_explicit_lexenv_restores_outer_lexenv() {
     crate::test_utils::init_test_tracing();
@@ -226,6 +245,21 @@ fn eval_with_explicit_lexenv_restores_outer_lexenv() {
         eval_one("(let ((x 41)) (list (eval 'x '((x . 7))) x))"),
         "OK (7 41)"
     );
+}
+
+#[test]
+fn neomacs_set_cursor_blink_forwards_to_display_host() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    ev.set_display_host(Box::new(CursorBlinkRecordingDisplayHost {
+        calls: Rc::clone(&calls),
+    }));
+
+    ev.eval_str("(neomacs-set-cursor-blink nil 0.25)")
+        .expect("set cursor blink should evaluate");
+
+    assert_eq!(*calls.borrow(), vec![(false, 250)]);
 }
 
 #[test]
@@ -1118,6 +1152,56 @@ fn redisplay_skips_callback_when_visible_state_is_unchanged() {
 
     ev.redisplay_with_force(true);
     assert_eq!(*redisplay_count.borrow(), 4);
+}
+
+#[test]
+fn redisplay_skips_callback_after_unwatched_symbol_value_change() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.obarray
+        .set_symbol_value("blink-cursor-blinks-done", Value::fixnum(1));
+
+    let redisplay_count = Rc::new(RefCell::new(0usize));
+    let redisplay_count_in_cb = Rc::clone(&redisplay_count);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplay_count_in_cb.borrow_mut() += 1;
+    }));
+
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 1);
+
+    ev.eval_str("(setq blink-cursor-blinks-done (1+ blink-cursor-blinks-done))")
+        .expect("blink counter setq should evaluate");
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 1);
+}
+
+#[test]
+fn set_buffer_redisplay_watcher_invalidates_redisplay() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+
+    let redisplay_count = Rc::new(RefCell::new(0usize));
+    let redisplay_count_in_cb = Rc::clone(&redisplay_count);
+    ev.redisplay_fn = Some(Box::new(move |_ev: &mut Context| {
+        *redisplay_count_in_cb.borrow_mut() += 1;
+    }));
+
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 1);
+
+    ev.eval_str(
+        r#"(progn
+             (add-variable-watcher 'line-spacing
+                                   (symbol-function 'set-buffer-redisplay))
+             (setq line-spacing 2))"#,
+    )
+    .expect("line-spacing watcher should evaluate");
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 2);
+
+    ev.redisplay();
+    assert_eq!(*redisplay_count.borrow(), 2);
 }
 
 #[test]

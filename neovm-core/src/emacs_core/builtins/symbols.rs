@@ -1669,8 +1669,12 @@ pub(crate) fn builtin_set_buffer_major_mode(
     mode_result
 }
 
-pub(crate) fn builtin_set_buffer_redisplay(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_set_buffer_redisplay(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("set-buffer-redisplay", &args, 4)?;
+    eval.invalidate_redisplay();
     Ok(Value::NIL)
 }
 

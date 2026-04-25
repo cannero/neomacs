@@ -5559,6 +5559,31 @@ fn bootstrap_neomacs_gui_runtime_loads_x_and_neo_term_layers() {
 }
 
 #[test]
+fn bootstrap_neomacs_cursor_blink_setup_keeps_lisp_timers_stopped() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_with_features(&["neomacs", "x"])
+        .expect("neomacs+x bootstrap evaluator");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (setq blink-cursor-mode t
+                   blink-cursor-idle-timer nil
+                   blink-cursor-timer nil)
+             (neomacs--setup-cursor-blink)
+             (blink-cursor--start-idle-timer)
+             (blink-cursor--start-timer)
+             (blink-cursor-start)
+             (blink-cursor-check)
+             (list blink-cursor-idle-timer
+                   blink-cursor-timer
+                   (memq #'blink-cursor-end pre-command-hook)))"#,
+    );
+    assert_eq!(rendered, "OK (nil nil nil)");
+}
+
+#[test]
 fn loadup_source_preloads_mouse_help_fixup_runtime_surface() {
     crate::test_utils::init_test_tracing();
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));

@@ -285,6 +285,31 @@ pub(crate) fn builtin_neomacs_set_mouse_absolute_pixel_position(args: Vec<Value>
     Ok(Value::NIL)
 }
 
+pub(crate) fn builtin_neomacs_set_cursor_blink(
+    eval: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_range_args("neomacs-set-cursor-blink", &args, 1, 2)?;
+    let enabled = !args[0].is_nil();
+    let interval_seconds = match args.get(1) {
+        Some(value) if !value.is_nil() => expect_number(value)?,
+        _ => 0.5,
+    };
+    let interval_ms = (interval_seconds.max(0.001) * 1000.0).round() as u32;
+    if let Some(host) = eval.display_host.as_mut() {
+        host.set_cursor_blink(enabled, interval_ms)
+            .map_err(|message| {
+                signal(
+                    "error",
+                    vec![Value::string(format!(
+                        "neomacs-set-cursor-blink: {message}"
+                    ))],
+                )
+            })?;
+    }
+    Ok(Value::NIL)
+}
+
 pub(crate) fn builtin_neomacs_display_monitor_attributes_list(
     eval: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,

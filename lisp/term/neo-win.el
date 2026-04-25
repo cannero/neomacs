@@ -169,23 +169,76 @@ DISPLAY is the name of the display Emacs should connect to."
   "Sync `blink-cursor-mode' state to the render thread."
   (when (fboundp 'neomacs-set-cursor-blink)
     (neomacs-set-cursor-blink
-     blink-cursor-mode
+     (and blink-cursor-mode t)
      (if (boundp 'blink-cursor-interval) blink-cursor-interval 0.5))))
+
+(defun neomacs--cancel-core-cursor-blink-timers ()
+  "Cancel GNU Lisp cursor blink timers.
+Neomacs renders cursor blink in the Rust render thread, so the Lisp timers
+should not keep waking the command loop while Emacs is otherwise idle."
+  (when blink-cursor-timer
+    (cancel-timer blink-cursor-timer)
+    (setq blink-cursor-timer nil))
+  (when blink-cursor-idle-timer
+    (cancel-timer blink-cursor-idle-timer)
+    (setq blink-cursor-idle-timer nil)))
+
+(defun neomacs--blink-cursor-check ()
+  "Neomacs replacement for `blink-cursor-check'.
+Return the same focus/mode predicate as GNU, but leave visual blinking to the
+render thread instead of creating Lisp timers."
+  (remove-hook 'post-command-hook #'blink-cursor-check)
+  (neomacs--cancel-core-cursor-blink-timers)
+  (neomacs--sync-cursor-blink)
+  (blink-cursor--should-blink))
+
+(defun neomacs--blink-cursor-start ()
+  "Neomacs replacement for `blink-cursor-start'."
+  (neomacs--blink-cursor-check))
+
+(defun neomacs--blink-cursor-start-idle-timer ()
+  "Neomacs replacement for `blink-cursor--start-idle-timer'."
+  (neomacs--blink-cursor-check))
+
+(defun neomacs--blink-cursor-start-timer ()
+  "Neomacs replacement for `blink-cursor--start-timer'."
+  (neomacs--blink-cursor-check))
+
+(defun neomacs--blink-cursor-timer-function ()
+  "Neomacs replacement for `blink-cursor-timer-function'."
+  (neomacs--blink-cursor-check)
+  nil)
+
+(defun neomacs--sync-cursor-blink-after-mode (&rest _)
+  "Sync render-thread cursor blink after `blink-cursor-mode' changes."
+  (neomacs--cancel-core-cursor-blink-timers)
+  (neomacs--sync-cursor-blink))
+
+(defun neomacs--override-cursor-blink-function (symbol function)
+  "Install FUNCTION as Neomacs override advice for SYMBOL."
+  (advice-remove symbol function)
+  (advice-add symbol :override function `((name . ,function))))
 
 (defun neomacs--setup-cursor-blink ()
   "Set up render-thread cursor blinking.
 Syncs current blink state and advises `blink-cursor-mode' for future changes.
 Also suppresses the Emacs-side blink timer since the render thread handles it."
-  ;; Sync initial state
-  (neomacs--sync-cursor-blink)
-  ;; Re-sync whenever blink-cursor-mode toggles
+  (neomacs--cancel-core-cursor-blink-timers)
+  (neomacs--override-cursor-blink-function
+   'blink-cursor-check #'neomacs--blink-cursor-check)
+  (neomacs--override-cursor-blink-function
+   'blink-cursor-start #'neomacs--blink-cursor-start)
+  (neomacs--override-cursor-blink-function
+   'blink-cursor--start-idle-timer #'neomacs--blink-cursor-start-idle-timer)
+  (neomacs--override-cursor-blink-function
+   'blink-cursor--start-timer #'neomacs--blink-cursor-start-timer)
+  (neomacs--override-cursor-blink-function
+   'blink-cursor-timer-function #'neomacs--blink-cursor-timer-function)
+  (advice-remove 'blink-cursor-mode #'neomacs--sync-cursor-blink-after-mode)
   (advice-add 'blink-cursor-mode :after
-              (lambda (&rest _) (neomacs--sync-cursor-blink))
+              #'neomacs--sync-cursor-blink-after-mode
               '((name . neomacs-sync-blink)))
-  ;; Suppress Emacs-side blink timer (render thread handles visual blinking)
-  (advice-add 'blink-cursor-timer-function :override
-              (lambda () nil)
-              '((name . neomacs-suppress-blink-timer))))
+  (neomacs--sync-cursor-blink))
 
 ;; Animation setup
 (defun neomacs--setup-animations ()
