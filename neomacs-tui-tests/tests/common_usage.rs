@@ -4610,6 +4610,23 @@ fn view_hello_file_pages_down_and_up_via_cv_mv() {
 }
 
 #[test]
+fn view_hello_file_via_ch_h_opens_hello_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_help_sequence(&mut gnu, &mut neo, "h");
+    let hello_ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("This is a list of ways"))
+            && grid.iter().any(|row| row.contains("HELLO"))
+    };
+    gnu.read_until(Duration::from_secs(8), hello_ready);
+    neo.read_until(Duration::from_secs(12), hello_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("view_hello_file_via_ch_h_opens_hello_buffer", &gnu, &neo, 4);
+}
+
+#[test]
 fn append_to_file_via_mx_appends_region_to_existing_file() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "append-to-file-dest.txt", "existing header\n");
