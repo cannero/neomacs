@@ -2900,47 +2900,6 @@ impl crate::emacs_core::eval::Context {
                     crate::emacs_core::print::print_value(&emacs_event)
                 );
 
-                // Keyboard audit Finding 5: help-char dispatch.
-                // GNU `keyboard.c:10188-10250` in `read_key_sequence`
-                // checks every incoming event against
-                // `Vhelp_char` / `Vhelp_event_list` and, if the
-                // current sequence already has a prefix, runs
-                // `Vprefix_help_command` (default
-                // `describe-prefix-bindings`) via
-                // `Fcall_interactively` instead of looking the
-                // resulting key up in the active keymap.
-                //
-                // We do the same here, after the raw event is
-                // pushed so `(this-command-keys)` sees the full
-                // sequence, but before translation/lookup — the
-                // help command must shadow any hypothetical
-                // binding for the help character under the prefix.
-                //
-                // `raw_events().len() > 1` is the analog of GNU's
-                // "in a prefix state" check: we only dispatch if
-                // there is at least one earlier event in the
-                // current sequence. A bare help-char at sequence
-                // start still goes through the ordinary keymap
-                // lookup so `C-h` etc. can be rebound or extended
-                // as a prefix itself.
-                if self.event_matches_help_char(&emacs_event)
-                    && self
-                        .command_loop
-                        .keyboard
-                        .kboard
-                        .current_key_sequence
-                        .raw_events()
-                        .len()
-                        > 1
-                {
-                    if let Some(result) =
-                        self.dispatch_prefix_help_command(&mut delayed_selection_event)?
-                    {
-                        self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
-                        return Ok(result);
-                    }
-                }
-
                 // Keyboard audit Finding 10: input-method-function.
                 // GNU `keyboard.c:2707-2770` in `read_char`: when
                 // we just read a printable character at the start
@@ -3104,6 +3063,34 @@ impl crate::emacs_core::eval::Context {
                     }
                 }
                 if sequence_is_undefined {
+                    // GNU `keyboard.c:11799-11812` dispatches
+                    // `prefix-help-command` only after normal keymap
+                    // lookup fails.  This matters for `C-h C-h`: the
+                    // second `C-h` is a real `help-map` binding for
+                    // `help-for-help`, not generic prefix help.
+                    if self
+                        .command_loop
+                        .keyboard
+                        .kboard
+                        .current_key_sequence
+                        .raw_events()
+                        .len()
+                        > 1
+                        && let Some(last_raw) = self
+                            .command_loop
+                            .keyboard
+                            .kboard
+                            .current_key_sequence
+                            .raw_events()
+                            .last()
+                            .copied()
+                        && self.event_matches_help_char(&last_raw)
+                        && let Some(result) =
+                            self.dispatch_prefix_help_command(&mut delayed_selection_event)?
+                    {
+                        self.restore_key_sequence_current_buffer(&mut saved_current_buffer);
+                        return Ok(result);
+                    }
                     if self.translate_upper_case_key_bindings_enabled()
                         && let Some(applied_shift_translation) =
                             self.apply_shift_translation_to_current_key_sequence()

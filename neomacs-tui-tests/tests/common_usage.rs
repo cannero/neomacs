@@ -3047,6 +3047,38 @@ fn quit_help_buffer_via_q() {
 }
 
 #[test]
+fn help_for_help_via_ch_ch_lists_help_options() {
+    let (mut gnu, mut neo) = boot_pair("");
+    send_help_sequence(&mut gnu, &mut neo, "C-h");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("Commands, Keys and Functions"))
+            && grid.iter().any(|row| row.contains("Manuals"))
+            && grid.iter().any(|row| row.contains("Show help for key"))
+            && grid.iter().any(|row| row.contains("Show all key bindings"))
+    };
+    gnu.read_until(Duration::from_secs(8), ready);
+    neo.read_until(Duration::from_secs(12), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    if !ready(&gnu.text_grid()) || !ready(&neo.text_grid()) {
+        dump_pair_grids(
+            "help_for_help_via_ch_ch_lists_help_options/not-ready",
+            &gnu,
+            &neo,
+        );
+    }
+
+    assert_top_rows_nearly_match(
+        "help_for_help_via_ch_ch_lists_help_options",
+        &gnu,
+        &neo,
+        22,
+        4,
+    );
+}
+
+#[test]
 fn describe_key_find_file_via_chk() {
     let (mut gnu, mut neo) = boot_pair("");
     send_help_sequence(&mut gnu, &mut neo, "k");
