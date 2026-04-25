@@ -25,7 +25,7 @@ use neovm_core::emacs_core::terminal::pure::TerminalHost;
 use neovm_core::emacs_core::value::list_to_vec;
 use neovm_core::face::FaceHeight;
 use neovm_core::heap_types::LispString;
-use neovm_core::window::{FrameId, GuiFrameGeometryHints};
+use neovm_core::window::{FrameId, GuiFrameGeometryHints, default_gui_tool_bar_line_height};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -1713,7 +1713,10 @@ fn bootstrap_gui_frame_seeds_live_menu_and_tool_bar_rows() {
     assert_eq!(frame.frame_parameter_int("menu-bar-lines"), Some(1));
     assert_eq!(frame.frame_parameter_int("tool-bar-lines"), Some(1));
     assert_eq!(frame.menu_bar_height, frame.char_height.round() as u32);
-    assert_eq!(frame.tool_bar_height, frame.char_height.round() as u32);
+    assert_eq!(
+        frame.tool_bar_height,
+        default_gui_tool_bar_line_height(frame.font_pixel_size)
+    );
 }
 
 #[test]

@@ -90,6 +90,22 @@ struct BoxSpan {
     bg: Option<Color>,
 }
 
+fn frame_default_glyph_metrics(frame_glyphs: &FrameGlyphBuffer) -> (f32, f32) {
+    let font_size =
+        if frame_glyphs.font_pixel_size.is_finite() && frame_glyphs.font_pixel_size > 0.0 {
+            frame_glyphs.font_pixel_size
+        } else {
+            14.0
+        };
+    let line_height = if frame_glyphs.char_height.is_finite() && frame_glyphs.char_height > 0.0 {
+        frame_glyphs.char_height
+    } else {
+        font_size * 1.2
+    };
+
+    (font_size, line_height.max(font_size))
+}
+
 fn cursor_render_rect(
     frame_glyphs: &FrameGlyphBuffer,
     cursor: &PhysCursor,
@@ -496,6 +512,9 @@ impl WgpuRenderer {
         );
 
         log_face_debug_summary(face_debug_call_id, frame_glyphs, faces);
+
+        let (default_font_size, default_line_height) = frame_default_glyph_metrics(frame_glyphs);
+        glyph_atlas.set_metrics(default_font_size, default_line_height);
 
         self.refresh_frame_animation_state(frame_glyphs);
         if trace_face_debug_enabled() {

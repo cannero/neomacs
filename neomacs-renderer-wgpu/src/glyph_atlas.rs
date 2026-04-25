@@ -331,9 +331,9 @@ impl WgpuGlyphAtlas {
         );
 
         // Cache default font metrics only from glyphs rendered at the atlas
-        // default size. Buffer glyphs can also use face_id=0 but carry their
-        // concrete frame font size in the key; using those to seed UI chrome
-        // metrics makes small menu text advance by large buffer-cell widths.
+        // default size. The renderer syncs the atlas default from the current
+        // frame before drawing, so face 0 buffer glyphs seed matching UI chrome
+        // text metrics instead of the atlas startup fallback.
         if self.cached_char_width.is_none()
             && key_uses_default_font_metrics(&key, self.default_font_size)
         {

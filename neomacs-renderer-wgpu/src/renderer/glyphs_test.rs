@@ -1,4 +1,4 @@
-use super::{cursor_render_rect, window_cursor_visual_matches_phys};
+use super::{cursor_render_rect, frame_default_glyph_metrics, window_cursor_visual_matches_phys};
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, DisplaySlotId, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor,
     WindowCursorVisual,
@@ -98,4 +98,24 @@ fn window_cursor_visual_match_uses_slot_identity() {
 
     assert!(window_cursor_visual_matches_phys(&matching, &phys));
     assert!(!window_cursor_visual_matches_phys(&mismatched, &phys));
+}
+
+#[test]
+fn frame_default_glyph_metrics_use_frame_font_and_line_height() {
+    let mut frame = FrameGlyphBuffer::new();
+    frame.font_pixel_size = 27.0;
+    frame.char_height = 33.0;
+
+    assert_eq!(frame_default_glyph_metrics(&frame), (27.0, 33.0));
+}
+
+#[test]
+fn frame_default_glyph_metrics_fall_back_to_sane_values() {
+    let mut frame = FrameGlyphBuffer::new();
+    frame.font_pixel_size = f32::NAN;
+    frame.char_height = 0.0;
+
+    let (font_size, line_height) = frame_default_glyph_metrics(&frame);
+    assert_eq!(font_size, 14.0);
+    assert!((line_height - 16.8).abs() < 0.001);
 }

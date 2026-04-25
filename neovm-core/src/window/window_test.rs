@@ -42,6 +42,44 @@ fn frame_manager_gc_traces_name_icon_name_and_title_values() {
 }
 
 #[test]
+fn default_gui_tool_bar_line_height_uses_gnu_image_margin_relief_model() {
+    assert_eq!(default_gui_tool_bar_line_height(14.0), 34);
+    assert_eq!(default_gui_tool_bar_line_height(28.0), 68);
+    assert_eq!(default_gui_tool_bar_line_height(f32::NAN), 34);
+}
+
+#[test]
+fn sync_tool_bar_height_uses_scaled_gnu_pixel_height_for_gui_frames() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = FrameManager::new();
+    let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+    let frame = mgr.get_mut(fid).unwrap();
+
+    frame.set_window_system(Some(Value::symbol("neo")));
+    frame.font_pixel_size = 28.0;
+    frame.char_height = 33.0;
+    frame.set_parameter(Value::symbol("tool-bar-lines"), Value::fixnum(2));
+    frame.sync_tool_bar_height_from_parameters();
+
+    assert_eq!(frame.tool_bar_height, 136);
+}
+
+#[test]
+fn sync_tool_bar_height_keeps_tty_line_height_contract() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = FrameManager::new();
+    let fid = mgr.create_frame("F1", 800, 600, BufferId(1));
+    let frame = mgr.get_mut(fid).unwrap();
+
+    frame.font_pixel_size = 28.0;
+    frame.char_height = 33.0;
+    frame.set_parameter(Value::symbol("tool-bar-lines"), Value::fixnum(2));
+    frame.sync_tool_bar_height_from_parameters();
+
+    assert_eq!(frame.tool_bar_height, 66);
+}
+
+#[test]
 fn split_window_horizontal() {
     crate::test_utils::init_test_tracing();
     let mut mgr = FrameManager::new();

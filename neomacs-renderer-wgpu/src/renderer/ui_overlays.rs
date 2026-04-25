@@ -2125,7 +2125,7 @@ impl WgpuRenderer {
             item_x += label_width;
         }
 
-        tracing::info!(
+        tracing::trace!(
             "render_menu_bar: {} overlay_glyphs, text_y={}",
             overlay_glyphs.len(),
             text_y

@@ -37,6 +37,30 @@ pub(crate) const FRAME_ID_BASE: u64 = 1 << 32;
 /// Synthetic window-id domain reserved for per-frame minibuffer windows.
 pub(crate) const MINIBUFFER_WINDOW_ID_BASE: u64 = 1 << 48;
 
+/// GNU `DEFAULT_TOOL_BAR_LABEL_SIZE` in `src/dispextern.h`.
+pub const DEFAULT_TOOL_BAR_LABEL_SIZE: f32 = 14.0;
+/// GNU `DEFAULT_TOOL_BAR_BUTTON_MARGIN` in `src/dispextern.h`.
+pub const DEFAULT_TOOL_BAR_BUTTON_MARGIN: f32 = 4.0;
+/// GNU `DEFAULT_TOOL_BAR_BUTTON_RELIEF` in `src/dispextern.h`.
+pub const DEFAULT_TOOL_BAR_BUTTON_RELIEF: f32 = 1.0;
+/// GNU `DEFAULT_TOOL_BAR_IMAGE_HEIGHT` in `src/dispextern.h`.
+pub const DEFAULT_TOOL_BAR_IMAGE_HEIGHT: f32 = 24.0;
+
+pub fn default_gui_tool_bar_line_height(font_pixel_size: f32) -> u32 {
+    let scale = if font_pixel_size.is_finite() && font_pixel_size > 0.0 {
+        (font_pixel_size / DEFAULT_TOOL_BAR_LABEL_SIZE).max(1.0)
+    } else {
+        1.0
+    };
+    let image_height = (DEFAULT_TOOL_BAR_IMAGE_HEIGHT * scale).round().max(1.0);
+    let margin = (DEFAULT_TOOL_BAR_BUTTON_MARGIN * scale).round().max(0.0);
+    let relief = (DEFAULT_TOOL_BAR_BUTTON_RELIEF * scale).round().max(1.0);
+
+    (image_height + 2.0 * margin + 2.0 * relief)
+        .round()
+        .max(1.0) as u32
+}
+
 // ---------------------------------------------------------------------------
 // Window geometry
 // ---------------------------------------------------------------------------
@@ -1835,16 +1859,21 @@ impl Frame {
 
     /// Recompute `tool_bar_height` from the `tool-bar-lines` frame parameter.
     ///
-    /// GNU stores the frame parameter as a line count and reports the pixel
-    /// height separately. Until the GUI tool-bar sender is fully wired,
-    /// neomacs uses the same one-row-per-line contract as the menu/tab bars.
+    /// GNU stores `tool-bar-lines` as a row count and separately tracks the
+    /// pixel height needed by toolbar images plus button margin/relief.  For
+    /// GUI frames Neomacs follows that pixel model, scaled to the frame font
+    /// pixels because our renderer works in physical frame pixels.
     pub fn sync_tool_bar_height_from_parameters(&mut self) {
         let lines = self
             .frame_parameter_int("tool-bar-lines")
             .unwrap_or(0)
             .max(0) as u32;
-        let char_height = self.char_height.max(1.0).round() as u32;
-        self.tool_bar_height = lines.saturating_mul(char_height);
+        let line_height = if self.effective_window_system().is_some() {
+            default_gui_tool_bar_line_height(self.font_pixel_size)
+        } else {
+            self.char_height.max(1.0).round() as u32
+        };
+        self.tool_bar_height = lines.saturating_mul(line_height);
         self.sync_window_area_bounds();
     }
 

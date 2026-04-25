@@ -3,7 +3,42 @@
 use super::{PopupMenuState, RenderApp, TooltipState};
 use crate::thread_comm::{RenderCommand, ToolBarItem};
 
+const GNU_TOOL_BAR_BASE_HEIGHT: f32 = 34.0;
+const GNU_TOOL_BAR_BASE_PADDING: f32 = 5.0;
+
+pub(super) fn toolbar_visual_config_for_height(height: f32) -> (u32, u32) {
+    let height_px = if height.is_finite() && height > 0.0 {
+        height.round().max(1.0) as u32
+    } else {
+        GNU_TOOL_BAR_BASE_HEIGHT as u32
+    };
+    let scale = (height_px as f32 / GNU_TOOL_BAR_BASE_HEIGHT).max(0.1);
+    let max_padding = height_px.saturating_sub(1) / 2;
+    let padding = ((GNU_TOOL_BAR_BASE_PADDING * scale).round() as u32).min(max_padding);
+    let icon_size = height_px.saturating_sub(padding.saturating_mul(2)).max(1);
+
+    (icon_size, padding)
+}
+
 impl RenderApp {
+    pub(super) fn set_toolbar_visual_config(&mut self, icon_size: u32, padding: u32) {
+        if self.toolbar_icon_size == icon_size && self.toolbar_padding == padding {
+            return;
+        }
+        self.toolbar_icon_size = icon_size;
+        self.toolbar_padding = padding;
+        for (_name, id) in self.toolbar_icon_textures.drain() {
+            if let Some(renderer) = self.renderer.as_mut() {
+                renderer.free_image(id);
+            }
+        }
+    }
+
+    pub(super) fn sync_toolbar_visual_config_from_height(&mut self, height: f32) {
+        let (icon_size, padding) = toolbar_visual_config_for_height(height);
+        self.set_toolbar_visual_config(icon_size, padding);
+    }
+
     pub(super) fn ensure_toolbar_icon_textures(&mut self, items: &[ToolBarItem]) {
         for item in items {
             if !item.is_separator
@@ -305,6 +340,7 @@ impl RenderApp {
                 bg_g,
                 bg_b,
             } => {
+                self.sync_toolbar_visual_config_from_height(height);
                 self.ensure_toolbar_icon_textures(&items);
                 self.toolbar_items = items;
                 self.toolbar_height = height;
@@ -314,13 +350,7 @@ impl RenderApp {
                 Ok(())
             }
             RenderCommand::SetToolBarConfig { icon_size, padding } => {
-                self.toolbar_icon_size = icon_size;
-                self.toolbar_padding = padding;
-                for (_name, id) in self.toolbar_icon_textures.drain() {
-                    if let Some(renderer) = self.renderer.as_mut() {
-                        renderer.free_image(id);
-                    }
-                }
+                self.set_toolbar_visual_config(icon_size, padding);
                 self.frame_dirty = true;
                 Ok(())
             }
@@ -354,5 +384,20 @@ impl RenderApp {
             }
             other => Err(other),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::toolbar_visual_config_for_height;
+
+    #[test]
+    fn toolbar_visual_config_matches_gnu_default_geometry() {
+        assert_eq!(toolbar_visual_config_for_height(34.0), (24, 5));
+    }
+
+    #[test]
+    fn toolbar_visual_config_scales_with_frame_pixel_height() {
+        assert_eq!(toolbar_visual_config_for_height(68.0), (48, 10));
     }
 }
