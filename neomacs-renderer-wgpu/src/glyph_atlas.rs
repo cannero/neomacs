@@ -330,8 +330,13 @@ impl WgpuGlyphAtlas {
             result.is_color
         );
 
-        // Cache default font metrics from the first face_id=0 glyph
-        if key.face_id == 0 && self.cached_char_width.is_none() {
+        // Cache default font metrics only from glyphs rendered at the atlas
+        // default size. Buffer glyphs can also use face_id=0 but carry their
+        // concrete frame font size in the key; using those to seed UI chrome
+        // metrics makes small menu text advance by large buffer-cell widths.
+        if self.cached_char_width.is_none()
+            && key_uses_default_font_metrics(&key, self.default_font_size)
+        {
             self.cached_char_width = Some(result.advance_width / self.scale_factor);
             self.cached_font_ascent = Some(result.bearing_y / self.scale_factor);
         }
@@ -1221,6 +1226,14 @@ impl WgpuGlyphAtlas {
             GlyphRenderMode::Alpha
         }
     }
+}
+
+fn key_uses_default_font_metrics(key: &GlyphKey, default_font_size: f32) -> bool {
+    if key.face_id != 0 {
+        return false;
+    }
+    let font_size = f32::from_bits(key.font_size_bits);
+    font_size == 0.0 || (font_size - default_font_size).abs() <= 0.1
 }
 
 #[cfg(test)]
