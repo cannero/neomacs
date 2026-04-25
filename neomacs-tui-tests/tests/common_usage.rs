@@ -4627,6 +4627,41 @@ fn view_hello_file_via_ch_h_opens_hello_buffer() {
 }
 
 #[test]
+fn describe_copying_via_ch_cc_opens_copying_file() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_help_sequence(&mut gnu, &mut neo, "C-c");
+    let copying_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("COPYING"))
+            && grid
+                .iter()
+                .any(|row| row.contains("GNU GENERAL PUBLIC LICENSE"))
+    };
+    gnu.read_until(Duration::from_secs(8), copying_ready);
+    neo.read_until(Duration::from_secs(12), copying_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("COPYING")),
+            "{label} should show the COPYING help file"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("GNU GENERAL PUBLIC LICENSE")),
+            "{label} should show GPL text from the COPYING file"
+        );
+    }
+    assert_pair_nearly_matches(
+        "describe_copying_via_ch_cc_opens_copying_file",
+        &gnu,
+        &neo,
+        4,
+    );
+}
+
+#[test]
 fn append_to_file_via_mx_appends_region_to_existing_file() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "append-to-file-dest.txt", "existing header\n");
