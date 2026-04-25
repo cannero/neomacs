@@ -521,7 +521,17 @@ impl<'a> Vm<'a> {
             match op {
                 // -- Constants and stack --
                 Op::Constant(idx) => {
-                    stk_push!(constants[*idx as usize]);
+                    let Some(value) = constants.get(*idx as usize).copied() else {
+                        self.resume_nonlocal(
+                            func,
+                            pc,
+                            handlers,
+                            bind_stack,
+                            signal("error", vec![Value::string("Invalid byte-code")]),
+                        )?;
+                        continue;
+                    };
+                    stk_push!(value);
                 }
                 Op::Nil => stk_push!(Value::NIL),
                 Op::True => stk_push!(Value::T),

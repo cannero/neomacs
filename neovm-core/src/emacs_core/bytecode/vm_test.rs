@@ -132,6 +132,17 @@ fn vm_condition_case_leaves_shared_condition_stack_balanced() {
 }
 
 #[test]
+fn vm_invalid_constant_reference_signals_instead_of_panicking() {
+    crate::test_utils::init_test_tracing();
+    let rendered = vm_eval_str(
+        "(condition-case err
+             (funcall (make-byte-code 0 \"\\300\\207\" [] 1))
+           (error (list 'caught (car err) (car (cdr err)))))",
+    );
+    assert_eq!(rendered, "OK (caught error \"Invalid byte-code\")");
+}
+
+#[test]
 fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
