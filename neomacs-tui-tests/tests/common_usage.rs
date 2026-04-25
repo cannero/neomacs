@@ -11828,6 +11828,45 @@ fn undo_edit_via_cslash() {
 }
 
 #[test]
+fn undo_redo_via_cmeta_underscore_restores_undone_edit() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "undo-redo.txt",
+        "alpha beta\n",
+        "C-x C-f",
+    );
+
+    send_both_raw(&mut gnu, &mut neo, b"X");
+    let inserted = |grid: &[String]| grid.iter().any(|row| row.contains("Xalpha beta"));
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both_raw(&mut gnu, &mut neo, b"\x1f");
+    let undone = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta"))
+            && !grid.iter().any(|row| row.contains("Xalpha beta"))
+    };
+    gnu.read_until(Duration::from_secs(6), undone);
+    neo.read_until(Duration::from_secs(8), undone);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both_raw(&mut gnu, &mut neo, b"\x1b\x1f");
+    gnu.read_until(Duration::from_secs(6), inserted);
+    neo.read_until(Duration::from_secs(8), inserted);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "undo_redo_via_cmeta_underscore_restores_undone_edit",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn comment_region_via_msemicolon() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
