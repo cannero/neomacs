@@ -47,6 +47,8 @@ pub fn get_reader_load_file_name_public() -> Option<Value> {
 }
 use super::value::{HashTableTest, Value, build_hash_table_literal_value};
 
+const UNICODE_CHARACTER_NAME_LENGTH_BOUND: usize = 200;
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1005,29 +1007,45 @@ impl<'a> Reader<'a> {
 
     fn read_unicode_name_escape(&mut self) -> Result<u32, ReadError> {
         self.expect('{')?;
-        let start = self.pos;
-        while let Some(ch) = self.current_code() {
+        let mut name = String::new();
+        let mut whitespace = false;
+
+        loop {
+            let Some(ch) = self.current_code() else {
+                return Err(self.error("unterminated \\N{...} escape"));
+            };
+            self.bump();
+
             if ch == b'}' as u32 {
                 break;
             }
-            self.bump();
-        }
-        if self.current_code() != Some(b'}' as u32) {
-            return Err(self.error("unterminated \\N{...} escape"));
-        }
-        let name = self.source_slice_string(start, self.pos);
-        self.bump();
 
-        let hex = name
-            .strip_prefix("U+")
-            .or_else(|| name.strip_prefix("u+"))
-            .ok_or_else(|| self.error("unsupported \\N{...} escape"))?;
-        let value =
-            u32::from_str_radix(hex, 16).map_err(|_| self.error("invalid \\N{...} escape"))?;
-        if value > 0x3F_FFFF {
-            return Err(self.error("\\N{...} escape out of range"));
+            if ch >= 0x80 {
+                return Err(self.error(&format!("Invalid character U+{ch:04X} in character name")));
+            }
+
+            let ch = if is_ascii_whitespace_code(ch) {
+                if whitespace {
+                    continue;
+                }
+                whitespace = true;
+                b' ' as u32
+            } else {
+                whitespace = false;
+                ch
+            };
+
+            if name.len() >= UNICODE_CHARACTER_NAME_LENGTH_BOUND {
+                return Err(self.error("Character name too long"));
+            }
+            name.push(char::from_u32(ch).expect("ASCII character name byte"));
         }
-        Ok(value)
+
+        if name.is_empty() {
+            return Err(self.error("Empty character name"));
+        }
+
+        character_name_to_code(&name).ok_or_else(|| self.error(&format!("\\N{{{name}}}")))
     }
 
     // -- Character literals ?a -----------------------------------------------
@@ -1853,6 +1871,144 @@ fn is_ascii_hexdigit_code(code: u32) -> bool {
 
 fn is_ascii_digit_for_radix_code(code: u32, radix: u32) -> bool {
     code <= 0x7F && (code as u8 as char).is_digit(radix)
+}
+
+fn character_name_to_code(name: &str) -> Option<u32> {
+    if let Some(hex) = name.strip_prefix("U+") {
+        return parse_unicode_codepoint(hex);
+    }
+
+    lookup_primary_unicode_name(name)
+        .or_else(|| lookup_lambda_spelling_alias(name))
+        .or_else(|| lookup_gnu_old_unicode_name(name))
+}
+
+fn parse_unicode_codepoint(hex: &str) -> Option<u32> {
+    if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let value = u32::from_str_radix(hex, 16).ok()?;
+    valid_unicode_scalar(value).then_some(value)
+}
+
+fn valid_unicode_scalar(value: u32) -> bool {
+    value <= 0x10FFFF && !(0xD800..=0xDFFF).contains(&value)
+}
+
+fn lookup_primary_unicode_name(name: &str) -> Option<u32> {
+    let ch = unicode_names2::character(name)?;
+    let primary = unicode_names2::name(ch)?;
+    primary
+        .to_string()
+        .eq_ignore_ascii_case(name)
+        .then_some(ch as u32)
+}
+
+fn lookup_lambda_spelling_alias(name: &str) -> Option<u32> {
+    let upper = name.to_ascii_uppercase();
+    if !upper.contains("LAMBDA") {
+        return None;
+    }
+    let lamda = replace_ascii_word(&upper, "LAMBDA", "LAMDA")?;
+    lookup_primary_unicode_name(&lamda)
+}
+
+fn replace_ascii_word(input: &str, needle: &str, replacement: &str) -> Option<String> {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let needle_bytes = needle.as_bytes();
+    let mut cursor = 0;
+    let mut changed = false;
+
+    while cursor < bytes.len() {
+        if bytes[cursor..].starts_with(needle_bytes)
+            && cursor
+                .checked_sub(1)
+                .and_then(|idx| bytes.get(idx))
+                .is_none_or(|b| !b.is_ascii_alphanumeric())
+            && bytes
+                .get(cursor + needle_bytes.len())
+                .is_none_or(|b| !b.is_ascii_alphanumeric())
+        {
+            out.push_str(replacement);
+            cursor += needle_bytes.len();
+            changed = true;
+        } else {
+            out.push(bytes[cursor] as char);
+            cursor += 1;
+        }
+    }
+
+    changed.then_some(out)
+}
+
+fn lookup_gnu_old_unicode_name(name: &str) -> Option<u32> {
+    match name.to_ascii_uppercase().as_str() {
+        "NULL" => Some(0x00),
+        "START OF HEADING" => Some(0x01),
+        "START OF TEXT" => Some(0x02),
+        "END OF TEXT" => Some(0x03),
+        "END OF TRANSMISSION" => Some(0x04),
+        "ENQUIRY" => Some(0x05),
+        "ACKNOWLEDGE" => Some(0x06),
+        "BELL (BEL)" => Some(0x07),
+        "BACKSPACE" => Some(0x08),
+        "CHARACTER TABULATION" => Some(0x09),
+        "LINE FEED (LF)" => Some(0x0A),
+        "LINE TABULATION" => Some(0x0B),
+        "FORM FEED (FF)" => Some(0x0C),
+        "CARRIAGE RETURN (CR)" => Some(0x0D),
+        "SHIFT OUT" => Some(0x0E),
+        "SHIFT IN" => Some(0x0F),
+        "DATA LINK ESCAPE" => Some(0x10),
+        "DEVICE CONTROL ONE" => Some(0x11),
+        "DEVICE CONTROL TWO" => Some(0x12),
+        "DEVICE CONTROL THREE" => Some(0x13),
+        "DEVICE CONTROL FOUR" => Some(0x14),
+        "NEGATIVE ACKNOWLEDGE" => Some(0x15),
+        "SYNCHRONOUS IDLE" => Some(0x16),
+        "END OF TRANSMISSION BLOCK" => Some(0x17),
+        "CANCEL" => Some(0x18),
+        "END OF MEDIUM" => Some(0x19),
+        "SUBSTITUTE" => Some(0x1A),
+        "ESCAPE" => Some(0x1B),
+        "INFORMATION SEPARATOR FOUR" => Some(0x1C),
+        "INFORMATION SEPARATOR THREE" => Some(0x1D),
+        "INFORMATION SEPARATOR TWO" => Some(0x1E),
+        "INFORMATION SEPARATOR ONE" => Some(0x1F),
+        "DELETE" => Some(0x7F),
+        "BREAK PERMITTED HERE" => Some(0x82),
+        "NO BREAK HERE" => Some(0x83),
+        "NEXT LINE (NEL)" => Some(0x85),
+        "START OF SELECTED AREA" => Some(0x86),
+        "END OF SELECTED AREA" => Some(0x87),
+        "CHARACTER TABULATION SET" => Some(0x88),
+        "CHARACTER TABULATION WITH JUSTIFICATION" => Some(0x89),
+        "LINE TABULATION SET" => Some(0x8A),
+        "PARTIAL LINE FORWARD" => Some(0x8B),
+        "PARTIAL LINE BACKWARD" => Some(0x8C),
+        "REVERSE LINE FEED" => Some(0x8D),
+        "SINGLE SHIFT TWO" => Some(0x8E),
+        "SINGLE SHIFT THREE" => Some(0x8F),
+        "DEVICE CONTROL STRING" => Some(0x90),
+        "PRIVATE USE ONE" => Some(0x91),
+        "PRIVATE USE TWO" => Some(0x92),
+        "SET TRANSMIT STATE" => Some(0x93),
+        "CANCEL CHARACTER" => Some(0x94),
+        "MESSAGE WAITING" => Some(0x95),
+        "START OF GUARDED AREA" => Some(0x96),
+        "END OF GUARDED AREA" => Some(0x97),
+        "START OF STRING" => Some(0x98),
+        "SINGLE CHARACTER INTRODUCER" => Some(0x9A),
+        "CONTROL SEQUENCE INTRODUCER" => Some(0x9B),
+        "STRING TERMINATOR" => Some(0x9C),
+        "OPERATING SYSTEM COMMAND" => Some(0x9D),
+        "PRIVACY MESSAGE" => Some(0x9E),
+        "APPLICATION PROGRAM COMMAND" => Some(0x9F),
+        "NON-BREAKING SPACE" => Some(0x00A0),
+        "BYTE ORDER MARK" => Some(0xFEFF),
+        _ => None,
+    }
 }
 
 fn source_code_for_error(code: u32) -> String {

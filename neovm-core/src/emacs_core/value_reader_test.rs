@@ -222,6 +222,13 @@ fn string_unicode_escape() {
 }
 
 #[test]
+fn string_named_unicode_escape_matches_gnu_reader() {
+    crate::test_utils::init_test_tracing();
+    let v = read1(r#""\N{COLON}\N{fullwidth   colon}""#);
+    assert_eq!(v.as_utf8_str().unwrap(), ":：");
+}
+
+#[test]
 fn string_octal_escape() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""\101""#);
@@ -266,6 +273,39 @@ fn char_literal_control() {
     // \C-a should be 1
     let v = read1("?\\C-a");
     assert_eq!(v.as_fixnum(), Some(1));
+}
+
+#[test]
+fn char_literal_named_unicode_escape_matches_gnu_reader() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(read1(r"?\N{COLON}").as_fixnum(), Some(58));
+    assert_eq!(read1(r"?\N{fullwidth   colon}").as_fixnum(), Some(65306));
+    assert_eq!(read1(r"?\N{U+003A}").as_fixnum(), Some(58));
+}
+
+#[test]
+fn char_literal_named_unicode_escape_keeps_gnu_exact_name_rules() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(read1(r"?\N{BACKSPACE}").as_fixnum(), Some(8));
+    assert_eq!(read1(r"?\N{BELL}").as_fixnum(), Some(128276));
+    assert_eq!(read1(r"?\N{BELL (BEL)}").as_fixnum(), Some(7));
+    assert_eq!(
+        read1(r"?\N{GREEK SMALL LETTER LAMBDA}").as_fixnum(),
+        Some(955)
+    );
+
+    for input in [
+        r"?\N{latinsmalllettera}",
+        r"?\N{LATIN_SMALL_LETTER_A}",
+        r"?\N{u+003A}",
+        r"?\N{}",
+        r"?\N{Aé}",
+    ] {
+        assert!(
+            read_one(input, 0).is_err(),
+            "reader should reject GNU-incompatible named escape {input:?}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

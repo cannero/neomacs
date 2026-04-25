@@ -54,6 +54,7 @@ sha2 = "0.10"
 regex = "1"
 rustc-hash = "2"
 strum = { version = "0.26", features = ["derive"] }
+unicode_names2 = "2.0.0"
 stacker = "0.1"
 dns-lookup = "2"
 hostname = "0.4"
