@@ -3173,6 +3173,45 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
 }
 
 #[test]
+fn decode_insert_file_contents_preserves_lone_cr_in_lf_text() {
+    crate::test_utils::init_test_tracing();
+
+    let (text, coding) =
+        super::decode_insert_file_contents(b"alpha\rdata\nbeta\n", true, false, None)
+            .expect("decode ascii unix text with embedded cr");
+    assert_eq!(text, "alpha\rdata\nbeta\n");
+    assert_eq!(coding, "undecided-unix");
+
+    let (text, coding) =
+        super::decode_insert_file_contents(b"(setq probe \"a\rb\")\n", true, true, None)
+            .expect("decode source-loaded unix text with embedded cr");
+    assert_eq!(text, "(setq probe \"a\rb\")\n");
+    assert_eq!(coding, "utf-8-emacs-unix");
+}
+
+#[test]
+fn insert_file_contents_preserves_lone_cr_in_lf_text() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("embedded-cr.el");
+    fs::write(&path, b"(setq probe \"a\rb\")\n").expect("write fixture");
+    let path_str = path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str)])
+        .expect("insert-file-contents should preserve embedded cr");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "(setq probe \"a\rb\")\n");
+    assert_eq!(
+        eval.visible_variable_value_or_nil("last-coding-system-used")
+            .as_symbol_name(),
+        Some("undecided-unix")
+    );
+}
+
+#[test]
 fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
     crate::test_utils::init_test_tracing();
 

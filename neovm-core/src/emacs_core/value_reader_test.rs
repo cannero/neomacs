@@ -151,6 +151,20 @@ fn symbol_escaped() {
     assert!(v.is_symbol_named("a b"));
 }
 
+#[test]
+fn symbol_escaped_decimal_digits_are_not_numbers() {
+    crate::test_utils::init_test_tracing();
+    let v = read1(r"\12345678");
+    assert!(v.is_symbol_named("12345678"));
+}
+
+#[test]
+fn symbol_escaped_hex_digits_are_not_numbers() {
+    crate::test_utils::init_test_tracing();
+    let v = read1(r"\0xFF");
+    assert!(v.is_symbol_named("0xFF"));
+}
+
 // ---------------------------------------------------------------------------
 // Keywords
 // ---------------------------------------------------------------------------
@@ -205,6 +219,15 @@ fn string_escapes() {
     crate::test_utils::init_test_tracing();
     let v = read1(r#""a\nb\t""#);
     assert_eq!(v.as_utf8_str().unwrap(), "a\nb\t");
+}
+
+#[test]
+fn string_literal_preserves_literal_carriage_return() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("\"a\rb\"");
+    let ls = v.as_lisp_string().expect("string literal");
+    assert_eq!(ls.as_bytes(), b"a\rb");
+    assert!(!ls.is_multibyte());
 }
 
 #[test]
@@ -750,6 +773,40 @@ fn hash_skip_doc_string_handles_high_bit_source_bytes() {
         "expected (window-state-put), got car {:?}",
         forms[0].cons_car()
     );
+}
+
+#[test]
+fn hash_caret_reads_char_table_literal() {
+    crate::test_utils::init_test_tracing();
+    let contents = std::iter::repeat("nil")
+        .take(64)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let input = format!("#^[nil nil test ascii {contents}]");
+    let table = read1(&input);
+
+    assert!(crate::emacs_core::chartable::is_char_table(&table));
+    let ascii = crate::emacs_core::builtins::builtin_aref(vec![table, Value::fixnum(42)])
+        .expect("aref should read char-table ASCII slot");
+    assert!(ascii.is_symbol_named("ascii"));
+}
+
+#[test]
+fn hash_caret_reads_nested_sub_char_table_literal() {
+    crate::test_utils::init_test_tracing();
+    let mut sub_items = vec!["nil"; 128];
+    sub_items[65] = "letter-a";
+    let sub_table = format!("#^^[3 0 {}]", sub_items.join(" "));
+    let contents = std::iter::repeat("nil")
+        .take(64)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let input = format!("#^[nil nil test {sub_table} {contents}]");
+    let table = read1(&input);
+
+    let letter_a = crate::emacs_core::builtins::builtin_aref(vec![table, Value::fixnum(65)])
+        .expect("aref should read nested sub-char-table value");
+    assert!(letter_a.is_symbol_named("letter-a"));
 }
 
 #[test]

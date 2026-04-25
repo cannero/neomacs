@@ -7882,6 +7882,40 @@ fn load_file_accepts_utf8_bom_prefixed_source() {
 }
 
 #[test]
+fn load_file_preserves_literal_carriage_return_inside_string() {
+    crate::test_utils::init_test_tracing();
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-load-cr-string-{unique}"));
+    fs::create_dir_all(&dir).expect("create temp fixture dir");
+    let file = dir.join("probe.el");
+    fs::write(
+        &file,
+        b";;; -*- lexical-binding: t -*-\n(setq vm-load-cr-string \"a\rb\")\n",
+    )
+    .expect("write carriage-return string fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    let loaded = load_file(&mut eval, &file).expect("load carriage-return string fixture");
+    assert_eq!(loaded, Value::T);
+    let value = eval
+        .obarray()
+        .symbol_value("vm-load-cr-string")
+        .copied()
+        .expect("loaded string binding");
+    let ls = value.as_lisp_string().expect("loaded string");
+    assert_eq!(
+        ls.as_bytes(),
+        b"a\rb",
+        "GNU preserves literal CR bytes inside loaded string literals"
+    );
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn load_file_single_line_shebang_signals_end_of_file() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

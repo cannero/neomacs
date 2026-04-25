@@ -1,4 +1,5 @@
 use super::*;
+use crate::emacs_core::eval::Context;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
 // -----------------------------------------------------------------------
@@ -350,6 +351,42 @@ fn map_char_table_shared_range_survives_callback_gc() {
 }
 
 #[test]
+fn map_char_table_decodes_unicode_property_run_length_values() {
+    crate::test_utils::init_test_tracing();
+    let table =
+        make_char_table_with_extra_slots(Value::symbol("char-code-property-table"), Value::NIL, 5);
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(0),
+        Value::symbol("general-category"),
+    ])
+    .unwrap();
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(1), Value::fixnum(0)]).unwrap();
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(4),
+        Value::vector(vec![Value::NIL, Value::symbol("Lu"), Value::symbol("Ll")]),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![
+        table,
+        Value::cons(Value::fixnum('A' as i64), Value::fixnum('B' as i64)),
+        Value::fixnum(1),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![table, Value::fixnum('c' as i64), Value::fixnum(2)]).unwrap();
+
+    let mut values = Vec::new();
+    for_each_char_table_mapping(&table, |_key, value| {
+        values.push(value);
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(values, vec![Value::symbol("Lu"), Value::symbol("Ll")]);
+}
+
+#[test]
 fn char_table_p_on_plain_vector() {
     crate::test_utils::init_test_tracing();
     // A plain vector should not be detected as a char-table.
@@ -662,6 +699,36 @@ fn char_table_range_reverse_cons_errors() {
     let range = Value::cons(Value::fixnum(70), Value::fixnum(65)); // min > max
     let result = builtin_set_char_table_range(vec![ct, range, Value::fixnum(1)]);
     assert!(result.is_err());
+}
+
+#[test]
+fn unicode_property_table_internal_returns_alist_char_table() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let prop = Value::symbol("neo-test-property");
+    let table =
+        make_char_table_with_extra_slots(Value::symbol("char-code-property-table"), Value::NIL, 5);
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(0), prop]).unwrap();
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(1), Value::fixnum(0)]).unwrap();
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(4),
+        Value::vector(vec![Value::NIL, Value::symbol("letter")]),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![table, Value::fixnum(65), Value::fixnum(1)]).unwrap();
+    eval.obarray.set_symbol_value(
+        "char-code-property-alist",
+        Value::list(vec![Value::cons(prop, table)]),
+    );
+
+    let returned = builtin_unicode_property_table_internal(&mut eval, vec![prop])
+        .expect("unicode-property-table-internal should return the table");
+    assert!(is_char_table(&returned));
+
+    let decoded = builtin_get_unicode_property_internal(vec![returned, Value::fixnum(65)])
+        .expect("run-length decoder should map through extra slot 4");
+    assert!(decoded.is_symbol_named("letter"));
 }
 
 // -----------------------------------------------------------------------

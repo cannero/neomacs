@@ -26,6 +26,7 @@ use super::value::*;
 // ---------------------------------------------------------------------------
 
 const CHAR_TABLE_TAG: &str = "--char-table--";
+const SUB_CHAR_TABLE_TAG: &str = "--sub-char-table--";
 const BOOL_VECTOR_TAG: &str = "--bool-vector--";
 
 // Char-table fixed-layout indices (after the tag at index 0):
@@ -37,6 +38,13 @@ const CT_EXTRA_START: usize = 5; // first extra slot (if any)
 const CT_LOGICAL_LENGTH: i64 = 0x3F_FFFF;
 /// Maximum valid Unicode code point.
 const MAX_CHAR: i64 = 0x3F_FFFF;
+
+const GNU_CHAR_TABLE_STANDARD_SLOTS: usize = 4 + GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE;
+const GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE: usize = 64;
+const GNU_CHAR_TABLE_CONTENT_START: usize = 4;
+const GNU_CHAR_TABLE_ASCII_SLOT: usize = 3;
+const GNU_CHARTAB_SIZE: [usize; 4] = [64, 16, 32, 128];
+const GNU_CHARTAB_CHARS: [i64; 4] = [65_536, 4_096, 128, 1];
 
 // Bool-vector fixed-layout indices:
 const BV_SIZE: usize = 1; // logical length
@@ -188,6 +196,235 @@ fn ct_data_start(vec: &[Value]) -> usize {
         _ => 0,
     };
     CT_EXTRA_START + extra_count
+}
+
+fn is_sub_char_table_literal(v: &Value) -> bool {
+    if !v.is_vector() {
+        return false;
+    }
+    let vec = v.as_vector_data().unwrap();
+    vec.len() >= 3
+        && vec[0]
+            .as_symbol_id()
+            .is_some_and(|id| resolve_sym(id) == SUB_CHAR_TABLE_TAG)
+}
+
+fn sub_char_table_depth_min_contents(v: &Value) -> Option<(usize, i64, Vec<Value>)> {
+    if !is_sub_char_table_literal(v) {
+        return None;
+    }
+    let vec = v.as_vector_data().unwrap();
+    let depth = vec.get(1)?.as_fixnum()?;
+    let min_char = vec.get(2)?.as_fixnum()?;
+    if !(1..=3).contains(&depth) || !(0..=MAX_CHAR).contains(&min_char) {
+        return None;
+    }
+    Some((depth as usize, min_char, vec[3..].to_vec()))
+}
+
+/// Build the temporary reader representation for GNU `#^^[...]` literals.
+///
+/// GNU Emacs creates a PVEC_SUB_CHAR_TABLE directly in `lread.c`; NeoVM has no
+/// dedicated `Value` variant for it, so the reader keeps a tagged vector long
+/// enough for the enclosing `#^[...]` reader path to fold it into the existing
+/// sparse char-table representation.
+pub(crate) fn make_sub_char_table_from_external_slots(items: &[Value]) -> Result<Value, String> {
+    if items.len() < 2 {
+        return Err("Invalid size of sub-char-table".to_string());
+    }
+    let depth = items[0]
+        .as_fixnum()
+        .ok_or_else(|| "Invalid depth in sub-char-table".to_string())?;
+    if !(1..=3).contains(&depth) {
+        return Err("Invalid depth in sub-char-table".to_string());
+    }
+    let min_char = items[1]
+        .as_fixnum()
+        .ok_or_else(|| "Invalid minimum character in sub-char-table".to_string())?;
+    if !(0..=MAX_CHAR).contains(&min_char) {
+        return Err("Invalid minimum character in sub-char-table".to_string());
+    }
+
+    let expected = 2 + GNU_CHARTAB_SIZE[depth as usize];
+    if items.len() != expected {
+        return Err("Invalid size in sub-char-table".to_string());
+    }
+
+    let mut vec = Vec::with_capacity(items.len() + 1);
+    vec.push(Value::symbol(SUB_CHAR_TABLE_TAG));
+    vec.extend_from_slice(items);
+    Ok(Value::vector(vec))
+}
+
+fn char_table_extra_count(vec: &[Value]) -> usize {
+    match vec.get(CT_EXTRA_COUNT).map(|v| v.kind()) {
+        Some(ValueKind::Fixnum(n)) if n >= 0 => n as usize,
+        _ => 0,
+    }
+}
+
+fn char_table_extra_slot_value(table: &Value, idx: usize) -> Option<Value> {
+    if !is_char_table(table) {
+        return None;
+    }
+    let vec = table.as_vector_data().unwrap();
+    let extra_count = char_table_extra_count(vec);
+    (idx < extra_count).then(|| vec[CT_EXTRA_START + idx])
+}
+
+fn is_char_code_property_table(table: &Value) -> bool {
+    if !is_char_table(table) {
+        return false;
+    }
+    let vec = table.as_vector_data().unwrap();
+    vec.get(CT_SUBTYPE)
+        .is_some_and(|v| v.is_symbol_named("char-code-property-table"))
+        && char_table_extra_count(vec) == 5
+}
+
+fn uniprop_compressed_string(value: Value) -> Option<Vec<u32>> {
+    let string = value.as_lisp_string()?;
+    let codes = crate::emacs_core::builtins::lisp_string_char_codes(string);
+    matches!(codes.first(), Some(1 | 2)).then_some(codes)
+}
+
+fn flatten_uniprop_compressed_string(vec: &mut Vec<Value>, start: i64, codes: &[u32]) {
+    match codes.first().copied() {
+        Some(1) => {
+            let mut cursor = 1;
+            let Some(mut idx) = codes.get(cursor).copied().map(i64::from) else {
+                return;
+            };
+            cursor += 1;
+            while cursor < codes.len() && idx < GNU_CHARTAB_CHARS[2] {
+                let value = codes[cursor] as i64;
+                if value > 0 {
+                    ct_set_char(vec, start + idx, Value::fixnum(value));
+                }
+                idx += 1;
+                cursor += 1;
+            }
+        }
+        Some(2) => {
+            let mut cursor = 1;
+            let mut idx = 0_i64;
+            while cursor < codes.len() && idx < GNU_CHARTAB_CHARS[2] {
+                let value = codes[cursor] as i64;
+                cursor += 1;
+                let count = if cursor < codes.len() && codes[cursor] >= 128 {
+                    let count = codes[cursor] as i64 - 128;
+                    cursor += 1;
+                    count
+                } else {
+                    1
+                };
+                for _ in 0..count {
+                    if idx >= GNU_CHARTAB_CHARS[2] {
+                        break;
+                    }
+                    ct_set_char(vec, start + idx, Value::fixnum(value));
+                    idx += 1;
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn flatten_char_table_slot(
+    vec: &mut Vec<Value>,
+    value: Value,
+    start: i64,
+    span: i64,
+    is_uniprop: bool,
+) {
+    if value.is_nil() {
+        return;
+    }
+
+    if let Some((depth, min_char, contents)) = sub_char_table_depth_min_contents(&value) {
+        flatten_sub_char_table(vec, depth, min_char, &contents, is_uniprop);
+        return;
+    }
+
+    if is_uniprop
+        && span == GNU_CHARTAB_CHARS[2]
+        && let Some(codes) = uniprop_compressed_string(value)
+    {
+        flatten_uniprop_compressed_string(vec, start, &codes);
+        return;
+    }
+
+    let end = (start + span - 1).min(MAX_CHAR);
+    if start == end {
+        ct_set_char(vec, start, value);
+    } else {
+        ct_set_range(vec, start, end, value);
+    }
+}
+
+fn flatten_sub_char_table(
+    vec: &mut Vec<Value>,
+    depth: usize,
+    min_char: i64,
+    contents: &[Value],
+    is_uniprop: bool,
+) {
+    if depth > 3 || contents.len() != GNU_CHARTAB_SIZE[depth] {
+        return;
+    }
+    let span = GNU_CHARTAB_CHARS[depth];
+    for (idx, value) in contents.iter().copied().enumerate() {
+        flatten_char_table_slot(vec, value, min_char + idx as i64 * span, span, is_uniprop);
+    }
+}
+
+/// Build a NeoVM char-table from GNU's readable `#^[...]` char-table literal.
+///
+/// GNU's external order is:
+/// `DEFAULT PARENT PURPOSE ASCII CONTENTS[64] EXTRAS...`.
+pub(crate) fn make_char_table_from_external_slots(items: &[Value]) -> Result<Value, String> {
+    if items.len() < GNU_CHAR_TABLE_STANDARD_SLOTS {
+        return Err("Invalid size char-table".to_string());
+    }
+
+    let default = items[0];
+    let parent = items[1];
+    let purpose = items[2];
+    let extra_count = items.len() - GNU_CHAR_TABLE_STANDARD_SLOTS;
+    let mut vec = vec![
+        Value::symbol(CHAR_TABLE_TAG),
+        default,
+        parent,
+        purpose,
+        Value::fixnum(extra_count as i64),
+    ];
+    vec.extend_from_slice(&items[GNU_CHAR_TABLE_STANDARD_SLOTS..]);
+
+    let is_uniprop = purpose.is_symbol_named("char-code-property-table") && extra_count == 5;
+    for block in 0..GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE {
+        let start = block as i64 * GNU_CHAR_TABLE_BLOCK_CHARS;
+        flatten_char_table_slot(
+            &mut vec,
+            items[GNU_CHAR_TABLE_CONTENT_START + block],
+            start,
+            GNU_CHAR_TABLE_BLOCK_CHARS,
+            is_uniprop,
+        );
+    }
+
+    // GNU keeps an ASCII cache slot that takes precedence for 0..127.  Append it
+    // after the content blocks so the existing "last assignment wins" lookup
+    // model observes the same precedence.
+    flatten_char_table_slot(
+        &mut vec,
+        items[GNU_CHAR_TABLE_ASCII_SLOT],
+        0,
+        128,
+        is_uniprop,
+    );
+
+    Ok(Value::vector(vec))
 }
 
 // ---------------------------------------------------------------------------
@@ -571,7 +808,8 @@ pub(crate) fn for_each_char_table_mapping(
             } else {
                 shared_range
             };
-            f(key, run.value)?;
+            let value = decode_unicode_property_map_value(*table, run.value);
+            f(key, value)?;
         }
         Ok(())
     })();
@@ -865,6 +1103,143 @@ pub(crate) fn builtin_char_table_subtype(args: Vec<Value>) -> EvalResult {
     }
     let vec = table.as_vector_data().unwrap();
     Ok(vec[CT_SUBTYPE])
+}
+
+fn assq_cell_eq(key: Value, list: Value) -> Result<Value, Flow> {
+    let mut cursor = list;
+    loop {
+        match cursor.kind() {
+            ValueKind::Nil => return Ok(Value::NIL),
+            ValueKind::Cons => {
+                let entry = cursor.cons_car();
+                if entry.is_cons() && eq_value(&entry.cons_car(), &key) {
+                    return Ok(entry);
+                }
+                cursor = cursor.cons_cdr();
+            }
+            _ => return Err(wrong_type("listp", &list)),
+        }
+    }
+}
+
+fn char_code_property_cell(eval: &Context, prop: Value) -> Result<Value, Flow> {
+    let alist = eval
+        .obarray
+        .symbol_value("char-code-property-alist")
+        .copied()
+        .unwrap_or(Value::NIL);
+    assq_cell_eq(prop, alist)
+}
+
+/// `(unicode-property-table-internal PROP)`.
+///
+/// GNU's `chartab.c:uniprop_table` lazily loads `international/<file>` when
+/// `char-code-property-alist` stores a string, then the public primitive returns
+/// the alist cdr even for property tables whose decoder is Lisp rather than the
+/// C fast-path decoder.  That distinction matters for `name`/`old-name`, whose
+/// generated tables use byte-code decoder functions in extra slots.
+pub(crate) fn builtin_unicode_property_table_internal(
+    eval: &mut Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("unicode-property-table-internal", &args, 1)?;
+    let prop = args[0];
+    let mut cell = char_code_property_cell(eval, prop)?;
+    if cell.is_nil() {
+        return Ok(Value::NIL);
+    }
+
+    let table = cell.cons_cdr();
+    if table.is_string() {
+        let Some(file_name) = table.as_runtime_string_owned() else {
+            return Ok(table);
+        };
+        let load_name = Value::string(format!("international/{file_name}"));
+        let _ = crate::emacs_core::load::builtin_load_in_vm_runtime(
+            eval,
+            &[load_name, Value::T, Value::T, Value::T, Value::T],
+        )?;
+        cell = char_code_property_cell(eval, prop)?;
+        if cell.is_nil() {
+            return Ok(Value::NIL);
+        }
+    }
+
+    Ok(cell.cons_cdr())
+}
+
+fn expect_character(value: &Value) -> Result<i64, Flow> {
+    match value.kind() {
+        ValueKind::Fixnum(n) if (0..=MAX_CHAR).contains(&n) => Ok(n),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("characterp"), *value],
+        )),
+    }
+}
+
+fn invalid_unicode_property_table() -> Flow {
+    signal(
+        "error",
+        vec![Value::string("Invalid Unicode property table")],
+    )
+}
+
+fn decode_uniprop_run_length(table: Value, value: Value) -> Value {
+    let Some(ValueKind::Fixnum(index)) = Some(value.kind()) else {
+        return value;
+    };
+    if index < 0 {
+        return value;
+    }
+    let Some(value_table) = char_table_extra_slot_value(&table, 4) else {
+        return value;
+    };
+    if !value_table.is_vector() {
+        return value;
+    }
+    value_table
+        .as_vector_data()
+        .and_then(|values| values.get(index as usize).copied())
+        .unwrap_or(value)
+}
+
+fn decode_unicode_property_map_value(table: Value, value: Value) -> Value {
+    if !is_char_code_property_table(&table) {
+        return value;
+    }
+
+    match char_table_extra_slot_value(&table, 1).map(|v| v.kind()) {
+        Some(ValueKind::Fixnum(0)) => decode_uniprop_run_length(table, value),
+        _ => value,
+    }
+}
+
+/// `(get-unicode-property-internal CHAR-TABLE CH)`.
+///
+/// This mirrors GNU's C fast path for Unicode property tables: `CHAR-TABLE`
+/// must have purpose `char-code-property-table` and five extra slots; a fixnum
+/// decoder in extra slot 1 selects the built-in run-length decoder.
+pub(crate) fn builtin_get_unicode_property_internal(args: Vec<Value>) -> EvalResult {
+    expect_args("get-unicode-property-internal", &args, 2)?;
+    let table = args[0];
+    let ch = expect_character(&args[1])?;
+
+    if !is_char_table(&table) {
+        return Err(wrong_type("char-table-p", &table));
+    }
+    if !is_char_code_property_table(&table) {
+        return Err(invalid_unicode_property_table());
+    }
+
+    let decoder = char_table_extra_slot_value(&table, 1).unwrap_or(Value::NIL);
+    let value = ct_lookup(&table, ch)?;
+    match decoder.kind() {
+        ValueKind::Fixnum(0) => Ok(decode_uniprop_run_length(table, value)),
+        ValueKind::Nil => Ok(value),
+        ValueKind::Fixnum(_) => Err(invalid_unicode_property_table()),
+        _ => Ok(value),
+    }
 }
 
 // ---------------------------------------------------------------------------

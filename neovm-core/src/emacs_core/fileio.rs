@@ -3784,23 +3784,31 @@ fn decode_insert_file_contents(
     coding_system_for_read: Option<&str>,
 ) -> Result<(String, String), Flow> {
     let detected_default_eol_suffix = |bytes: &[u8]| {
+        let mut saw_lf = false;
         let mut saw_crlf = false;
         let mut saw_lone_cr = false;
         let mut idx = 0;
         while idx < bytes.len() {
-            if bytes[idx] == b'\r' {
-                if bytes.get(idx + 1) == Some(&b'\n') {
-                    saw_crlf = true;
-                    idx += 1;
-                } else {
-                    saw_lone_cr = true;
+            match bytes[idx] {
+                b'\n' => saw_lf = true,
+                b'\r' => {
+                    if bytes.get(idx + 1) == Some(&b'\n') {
+                        saw_crlf = true;
+                        idx += 1;
+                    } else {
+                        saw_lone_cr = true;
+                    }
                 }
+                _ => {}
             }
             idx += 1;
         }
-        if saw_crlf && !saw_lone_cr {
+
+        if saw_lf {
+            "-unix"
+        } else if saw_crlf {
             "-dos"
-        } else if saw_lone_cr && !saw_crlf {
+        } else if saw_lone_cr {
             "-mac"
         } else {
             "-unix"

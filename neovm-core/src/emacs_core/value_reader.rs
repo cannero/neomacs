@@ -7,8 +7,9 @@
 //! uninterned symbols (`#:foo`), character literals (?a), lists, dotted pairs,
 //! vectors, quote ('), function (#'), backquote (`), unquote (,), splice (,@),
 //! line comments (;), block comments (#|..|#), hash-table literals, records,
-//! bool-vector literals, byte-code literals, read labels (#N= / #N#),
-//! radix integers (#x, #o, #b), propertized strings, reader skip (#@N).
+//! bool-vector literals, byte-code literals, char-table literals (#^[...] /
+//! #^^[...]), read labels (#N= / #N#), radix integers (#x, #o, #b),
+//! propertized strings, reader skip (#@N).
 
 use super::eval::{push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::{intern, intern_lisp_string, intern_uninterned_lisp_string, resolve_sym};
@@ -1253,6 +1254,40 @@ impl<'a> Reader<'a> {
                 restore_scratch_gc_roots(saved);
                 result
             }
+            x if x == b'^' as u32 => {
+                // #^[...]  — char-table literal.
+                // #^^[...] — sub-char-table literal.
+                //
+                // GNU Emacs marks vectors read through this syntax as
+                // PVEC_CHAR_TABLE / PVEC_SUB_CHAR_TABLE in lread.c.  NeoVM
+                // represents char-tables as tagged Values, so delegate the
+                // slot conversion to chartable.rs after reading the vector
+                // payload.
+                self.bump();
+                let is_sub_char_table = if self.current_code() == Some(b'^' as u32) {
+                    self.bump();
+                    true
+                } else {
+                    false
+                };
+                if self.current_code() != Some(b'[' as u32) {
+                    return Err(self.error("#^"));
+                }
+
+                let saved = save_scratch_gc_roots();
+                let items = self.read_vector_items()?;
+                for item in &items {
+                    push_scratch_gc_root(*item);
+                }
+                let result = if is_sub_char_table {
+                    crate::emacs_core::chartable::make_sub_char_table_from_external_slots(&items)
+                } else {
+                    crate::emacs_core::chartable::make_char_table_from_external_slots(&items)
+                }
+                .map_err(|msg| self.error(&msg));
+                restore_scratch_gc_roots(saved);
+                result
+            }
             x if x == b'@' as u32 => {
                 // #@N<bytes> — reader skip used by .elc for inline data blocks.
                 self.read_hash_skip_bytes()
@@ -1581,49 +1616,51 @@ impl<'a> Reader<'a> {
             return Ok(Value::keyword_id(intern_lisp_string(&token.name)));
         }
 
-        if let Some(token_text) = token.text.as_deref() {
-            // Try integer. Funnel through Value::make_integer so a value
-            // that fits in i64 but not in fixnum (62-bit) is promoted to
-            // a bignum, matching GNU `string_to_number` behavior. On i64
-            // overflow, fall through to a rug::Integer parse so true
-            // bignum literals work.
-            if looks_like_integer(token_text) {
-                if let Ok(n) = token_text.parse::<i64>() {
-                    return Ok(Value::make_integer(rug::Integer::from(n)));
+        if !token.had_escape {
+            if let Some(token_text) = token.text.as_deref() {
+                // Try integer. Funnel through Value::make_integer so a value
+                // that fits in i64 but not in fixnum (62-bit) is promoted to
+                // a bignum, matching GNU `string_to_number` behavior. On i64
+                // overflow, fall through to a rug::Integer parse so true
+                // bignum literals work.
+                if looks_like_integer(token_text) {
+                    if let Ok(n) = token_text.parse::<i64>() {
+                        return Ok(Value::make_integer(rug::Integer::from(n)));
+                    }
+                    if let Ok(parsed) = rug::Integer::parse(token_text) {
+                        return Ok(Value::make_integer(rug::Integer::from(parsed)));
+                    }
                 }
-                if let Ok(parsed) = rug::Integer::parse(token_text) {
-                    return Ok(Value::make_integer(rug::Integer::from(parsed)));
-                }
-            }
 
-            // Try float — handles 1.5, 1e10, .5, 1.5e-3, etc.
-            if looks_like_float(token_text) {
-                if let Ok(f) = token_text.parse::<f64>() {
-                    return Ok(Value::make_float(f));
+                // Try float — handles 1.5, 1e10, .5, 1.5e-3, etc.
+                if looks_like_float(token_text) {
+                    if let Ok(f) = token_text.parse::<f64>() {
+                        return Ok(Value::make_float(f));
+                    }
+                    if let Some(f) = parse_emacs_special_float(token_text) {
+                        return Ok(Value::make_float(f));
+                    }
                 }
-                if let Some(f) = parse_emacs_special_float(token_text) {
-                    return Ok(Value::make_float(f));
+
+                // Hex integer: 0xFF
+                if token_text.starts_with("0x") || token_text.starts_with("0X") {
+                    if let Ok(n) = i64::from_str_radix(&token_text[2..], 16) {
+                        return Ok(Value::make_integer(rug::Integer::from(n)));
+                    }
                 }
-            }
 
-            // Hex integer: 0xFF
-            if token_text.starts_with("0x") || token_text.starts_with("0X") {
-                if let Ok(n) = i64::from_str_radix(&token_text[2..], 16) {
-                    return Ok(Value::make_integer(rug::Integer::from(n)));
+                // t and nil
+                if token_text == "t" {
+                    return Ok(Value::T);
                 }
-            }
+                if token_text == "nil" {
+                    return Ok(Value::NIL);
+                }
 
-            // t and nil
-            if token_text == "t" {
-                return Ok(Value::T);
-            }
-            if token_text == "nil" {
-                return Ok(Value::NIL);
-            }
-
-            // Emacs reader shorthand: bare ## reads as the symbol with empty name.
-            if token_text == "##" && !token.had_escape {
-                return Ok(Value::from_sym_id(intern("")));
+                // Emacs reader shorthand: bare ## reads as the symbol with empty name.
+                if token_text == "##" && !token.had_escape {
+                    return Ok(Value::from_sym_id(intern("")));
+                }
             }
         }
 

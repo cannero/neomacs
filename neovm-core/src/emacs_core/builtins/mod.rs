@@ -4797,7 +4797,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "get-unicode-property-internal",
-        |_ctx, args| builtin_get_unicode_property_internal(args),
+        |_ctx, args| super::chartable::builtin_get_unicode_property_internal(args),
         2,
         Some(2),
     );
@@ -5725,7 +5725,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "unicode-property-table-internal",
-        |_ctx, args| builtin_unicode_property_table_internal(args),
+        |ctx, args| super::chartable::builtin_unicode_property_table_internal(ctx, args),
         1,
         Some(1),
     );
