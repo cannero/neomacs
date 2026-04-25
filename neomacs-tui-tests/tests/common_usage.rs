@@ -7865,6 +7865,37 @@ fn universal_argument_insert_via_cu_8_a() {
 }
 
 #[test]
+fn negative_argument_reverses_forward_word_via_mminus_mf() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "negative-argument.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "M-f M-f M-- M-f");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    send_both_raw(&mut gnu, &mut neo, b"X");
+
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha Xbeta gamma"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "negative_argument_reverses_forward_word_via_mminus_mf",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn keyboard_macro_record_and_replay_via_cx_parens_cx_e() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
