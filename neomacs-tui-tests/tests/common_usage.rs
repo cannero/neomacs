@@ -8668,6 +8668,70 @@ fn eval_last_sexp_error_via_cx_ce_opens_backtrace() {
 }
 
 #[test]
+fn trace_function_background_writes_trace_output_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_both(&mut gnu, &mut neo, "M-:");
+    let eval_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), eval_prompt);
+    neo.read_until(Duration::from_secs(8), eval_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    for session in [&mut gnu, &mut neo] {
+        session.send(
+            br#"(progn (defun trace-probe (x) (+ x 1)) (trace-function-background 'trace-probe) (trace-probe 41))"#,
+        );
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let eval_ready = |grid: &[String]| grid.iter().rev().take(4).any(|row| row.contains("42"));
+    gnu.read_until(Duration::from_secs(6), eval_ready);
+    neo.read_until(Duration::from_secs(8), eval_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x b");
+    let switch_prompt = |grid: &[String]| grid.iter().any(|row| row.contains("Switch to buffer:"));
+    gnu.read_until(Duration::from_secs(6), switch_prompt);
+    neo.read_until(Duration::from_secs(8), switch_prompt);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"*trace-output*");
+    }
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let trace_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*trace-output*"))
+            && grid.iter().any(|row| row.contains("1 -> (trace-probe 41)"))
+            && grid.iter().any(|row| row.contains("1 <- trace-probe: 42"))
+    };
+    gnu.read_until(Duration::from_secs(6), trace_ready);
+    neo.read_until(Duration::from_secs(8), trace_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*trace-output*")),
+            "{label} should display trace-buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("1 -> (trace-probe 41)")),
+            "{label} should show trace entry"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("1 <- trace-probe: 42")),
+            "{label} should show trace exit"
+        );
+    }
+    assert_pair_nearly_matches(
+        "trace_function_background_writes_trace_output_buffer",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn eval_expression_via_mcolon_prints_echo_area_value() {
     let (mut gnu, mut neo) = boot_pair("");
 
