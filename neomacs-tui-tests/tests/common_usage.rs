@@ -8732,6 +8732,47 @@ fn trace_function_background_writes_trace_output_buffer() {
 }
 
 #[test]
+fn completion_at_point_in_elisp_buffer_completes_function_name() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "completion-at-point.el",
+        "(forward-cha\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+    invoke_mx_command(&mut gnu, &mut neo, "completion-at-point");
+
+    let ready = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("completion-at-point.el"))
+            && grid.iter().any(|row| row.contains("(forward-char"))
+    };
+    gnu.read_until(Duration::from_secs(6), ready);
+    neo.read_until(Duration::from_secs(8), ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("(forward-char")),
+            "{label} should complete an Emacs Lisp function name at point\n{}",
+            grid.join("\n")
+        );
+    }
+    assert_pair_nearly_matches(
+        "completion_at_point_in_elisp_buffer_completes_function_name",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn eval_expression_via_mcolon_prints_echo_area_value() {
     let (mut gnu, mut neo) = boot_pair("");
 
