@@ -1,0 +1,89 @@
+//! TUI comparisons for common programming-buffer workflows.
+//!
+//! These cover GNU Emacs behavior from `lisp/indent.el`,
+//! `lisp/newcomment.el`, `lisp/imenu.el`, and
+//! `lisp/progmodes/elisp-mode.el`.
+
+mod support;
+
+use std::time::Duration;
+use support::*;
+
+#[test]
+fn indent_for_tab_command_indents_current_elisp_line() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let name = "tab-indent-probe.el";
+    let initial = "(defun neo-tab-probe ()\n(message \"alpha\")\n)\n";
+    let expected = "(defun neo-tab-probe ()\n  (message \"alpha\")\n)\n";
+
+    open_home_file(&mut gnu, &mut neo, name, initial, "C-x C-f");
+    send_both(&mut gnu, &mut neo, "C-n TAB");
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(4), |grid| {
+        grid.iter().any(|row| row.contains("  (message \"alpha\")"))
+    });
+
+    save_current_file_and_assert_contents(
+        "indent-for-tab-command",
+        &mut gnu,
+        &mut neo,
+        name,
+        expected,
+    );
+}
+
+#[test]
+fn comment_dwim_on_blank_elisp_line_inserts_indented_comment() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let name = "comment-dwim-blank-probe.el";
+    let initial = "(defun neo-comment-probe ()\n\n  (message \"alpha\"))\n";
+    let expected = "(defun neo-comment-probe ()\n  ;; \n  (message \"alpha\"))\n";
+
+    open_home_file(&mut gnu, &mut neo, name, initial, "C-x C-f");
+    send_both(&mut gnu, &mut neo, "C-n M-;");
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(4), |grid| {
+        grid.iter().any(|row| row.contains("  ;;"))
+    });
+
+    save_current_file_and_assert_contents("comment-dwim", &mut gnu, &mut neo, name, expected);
+}
+
+#[test]
+fn eval_defun_via_cmeta_x_defines_current_elisp_function() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let name = "eval-defun-probe.el";
+    let initial = "(defun neo-eval-defun-probe ()\n  \"value-from-eval-defun\")\n";
+
+    open_home_file(&mut gnu, &mut neo, name, initial, "C-x C-f");
+    send_both(&mut gnu, &mut neo, "C-M-x");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    eval_expression(&mut gnu, &mut neo, "(neo-eval-defun-probe)");
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(6), |grid| {
+        grid.iter().any(|row| row.contains("value-from-eval-defun"))
+    });
+}
+
+#[test]
+fn imenu_via_mx_jumps_to_named_elisp_defun() {
+    let (mut gnu, mut neo) = boot_pair("");
+    let name = "imenu-probe.el";
+    let initial = "(defun neo-imenu-alpha ()\n  1)\n\n(defun neo-imenu-beta ()\n  2)\n";
+
+    open_home_file(&mut gnu, &mut neo, name, initial, "C-x C-f");
+    invoke_mx_command(&mut gnu, &mut neo, "imenu");
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(6), |grid| {
+        grid.last().is_some_and(|row| row.contains("Index item:"))
+    });
+    gnu.send(b"neo-imenu-beta");
+    neo.send(b"neo-imenu-beta");
+    send_both(&mut gnu, &mut neo, "RET");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        r#"(message "imenu-at-beta %s" (save-excursion (beginning-of-line) (looking-at "(defun neo-imenu-beta")))"#,
+    );
+    wait_for_both(&mut gnu, &mut neo, Duration::from_secs(6), |grid| {
+        grid.iter().any(|row| row.contains("imenu-at-beta t"))
+    });
+}
