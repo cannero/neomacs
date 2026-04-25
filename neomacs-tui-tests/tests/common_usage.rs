@@ -3365,6 +3365,57 @@ fn kill_buffer_and_window_via_cx4_0_restores_single_window() {
 }
 
 #[test]
+fn tab_bar_new_next_and_close_via_cx_t_prefix() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "tab-one.txt",
+        "tab one body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x t 2");
+    let new_tab_ready = |grid: &[String]| grid.iter().any(|row| row.contains("*scratch*"));
+    gnu.read_until(Duration::from_secs(6), new_tab_ready);
+    neo.read_until(Duration::from_secs(8), new_tab_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "tab-two.txt",
+        "tab two body\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-x t o");
+    let first_tab_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("tab-one.txt"))
+            && grid.iter().any(|row| row.contains("tab one body"))
+    };
+    gnu.read_until(Duration::from_secs(6), first_tab_ready);
+    neo.read_until(Duration::from_secs(8), first_tab_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x t o");
+    let second_tab_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("tab-two.txt"))
+            && grid.iter().any(|row| row.contains("tab two body"))
+    };
+    gnu.read_until(Duration::from_secs(6), second_tab_ready);
+    neo.read_until(Duration::from_secs(8), second_tab_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-x t 0");
+    gnu.read_until(Duration::from_secs(6), first_tab_ready);
+    neo.read_until(Duration::from_secs(8), first_tab_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches("tab_bar_new_next_and_close_via_cx_t_prefix", &gnu, &neo, 2);
+}
+
+#[test]
 fn split_window_then_open_file_in_other_window_via_cx2_cxo_cx_cf() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "split-window.txt", "split line 1\nsplit line 2\n");
