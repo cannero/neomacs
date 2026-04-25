@@ -6232,6 +6232,22 @@ fn unread_command_events_is_bound_to_nil_at_startup() {
 }
 
 #[test]
+fn emacs_copyright_is_bound_at_startup() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "emacs-copyright
+         (boundp 'emacs-copyright)
+         (string-match-p \"Copyright (C) [0-9]+ Free Software Foundation\" emacs-copyright)",
+    );
+    assert_eq!(
+        results[0],
+        "OK \"Copyright (C) 2026 Free Software Foundation, Inc.\""
+    );
+    assert_eq!(results[1], "OK t");
+    assert_eq!(results[2], "OK 0");
+}
+
+#[test]
 fn startup_string_variable_docs_are_seeded_at_startup() {
     crate::test_utils::init_test_tracing();
     let results = eval_all(

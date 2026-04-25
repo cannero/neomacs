@@ -2494,6 +2494,10 @@ fn ensure_startup_compat_variables(eval: &mut super::eval::Context, project_root
         super::builtins_extra::system_configuration_features_value();
     let operating_system_release = super::builtins_extra::operating_system_release_value();
     let defaults = [
+        (
+            "emacs-copyright",
+            Value::string("Copyright (C) 2026 Free Software Foundation, Inc."),
+        ),
         ("data-directory", Value::unibyte_string(etc_dir.clone())),
         ("doc-directory", Value::unibyte_string(etc_dir)),
         (

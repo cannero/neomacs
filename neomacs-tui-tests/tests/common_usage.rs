@@ -4662,6 +4662,41 @@ fn describe_copying_via_ch_cc_opens_copying_file() {
 }
 
 #[test]
+fn about_emacs_via_ch_ca_opens_about_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_help_sequence(&mut gnu, &mut neo, "C-a");
+    let about_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*About GNU Emacs*"))
+            && grid.iter().any(|row| row.contains("This is GNU Emacs"))
+            && grid
+                .iter()
+                .any(|row| row.contains("ABSOLUTELY NO WARRANTY"))
+    };
+    gnu.read_until(Duration::from_secs(8), about_ready);
+    neo.read_until(Duration::from_secs(12), about_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("*About GNU Emacs*")),
+            "{label} should show the About buffer"
+        );
+        assert!(
+            grid.iter().any(|row| row.contains("This is GNU Emacs")),
+            "{label} should show the About screen heading"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("ABSOLUTELY NO WARRANTY")),
+            "{label} should show the About screen warranty link text"
+        );
+    }
+    assert_pair_nearly_matches("about_emacs_via_ch_ca_opens_about_buffer", &gnu, &neo, 5);
+}
+
+#[test]
 fn append_to_file_via_mx_appends_region_to_existing_file() {
     let (mut gnu, mut neo) = boot_pair("");
     write_home_file(&gnu, "append-to-file-dest.txt", "existing header\n");

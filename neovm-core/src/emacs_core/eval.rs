@@ -2695,6 +2695,10 @@ impl Context {
         obarray.set_symbol_value("float-pi", Value::make_float(std::f64::consts::PI));
         obarray.set_symbol_value("pi", Value::make_float(std::f64::consts::PI));
         obarray.set_symbol_value("emacs-version", Value::string("31.0.50"));
+        obarray.set_symbol_value(
+            "emacs-copyright",
+            Value::string("Copyright (C) 2026 Free Software Foundation, Inc."),
+        );
         obarray.set_symbol_value("emacs-major-version", Value::fixnum(31));
         obarray.set_symbol_value("emacs-minor-version", Value::fixnum(0));
         obarray.set_symbol_value("emacs-build-number", Value::fixnum(1));
