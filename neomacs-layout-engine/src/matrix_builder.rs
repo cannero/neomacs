@@ -92,6 +92,7 @@ pub struct GlyphMatrixBuilder {
     parent_x: f32,
     parent_y: f32,
     z_order: i32,
+    undecorated: bool,
 }
 
 #[derive(Clone)]
@@ -232,6 +233,7 @@ impl GlyphMatrixBuilder {
             parent_x: 0.0,
             parent_y: 0.0,
             z_order: 0,
+            undecorated: false,
         }
     }
 
@@ -267,6 +269,7 @@ impl GlyphMatrixBuilder {
         self.parent_x = 0.0;
         self.parent_y = 0.0;
         self.z_order = 0;
+        self.undecorated = false;
     }
 
     pub fn begin_window(
@@ -732,12 +735,14 @@ impl GlyphMatrixBuilder {
         parent_x: f32,
         parent_y: f32,
         z_order: i32,
+        undecorated: bool,
     ) {
         self.frame_id = frame_id;
         self.parent_id = parent_id;
         self.parent_x = parent_x;
         self.parent_y = parent_y;
         self.z_order = z_order;
+        self.undecorated = undecorated;
     }
 
     /// Begin a new status-line row on the most recently stored window.
@@ -965,6 +970,7 @@ impl GlyphMatrixBuilder {
         state.parent_x = self.parent_x;
         state.parent_y = self.parent_y;
         state.z_order = self.z_order;
+        state.undecorated = self.undecorated;
         state
     }
 

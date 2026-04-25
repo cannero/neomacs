@@ -464,6 +464,7 @@ pub struct FrameDisplayState {
     pub parent_x: f32,
     pub parent_y: f32,
     pub z_order: i32,
+    pub undecorated: bool,
     pub window_infos: Vec<WindowInfo>,
     pub transition_hints: Vec<WindowTransitionHint>,
     /// Window background rectangles.
@@ -589,6 +590,7 @@ impl FrameDisplayState {
             parent_x: 0.0,
             parent_y: 0.0,
             z_order: 0,
+            undecorated: false,
             window_infos: Vec::new(),
             transition_hints: Vec::new(),
             backgrounds: Vec::new(),
@@ -626,6 +628,7 @@ impl FrameDisplayState {
         state.parent_x = buf.parent_x;
         state.parent_y = buf.parent_y;
         state.z_order = buf.z_order;
+        state.undecorated = buf.undecorated;
         state.faces = buf.faces.clone();
         state.window_infos = buf.window_infos.clone();
         state.phys_cursor = buf.phys_cursor.clone();
@@ -793,6 +796,7 @@ impl FrameDisplayState {
         buf.parent_x = self.parent_x;
         buf.parent_y = self.parent_y;
         buf.z_order = self.z_order;
+        buf.undecorated = self.undecorated;
 
         // Copy faces
         for (id, face) in &self.faces {

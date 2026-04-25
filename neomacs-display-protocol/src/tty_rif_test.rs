@@ -215,6 +215,44 @@ fn make_simple_state(text: &str) -> FrameDisplayState {
     state
 }
 
+fn make_grid_state(
+    frame_id: u64,
+    parent_id: u64,
+    parent_x: f32,
+    parent_y: f32,
+    cols: usize,
+    rows: usize,
+    text: &str,
+) -> FrameDisplayState {
+    let mut state = FrameDisplayState::new(cols, rows, 1.0, 1.0);
+    state.frame_id = frame_id;
+    state.parent_id = parent_id;
+    state.parent_x = parent_x;
+    state.parent_y = parent_y;
+    state.background = Color::rgb(0.0, 0.0, 0.0);
+
+    let mut matrix = GlyphMatrix::new(rows, cols);
+    let mut row = GlyphRow::new(GlyphRowRole::Text);
+    for (i, ch) in text.chars().take(cols).enumerate() {
+        row.glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 0, i));
+    }
+    if rows > 0 {
+        matrix.rows[0] = row;
+    }
+
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: frame_id + 100,
+        matrix,
+        pixel_bounds: Rect::new(0.0, 0.0, cols as f32, rows as f32),
+        selected: true,
+    });
+    state
+}
+
+fn desired_char(rif: &TtyRif, row: usize, col: usize) -> char {
+    rif.desired.cells[row * rif.width() + col].ch
+}
+
 #[test]
 fn rasterize_simple_text() {
     let mut rif = TtyRif::new(10, 5);
@@ -257,6 +295,50 @@ fn rasterize_respects_matrix_position() {
     assert_eq!(rif.desired.cells[idx].ch, 'A');
     // row=0 col=0 should still be blank.
     assert_eq!(rif.desired.cells[0].ch, ' ');
+}
+
+#[test]
+fn rasterize_frame_tree_draws_decorated_child_in_z_order() {
+    let root = make_grid_state(1, 0, 0.0, 0.0, 12, 6, "root");
+    let child = make_grid_state(2, 1, 4.0, 2.0, 3, 1, "M-x");
+
+    let mut rif = TtyRif::new(12, 6);
+    rif.rasterize_frame_tree(&root, &[child]);
+
+    assert_eq!(desired_char(&rif, 1, 3), '+');
+    assert_eq!(desired_char(&rif, 1, 4), '-');
+    assert_eq!(desired_char(&rif, 1, 6), '-');
+    assert_eq!(desired_char(&rif, 1, 7), '+');
+    assert_eq!(desired_char(&rif, 2, 3), '|');
+    assert_eq!(desired_char(&rif, 2, 4), 'M');
+    assert_eq!(desired_char(&rif, 2, 5), '-');
+    assert_eq!(desired_char(&rif, 2, 6), 'x');
+    assert_eq!(desired_char(&rif, 2, 7), '|');
+    assert_eq!(desired_char(&rif, 3, 3), '+');
+    assert_eq!(desired_char(&rif, 3, 4), '-');
+    assert_eq!(desired_char(&rif, 3, 7), '+');
+}
+
+#[test]
+fn rasterize_frame_tree_skips_border_for_undecorated_child() {
+    let root = make_grid_state(1, 0, 0.0, 0.0, 12, 6, "root");
+    let mut child = make_grid_state(2, 1, 4.0, 2.0, 3, 1, "M-x");
+    child.undecorated = true;
+
+    let mut rif = TtyRif::new(12, 6);
+    rif.rasterize_frame_tree(&root, &[child]);
+
+    assert_eq!(desired_char(&rif, 1, 3), ' ');
+    assert_eq!(desired_char(&rif, 1, 4), ' ');
+    assert_eq!(desired_char(&rif, 1, 7), ' ');
+    assert_eq!(desired_char(&rif, 2, 3), ' ');
+    assert_eq!(desired_char(&rif, 2, 4), 'M');
+    assert_eq!(desired_char(&rif, 2, 5), '-');
+    assert_eq!(desired_char(&rif, 2, 6), 'x');
+    assert_eq!(desired_char(&rif, 2, 7), ' ');
+    assert_eq!(desired_char(&rif, 3, 3), ' ');
+    assert_eq!(desired_char(&rif, 3, 4), ' ');
+    assert_eq!(desired_char(&rif, 3, 7), ' ');
 }
 
 #[test]

@@ -1068,6 +1068,169 @@ pub(crate) fn builtin_frame_focus(eval: &mut super::eval::Context, args: Vec<Val
     Ok(frame.focus_frame_value())
 }
 
+/// `(frame-parent &optional FRAME)` -> parent frame or nil.
+pub(crate) fn builtin_frame_parent(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("frame-parent", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let Some(parent) = eval.frames.frame_parent_id(fid) else {
+        return Ok(Value::NIL);
+    };
+    Ok(Value::make_frame(parent.0))
+}
+
+/// `(frame-ancestor-p ANCESTOR DESCENDANT)` -> t if ANCESTOR parents DESCENDANT.
+pub(crate) fn builtin_frame_ancestor_p(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("frame-ancestor-p", &args, 2)?;
+    let ancestor = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let descendant = resolve_frame_id(eval, args.get(1), "frame-live-p")?;
+    Ok(Value::bool_val(
+        eval.frames.frame_ancestor_p(ancestor, descendant),
+    ))
+}
+
+fn frame_root_position(frames: &FrameManager, fid: FrameId) -> (i64, i64) {
+    let mut x = 0;
+    let mut y = 0;
+    let mut current = Some(fid);
+    let mut seen = HashSet::new();
+    while let Some(frame_id) = current {
+        if !seen.insert(frame_id) {
+            break;
+        }
+        let Some(frame) = frames.get(frame_id) else {
+            break;
+        };
+        x += frame.left_pos;
+        y += frame.top_pos;
+        current = frames.frame_parent_id(frame_id);
+    }
+    (x, y)
+}
+
+fn tty_frame_edges_value(frame: &crate::window::Frame) -> Value {
+    Value::list(vec![
+        Value::fixnum(frame.left_pos),
+        Value::fixnum(frame.top_pos),
+        Value::fixnum(frame.left_pos + i64::from(frame.width)),
+        Value::fixnum(frame.top_pos + i64::from(frame.height)),
+    ])
+}
+
+/// `(tty-frame-edges &optional FRAME TYPE)` -> native terminal frame edges.
+pub(crate) fn builtin_tty_frame_edges(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("tty-frame-edges", &args, 2)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(tty_frame_edges_value(frame))
+}
+
+/// `(tty-frame-geometry &optional FRAME)` -> terminal frame geometry alist.
+pub(crate) fn builtin_tty_frame_geometry(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("tty-frame-geometry", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let frame = eval
+        .frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(Value::list(vec![
+        Value::cons(
+            Value::symbol("outer-position"),
+            Value::cons(Value::fixnum(frame.left_pos), Value::fixnum(frame.top_pos)),
+        ),
+        Value::cons(
+            Value::symbol("outer-size"),
+            Value::cons(
+                Value::fixnum(frame.width.into()),
+                Value::fixnum(frame.height.into()),
+            ),
+        ),
+        Value::cons(Value::symbol("outer-border-width"), Value::fixnum(0)),
+        Value::cons(Value::symbol("native-edges"), tty_frame_edges_value(frame)),
+    ]))
+}
+
+/// `(tty-frame-list-z-order &optional FRAME)` -> topmost first.
+pub(crate) fn builtin_tty_frame_list_z_order(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_max_args("tty-frame-list-z-order", &args, 1)?;
+    let fid = resolve_frame_id(eval, args.first(), "frame-live-p")?;
+    let mut frames = eval.frames.frames_in_reverse_z_order(fid, true);
+    frames.reverse();
+    Ok(Value::list(
+        frames
+            .into_iter()
+            .map(|frame_id| Value::make_frame(frame_id.0))
+            .collect(),
+    ))
+}
+
+/// `(tty-frame-at X Y)` -> (FRAME CX CY), respecting TTY child-frame z-order.
+pub(crate) fn builtin_tty_frame_at(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("tty-frame-at", &args, 2)?;
+    let x = expect_int(&args[0])?;
+    let y = expect_int(&args[1])?;
+    let Some(selected) = eval.frames.selected_frame().map(|frame| frame.id) else {
+        return Ok(Value::NIL);
+    };
+    let mut frames = eval.frames.frames_in_reverse_z_order(selected, true);
+    frames.reverse();
+    for fid in frames {
+        let Some(frame) = eval.frames.get(fid) else {
+            continue;
+        };
+        let (fx, fy) = frame_root_position(&eval.frames, fid);
+        let width = i64::from(frame.width);
+        let height = i64::from(frame.height);
+        let is_child = frame.parent_frame.as_frame_id().is_some();
+
+        if is_child && !frame.undecorated {
+            if fy - 1 <= y && y <= fy + height && (x == fx - 1 || x == fx + width) {
+                return Ok(Value::list(vec![
+                    Value::make_frame(fid.0),
+                    Value::fixnum(x - fx),
+                    Value::fixnum(y - fy),
+                ]));
+            }
+            if fx - 1 <= x && x <= fx + width && (y == fy - 1 || y == fy + height) {
+                return Ok(Value::list(vec![
+                    Value::make_frame(fid.0),
+                    Value::fixnum(x - fx),
+                    Value::fixnum(y - fy),
+                ]));
+            }
+        }
+
+        if fx <= x && x < fx + width && fy <= y && y < fy + height {
+            return Ok(Value::list(vec![
+                Value::make_frame(fid.0),
+                Value::fixnum(x - fx),
+                Value::fixnum(y - fy),
+            ]));
+        }
+    }
+    Ok(Value::NIL)
+}
+
 /// `(redirect-frame-focus FRAME FOCUS-FRAME)` -> nil.
 pub(crate) fn builtin_redirect_frame_focus(
     eval: &mut super::eval::Context,
@@ -4440,7 +4603,10 @@ fn clamp_frame_dimension(value: i64, minimum: i64) -> i64 {
 fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: i64) {
     let cols = clamp_frame_dimension(cols, MIN_FRAME_COLS);
     let text_lines = clamp_frame_dimension(text_lines, MIN_FRAME_TEXT_LINES);
-    let total_lines = text_lines.saturating_add(1).min(u32::MAX as i64);
+    let minibuffer_lines = i64::from(frame.minibuffer_leaf.is_some());
+    let total_lines = text_lines
+        .saturating_add(minibuffer_lines)
+        .min(u32::MAX as i64);
 
     frame.set_parameter(Value::symbol("width"), Value::fixnum(cols));
     frame.set_parameter(Value::symbol("height"), Value::fixnum(total_lines));
@@ -4448,6 +4614,13 @@ fn set_frame_text_size(frame: &mut crate::window::Frame, cols: i64, text_lines: 
         Value::symbol(FRAME_TEXT_LINES_PARAM),
         Value::fixnum(text_lines),
     );
+    if frame.parent_frame.as_frame_id().is_some() {
+        let char_width = frame.char_width.max(1.0).round() as u32;
+        let char_height = frame.char_height.max(1.0).round() as u32;
+        frame.width = (cols as u32).saturating_mul(char_width).max(1);
+        frame.height = (total_lines as u32).saturating_mul(char_height).max(1);
+        frame.sync_window_area_bounds();
+    }
 }
 
 fn live_gui_resize_pixels_from_logical_size(
@@ -5058,6 +5231,12 @@ pub(crate) fn builtin_make_frame_visible(
         .get_mut(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     frame.visible = true;
+    if frame.parent_frame.as_frame_id().is_some() {
+        frames.raise_or_lower_child_frame(fid, true);
+    }
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
     Ok(Value::make_frame(frame.id.0))
 }
 
@@ -5416,8 +5595,14 @@ pub(crate) fn builtin_frame_position(
 ) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("frame-position", &args, 1)?;
-    let _ = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
-    Ok(Value::cons(Value::fixnum(0), Value::fixnum(0)))
+    let fid = resolve_frame_id_in_state(frames, buffers, args.first(), "frame-live-p")?;
+    let frame = frames
+        .get(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    Ok(Value::cons(
+        Value::fixnum(frame.left_pos),
+        Value::fixnum(frame.top_pos),
+    ))
 }
 /// `(set-frame-height FRAME HEIGHT &optional PRETEND PIXELWISE)` -> nil.
 pub(crate) fn builtin_set_frame_height(
@@ -5659,9 +5844,16 @@ pub(crate) fn builtin_set_frame_position(
 ) -> EvalResult {
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_args("set-frame-position", &args, 3)?;
-    let _ = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
-    let _ = expect_int(&args[1])?;
-    let _ = expect_int(&args[2])?;
+    let fid = resolve_frame_id_in_state(frames, buffers, Some(&args[0]), "frame-live-p")?;
+    let x = expect_int(&args[1])?;
+    let y = expect_int(&args[2])?;
+    let frame = frames
+        .get_mut(fid)
+        .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    frame.left_pos = x;
+    frame.top_pos = y;
+    frame.set_parameter(Value::symbol("left"), Value::fixnum(x));
+    frame.set_parameter(Value::symbol("top"), Value::fixnum(y));
     Ok(Value::T)
 }
 
@@ -5778,6 +5970,21 @@ pub(crate) fn make_frame_with_state(
     make_frame_plain(frames, buffers, args)
 }
 
+/// `(make-terminal-frame PARMS)` -> frame.
+pub(crate) fn builtin_make_terminal_frame(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("make-terminal-frame", &args, 1)?;
+    if !args[0].is_nil() && !args[0].is_cons() {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("listp"), args[0]],
+        ));
+    }
+    make_frame_plain(&mut eval.frames, &mut eval.buffers, args)
+}
+
 fn make_frame_plain(
     frames: &mut FrameManager,
     buffers: &mut BufferManager,
@@ -5787,6 +5994,15 @@ fn make_frame_plain(
     let mut width: u32 = 800;
     let mut height: u32 = 600;
     let mut name = Value::string("F");
+    let mut all_params: Vec<(Value, Value)> = Vec::new();
+    let mut parent_frame = Value::NIL;
+    let mut left = 0_i64;
+    let mut top = 0_i64;
+    let mut visibility = None;
+    let mut minibuffer_param = None;
+    let mut undecorated = false;
+    let mut no_accept_focus = false;
+    let mut no_split = false;
 
     // Parse optional alist parameters.
     if let Some(params) = args.first() {
@@ -5796,15 +6012,16 @@ fn make_frame_plain(
                     let pair_car = item.cons_car();
                     let pair_cdr = item.cons_cdr();
                     if let Some(key) = pair_car.as_symbol_id() {
+                        all_params.push((pair_car, pair_cdr));
                         match resolve_sym(key) {
                             "width" => {
                                 if let Some(n) = pair_cdr.as_int() {
-                                    width = n as u32;
+                                    width = n.max(1) as u32;
                                 }
                             }
                             "height" => {
                                 if let Some(n) = pair_cdr.as_int() {
-                                    height = n as u32;
+                                    height = n.max(1) as u32;
                                 }
                             }
                             "name" => {
@@ -5812,11 +6029,112 @@ fn make_frame_plain(
                                     name = value;
                                 }
                             }
+                            "parent-frame" => {
+                                if pair_cdr
+                                    .as_frame_id()
+                                    .map(|id| frames.get(FrameId(id)).is_some())
+                                    .unwrap_or(false)
+                                {
+                                    parent_frame = pair_cdr;
+                                }
+                            }
+                            "left" => {
+                                if let Some(n) = pair_cdr.as_int() {
+                                    left = n;
+                                }
+                            }
+                            "top" => {
+                                if let Some(n) = pair_cdr.as_int() {
+                                    top = n;
+                                }
+                            }
+                            "visibility" => visibility = Some(pair_cdr.is_truthy()),
+                            "minibuffer" => minibuffer_param = Some(pair_cdr),
+                            "undecorated" => undecorated = pair_cdr.is_truthy(),
+                            "no-accept-focus" => no_accept_focus = pair_cdr.is_truthy(),
+                            "unsplittable" => no_split = pair_cdr.is_truthy(),
                             _ => {}
                         }
                     }
                 }
             }
+        }
+    }
+
+    let parent_id = parent_frame.as_frame_id().map(FrameId);
+    if let Some(parent_id) = parent_id {
+        let metrics = frames.get(parent_id).map(|parent| {
+            (
+                parent.terminal_id,
+                parent.char_width.max(1.0),
+                parent.char_height.max(1.0),
+                parent.font_pixel_size.max(1.0),
+            )
+        });
+        if let Some((terminal_id, char_width, char_height, font_pixel_size)) = metrics {
+            width = width.max(1);
+            height = height.max(1);
+            let buf_id = buffers
+                .current_buffer()
+                .map(|b| b.id)
+                .unwrap_or(BufferId(0));
+            let fid =
+                frames.create_frame_value_on_terminal(name, terminal_id, width, height, buf_id);
+            let root_minibuffer = frames
+                .root_frame_id(parent_id)
+                .and_then(|root_id| frames.get(root_id))
+                .and_then(|root| root.minibuffer_window);
+            let z_order = 1 + frames.max_child_z_order(parent_id);
+            let frame = frames
+                .get_mut(fid)
+                .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+            frame.parent_frame = parent_frame;
+            frame.z_order = z_order;
+            frame.left_pos = left;
+            frame.top_pos = top;
+            frame.width = width;
+            frame.height = height;
+            frame.char_width = char_width;
+            frame.char_height = char_height;
+            frame.font_pixel_size = font_pixel_size;
+            frame.visible = visibility.unwrap_or(frame.visible);
+            frame.undecorated = undecorated;
+            frame.no_accept_focus = no_accept_focus;
+            frame.no_split = no_split;
+            let surrogate_minibuffer = if minibuffer_param.is_some_and(|value| value.is_nil()) {
+                root_minibuffer
+            } else {
+                None
+            };
+            if let Some(root_minibuffer) = surrogate_minibuffer {
+                frame.minibuffer_leaf = None;
+                frame.minibuffer_window = Some(root_minibuffer);
+            }
+            for (key, value) in all_params {
+                frame.set_parameter(key, value);
+            }
+            if let Some(root_minibuffer) = surrogate_minibuffer {
+                frame.set_parameter(
+                    Value::symbol("minibuffer"),
+                    Value::make_window(root_minibuffer.0),
+                );
+            }
+            frame.set_parameter(Value::symbol("parent-frame"), parent_frame);
+            frame.set_parameter(Value::symbol("left"), Value::fixnum(left));
+            frame.set_parameter(Value::symbol("top"), Value::fixnum(top));
+            frame.sync_tab_bar_height_from_parameters();
+            frame.sync_menu_bar_height_from_parameters();
+            frame.sync_tool_bar_height_from_parameters();
+            tracing::debug!(
+                "make_frame_plain: created tty child frame {:?} parent={:?} pos={}x{} size={}x{}",
+                fid,
+                parent_id,
+                left,
+                top,
+                width,
+                height
+            );
+            return Ok(Value::make_frame(fid.0));
         }
     }
 
@@ -5826,6 +6144,18 @@ fn make_frame_plain(
         .map(|b| b.id)
         .unwrap_or(BufferId(0));
     let fid = frames.create_frame_value(name, width, height, buf_id);
+    if let Some(frame) = frames.get_mut(fid) {
+        for (key, value) in all_params {
+            frame.set_parameter(key, value);
+        }
+        frame.visible = visibility.unwrap_or(frame.visible);
+        frame.undecorated = undecorated;
+        frame.no_accept_focus = no_accept_focus;
+        frame.no_split = no_split;
+        frame.sync_tab_bar_height_from_parameters();
+        frame.sync_menu_bar_height_from_parameters();
+        frame.sync_tool_bar_height_from_parameters();
+    }
     tracing::debug!(
         "make_frame_plain: created plain frame {:?} size={}x{} name={}",
         fid,
@@ -6399,6 +6729,8 @@ pub(crate) fn builtin_modify_frame_parameters(
 
     let mut requested_width_cols = None;
     let mut requested_total_lines = None;
+    let mut requested_left = None;
+    let mut requested_top = None;
 
     for item in items.into_iter().rev() {
         if item.is_cons() {
@@ -6444,9 +6776,66 @@ pub(crate) fn builtin_modify_frame_parameters(
                             requested_total_lines = Some(n);
                         }
                     }
+                    "left" => {
+                        if let Some(n) = pair_cdr.as_int() {
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.left_pos = n;
+                                frame.set_parameter(Value::symbol("left"), Value::fixnum(n));
+                            }
+                            requested_left = Some(n);
+                        }
+                    }
+                    "top" => {
+                        if let Some(n) = pair_cdr.as_int() {
+                            if let Some(frame) = eval.frames.get_mut(fid) {
+                                frame.top_pos = n;
+                                frame.set_parameter(Value::symbol("top"), Value::fixnum(n));
+                            }
+                            requested_top = Some(n);
+                        }
+                    }
+                    "parent-frame" => {
+                        let parent = if pair_cdr
+                            .as_frame_id()
+                            .map(|id| eval.frames.get(FrameId(id)).is_some())
+                            .unwrap_or(false)
+                        {
+                            pair_cdr
+                        } else {
+                            Value::NIL
+                        };
+                        let parent_id = parent.as_frame_id().map(FrameId);
+                        let z_order = parent_id.map(|id| 1 + eval.frames.max_child_z_order(id));
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.parent_frame = parent;
+                            if let Some(z_order) = z_order {
+                                frame.z_order = z_order;
+                            }
+                            frame.set_parameter(Value::symbol("parent-frame"), parent);
+                        }
+                    }
                     "visibility" => {
                         if let Some(frame) = eval.frames.get_mut(fid) {
                             frame.visible = pair_cdr.is_truthy();
+                            frame.set_parameter(Value::symbol("visibility"), pair_cdr);
+                        }
+                    }
+                    "undecorated" => {
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.undecorated = pair_cdr.is_truthy();
+                            frame.set_parameter(Value::symbol("undecorated"), pair_cdr);
+                        }
+                    }
+                    "no-accept-focus" => {
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.no_accept_focus = pair_cdr.is_truthy();
+                            frame.set_parameter(Value::symbol("no-accept-focus"), pair_cdr);
+                        }
+                    }
+                    "unsplittable" => {
+                        if let Some(frame) = eval.frames.get_mut(fid) {
+                            frame.no_split = pair_cdr.is_truthy();
+                            frame.set_parameter(Value::symbol("unsplittable"), pair_cdr);
                         }
                     }
                     _ => {
@@ -6469,7 +6858,11 @@ pub(crate) fn builtin_modify_frame_parameters(
         frame.sync_tool_bar_height_from_parameters();
     }
 
-    if requested_width_cols.is_some() || requested_total_lines.is_some() {
+    if requested_width_cols.is_some()
+        || requested_total_lines.is_some()
+        || requested_left.is_some()
+        || requested_top.is_some()
+    {
         let uses_window_system_pixels = eval
             .frames
             .get(fid)
@@ -6510,6 +6903,29 @@ pub(crate) fn builtin_modify_frame_parameters(
                     false,
                 )?;
             }
+        } else if eval
+            .frames
+            .get(fid)
+            .is_some_and(|frame| frame.parent_frame.as_frame_id().is_some())
+        {
+            let (cols, total_lines) = {
+                let frame = eval
+                    .frames
+                    .get(fid)
+                    .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+                (
+                    requested_width_cols.unwrap_or_else(|| frame_total_cols(frame)),
+                    requested_total_lines.unwrap_or_else(|| frame_total_lines(frame)),
+                )
+            };
+            let frame = eval
+                .frames
+                .get_mut(fid)
+                .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+            let text_lines = total_lines
+                .saturating_sub(i64::from(frame.minibuffer_leaf.is_some()))
+                .max(MIN_FRAME_TEXT_LINES);
+            set_frame_text_size(frame, cols, text_lines);
         }
     }
 

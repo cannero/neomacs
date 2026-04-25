@@ -621,6 +621,8 @@ pub struct FrameGlyphBuffer {
     pub parent_y: f32,
     /// Stacking order among sibling child frames
     pub z_order: i32,
+    /// Whether child-frame decorations are suppressed.
+    pub undecorated: bool,
     /// Child frame border width (pixels)
     pub border_width: f32,
     /// Child frame border color
@@ -764,6 +766,7 @@ impl FrameGlyphBuffer {
             parent_x: 0.0,
             parent_y: 0.0,
             z_order: 0,
+            undecorated: false,
             border_width: 0.0,
             border_color: Color::BLACK,
             background_alpha: 1.0,
@@ -850,6 +853,7 @@ impl FrameGlyphBuffer {
         parent_x: f32,
         parent_y: f32,
         z_order: i32,
+        undecorated: bool,
         border_width: f32,
         border_color: Color,
         no_accept_focus: bool,
@@ -860,6 +864,7 @@ impl FrameGlyphBuffer {
         self.parent_x = parent_x;
         self.parent_y = parent_y;
         self.z_order = z_order;
+        self.undecorated = undecorated;
         self.border_width = border_width;
         self.border_color = border_color;
         self.no_accept_focus = no_accept_focus;

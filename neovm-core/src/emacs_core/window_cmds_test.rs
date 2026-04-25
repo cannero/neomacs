@@ -3231,6 +3231,106 @@ fn make_frame_creates_new() {
 }
 
 #[test]
+fn make_terminal_frame_creates_tty_child_frame_with_gnu_geometry_semantics() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(scratch);
+    let root_id = ev.frames.create_frame("F1", 80, 25, scratch);
+    {
+        let root = ev.frames.get_mut(root_id).expect("root frame");
+        root.char_width = 1.0;
+        root.char_height = 1.0;
+        root.font_pixel_size = 1.0;
+    }
+
+    let root = Value::make_frame(root_id.0);
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("parent-frame"), root),
+        Value::cons(Value::symbol("left"), Value::fixnum(4)),
+        Value::cons(Value::symbol("top"), Value::fixnum(2)),
+        Value::cons(Value::symbol("width"), Value::fixnum(6)),
+        Value::cons(Value::symbol("height"), Value::fixnum(3)),
+        Value::cons(Value::symbol("minibuffer"), Value::NIL),
+        Value::cons(Value::symbol("visibility"), Value::NIL),
+    ]);
+    let child =
+        super::builtin_make_terminal_frame(&mut ev, vec![params]).expect("make-terminal-frame");
+    let child_id = crate::window::FrameId(child.as_frame_id().expect("child frame"));
+
+    assert_eq!(
+        super::builtin_frame_parent(&mut ev, vec![child]).expect("frame-parent"),
+        root
+    );
+    assert_eq!(
+        super::builtin_frame_ancestor_p(&mut ev, vec![root, child]).expect("frame-ancestor-p"),
+        Value::T
+    );
+
+    let position = super::builtin_frame_position(&mut ev, vec![child]).expect("frame-position");
+    assert_eq!(position.cons_car(), Value::fixnum(4));
+    assert_eq!(position.cons_cdr(), Value::fixnum(2));
+
+    let edges = super::builtin_tty_frame_edges(&mut ev, vec![child]).expect("tty-frame-edges");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&edges).expect("edges list"),
+        vec![
+            Value::fixnum(4),
+            Value::fixnum(2),
+            Value::fixnum(10),
+            Value::fixnum(5),
+        ]
+    );
+
+    let root_minibuffer = ev
+        .frames
+        .get(root_id)
+        .expect("root frame")
+        .minibuffer_window
+        .expect("root minibuffer");
+    let child_frame = ev.frames.get(child_id).expect("child frame");
+    assert_eq!(child_frame.minibuffer_window, Some(root_minibuffer));
+    assert!(child_frame.minibuffer_leaf.is_none());
+    assert_eq!(
+        child_frame.parameter("minibuffer"),
+        Some(Value::make_window(root_minibuffer.0))
+    );
+
+    let hidden_z_order =
+        super::builtin_tty_frame_list_z_order(&mut ev, vec![root]).expect("hidden z-order");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&hidden_z_order).expect("hidden z-order list"),
+        vec![root]
+    );
+
+    assert_eq!(
+        super::builtin_make_frame_visible(&mut ev, vec![child]).expect("make-frame-visible"),
+        child
+    );
+
+    let visible_z_order =
+        super::builtin_tty_frame_list_z_order(&mut ev, vec![root]).expect("visible z-order");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&visible_z_order).expect("visible z-order list"),
+        vec![child, root]
+    );
+
+    let hit = super::builtin_tty_frame_at(&mut ev, vec![Value::fixnum(5), Value::fixnum(3)])
+        .expect("tty-frame-at");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&hit).expect("hit list"),
+        vec![child, Value::fixnum(1), Value::fixnum(1)]
+    );
+
+    let border_hit = super::builtin_tty_frame_at(&mut ev, vec![Value::fixnum(4), Value::fixnum(1)])
+        .expect("tty-frame-at border");
+    assert_eq!(
+        crate::emacs_core::value::list_to_vec(&border_hit).expect("border hit list"),
+        vec![child, Value::fixnum(0), Value::fixnum(-1)]
+    );
+}
+
+#[test]
 fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

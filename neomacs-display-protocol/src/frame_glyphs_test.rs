@@ -948,13 +948,25 @@ fn get_current_bg_returns_current_face_bg() {
 fn set_frame_identity_stores_all_fields() {
     let mut buf = FrameGlyphBuffer::new();
     let border_color = Color::rgb(0.5, 0.5, 0.5);
-    buf.set_frame_identity(0x100, 0x200, 50.0, 75.0, 5, 2.0, border_color, true, 0.85);
+    buf.set_frame_identity(
+        0x100,
+        0x200,
+        50.0,
+        75.0,
+        5,
+        true,
+        2.0,
+        border_color,
+        true,
+        0.85,
+    );
 
     assert_eq!(buf.frame_id, 0x100);
     assert_eq!(buf.parent_id, 0x200);
     assert_eq!(buf.parent_x, 50.0);
     assert_eq!(buf.parent_y, 75.0);
     assert_eq!(buf.z_order, 5);
+    assert!(buf.undecorated);
     assert_eq!(buf.border_width, 2.0);
     assert_color_eq(&buf.border_color, &border_color);
     assert!(buf.no_accept_focus);
@@ -970,6 +982,7 @@ fn set_frame_identity_root_frame() {
         0.0,
         0.0,
         0,
+        false,
         0.0,
         Color::BLACK,
         false,
@@ -978,6 +991,7 @@ fn set_frame_identity_root_frame() {
 
     assert_eq!(buf.frame_id, 0x100);
     assert_eq!(buf.parent_id, 0);
+    assert!(!buf.undecorated);
     assert!(!buf.no_accept_focus);
     assert_eq!(buf.background_alpha, 1.0);
 }
@@ -1264,7 +1278,7 @@ fn full_frame_simulation() {
     let frame_bg = Color::rgb(0.12, 0.12, 0.12);
     let mut buf = FrameGlyphBuffer::with_size(1920.0, 1080.0);
     buf.background = frame_bg;
-    buf.set_frame_identity(0x1, 0, 0.0, 0.0, 0, 0.0, Color::BLACK, false, 1.0);
+    buf.set_frame_identity(0x1, 0, 0.0, 0.0, 0, false, 0.0, Color::BLACK, false, 1.0);
 
     // Window 1: left pane background
     let win_bg = Color::rgb(0.13, 0.13, 0.13);

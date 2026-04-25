@@ -4901,14 +4901,6 @@ fn pure_dispatch_frame_menu_mouse_placeholders_match_compat_contracts() {
         .expect("builtin make-frame-invisible should evaluate");
     assert!(frame_invisible.is_nil());
 
-    let terminal_frame = dispatch_builtin_pure("make-terminal-frame", vec![Value::NIL])
-        .expect("builtin make-terminal-frame should resolve")
-        .expect_err("builtin make-terminal-frame should signal unknown terminal type");
-    match terminal_frame {
-        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "error"),
-        other => panic!("expected signal, got {other:?}"),
-    }
-
     let menu_at = dispatch_builtin_pure(
         "menu-bar-menu-at-x-y",
         vec![Value::fixnum(0), Value::fixnum(0), Value::NIL],
@@ -7881,6 +7873,7 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
     assert!(dispatch_builtin_pure("insert-buffer-substring", vec![]).is_none());
     assert!(dispatch_builtin_pure("kill-all-local-variables", vec![]).is_none());
     assert!(dispatch_builtin_pure("make-directory", vec![]).is_none());
+    assert!(dispatch_builtin_pure("make-terminal-frame", vec![]).is_none());
     assert!(dispatch_builtin_pure("make-temp-file", vec![]).is_none());
     assert!(dispatch_builtin_pure("macroexpand", vec![]).is_none());
     assert!(dispatch_builtin_pure("message", vec![]).is_none());

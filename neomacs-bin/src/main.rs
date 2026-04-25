@@ -838,6 +838,8 @@ fn maybe_install_tty_redisplay_callback(evaluator: &mut Context, startup: &Start
         return;
     }
 
+    provide_lisp_feature(evaluator, "tty-child-frames");
+
     let (cols, rows) = query_terminal_size_cells().unwrap_or((80, 25));
     let mut tty_rif = neomacs_display_protocol::tty_rif::TtyRif::new(cols as usize, rows as usize);
     // TTY frames use 1x1 character cell metrics (GNU Emacs
@@ -857,10 +859,24 @@ fn maybe_install_tty_redisplay_callback(evaluator: &mut Context, startup: &Start
                 tty_rif.resize(cols, rows);
             }
         }
-        run_layout(eval);
-        // Extract FrameDisplayState from the layout engine's thread-local
-        run_tty_rif_redisplay(&mut tty_rif);
+        if let Some((root, children)) = run_tty_layout_tree(eval) {
+            run_tty_rif_redisplay(&mut tty_rif, &root, &children);
+        }
     }));
+}
+
+fn provide_lisp_feature(evaluator: &mut Context, feature: &str) {
+    let features = evaluator
+        .obarray()
+        .symbol_value("features")
+        .copied()
+        .unwrap_or(Value::NIL);
+    let feature_value = Value::symbol(feature);
+    let already_present = neovm_core::emacs_core::value::list_to_vec(&features)
+        .is_some_and(|items| items.into_iter().any(|item| item == feature_value));
+    if !already_present {
+        evaluator.set_variable("features", Value::cons(feature_value, features));
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2915,25 +2931,89 @@ fn run_layout(evaluator: &mut Context) {
     });
 }
 
-/// After `run_layout` has populated the layout engine's `last_frame_display_state`,
-/// rasterize the display state into a `TtyRif` and write the ANSI output to stdout.
-fn run_tty_rif_redisplay(tty_rif: &mut neomacs_display_protocol::tty_rif::TtyRif) {
+fn layout_frame_display_state(
+    evaluator: &mut Context,
+    frame_id: FrameId,
+) -> Option<neomacs_display_protocol::glyph_matrix::FrameDisplayState> {
     LAYOUT_ENGINE.with(|engine| {
-        let engine = engine.borrow();
-        if let Some(ref state) = engine.last_frame_display_state {
-            tty_rif.rasterize(state);
-            tty_rif.diff_and_render();
-            let output = tty_rif.take_output();
-            tracing::debug!("tty_rif: output {} bytes", output.len());
-            if !output.is_empty() {
-                use std::io::Write;
-                let _ = std::io::stdout().write_all(&output);
-                let _ = std::io::stdout().flush();
-            }
-        } else {
-            tracing::debug!("tty_rif: no last_frame_display_state");
+        let mut engine = engine.borrow_mut();
+        engine.layout_frame_rust(evaluator, frame_id);
+        engine.last_frame_display_state.take()
+    })
+}
+
+fn frame_origin_in_root(evaluator: &Context, frame_id: FrameId) -> (f32, f32) {
+    let mut x = 0_i64;
+    let mut y = 0_i64;
+    let mut current = Some(frame_id);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(fid) = current {
+        if !seen.insert(fid) {
+            break;
         }
-    });
+        let Some(frame) = evaluator.frame_manager().get(fid) else {
+            break;
+        };
+        x += frame.left_pos;
+        y += frame.top_pos;
+        current = evaluator.frame_manager().frame_parent_id(fid);
+    }
+    (x as f32, y as f32)
+}
+
+fn run_tty_layout_tree(
+    evaluator: &mut Context,
+) -> Option<(
+    neomacs_display_protocol::glyph_matrix::FrameDisplayState,
+    Vec<neomacs_display_protocol::glyph_matrix::FrameDisplayState>,
+)> {
+    let selected = current_layout_frame_id(evaluator)?;
+    let root_id = evaluator
+        .frame_manager()
+        .root_frame_id(selected)
+        .unwrap_or(selected);
+    let frame_order = evaluator
+        .frame_manager()
+        .frames_in_reverse_z_order(root_id, true);
+
+    let mut root_state = layout_frame_display_state(evaluator, root_id)?;
+    root_state.parent_id = 0;
+    root_state.parent_x = 0.0;
+    root_state.parent_y = 0.0;
+
+    let mut child_states = Vec::new();
+    for frame_id in frame_order {
+        if frame_id == root_id {
+            continue;
+        }
+        let Some(mut state) = layout_frame_display_state(evaluator, frame_id) else {
+            continue;
+        };
+        let (x, y) = frame_origin_in_root(evaluator, frame_id);
+        state.parent_id = root_state.frame_id;
+        state.parent_x = x;
+        state.parent_y = y;
+        child_states.push(state);
+    }
+
+    Some((root_state, child_states))
+}
+
+/// Rasterize the display state into a `TtyRif` and write ANSI output to stdout.
+fn run_tty_rif_redisplay(
+    tty_rif: &mut neomacs_display_protocol::tty_rif::TtyRif,
+    root: &neomacs_display_protocol::glyph_matrix::FrameDisplayState,
+    children: &[neomacs_display_protocol::glyph_matrix::FrameDisplayState],
+) {
+    tty_rif.rasterize_frame_tree(root, children);
+    tty_rif.diff_and_render();
+    let output = tty_rif.take_output();
+    tracing::debug!("tty_rif: output {} bytes", output.len());
+    if !output.is_empty() {
+        use std::io::Write;
+        let _ = std::io::stdout().write_all(&output);
+        let _ = std::io::stdout().flush();
+    }
 }
 
 /// Increase the process stack size limit, matching GNU Emacs's behavior

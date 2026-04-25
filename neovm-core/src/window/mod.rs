@@ -1314,6 +1314,8 @@ pub struct Frame {
     /// GNU `struct frame.focus_frame`: frame receiving this frame's keystrokes,
     /// or nil when focus is not redirected.
     pub focus_frame: Value,
+    /// GNU `struct frame.parent_frame`: parent frame for child frames, or nil.
+    pub parent_frame: Value,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
     /// Root of the window tree.
@@ -1340,6 +1342,10 @@ pub struct Frame {
     /// Frame pixel dimensions.
     pub width: u32,
     pub height: u32,
+    /// Pixel/cell position of the frame on its display, or relative to its
+    /// parent for child frames.
+    pub left_pos: i64,
+    pub top_pos: i64,
     /// Internal window-system kind, mirroring GNU Emacs frame state rather
     /// than the mutable Lisp-visible frame parameter alist.
     pub window_system: Option<Value>,
@@ -1401,6 +1407,15 @@ pub struct Frame {
     /// Per-frame realized Lisp faces, mirroring GNU's `frame->face_hash_table`
     /// runtime surface for renderer-facing consumers.
     pub realized_faces: HashMap<Value, RuntimeFace>,
+    /// GNU `struct frame.z_order`: stacking order among sibling child frames.
+    pub z_order: i32,
+    /// Whether a child frame suppresses the TTY decoration border.
+    pub undecorated: bool,
+    /// Non-focusable frame hint.  The TTY path stores it for Lisp-visible
+    /// parameter parity; input focus policy is handled elsewhere.
+    pub no_accept_focus: bool,
+    /// Unsplittable frame hint.
+    pub no_split: bool,
 }
 
 impl Frame {
@@ -1439,6 +1454,7 @@ impl Frame {
             explicit_name: false,
             icon_name: Value::NIL,
             focus_frame: Value::NIL,
+            parent_frame: Value::NIL,
             terminal_id,
             root_window,
             selected_window: selected,
@@ -1450,6 +1466,8 @@ impl Frame {
             minibuffer_leaf: Some(minibuffer_leaf),
             width,
             height,
+            left_pos: 0,
+            top_pos: 0,
             window_system: None,
             // GNU terminal frames expose the terminal's default colors as
             // string sentinel values, not concrete RGB colors.  `term.c`
@@ -1490,6 +1508,10 @@ impl Frame {
             window_state_change: false,
             face_hash_table: Value::hash_table(HashTableTest::Eq),
             realized_faces: HashMap::new(),
+            z_order: 0,
+            undecorated: false,
+            no_accept_focus: false,
+            no_split: false,
         }
     }
 
@@ -2266,6 +2288,145 @@ impl FrameManager {
     /// List all frame IDs.
     pub fn frame_list(&self) -> Vec<FrameId> {
         self.frames.keys().copied().collect()
+    }
+
+    /// Return FRAME's parent frame id, when FRAME is a child frame.
+    pub fn frame_parent_id(&self, id: FrameId) -> Option<FrameId> {
+        self.frames
+            .get(&id)
+            .and_then(|frame| frame.parent_frame.as_frame_id())
+            .map(FrameId)
+            .filter(|parent| self.frames.contains_key(parent))
+    }
+
+    /// Return the root frame reached by following parent-frame links.
+    pub fn root_frame_id(&self, id: FrameId) -> Option<FrameId> {
+        if !self.frames.contains_key(&id) {
+            return None;
+        }
+        let mut current = id;
+        let mut seen = HashSet::new();
+        while seen.insert(current) {
+            let Some(parent) = self.frame_parent_id(current) else {
+                return Some(current);
+            };
+            current = parent;
+        }
+        Some(current)
+    }
+
+    /// Return true when ANCESTOR is in DESCENDANT's parent-frame chain.
+    pub fn frame_ancestor_p(&self, ancestor: FrameId, descendant: FrameId) -> bool {
+        let mut current = descendant;
+        let mut seen = HashSet::new();
+        while seen.insert(current) {
+            let Some(parent) = self.frame_parent_id(current) else {
+                return false;
+            };
+            if parent == ancestor {
+                return true;
+            }
+            current = parent;
+        }
+        false
+    }
+
+    pub fn max_child_z_order(&self, parent: FrameId) -> i32 {
+        self.frames
+            .values()
+            .filter(|frame| frame.parent_frame.as_frame_id() == Some(parent.0))
+            .map(|frame| frame.z_order)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn set_child_z_order_above_siblings(&mut self, child: FrameId, parent: FrameId) {
+        let z_order = 1 + self.max_child_z_order(parent);
+        if let Some(frame) = self.frames.get_mut(&child) {
+            frame.z_order = z_order;
+        }
+    }
+
+    pub fn raise_or_lower_child_frame(&mut self, id: FrameId, raise: bool) {
+        let Some(parent) = self.frame_parent_id(id) else {
+            return;
+        };
+        let mut siblings: Vec<FrameId> = self
+            .frames
+            .iter()
+            .filter_map(|(frame_id, frame)| {
+                (frame.parent_frame.as_frame_id() == Some(parent.0)).then_some(*frame_id)
+            })
+            .collect();
+        siblings.sort_by(|a, b| self.frame_z_order_cmp(*a, *b));
+
+        let mut next_z = 0;
+        for sibling in siblings {
+            if sibling == id {
+                continue;
+            }
+            if let Some(frame) = self.frames.get_mut(&sibling) {
+                frame.z_order = next_z;
+            }
+            next_z += 1;
+        }
+
+        if let Some(frame) = self.frames.get_mut(&id) {
+            frame.z_order = if raise { next_z } else { 0 };
+        }
+    }
+
+    fn frame_ancestors_visible_p(&self, id: FrameId) -> bool {
+        let mut current = Some(id);
+        let mut seen = HashSet::new();
+        while let Some(frame_id) = current {
+            if !seen.insert(frame_id) {
+                return false;
+            }
+            let Some(frame) = self.frames.get(&frame_id) else {
+                return false;
+            };
+            if !frame.visible {
+                return false;
+            }
+            current = self.frame_parent_id(frame_id);
+        }
+        true
+    }
+
+    fn frame_z_order_cmp(&self, a: FrameId, b: FrameId) -> std::cmp::Ordering {
+        if a == b {
+            return std::cmp::Ordering::Equal;
+        }
+        if self.frame_ancestor_p(a, b) {
+            return std::cmp::Ordering::Less;
+        }
+        if self.frame_ancestor_p(b, a) {
+            return std::cmp::Ordering::Greater;
+        }
+
+        let a_z = self.frames.get(&a).map(|frame| frame.z_order).unwrap_or(0);
+        let b_z = self.frames.get(&b).map(|frame| frame.z_order).unwrap_or(0);
+        a_z.cmp(&b_z).then_with(|| a.0.cmp(&b.0))
+    }
+
+    /// Return frames with the same root as FRAME, sorted bottom-to-top.
+    ///
+    /// The root frame is first.  Children and descendants follow according to
+    /// GNU's TTY z-order rules, where ancestors sort below descendants.
+    pub fn frames_in_reverse_z_order(&self, frame: FrameId, visible_only: bool) -> Vec<FrameId> {
+        let Some(root) = self.root_frame_id(frame) else {
+            return Vec::new();
+        };
+        let mut frames: Vec<FrameId> = self
+            .frames
+            .keys()
+            .copied()
+            .filter(|frame_id| self.root_frame_id(*frame_id) == Some(root))
+            .filter(|frame_id| !visible_only || self.frame_ancestors_visible_p(*frame_id))
+            .collect();
+        frames.sort_by(|a, b| self.frame_z_order_cmp(*a, *b));
+        frames
     }
 
     /// Split a window horizontally or vertically.

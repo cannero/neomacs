@@ -4682,7 +4682,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "frame-ancestor-p",
-        |_ctx, args| builtin_frame_ancestor_p(args),
+        super::window_cmds::builtin_frame_ancestor_p,
         0,
         None,
     );
@@ -4730,7 +4730,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "frame-parent",
-        |_ctx, args| builtin_frame_parent(args),
+        super::window_cmds::builtin_frame_parent,
         0,
         None,
     );
@@ -5683,25 +5683,25 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "tty-frame-at",
-        |_ctx, args| builtin_tty_frame_at(args),
+        super::window_cmds::builtin_tty_frame_at,
         2,
         Some(2),
     );
     ctx.defsubr(
         "tty-frame-edges",
-        |_ctx, args| builtin_tty_frame_edges(args),
+        super::window_cmds::builtin_tty_frame_edges,
         0,
         Some(2),
     );
     ctx.defsubr(
         "tty-frame-geometry",
-        |_ctx, args| builtin_tty_frame_geometry(args),
+        super::window_cmds::builtin_tty_frame_geometry,
         0,
         Some(1),
     );
     ctx.defsubr(
         "tty-frame-list-z-order",
-        |_ctx, args| builtin_tty_frame_list_z_order(args),
+        super::window_cmds::builtin_tty_frame_list_z_order,
         0,
         None,
     );
@@ -8801,11 +8801,14 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(2),
     );
-    ctx.defsubr(
-        "make-terminal-frame",
-        |_ctx, args| super::terminal::pure::builtin_make_terminal_frame(args),
-        1,
-        Some(1),
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state(
+            "make-terminal-frame",
+            super::window_cmds::builtin_make_terminal_frame,
+            1,
+            Some(1),
+        ),
     );
 
     // -- Image --

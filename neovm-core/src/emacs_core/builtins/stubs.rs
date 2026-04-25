@@ -1432,7 +1432,8 @@ pub(crate) fn builtin_frame_root_frame(
         args.first(),
         "frame-live-p",
     )?;
-    Ok(Value::make_frame(fid.0))
+    let root = eval.frames.root_frame_id(fid).unwrap_or(fid);
+    Ok(Value::make_frame(root.0))
 }
 
 /// `(set-frame-size-and-position-pixelwise FRAME WIDTH HEIGHT LEFT TOP &optional GRAVITY)`

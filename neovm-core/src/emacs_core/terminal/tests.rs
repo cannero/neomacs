@@ -528,16 +528,19 @@ fn delete_terminal_noelisp_ignores_host_delete_failures() {
 }
 
 #[test]
-fn make_terminal_frame_signals_unknown_type() {
+fn make_terminal_frame_is_eval_backed_frame_creation() {
     crate::test_utils::init_test_tracing();
     reset_terminal_thread_locals();
-    match builtin_make_terminal_frame(vec![Value::NIL]) {
-        Err(Flow::Signal(sig)) => {
-            assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data, vec![Value::string("Unknown terminal type")]);
-        }
-        other => panic!("expected error signal, got {other:?}"),
-    }
+    let mut eval = Context::new();
+    let scratch = eval.buffers.create_buffer("*scratch*");
+    eval.buffers.set_current(scratch);
+
+    let frame =
+        crate::emacs_core::window_cmds::builtin_make_terminal_frame(&mut eval, vec![Value::NIL])
+            .expect("make-terminal-frame");
+
+    assert!(frame.as_frame_id().is_some());
+    assert_eq!(eval.frames.frame_list().len(), 1);
 }
 
 #[test]

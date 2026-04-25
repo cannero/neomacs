@@ -248,12 +248,7 @@ impl TtyRif {
         self.desired.height
     }
 
-    /// Rasterize a `FrameDisplayState` into the desired grid.
-    ///
-    /// Converts each window's `GlyphMatrix` rows into `TtyGrid` cells by
-    /// iterating over glyph areas (left margin, text, right margin) and
-    /// resolving face attributes.
-    pub fn rasterize(&mut self, state: &FrameDisplayState) {
+    fn install_state_faces(&mut self, state: &FrameDisplayState) {
         self.faces = state.faces.clone();
         let default_face = self.faces.get(&0);
         self.default_bg = if default_face.is_some_and(|face| face.use_default_background) {
@@ -266,15 +261,78 @@ impl TtyRif {
         } else {
             default_face.map(|face| color_to_rgb8(&face.foreground))
         };
+    }
+
+    /// Rasterize a `FrameDisplayState` into the desired grid.
+    ///
+    /// Converts each window's `GlyphMatrix` rows into `TtyGrid` cells by
+    /// iterating over glyph areas (left margin, text, right margin) and
+    /// resolving face attributes.
+    pub fn rasterize(&mut self, state: &FrameDisplayState) {
+        self.rasterize_frame_tree(state, &[]);
+    }
+
+    /// Rasterize a root TTY frame and its visible child frames.
+    ///
+    /// This mirrors GNU's `combine_updates_for_frame`: the root frame is
+    /// painted first, then child frame matrices are copied over it in
+    /// bottom-to-top z-order.  Decorated TTY children get the same single-cell
+    /// ASCII box that GNU draws around non-`undecorated` children.
+    pub fn rasterize_frame_tree(
+        &mut self,
+        root: &FrameDisplayState,
+        children_bottom_to_top: &[FrameDisplayState],
+    ) {
+        self.install_state_faces(root);
         self.desired.clear(self.default_bg);
         self.cursor_visible = false;
         self.cursor_shape = TerminalCursorShape::Block;
 
+        self.rasterize_state_at(root, 0, 0, false);
+
+        for child in children_bottom_to_top {
+            if child.parent_id != root.frame_id {
+                continue;
+            }
+            let origin_col = child.parent_x.max(0.0).round() as usize;
+            let origin_row = child.parent_y.max(0.0).round() as usize;
+            self.draw_child_border(child, origin_col, origin_row);
+            self.rasterize_state_at(child, origin_col, origin_row, true);
+        }
+    }
+
+    fn rasterize_state_at(
+        &mut self,
+        state: &FrameDisplayState,
+        origin_col: usize,
+        origin_row: usize,
+        clear_frame_rect: bool,
+    ) {
+        self.install_state_faces(state);
+
+        if clear_frame_rect {
+            let attrs = CellAttrs {
+                bg: self.default_bg,
+                ..CellAttrs::default()
+            };
+            let max_row = origin_row
+                .saturating_add(state.frame_rows)
+                .min(self.desired.height);
+            let max_col = origin_col
+                .saturating_add(state.frame_cols)
+                .min(self.desired.width);
+            for row in origin_row..max_row {
+                for col in origin_col..max_col {
+                    self.desired.set(row, col, ' ', attrs, false);
+                }
+            }
+        }
+
         if let Some(cursor) = state.phys_cursor.as_ref() {
             let (cursor_col, cursor_row) =
                 terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
-            self.cursor_row = cursor_row;
-            self.cursor_col = cursor_col;
+            self.cursor_row = cursor_row.saturating_add(origin_row as u16);
+            self.cursor_col = cursor_col.saturating_add(origin_col as u16);
             match cursor.style {
                 CursorStyle::FilledBox | CursorStyle::Hollow => {
                     self.cursor_visible = false;
@@ -292,8 +350,12 @@ impl TtyRif {
 
         for frame_row in &state.frame_chrome_rows {
             let char_w = state.char_width.max(1.0);
-            let win_col = (frame_row.pixel_bounds.x / char_w) as usize;
-            self.rasterize_glyph_row(win_col, frame_row.row_index as usize, &frame_row.row);
+            let win_col = origin_col + (frame_row.pixel_bounds.x / char_w) as usize;
+            self.rasterize_glyph_row(
+                win_col,
+                origin_row + frame_row.row_index as usize,
+                &frame_row.row,
+            );
         }
 
         for entry in &state.window_matrices {
@@ -302,8 +364,8 @@ impl TtyRif {
             // so bounds.x/y directly give the screen column/row.
             let char_w = state.char_width.max(1.0);
             let char_h = state.char_height.max(1.0);
-            let win_col = (entry.pixel_bounds.x / char_w) as usize;
-            let win_row = (entry.pixel_bounds.y / char_h) as usize;
+            let win_col = origin_col + (entry.pixel_bounds.x / char_w) as usize;
+            let win_row = origin_row + (entry.pixel_bounds.y / char_h) as usize;
 
             for (row_idx, glyph_row) in entry.matrix.rows.iter().enumerate() {
                 self.rasterize_glyph_row(win_col, win_row + row_idx, glyph_row);
@@ -318,19 +380,76 @@ impl TtyRif {
         // (the layout engine has already shifted the root window down to
         // make room).
         if let Some(menu_bar) = state.menu_bar.as_ref() {
-            self.rasterize_menu_bar(menu_bar);
+            self.rasterize_menu_bar_at(menu_bar, origin_col, origin_row, state.frame_cols);
         }
 
         if let Some(cursor) = state.phys_cursor.as_ref() {
             let (col, row) =
                 terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
             self.apply_cursor_visual(
-                row as usize,
-                col as usize,
+                origin_row + row as usize,
+                origin_col + col as usize,
                 cursor.style,
                 Some(color_to_rgb8(&cursor.color)),
                 Some(color_to_rgb8(&cursor.cursor_fg)),
             );
+        }
+    }
+
+    fn draw_child_border(
+        &mut self,
+        child: &FrameDisplayState,
+        origin_col: usize,
+        origin_row: usize,
+    ) {
+        if child.undecorated {
+            return;
+        }
+        self.install_state_faces(child);
+        let attrs = self.resolve_attrs(0);
+        let width = child.frame_cols;
+        let height = child.frame_rows;
+        if width == 0 || height == 0 {
+            return;
+        }
+
+        let left = origin_col.saturating_sub(1);
+        let right = origin_col.saturating_add(width);
+        let top = origin_row.saturating_sub(1);
+        let bottom = origin_row.saturating_add(height);
+
+        if origin_row > 0 {
+            for col in origin_col..origin_col.saturating_add(width).min(self.desired.width) {
+                self.desired.set(top, col, '-', attrs, false);
+            }
+            if origin_col > 0 {
+                self.desired.set(top, left, '+', attrs, false);
+            }
+            if right < self.desired.width {
+                self.desired.set(top, right, '+', attrs, false);
+            }
+        }
+
+        if bottom < self.desired.height {
+            for col in origin_col..origin_col.saturating_add(width).min(self.desired.width) {
+                self.desired.set(bottom, col, '-', attrs, false);
+            }
+            if origin_col > 0 {
+                self.desired.set(bottom, left, '+', attrs, false);
+            }
+            if right < self.desired.width {
+                self.desired.set(bottom, right, '+', attrs, false);
+            }
+        }
+
+        let row_end = origin_row.saturating_add(height).min(self.desired.height);
+        for row in origin_row..row_end {
+            if origin_col > 0 {
+                self.desired.set(row, left, '|', attrs, false);
+            }
+            if right < self.desired.width {
+                self.desired.set(row, right, '|', attrs, false);
+            }
         }
     }
 
@@ -351,7 +470,13 @@ impl TtyRif {
     ///   future hit-tester can ignore them (mirrors GNU storing the
     ///   item's column in slot `i+3` and only valid columns being
     ///   reachable via `tty_menu_activate`).
-    fn rasterize_menu_bar(&mut self, menu_bar: &TtyMenuBarState) {
+    fn rasterize_menu_bar_at(
+        &mut self,
+        menu_bar: &TtyMenuBarState,
+        origin_col: usize,
+        origin_row: usize,
+        frame_cols: usize,
+    ) {
         let attrs = CellAttrs {
             fg: Some(rgb_pixel_to_tuple(menu_bar.fg)),
             bg: Some(rgb_pixel_to_tuple(menu_bar.bg)),
@@ -362,8 +487,11 @@ impl TtyRif {
             inverse: false,
         };
 
-        let lines = (menu_bar.lines as usize).min(self.desired.height);
-        if lines == 0 || self.desired.width == 0 {
+        let lines = (menu_bar.lines as usize).min(self.desired.height.saturating_sub(origin_row));
+        let width = frame_cols
+            .min(self.desired.width.saturating_sub(origin_col))
+            .max(0);
+        if lines == 0 || width == 0 {
             return;
         }
 
@@ -371,34 +499,36 @@ impl TtyRif {
         // wrap-rows would be filled with spaces; mirrors GNU which
         // also displays only the first menu-bar line on TTYs.
         for row in 0..lines {
-            for col in 0..self.desired.width {
-                self.desired.set(row, col, ' ', attrs, false);
+            for col in 0..width {
+                self.desired
+                    .set(origin_row + row, origin_col + col, ' ', attrs, false);
             }
         }
 
-        let menu_row = 0;
+        let menu_row = origin_row;
         let mut col: usize = 0;
         // GNU starts with the first item at column 0 (no leading
         // padding); the per-item label is `string + " "` (label plus
         // exactly one trailing space, see `SCHARS (string) + 1` in
         // `display_menu_bar`).
         for item in &menu_bar.items {
-            if col >= self.desired.width {
+            if col >= width {
                 break;
             }
             let item_start = col;
             let label_end = col + item.label.chars().count();
             for ch in item.label.chars() {
-                if col >= self.desired.width {
+                if col >= width {
                     break;
                 }
-                self.desired.set(menu_row, col, ch, attrs, false);
+                self.desired
+                    .set(menu_row, origin_col + col, ch, attrs, false);
                 col += 1;
             }
             // Trailing space after the label, but only if there's room.
             // The space itself is part of the item's run so it shares
             // the menu face attrs (already painted as the row fill).
-            if col < self.desired.width && col == label_end {
+            if col < width && col == label_end {
                 col += 1;
             }
             // Remember where we placed this item so a future hit-tester

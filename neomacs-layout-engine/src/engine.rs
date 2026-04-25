@@ -1774,6 +1774,16 @@ impl LayoutEngine {
                 std::collections::HashMap::new();
 
             // Set up frame dimensions in the builder
+            if let Some(frame) = evaluator.frame_manager().get(frame_id) {
+                self.matrix_builder.set_frame_identity(
+                    frame.id.0,
+                    frame.parent_frame.as_frame_id().unwrap_or(0),
+                    frame.left_pos as f32,
+                    frame.top_pos as f32,
+                    frame.z_order,
+                    frame.undecorated,
+                );
+            }
             self.matrix_builder
                 .set_background_color(Color::from_pixel(frame_params.background));
             self.matrix_builder
