@@ -2202,7 +2202,7 @@ impl LayoutEngine {
         // This avoids holding a borrow on `evaluator` through eval calls.
         let buffer_name = buffer.name.clone();
         let buffer_z_char = buffer.zv_char.saturating_add(1);
-        let buffer_z_byte = buffer.zv;
+        let buffer_z_byte = buffer.zv_byte;
 
         let buf_access = super::neovm_bridge::RustBufferAccess::new(buffer);
 

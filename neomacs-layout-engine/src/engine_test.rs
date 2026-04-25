@@ -3071,6 +3071,73 @@ fn layout_frame_rust_keeps_visible_eob_cursor_on_short_trailing_newline_buffer()
 }
 
 #[test]
+fn layout_frame_rust_keeps_default_scratch_message_at_top_when_eob_is_visible() {
+    let mut eval = Context::new();
+    let buf_id = eval
+        .buffer_manager()
+        .current_buffer()
+        .expect("current buffer")
+        .id;
+    let text = ";; This buffer is for text that is not saved, and for Lisp evaluation.\n\
+;; To create a file, visit it with \u{2018}C-x C-f\u{2019} and enter text in its buffer.\n\n";
+    let point = {
+        let buf = eval.buffer_manager_mut().get_mut(buf_id).expect("buffer");
+        buf.insert(text);
+        let point = buf.point_max_char() + 1;
+        buf.goto_byte(point - 1);
+        point
+    };
+    let frame_id =
+        eval.frame_manager_mut()
+            .create_frame("layout-scratch-eob-visible", 600, 1188, buf_id);
+    let selected_window = eval
+        .frame_manager()
+        .get(frame_id)
+        .expect("frame")
+        .selected_window;
+    {
+        let frame = eval.frame_manager_mut().get_mut(frame_id).expect("frame");
+        let window = frame
+            .find_window_mut(selected_window)
+            .expect("selected window");
+        if let neovm_core::window::Window::Leaf {
+            window_start,
+            point: window_point,
+            ..
+        } = window
+        {
+            *window_start = 1;
+            *window_point = point;
+        }
+    }
+
+    let mut engine = LayoutEngine::new();
+    engine.layout_frame_rust(&mut eval, frame_id);
+
+    let frame = eval.frame_manager().get(frame_id).expect("frame");
+    let snapshot = frame
+        .window_display_snapshot(selected_window)
+        .expect("display snapshot");
+    let window = frame.find_window(selected_window).expect("selected window");
+
+    assert!(
+        snapshot.point_for_buffer_pos(1).is_some(),
+        "expected the first scratch row to remain visible when EOB fits onscreen, points={:?}, rows={:?}",
+        snapshot.points,
+        snapshot.rows
+    );
+    match window {
+        neovm_core::window::Window::Leaf { window_start, .. } => {
+            assert_eq!(
+                *window_start, 1,
+                "expected short scratch buffer to stay at top, got window-start {window_start}"
+            );
+        }
+        other => panic!("expected leaf window, got {other:?}"),
+    }
+}
+
+#[test]
 fn layout_frame_rust_formats_mode_line_from_current_redisplay_geometry() {
     let mut eval = Context::new();
     let buf_id = eval

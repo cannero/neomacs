@@ -45,8 +45,8 @@ pub(crate) trait LayoutBufferView {
 pub(crate) struct LayoutBufferSnapshot {
     pub name: String,
     pub text: BufferText,
-    pub begv: usize,
-    pub zv: usize,
+    pub begv_byte: usize,
+    pub zv_byte: usize,
     pub zv_char: usize,
     pub local_var_alist: Value,
     pub slots: [Value; BUFFER_SLOT_COUNT],
@@ -59,8 +59,8 @@ impl LayoutBufferSnapshot {
         Self {
             name: buffer.name_runtime_string_owned(),
             text: buffer.text.clone(),
-            begv: buffer.begv,
-            zv: buffer.zv,
+            begv_byte: buffer.begv_byte,
+            zv_byte: buffer.zv_byte,
             zv_char: buffer.zv,
             local_var_alist: buffer.local_var_alist,
             slots: buffer.slots,
@@ -139,11 +139,11 @@ impl LayoutBufferView for LayoutBufferSnapshot {
     }
 
     fn layout_point_min_byte(&self) -> usize {
-        self.begv
+        self.begv_byte
     }
 
     fn layout_point_max_byte(&self) -> usize {
-        self.zv
+        self.zv_byte
     }
 
     fn layout_point_max_char(&self) -> usize {

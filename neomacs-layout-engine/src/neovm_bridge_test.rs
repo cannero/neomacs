@@ -669,6 +669,28 @@ fn test_rust_buffer_access_charpos_to_bytepos() {
 }
 
 #[test]
+fn test_layout_buffer_snapshot_preserves_byte_bounds_for_multibyte_text() {
+    let mut evaluator = neovm_core::emacs_core::Context::new();
+    let buf_id = evaluator
+        .buffer_manager_mut()
+        .create_buffer("*test-multibyte-pos*");
+    if let Some(buf) = evaluator.buffer_manager_mut().get_mut(buf_id) {
+        buf.insert("a\u{2018}b\u{2019}c");
+    }
+
+    let buf = evaluator.buffer_manager().get(buf_id).unwrap();
+    assert_eq!(buf.point_max_char(), 5);
+    assert_eq!(buf.point_max_byte(), 9);
+
+    let snapshot = LayoutBufferSnapshot::from_buffer(buf);
+    let access = RustBufferAccess::new(&snapshot);
+
+    assert_eq!(access.zv(), 9);
+    assert_eq!(access.charpos_to_bytepos(5), 9);
+    assert_eq!(access.bytepos_to_charpos(9), 5);
+}
+
+#[test]
 fn test_rust_buffer_access_lisp_charpos_to_bytepos() {
     let mut evaluator = neovm_core::emacs_core::Context::new();
     let buf_id = evaluator
