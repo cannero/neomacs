@@ -4929,6 +4929,9 @@ impl Context {
                 Ok(Value::NIL)
             }
             Err(Flow::Signal(sig)) => {
+                if sig.symbol == self.kill_emacs_symbol {
+                    return Err(Flow::Signal(sig));
+                }
                 tracing::warn!(
                     "command_loop_top_level_1: top-level SIGNALED: {} {:?}",
                     sig.symbol_name(),

@@ -2181,6 +2181,47 @@ fn bootstrap_batch_eval_exits_outer_command_loop_like_gnu() {
 }
 
 #[test]
+fn bootstrap_batch_kill_emacs_is_silent_shutdown() {
+    let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
+        .expect("bootstrap evaluator");
+    let _bootstrap = bootstrap_buffers(
+        &mut eval,
+        80,
+        24,
+        bootstrap_display_config(FrontendKind::Tty),
+    );
+    let frame_id = eval
+        .frame_manager()
+        .selected_frame()
+        .expect("selected frame after bootstrap")
+        .id;
+    let startup = tty_batch_startup_with_args(&["-Q", "--eval", "(kill-emacs)"]);
+    configure_gnu_startup_state(&mut eval, frame_id, &startup);
+
+    let (_tx, rx) = crossbeam_channel::unbounded();
+    let mut wake_pipe = [0; 2];
+    let pipe_result = unsafe { libc::pipe(wake_pipe.as_mut_ptr()) };
+    assert_eq!(pipe_result, 0, "pipe should initialize");
+    eval.init_input_system(rx, wake_pipe[0]);
+
+    let result = eval.recursive_edit();
+    unsafe {
+        libc::close(wake_pipe[0]);
+        libc::close(wake_pipe[1]);
+    }
+    result.expect("batch kill-emacs should exit cleanly");
+
+    assert_eq!(
+        eval.shutdown_request(),
+        Some(neovm_core::emacs_core::eval::ShutdownRequest {
+            exit_code: 0,
+            restart: false,
+        })
+    );
+    assert_ne!(eval.current_message_text().as_deref(), Some("kill-emacs"));
+}
+
+#[test]
 fn gui_bootstrap_accepts_iso_8859_15_coding_primitives() {
     let mut eval = create_bootstrap_evaluator_cached_with_features(BOOTSTRAP_CORE_FEATURES)
         .expect("bootstrap evaluator");
