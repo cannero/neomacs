@@ -404,6 +404,12 @@ brew install pkgconf \
   jpeg-turbo libtiff giflib libpng librsvg webp \
   gnutls libxml2 sqlite jansson tree-sitter gmp
 
+# gmp-mpfr-sys is built with system GMP support. Its build script probes
+# GMP with the C compiler directly, so Homebrew's keg must be visible to
+# both the C compiler and linker.
+export CPATH="$(brew --prefix gmp)/include${CPATH:+:$CPATH}"
+export LIBRARY_PATH="$(brew --prefix gmp)/lib${LIBRARY_PATH:+:$LIBRARY_PATH}"
+
 # Install Rust (if not already installed)
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
