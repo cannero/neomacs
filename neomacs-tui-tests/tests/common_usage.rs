@@ -1602,6 +1602,60 @@ fn list_buffers_after_find_file() {
 }
 
 #[test]
+fn buffer_menu_search_and_select_file_buffer_via_ret() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "buffer-menu-select.txt",
+        "selected buffer body\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "buffer-menu");
+    let menu_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Buffer List*"))
+            && grid.iter().any(|row| row.contains("Buffer Menu"))
+            && grid
+                .iter()
+                .any(|row| row.contains("buffer-menu-select.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), menu_ready);
+    neo.read_until(Duration::from_secs(8), menu_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    send_both(&mut gnu, &mut neo, "C-s");
+    for session in [&mut gnu, &mut neo] {
+        session.send(b"buffer-menu-select.txt");
+    }
+    let search_ready = |grid: &[String]| {
+        grid.last()
+            .is_some_and(|row| row.contains("I-search") && row.contains("buffer-menu-select.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), search_ready);
+    neo.read_until(Duration::from_secs(8), search_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(300));
+
+    send_both(&mut gnu, &mut neo, "C-g RET");
+    let selected = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("buffer-menu-select.txt"))
+            && grid.iter().any(|row| row.contains("selected buffer body"))
+            && !grid.iter().any(|row| row.contains("*Buffer List*"))
+    };
+    gnu.read_until(Duration::from_secs(6), selected);
+    neo.read_until(Duration::from_secs(8), selected);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "buffer_menu_search_and_select_file_buffer_via_ret",
+        &gnu,
+        &neo,
+        2,
+    );
+}
+
+#[test]
 fn clone_indirect_buffer_other_window_via_cx4_c() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(
