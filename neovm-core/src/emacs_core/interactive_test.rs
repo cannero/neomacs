@@ -4459,6 +4459,52 @@ fn where_is_internal_preserves_map_iteration_order_for_first_match() {
 }
 
 #[test]
+fn where_is_internal_firstonly_prefers_unmodified_printable_key() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_all(
+        r#"(let ((m (define-keymap
+                      "q" #'ignore
+                      "C-c C-k" #'ignore)))
+             (equal (where-is-internal 'ignore m t) [113]))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap where-is preferred key result");
+    assert_eq!(result, "OK t");
+}
+
+#[test]
+fn where_is_internal_firstonly_non_ascii_keeps_first_stored_binding() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_all(
+        r#"(let ((m (define-keymap
+                      "q" #'ignore
+                      "C-c C-k" #'ignore)))
+             (equal (where-is-internal 'ignore m 'non-ascii) [3 11]))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap where-is non-ascii result");
+    assert_eq!(result, "OK t");
+}
+
+#[test]
+fn where_is_internal_firstonly_uses_where_is_preferred_modifier() {
+    crate::test_utils::init_test_tracing();
+    let result = bootstrap_eval_all(
+        r#"(let ((m (define-keymap
+                      "M-q" #'ignore
+                      "C-c C-k" #'ignore))
+                 (where-is-preferred-modifier 'control))
+             (equal (key-description (where-is-internal 'ignore m t)) "C-c C-k"))"#,
+    )
+    .into_iter()
+    .next()
+    .expect("bootstrap where-is preferred modifier result");
+    assert_eq!(result, "OK t");
+}
+
+#[test]
 fn bootstrap_define_keymap_populates_help_style_bindings() {
     crate::test_utils::init_test_tracing();
     let result = bootstrap_eval_all(

@@ -16,7 +16,10 @@ use std::collections::{HashMap, HashSet};
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
-use super::keyboard::pure::make_event_array_value;
+use super::keyboard::pure::{
+    KEY_CHAR_ALT, KEY_CHAR_CTRL, KEY_CHAR_HYPER, KEY_CHAR_META, KEY_CHAR_MOD_MASK, KEY_CHAR_SHIFT,
+    KEY_CHAR_SUPER, make_event_array_value,
+};
 use super::keymap::{
     KeyEvent, command_remapping_command_name as keymap_command_remapping_command_name,
     command_remapping_lookup_in_keymaps as keymap_command_remapping_lookup_in_keymaps,
@@ -3416,6 +3419,11 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
 
     let definition = &args[0];
     let first_only = args.get(2).is_some_and(|v| !v.is_nil());
+    let first_only_non_ascii = args
+        .get(2)
+        .and_then(|value| value.as_symbol_name())
+        .is_some_and(|name| name == "non-ascii");
+    let prefer_single_binding = first_only && !first_only_non_ascii;
 
     let keymaps = where_is_keymaps_in_context(eval, args.get(1))?;
     if args.get(1).is_none() && keymaps.is_empty() {
@@ -3431,9 +3439,9 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
             definition,
             &mut prefix,
             &mut sequences,
-            first_only,
+            first_only_non_ascii,
             0,
-        ) && first_only
+        ) && first_only_non_ascii
         {
             break;
         }
@@ -3445,6 +3453,11 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
 
     if first_only {
         // Convert Vec<Value> events to a vector value
+        if prefer_single_binding {
+            return Ok(Value::vector(
+                select_where_is_preferred_sequence(eval.obarray(), &sequences).clone(),
+            ));
+        }
         return Ok(Value::vector(sequences[0].clone()));
     }
     let out: Vec<Value> = sequences
@@ -3609,6 +3622,59 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
         }
     }
     binding == definition
+}
+
+fn where_is_preferred_modifier_mask(obarray: &Obarray) -> i64 {
+    match obarray
+        .symbol_value("where-is-preferred-modifier")
+        .and_then(|value| value.as_symbol_name())
+    {
+        Some("control") => KEY_CHAR_CTRL,
+        Some("meta") => KEY_CHAR_META,
+        Some("shift") => KEY_CHAR_SHIFT,
+        Some("super") => KEY_CHAR_SUPER,
+        Some("hyper") => KEY_CHAR_HYPER,
+        Some("alt") => KEY_CHAR_ALT,
+        _ => 0,
+    }
+}
+
+fn where_is_sequence_preference(obarray: &Obarray, seq: &[Value]) -> i32 {
+    let preferred_modifier = where_is_preferred_modifier_mask(obarray);
+    let mut result = 1;
+
+    for event in seq {
+        let Some(code) = event.as_fixnum() else {
+            return 0;
+        };
+        let modifiers = code & (KEY_CHAR_MOD_MASK & !KEY_CHAR_META);
+        if modifiers == preferred_modifier {
+            result = 2;
+        } else if modifiers != 0 {
+            return 0;
+        }
+    }
+
+    result
+}
+
+fn select_where_is_preferred_sequence<'a>(
+    obarray: &Obarray,
+    sequences: &'a [Vec<Value>],
+) -> &'a Vec<Value> {
+    let mut best = &sequences[0];
+    let mut best_score = where_is_sequence_preference(obarray, best);
+    for seq in &sequences[1..] {
+        let score = where_is_sequence_preference(obarray, seq);
+        if score > best_score || (score == best_score && seq.len() < best.len()) {
+            best = seq;
+            best_score = score;
+            if score == 2 {
+                continue;
+            }
+        }
+    }
+    best
 }
 
 fn collect_where_is_sequences_value(

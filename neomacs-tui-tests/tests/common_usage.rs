@@ -5682,6 +5682,60 @@ fn bookmark_rename_and_delete_via_mx_updates_bookmark_list() {
 }
 
 #[test]
+fn recentf_mode_tracks_opened_files_and_lists_them_via_mx() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    invoke_mx_command(&mut gnu, &mut neo, "recentf-mode");
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "recentf-first.txt",
+        "first recent file\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "recentf-second.txt",
+        "second recent file\n",
+        "C-x C-f",
+    );
+
+    invoke_mx_command(&mut gnu, &mut neo, "recentf-open-files");
+    let recentf_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("*Open Recent*"))
+            && grid.iter().any(|row| row.contains("Click on a file"))
+            && grid.iter().any(|row| row.contains("recentf-first.txt"))
+            && grid.iter().any(|row| row.contains("recentf-second.txt"))
+    };
+    gnu.read_until(Duration::from_secs(8), recentf_ready);
+    neo.read_until(Duration::from_secs(12), recentf_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert!(
+        gnu.text_grid()
+            .iter()
+            .any(|row| row.contains("type q to cancel")),
+        "GNU Recentf dialog should advertise q to cancel"
+    );
+    assert!(
+        neo.text_grid()
+            .iter()
+            .any(|row| row.contains("type q to cancel")),
+        "Neomacs Recentf dialog should advertise q to cancel"
+    );
+
+    assert_pair_nearly_matches(
+        "recentf_mode_tracks_opened_files_and_lists_them_via_mx",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
 fn file_name_shadow_overlay_does_not_leak_into_occur_prompt() {
     let (mut gnu, mut neo) = boot_pair("");
 
