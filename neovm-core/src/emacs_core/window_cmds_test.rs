@@ -4785,6 +4785,36 @@ fn scroll_and_recenter_use_selected_window_state() {
 }
 
 #[test]
+fn recenter_uses_current_buffer_point_for_selected_window() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buf = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(buf);
+    let fid = ev.frames.create_frame("F1", 800, 600, buf);
+    ev.eval_str_each("(erase-buffer) (insert \"a\\nb\\nc\\nd\\ne\\nf\\ng\\nh\\n\") (goto-char 7)");
+    let wid = ev.frames.get(fid).expect("frame").selected_window;
+    if let Some(crate::window::Window::Leaf { point, .. }) = ev
+        .frames
+        .get_mut(fid)
+        .and_then(|frame| frame.find_window_mut(wid))
+    {
+        *point = 1;
+    }
+    let results = ev
+        .eval_str_each(
+            "(progn
+               (recenter 0)
+               (list (window-start)
+                     (line-number-at-pos (window-start))
+                     (line-number-at-pos (point))))",
+        )
+        .iter()
+        .map(format_eval_result)
+        .collect::<Vec<_>>();
+    assert_eq!(results[0], "OK (7 4 4)");
+}
+
+#[test]
 fn scroll_up_down_updates_window_start_for_multibyte_content() {
     crate::test_utils::init_test_tracing();
     // dotimes is no longer a special form; use let+while equivalent

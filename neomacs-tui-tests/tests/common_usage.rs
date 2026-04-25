@@ -4662,6 +4662,49 @@ fn describe_copying_via_ch_cc_opens_copying_file() {
 }
 
 #[test]
+fn describe_no_warranty_via_ch_cw_jumps_to_warranty_section() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    send_help_sequence(&mut gnu, &mut neo, "C-w");
+    let warranty_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("COPYING"))
+            && grid
+                .iter()
+                .any(|row| row.contains("15. Disclaimer of Warranty"))
+            && grid
+                .iter()
+                .any(|row| row.contains("THERE IS NO WARRANTY FOR THE PROGRAM"))
+    };
+    gnu.read_until(Duration::from_secs(8), warranty_ready);
+    neo.read_until(Duration::from_secs(12), warranty_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    for (label, session) in [("GNU", &gnu), ("NEO", &neo)] {
+        let grid = session.text_grid();
+        assert!(
+            grid.iter().any(|row| row.contains("COPYING")),
+            "{label} should show the COPYING help file"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("15. Disclaimer of Warranty")),
+            "{label} should jump to the warranty disclaimer"
+        );
+        assert!(
+            grid.iter()
+                .any(|row| row.contains("THERE IS NO WARRANTY FOR THE PROGRAM")),
+            "{label} should show the warranty disclaimer body"
+        );
+    }
+    assert_pair_nearly_matches(
+        "describe_no_warranty_via_ch_cw_jumps_to_warranty_section",
+        &gnu,
+        &neo,
+        4,
+    );
+}
+
+#[test]
 fn about_emacs_via_ch_ca_opens_about_buffer() {
     let (mut gnu, mut neo) = boot_pair("");
 

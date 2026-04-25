@@ -4962,7 +4962,21 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
         let (buffer_id, window_point) = match get_leaf(frames, fid, wid)? {
             Window::Leaf {
                 buffer_id, point, ..
-            } => (*buffer_id, *point as i64),
+            } => {
+                if buffers.current_buffer_id() != Some(*buffer_id) {
+                    return Err(signal(
+                        "error",
+                        vec![Value::string(
+                            "`recenter'ing a window that does not display current-buffer",
+                        )],
+                    ));
+                }
+                let point = buffers
+                    .get(*buffer_id)
+                    .map(|buf| buf.point_char().saturating_add(1))
+                    .unwrap_or(*point);
+                (*buffer_id, point as i64)
+            }
             _ => return Ok(Value::NIL),
         };
         let Some(buf) = buffers.get(buffer_id) else {
@@ -4995,17 +5009,27 @@ pub(crate) fn builtin_recenter(eval: &mut super::eval::Context, args: Vec<Value>
         let pos_lisp = buf.text.emacs_byte_to_char(pos) as i64 + 1;
         if let Some(clamped) = clamped_window_position_in_state(frames, buffers, fid, wid, pos_lisp)
         {
-            if let Some(Window::Leaf { window_start, .. }) = frames
+            if let Some(Window::Leaf {
+                window_start,
+                window_end_valid,
+                vscroll,
+                preserve_vscroll_p,
+                ..
+            }) = frames
                 .get_mut(fid)
                 .and_then(|frame| frame.find_window_mut(wid))
             {
                 *window_start = clamped;
+                *window_end_valid = false;
+                *vscroll = 0;
+                *preserve_vscroll_p = false;
             }
         }
     } // end borrow scope
 
     // Run window-scroll-functions hook after recenter
     let _ = builtin_run_window_scroll_functions(eval, vec![]);
+    eval.invalidate_redisplay();
     Ok(Value::NIL)
 }
 /// `(iconify-frame &optional FRAME)` -> nil.
