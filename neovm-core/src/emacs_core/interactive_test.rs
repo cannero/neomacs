@@ -4453,6 +4453,35 @@ fn where_is_internal_follows_symbol_function_prefix_maps_like_gnu_help_command()
 }
 
 #[test]
+fn where_is_internal_follows_menu_item_commands_and_prefix_keymaps() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-sparse-keymap))
+                 (file-menu (make-sparse-keymap)))
+             (define-key file-menu [new-file]
+                         '(menu-item "Visit New File..." find-file))
+             (define-key m [file]
+                         (list 'menu-item "File" file-menu))
+             (equal (where-is-internal 'find-file m t) [file new-file]))"#,
+    );
+    assert_eq!(result, "OK t");
+}
+
+#[test]
+fn where_is_internal_follows_menu_bar_label_prefix_keymaps() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-sparse-keymap))
+                 (file-menu (make-sparse-keymap)))
+             (define-key file-menu [new-file]
+                         '(menu-item "Visit New File..." find-file))
+             (define-key m [file] (cons "File" file-menu))
+             (equal (where-is-internal 'find-file m t) [file new-file]))"#,
+    );
+    assert_eq!(result, "OK t");
+}
+
+#[test]
 fn where_is_internal_returns_prefix_key_for_prefix_command_symbol() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(

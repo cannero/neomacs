@@ -1,4 +1,5 @@
 use super::*;
+use crate::thread_comm::ToolBarItem;
 use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::window::ResizeDirection;
 
@@ -28,6 +29,52 @@ fn make_test_app(width: u32, height: u32, scale_factor: f64) -> RenderApp {
     );
     app.scale_factor = scale_factor;
     app
+}
+
+fn toolbar_item(index: u32) -> ToolBarItem {
+    ToolBarItem {
+        index,
+        icon_name: "open".to_string(),
+        label: String::new(),
+        help: String::new(),
+        enabled: true,
+        selected: false,
+        is_separator: false,
+    }
+}
+
+#[test]
+fn toolbar_y_origin_stacks_below_menu_bar_without_tab_bar() {
+    let mut app = make_test_app(800, 600, 1.0);
+    app.menu_bar_height = 33.0;
+    app.toolbar_height = 33.0;
+
+    assert_eq!(app.toolbar_y_origin(), 33.0);
+}
+
+#[test]
+fn toolbar_y_origin_stacks_below_tab_bar_when_present() {
+    let mut app = make_test_app(800, 600, 1.0);
+    app.menu_bar_height = 33.0;
+    app.tab_bar_y = 33.0;
+    app.tab_bar_height = 33.0;
+    app.toolbar_height = 33.0;
+
+    assert_eq!(app.toolbar_y_origin(), 66.0);
+}
+
+#[test]
+fn toolbar_hit_test_uses_toolbar_local_y() {
+    let mut app = make_test_app(800, 600, 1.0);
+    app.menu_bar_height = 33.0;
+    app.toolbar_height = 33.0;
+    app.toolbar_items = vec![toolbar_item(7)];
+
+    assert_eq!(app.toolbar_hit_test(7.0, 16.0), Some(7));
+    assert_eq!(
+        app.toolbar_hit_test(7.0, app.toolbar_y_origin() + 16.0),
+        None
+    );
 }
 
 // ===================================================================

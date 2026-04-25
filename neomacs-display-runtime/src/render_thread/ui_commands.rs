@@ -1,9 +1,31 @@
 //! UI overlay, animation, and effect render commands.
 
 use super::{PopupMenuState, RenderApp, TooltipState};
-use crate::thread_comm::RenderCommand;
+use crate::thread_comm::{RenderCommand, ToolBarItem};
 
 impl RenderApp {
+    pub(super) fn ensure_toolbar_icon_textures(&mut self, items: &[ToolBarItem]) {
+        for item in items {
+            if !item.is_separator
+                && !item.icon_name.is_empty()
+                && !self.toolbar_icon_textures.contains_key(&item.icon_name)
+                && let Some(svg_data) =
+                    crate::backend::wgpu::toolbar_icons::get_icon_svg(&item.icon_name)
+                && let Some(renderer) = self.renderer.as_mut()
+            {
+                let icon_size = self.toolbar_icon_size;
+                let id = renderer.load_image_data(svg_data, icon_size, icon_size, 0, 0);
+                self.toolbar_icon_textures
+                    .insert(item.icon_name.clone(), id);
+                tracing::debug!(
+                    "Loaded toolbar icon '{}' as image_id={}",
+                    item.icon_name,
+                    id
+                );
+            }
+        }
+    }
+
     pub(super) fn handle_ui_command(&mut self, cmd: RenderCommand) -> Result<(), RenderCommand> {
         match cmd {
             RenderCommand::SetCursorBlink {
@@ -283,29 +305,7 @@ impl RenderApp {
                 bg_g,
                 bg_b,
             } => {
-                for item in &items {
-                    if !item.is_separator
-                        && !item.icon_name.is_empty()
-                        && !self.toolbar_icon_textures.contains_key(&item.icon_name)
-                    {
-                        if let Some(svg_data) =
-                            crate::backend::wgpu::toolbar_icons::get_icon_svg(&item.icon_name)
-                        {
-                            if let Some(renderer) = self.renderer.as_mut() {
-                                let icon_size = self.toolbar_icon_size;
-                                let id =
-                                    renderer.load_image_data(svg_data, icon_size, icon_size, 0, 0);
-                                self.toolbar_icon_textures
-                                    .insert(item.icon_name.clone(), id);
-                                tracing::debug!(
-                                    "Loaded toolbar icon '{}' as image_id={}",
-                                    item.icon_name,
-                                    id
-                                );
-                            }
-                        }
-                    }
-                }
+                self.ensure_toolbar_icon_textures(&items);
                 self.toolbar_items = items;
                 self.toolbar_height = height;
                 self.toolbar_fg = (fg_r, fg_g, fg_b);

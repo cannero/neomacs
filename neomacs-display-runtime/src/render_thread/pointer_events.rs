@@ -272,20 +272,12 @@ impl RenderApp {
         if state == ElementState::Pressed
             && button == MouseButton::Left
             && self.toolbar_height > 0.0
-            && self.mouse_pos.1
-                < (if self.tab_bar_height > 0.0 {
-                    self.tab_bar_y + self.tab_bar_height
-                } else {
-                    self.menu_bar_height
-                }) + self.toolbar_height
-            && self.mouse_pos.1
-                >= if self.tab_bar_height > 0.0 {
-                    self.tab_bar_y + self.tab_bar_height
-                } else {
-                    self.menu_bar_height
-                }
+            && self.mouse_pos.1 < self.toolbar_y_origin() + self.toolbar_height
+            && self.mouse_pos.1 >= self.toolbar_y_origin()
         {
-            if let Some(idx) = self.toolbar_hit_test(self.mouse_pos.0, self.mouse_pos.1) {
+            if let Some(idx) =
+                self.toolbar_hit_test(self.mouse_pos.0, self.mouse_pos.1 - self.toolbar_y_origin())
+            {
                 self.toolbar_pressed = Some(idx);
                 self.comms
                     .send_input(InputEvent::ToolBarClick { index: idx as i32 });
@@ -473,20 +465,9 @@ impl RenderApp {
 
         if self.toolbar_height > 0.0 {
             let old_hover = self.toolbar_hovered;
-            if ly
-                < (if self.tab_bar_height > 0.0 {
-                    self.tab_bar_y + self.tab_bar_height
-                } else {
-                    self.menu_bar_height
-                }) + self.toolbar_height
-                && ly
-                    >= if self.tab_bar_height > 0.0 {
-                        self.tab_bar_y + self.tab_bar_height
-                    } else {
-                        self.menu_bar_height
-                    }
-            {
-                self.toolbar_hovered = self.toolbar_hit_test(lx, ly);
+            let toolbar_y = self.toolbar_y_origin();
+            if ly < toolbar_y + self.toolbar_height && ly >= toolbar_y {
+                self.toolbar_hovered = self.toolbar_hit_test(lx, ly - toolbar_y);
             } else {
                 self.toolbar_hovered = None;
             }

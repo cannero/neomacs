@@ -96,6 +96,7 @@ impl RenderApp {
     }
 
     /// Hit-test toolbar items. Returns the index of the item under (x, y), or None.
+    /// The y coordinate is local to the toolbar row.
     pub(super) fn toolbar_hit_test(&self, x: f32, y: f32) -> Option<u32> {
         if self.toolbar_height <= 0.0 || y >= self.toolbar_height {
             return None;
@@ -119,6 +120,14 @@ impl RenderApp {
             item_x = right + item_spacing;
         }
         None
+    }
+
+    pub(super) fn toolbar_y_origin(&self) -> f32 {
+        if self.tab_bar_height > 0.0 {
+            self.tab_bar_y + self.tab_bar_height
+        } else {
+            self.menu_bar_height
+        }
     }
 
     /// Hit-test tab bar items. Returns the index of the item under (x, y), or None.

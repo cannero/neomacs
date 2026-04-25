@@ -292,6 +292,7 @@ impl RenderApp {
                 renderer.render_toolbar(
                     &surface_view,
                     &self.toolbar_items,
+                    self.toolbar_y_origin(),
                     self.toolbar_height,
                     self.toolbar_fg,
                     self.toolbar_bg,

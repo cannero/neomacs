@@ -3605,6 +3605,9 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
     if binding.is_nil() {
         return false;
     }
+    if let Some(command) = menu_item_command(binding) {
+        return binding_matches_definition(&command, definition);
+    }
     // If binding is a keymap (prefix), it doesn't match a command definition
     if is_list_keymap(binding) {
         return false;
@@ -3624,6 +3627,22 @@ fn binding_matches_definition(binding: &Value, definition: &Value) -> bool {
         }
     }
     binding == definition
+}
+
+fn menu_item_command(binding: &Value) -> Option<Value> {
+    if !binding.is_cons() || binding.cons_car().as_symbol_name() != Some("menu-item") {
+        return None;
+    }
+    let tail = binding.cons_cdr();
+    if !tail.is_cons() {
+        return None;
+    }
+    let after_label = tail.cons_cdr();
+    if after_label.is_cons() {
+        Some(after_label.cons_car())
+    } else {
+        None
+    }
 }
 
 fn where_is_preferred_modifier_mask(obarray: &Obarray) -> i64 {
@@ -3743,6 +3762,12 @@ fn collect_where_is_sequences_value(
 }
 
 fn where_is_binding_prefix_keymap(obarray: &Obarray, binding: &Value) -> Option<Value> {
+    if let Some(command) = menu_item_command(binding) {
+        return where_is_binding_prefix_keymap(obarray, &command);
+    }
+    if let Some(keymap) = menu_label_prefix_keymap(binding) {
+        return Some(keymap);
+    }
     if is_list_keymap(binding) {
         return Some(*binding);
     }
@@ -3751,6 +3776,18 @@ fn where_is_binding_prefix_keymap(obarray: &Obarray, binding: &Value) -> Option<
     let func = obarray.indirect_function(sym_name)?;
     if is_list_keymap(&func) {
         Some(func)
+    } else {
+        None
+    }
+}
+
+fn menu_label_prefix_keymap(binding: &Value) -> Option<Value> {
+    if !binding.is_cons() || binding.cons_car().as_runtime_string_owned().is_none() {
+        return None;
+    }
+    let keymap = binding.cons_cdr();
+    if is_list_keymap(&keymap) {
+        Some(keymap)
     } else {
         None
     }

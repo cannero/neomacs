@@ -2142,6 +2142,7 @@ impl WgpuRenderer {
         &self,
         view: &wgpu::TextureView,
         items: &[ToolBarItem],
+        toolbar_y: f32,
         toolbar_height: f32,
         fg: (f32, f32, f32),
         bg: (f32, f32, f32),
@@ -2177,7 +2178,7 @@ impl WgpuRenderer {
         self.add_rect(
             &mut rect_verts,
             0.0,
-            0.0,
+            toolbar_y,
             logical_w,
             toolbar_height,
             &bg_color,
@@ -2189,7 +2190,7 @@ impl WgpuRenderer {
             if item.is_separator {
                 // Draw separator line
                 let sep_x = item_x + separator_width / 2.0 - 0.5;
-                let sep_y = pad;
+                let sep_y = toolbar_y + pad;
                 let sep_h = toolbar_height - pad * 2.0;
                 let sep_color = Color::new(fg.0, fg.1, fg.2, 0.2).srgb_to_linear();
                 self.add_rect(&mut rect_verts, sep_x, sep_y, 1.0, sep_h, &sep_color);
@@ -2202,10 +2203,24 @@ impl WgpuRenderer {
 
             if is_pressed {
                 let c = Color::new(fg.0, fg.1, fg.2, 0.2).srgb_to_linear();
-                self.add_rect(&mut rect_verts, item_x, 0.0, item_size, toolbar_height, &c);
+                self.add_rect(
+                    &mut rect_verts,
+                    item_x,
+                    toolbar_y,
+                    item_size,
+                    toolbar_height,
+                    &c,
+                );
             } else if is_hovered && item.enabled {
                 let c = Color::new(fg.0, fg.1, fg.2, 0.1).srgb_to_linear();
-                self.add_rect(&mut rect_verts, item_x, 0.0, item_size, toolbar_height, &c);
+                self.add_rect(
+                    &mut rect_verts,
+                    item_x,
+                    toolbar_y,
+                    item_size,
+                    toolbar_height,
+                    &c,
+                );
             }
 
             if item.selected {
@@ -2214,7 +2229,7 @@ impl WgpuRenderer {
                 self.add_rect(
                     &mut rect_verts,
                     item_x,
-                    toolbar_height - 2.0,
+                    toolbar_y + toolbar_height - 2.0,
                     item_size,
                     2.0,
                     &accent,
@@ -2229,7 +2244,7 @@ impl WgpuRenderer {
         self.add_rect(
             &mut rect_verts,
             0.0,
-            toolbar_height - 1.0,
+            toolbar_y + toolbar_height - 1.0,
             logical_w,
             1.0,
             &border_color,
@@ -2307,7 +2322,7 @@ impl WgpuRenderer {
                 }
 
                 let icon_x = item_x + pad;
-                let icon_y = (toolbar_height - icon_sz) / 2.0;
+                let icon_y = toolbar_y + (toolbar_height - icon_sz) / 2.0;
 
                 // Tint color: fg color for enabled, dimmed for disabled
                 let alpha = if item.enabled { 1.0 } else { 0.4 };

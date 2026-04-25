@@ -46,6 +46,7 @@ impl RenderApp {
                     self.menu_bar_active = None;
                 }
                 if let Some(tool_bar) = gui_tool_bar {
+                    self.ensure_toolbar_icon_textures(&tool_bar.items);
                     self.toolbar_items = tool_bar.items;
                     self.toolbar_height = tool_bar.height;
                     self.toolbar_fg = tool_bar.fg;
