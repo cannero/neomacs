@@ -8,7 +8,7 @@ use crate::emacs_core::error::{Flow, signal};
 use crate::emacs_core::eval::{
     push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots,
 };
-use crate::emacs_core::value::{Value, eq_value};
+use crate::emacs_core::value::{Value, eq_value, eq_value_swp};
 
 fn plist_entry(prop: Value, value: Value, tail: Value) -> Value {
     let saved = save_scratch_gc_roots();
@@ -27,6 +27,12 @@ fn plist_entry(prop: Value, value: Value, tail: Value) -> Value {
 /// Walk `plist` looking for `prop`. Returns the associated value or None.
 /// Matches GNU `Fplist_get` when keys compare by eq.
 pub fn plist_get(plist: Value, prop: &Value) -> Option<Value> {
+    plist_get_swp(plist, prop, false)
+}
+
+/// Walk `plist` looking for `prop`, using GNU's symbol-with-position aware
+/// `EQ` semantics when `symbols_with_pos_enabled` is true.
+pub fn plist_get_swp(plist: Value, prop: &Value, symbols_with_pos_enabled: bool) -> Option<Value> {
     let mut tail = plist;
     loop {
         if !tail.is_cons() {
@@ -37,7 +43,7 @@ pub fn plist_get(plist: Value, prop: &Value) -> Option<Value> {
         if !rest.is_cons() {
             return None;
         }
-        if eq_value(&key, prop) {
+        if eq_value_swp(&key, prop, symbols_with_pos_enabled) {
             return Some(rest.cons_car());
         }
         tail = rest.cons_cdr();
@@ -55,6 +61,17 @@ pub fn plist_get(plist: Value, prop: &Value) -> Option<Value> {
 /// `wrong-type-argument plistp plist`. Matches GNU `Fplist_put`
 /// (`fns.c:2703-2727`).
 pub fn plist_put(plist: Value, prop: Value, value: Value) -> Result<(Value, bool), Flow> {
+    plist_put_swp(plist, prop, value, false)
+}
+
+/// `plist_put` variant whose key comparison mirrors GNU `EQ` while
+/// `symbols-with-pos-enabled` is non-nil.
+pub fn plist_put_swp(
+    plist: Value,
+    prop: Value,
+    value: Value,
+    symbols_with_pos_enabled: bool,
+) -> Result<(Value, bool), Flow> {
     // Empty plist: create a fresh two-element list.
     if !plist.is_cons() {
         if !plist.is_nil() {
@@ -100,8 +117,8 @@ pub fn plist_put(plist: Value, prop: Value, value: Value) -> Result<(Value, bool
                 vec![Value::symbol("plistp"), plist],
             ));
         }
-        if eq_value(&key, &prop) {
-            let changed = !eq_value(&rest.cons_car(), &value);
+        if eq_value_swp(&key, &prop, symbols_with_pos_enabled) {
+            let changed = !eq_value_swp(&rest.cons_car(), &value, symbols_with_pos_enabled);
             rest.set_car(value);
             return Ok((plist, changed));
         }

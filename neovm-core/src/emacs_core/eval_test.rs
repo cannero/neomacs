@@ -140,6 +140,63 @@ fn symbols_with_pos_enabled_makes_hash_table_keys_transparent() {
 }
 
 #[test]
+fn get_honors_overriding_plist_environment() {
+    let result = eval_one(
+        r#"(progn
+             (put 'neo-plist-probe 'pcase-macroexpander 'obarray)
+             (list
+              (let ((overriding-plist-environment
+                     '((neo-plist-probe pcase-macroexpander override))))
+                (get 'neo-plist-probe 'pcase-macroexpander))
+              (let ((overriding-plist-environment
+                     '((neo-plist-probe pcase-macroexpander nil))))
+                (get 'neo-plist-probe 'pcase-macroexpander))))"#,
+    );
+
+    assert_eq!(result, "OK (override obarray)");
+}
+
+#[test]
+fn get_and_put_accept_non_symbol_property_keys() {
+    let result = eval_one(
+        r#"(let ((key (copy-sequence "a")))
+             (put 'neo-nonsymbol-prop key 7)
+             (list
+              (get 'neo-nonsymbol-prop key)
+              (get 'neo-nonsymbol-prop (copy-sequence "a"))
+              (symbol-plist 'neo-nonsymbol-prop)))"#,
+    );
+
+    assert_eq!(result, "OK (7 nil (\"a\" 7))");
+}
+
+#[test]
+fn symbol_with_pos_property_keys_follow_gnu_eq_rules() {
+    let result = eval_one(
+        r#"(progn
+             (put 'neo-swp-prop 'a 'bare)
+             (list
+              (let ((symbols-with-pos-enabled t))
+                (put 'neo-swp-prop (position-symbol 'a 1) 'pos)
+                (list
+                 (get 'neo-swp-prop 'a)
+                 (get 'neo-swp-prop (position-symbol 'a 2))
+                 (length (symbol-plist 'neo-swp-prop))))
+              (progn
+                (setplist 'neo-swp-prop nil)
+                (put 'neo-swp-prop 'a 'bare)
+                (let ((symbols-with-pos-enabled nil))
+                  (put 'neo-swp-prop (position-symbol 'a 1) 'pos)
+                  (list
+                   (get 'neo-swp-prop 'a)
+                   (get 'neo-swp-prop (position-symbol 'a 2))
+                   (length (symbol-plist 'neo-swp-prop)))))))"#,
+    );
+
+    assert_eq!(result, "OK ((pos pos 2) (bare nil 4))");
+}
+
+#[test]
 fn skip_debugger_matches_raw_unibyte_ignored_error_regex() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

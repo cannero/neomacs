@@ -29,6 +29,44 @@ pub(crate) fn symbol_id(value: &Value) -> Option<SymId> {
     }
 }
 
+fn symbol_id_checked(value: &Value, symbols_with_pos_enabled: bool) -> Option<SymId> {
+    match value.kind() {
+        ValueKind::Nil => Some(NIL_SYM_ID),
+        ValueKind::T => Some(T_SYM_ID),
+        ValueKind::Symbol(id) => Some(id),
+        _ if symbols_with_pos_enabled => value
+            .as_symbol_with_pos_sym()
+            .and_then(|sym| symbol_id_checked(&sym, symbols_with_pos_enabled)),
+        _ => None,
+    }
+}
+
+fn expect_symbol_id_checked(value: &Value, symbols_with_pos_enabled: bool) -> Result<SymId, Flow> {
+    symbol_id_checked(value, symbols_with_pos_enabled).ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), *value],
+        )
+    })
+}
+
+fn overriding_plist_environment_symbol() -> SymId {
+    static SYM: std::sync::OnceLock<SymId> = std::sync::OnceLock::new();
+    *SYM.get_or_init(|| intern("overriding-plist-environment"))
+}
+
+fn assq_cdr_swp(key: &Value, alist: Value, symbols_with_pos_enabled: bool) -> Option<Value> {
+    let mut cursor = alist;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        if entry.is_cons() && eq_value_swp(key, &entry.cons_car(), symbols_with_pos_enabled) {
+            return Some(entry.cons_cdr());
+        }
+        cursor = cursor.cons_cdr();
+    }
+    None
+}
+
 fn value_from_symbol_id(id: SymId) -> Value {
     if is_canonical_id(id) {
         if id == NIL_SYM_ID {
@@ -651,12 +689,24 @@ pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Val
 
 pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("get", &args, 2)?;
-    let sym = expect_symbol_id(&args[0])?;
-    let prop = expect_symbol_id(&args[1])?;
-    Ok(eval
-        .obarray()
-        .get_property_id(sym, prop)
-        .unwrap_or(Value::NIL))
+    let symbols_with_pos_enabled = eval.symbols_with_pos_enabled;
+    let sym = expect_symbol_id_checked(&args[0], symbols_with_pos_enabled)?;
+    let prop = args[1];
+
+    let overrides = eval.visible_variable_value_or_nil_by_id(overriding_plist_environment_symbol());
+    if let Some(plist) = assq_cdr_swp(&args[0], overrides, symbols_with_pos_enabled)
+        && let Some(propval) =
+            crate::emacs_core::plist::plist_get_swp(plist, &prop, symbols_with_pos_enabled)
+        && !propval.is_nil()
+    {
+        return Ok(propval);
+    }
+
+    let plist = eval.obarray().symbol_plist_id(sym);
+    Ok(
+        crate::emacs_core::plist::plist_get_swp(plist, &prop, symbols_with_pos_enabled)
+            .unwrap_or(Value::NIL),
+    )
 }
 
 pub(crate) fn builtin_put(
@@ -664,20 +714,29 @@ pub(crate) fn builtin_put(
     args: Vec<Value>,
 ) -> EvalResult {
     ctx.note_macro_expansion_mutation();
-    put_in_obarray(&mut ctx.obarray, args)
+    put_in_obarray(&mut ctx.obarray, args, ctx.symbols_with_pos_enabled)
 }
 
-pub(crate) fn put_in_obarray(obarray: &mut Obarray, args: Vec<Value>) -> EvalResult {
+pub(crate) fn put_in_obarray(
+    obarray: &mut Obarray,
+    args: Vec<Value>,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
     expect_args("put", &args, 3)?;
-    let sym = expect_symbol_id(&args[0])?;
-    let prop = expect_symbol_id(&args[1])?;
+    let sym = expect_symbol_id_checked(&args[0], symbols_with_pos_enabled)?;
+    let prop = args[1];
     let value = args[2];
 
     let saved = save_scratch_gc_roots();
     push_scratch_gc_root(args[0]);
     push_scratch_gc_root(args[1]);
     push_scratch_gc_root(value);
-    let result = obarray.put_property_id(sym, prop, value);
+    let plist = obarray.symbol_plist_id(sym);
+    let result =
+        crate::emacs_core::plist::plist_put_swp(plist, prop, value, symbols_with_pos_enabled);
+    if let Ok((new_plist, _changed)) = result {
+        obarray.set_symbol_plist_id(sym, new_plist);
+    }
     restore_scratch_gc_roots(saved);
     result?;
     Ok(value)
@@ -696,13 +755,17 @@ pub(super) fn builtin_register_code_conversion_map(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    let symbols_with_pos_enabled = eval.symbols_with_pos_enabled;
     // Pre-validate the target symbol's plist shape BEFORE allocating a
     // map ID. If the plist is malformed, the subsequent `put` would
     // signal `(wrong-type-argument plistp …)` AFTER `register_code_
     // conversion_map_impl` has already consumed an ID — leaving the
     // counter in a non-GNU state. Shape-check first so the error path
     // is side-effect-free.
-    if let Some(sym_id) = args.first().and_then(symbol_id) {
+    if let Some(sym_id) = args
+        .first()
+        .and_then(|arg| symbol_id_checked(arg, symbols_with_pos_enabled))
+    {
         let plist = eval
             .obarray()
             .get_by_id(sym_id)
@@ -717,10 +780,12 @@ pub(super) fn builtin_register_code_conversion_map(
     let _ = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("code-conversion-map"), args[1]],
+        symbols_with_pos_enabled,
     )?;
     let _ = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("code-conversion-map-id"), map_id],
+        symbols_with_pos_enabled,
     )?;
 
     Ok(map_id)
@@ -791,6 +856,7 @@ pub(super) fn builtin_register_ccl_program(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    let symbols_with_pos_enabled = eval.symbols_with_pos_enabled;
     let obarray = eval.obarray_mut();
     let was_registered = args
         .first()
@@ -805,6 +871,7 @@ pub(super) fn builtin_register_ccl_program(
     let publish = put_in_obarray(
         obarray,
         vec![args[0], Value::symbol("ccl-program-idx"), program_id],
+        symbols_with_pos_enabled,
     );
     if let Err(err) = publish {
         if let Some(name) = args[0].as_symbol_id() {
