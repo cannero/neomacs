@@ -72,6 +72,36 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
 }
 
 #[test]
+fn file_pdump_loads_vector_slots_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-vector",
+        Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-vector.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-vector")
+        .expect("restored vector symbol");
+    let slots = value.as_vector_data().expect("restored vector");
+
+    assert_eq!(
+        slots.as_slice(),
+        &[Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]
+    );
+    assert!(
+        loaded.pdump_image_contains_ptr(slots.as_slice().as_ptr().cast::<u8>()),
+        "loaded vector slots must be borrowed from the retained mmap image"
+    );
+}
+
+#[test]
 fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

@@ -363,6 +363,7 @@ fn autoload_manager_pdump_uses_symbol_and_lisp_identity() {
     };
     let empty_heap = crate::emacs_core::pdump::types::DumpTaggedHeap {
         objects: Vec::new(),
+        mapped_slots: Vec::new(),
     };
     let mut decoder = crate::emacs_core::pdump::convert::LoadDecoder::new(&empty_heap);
     let restored =

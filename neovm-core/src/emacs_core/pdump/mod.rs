@@ -60,7 +60,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v28: Heap string bytes move out of the runtime-state bincode payload into
 //   the mmap heap section, matching GNU pdumper's hot string header plus cold
 //   string data split.
-const FORMAT_VERSION: u32 = 28;
+// v29: Vector, record, lambda, and macro slot arrays are installed from
+//   mmap heap spans during file pdump load.
+const FORMAT_VERSION: u32 = 29;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -190,8 +192,8 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     let mapped_heap = image
-        .section(DumpSectionKind::HeapImage)
-        .map(mapped_heap::MappedHeapView::from_slice);
+        .section_mut(DumpSectionKind::HeapImage)
+        .map(mapped_heap::MappedHeapView::from_mut_slice);
 
     let mut eval = reconstruct_evaluator(&state, mapped_heap)?;
     record_loaded_dump(path, load_start.elapsed());

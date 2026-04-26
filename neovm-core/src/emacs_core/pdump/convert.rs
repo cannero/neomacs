@@ -60,7 +60,8 @@ use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
     BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, FloatObj, FrameObj, HashTableObj, LambdaObj,
-    MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj, TimerObj, VectorObj, WindowObj,
+    LispValueVec, MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj, TimerObj,
+    VectorObj, WindowObj,
 };
 use crate::tagged::value::TaggedValue;
 
@@ -98,6 +99,7 @@ impl TaggedDumpState {
                 .into_iter()
                 .map(|obj| obj.unwrap_or(DumpHeapObject::Free))
                 .collect(),
+            mapped_slots: Vec::new(),
         }
     }
 }
@@ -211,6 +213,7 @@ impl DumpEncoder {
 
 pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
+    mapped_slots: Vec<Option<DumpSlotSpan>>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
     mapped_heap: Option<MappedHeapView>,
@@ -235,6 +238,7 @@ impl TaggedLoadState {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
+            mapped_slots: heap.mapped_slots.clone(),
             values: vec![None; len],
             populated: vec![false; len],
             mapped_heap,
@@ -342,6 +346,82 @@ impl LoadDecoder {
                 let bytes = mapped_heap.bytes(data)?;
                 Ok(unsafe { LispString::from_mapped_bytes(bytes.ptr, bytes.len, size, size_byte) })
             }
+        }
+    }
+
+    fn mapped_slots_for_object(
+        &self,
+        id: TaggedHeapRef,
+        slots: &[Value],
+    ) -> Result<Option<LispValueVec>, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_slots
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped vector slots but image has no heap section".into(),
+            )
+        })?;
+        let ptr = mapped_heap.slots_mut(span, slots.len())?;
+        if !slots.is_empty() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(slots.as_ptr(), ptr, slots.len());
+            }
+        }
+        Ok(Some(unsafe {
+            LispValueVec::mapped(ptr.cast_const(), slots.len())
+        }))
+    }
+
+    fn install_mapped_vector_slots(value: Value, storage: LispValueVec) -> bool {
+        if value.veclike_type() != Some(VecLikeType::Vector) {
+            return false;
+        }
+        let ptr = value.as_veclike_ptr().unwrap() as *mut VectorObj;
+        unsafe {
+            (*ptr).data = storage;
+        }
+        true
+    }
+
+    fn install_mapped_record_slots(value: Value, storage: LispValueVec) -> bool {
+        if value.veclike_type() != Some(VecLikeType::Record) {
+            return false;
+        }
+        let ptr = value.as_veclike_ptr().unwrap() as *mut RecordObj;
+        unsafe {
+            (*ptr).data = storage;
+        }
+        true
+    }
+
+    fn install_mapped_closure_slots(value: Value, storage: LispValueVec) -> bool {
+        match value.veclike_type() {
+            Some(VecLikeType::Lambda) => {
+                let ptr = value.as_veclike_ptr().unwrap() as *mut LambdaObj;
+                unsafe {
+                    let obj = &mut *ptr;
+                    let _ = obj.parsed_params.take();
+                    obj.data = storage;
+                }
+                true
+            }
+            Some(VecLikeType::Macro) => {
+                let ptr = value.as_veclike_ptr().unwrap() as *mut MacroObj;
+                unsafe {
+                    let obj = &mut *ptr;
+                    let _ = obj.parsed_params.take();
+                    obj.data = storage;
+                }
+                true
+            }
+            _ => false,
         }
     }
 
@@ -454,8 +534,12 @@ impl LoadDecoder {
                 value.set_cdr(self.load_value(&cdr));
             }
             DumpHeapObject::Vector(items) => {
-                let _ = value
-                    .replace_vector_data(items.iter().map(|item| self.load_value(item)).collect());
+                let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
+                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                    let _ = Self::install_mapped_vector_slots(value, storage);
+                } else {
+                    let _ = value.replace_vector_data(slots);
+                }
             }
             DumpHeapObject::HashTable(ht) => {
                 let _ = value.with_hash_table_mut(|table| {
@@ -497,9 +581,12 @@ impl LoadDecoder {
             }
             DumpHeapObject::Float(_) => {}
             DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-                let _ = value.replace_closure_slots(
-                    slots.iter().map(|slot| self.load_value(slot)).collect(),
-                );
+                let slots: Vec<_> = slots.iter().map(|slot| self.load_value(slot)).collect();
+                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                    let _ = Self::install_mapped_closure_slots(value, storage);
+                } else {
+                    let _ = value.replace_closure_slots(slots);
+                }
             }
             DumpHeapObject::ByteCode(bc) => {
                 let _ = value
@@ -510,8 +597,12 @@ impl LoadDecoder {
                     .transpose()?;
             }
             DumpHeapObject::Record(items) => {
-                let _ = value
-                    .replace_record_data(items.iter().map(|item| self.load_value(item)).collect());
+                let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
+                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                    let _ = Self::install_mapped_record_slots(value, storage);
+                } else {
+                    let _ = value.replace_record_data(slots);
+                }
             }
             DumpHeapObject::Marker(marker) => {
                 let _ = value.with_marker_data_mut(|data| {
@@ -615,7 +706,10 @@ mod tests {
                 },
             })
             .collect();
-        let heap = DumpTaggedHeap { objects };
+        let heap = DumpTaggedHeap {
+            objects,
+            mapped_slots: Vec::new(),
+        };
         let mut decoder = LoadDecoder::new(&heap);
 
         decoder
@@ -2119,6 +2213,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         symbol_table: dump_symbol_table(),
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
+            mapped_slots: Vec::new(),
         },
         obarray: dump_obarray(&mut encoder, eval),
         dynamic: Vec::new(),
