@@ -12,23 +12,10 @@
 //!
 //! ## Scope today
 //!
-//! Neomacs currently does not implement working `--batch --eval` (a
-//! `princ` from inside `--eval` does not reach stdout — separate gap,
-//! tracked outside this audit). Until that lands, only flags whose
-//! effect is observable via the early exit path (`--help`, `--version`,
-//! `--chdir`-failure) and via process exit codes can be parity-tested
-//! against GNU.
-//!
-//! The richer parity tests that need a running interpreter (`-Q`
-//! peeking, `--no-site-lisp` load-path filtering, `sort_args` argv
-//! ordering, `--` terminator forwarding) are written here as
-//! `#[ignore]`'d skeletons so they can be enabled in one line per test
-//! once batch mode is implemented. The unit tests in
-//! `neomacs-bin/src/main_test.rs` already cover the parser side of
-//! each of these — they assert that `parse_startup_options` returns
-//! the right `StartupOptions` shape — so the argv parity work is fully
-//! verified end-to-end at the parser level today, and will gain
-//! end-to-end binary parity once batch mode lands.
+//! These tests cover both early C-side exits (`--help`, `--version`,
+//! `--chdir` failure) and batch startup paths where Lisp observes the
+//! sorted/forwarded `command-line-args`. When a parity gap is known, the
+//! specific test remains ignored with that gap stated on the test itself.
 
 mod common;
 
@@ -113,10 +100,7 @@ fn chdir_to_nonexistent_path_fails_with_nonzero_exit() {
     );
 }
 
-// ---------- ignored: blocked on neomacs batch mode ----------
-
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn batch_eval_prints_result() {
     skip_unless_oracle!();
     let argv = ["--batch", "--eval", "(princ (+ 1 2))"];
@@ -126,7 +110,7 @@ fn batch_eval_prints_result() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
+#[ignore = "known gap: GNU abbreviates default-directory under HOME, Neomacs prints absolute path"]
 fn chdir_changes_default_directory() {
     skip_unless_oracle!();
     let tmp = tempfile::TempDir::new().unwrap();
@@ -145,7 +129,6 @@ fn chdir_changes_default_directory() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn quick_passes_through_to_lisp() {
     skip_unless_oracle!();
     // -Q must remain in command-line-args after the C-side peek so the
@@ -162,14 +145,13 @@ fn quick_passes_through_to_lisp() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn no_site_lisp_drops_site_lisp_from_load_path() {
     skip_unless_oracle!();
     let argv = [
         "--no-site-lisp",
         "--batch",
         "--eval",
-        "(princ (and (cl-some (lambda (p) (string-match-p \"site-lisp\" p)) load-path) t))",
+        "(princ (catch 'found (dolist (p load-path nil) (when (and (stringp p) (string-match-p \"site-lisp\" p)) (throw 'found t)))))",
     ];
     let n = run_neomacs(&argv);
     let e = run_oracle_emacs(&argv);
@@ -177,7 +159,6 @@ fn no_site_lisp_drops_site_lisp_from_load_path() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn batch_implies_noninteractive() {
     skip_unless_oracle!();
     let argv = ["--batch", "--eval", "(princ (if noninteractive 't 'nil))"];
@@ -187,13 +168,14 @@ fn batch_implies_noninteractive() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn sort_args_orders_options_canonically() {
     skip_unless_oracle!();
     // The sort_args (Phase 2) parity check: any permutation of the
     // same flag set must produce the same canonical command-line-args
     // when walked by lisp/startup.el.
-    let probe = "(princ (mapconcat 'identity command-line-args \"|\"))";
+    // Skip argv[0]: Cargo invokes Neomacs by full test binary path while
+    // the oracle is usually invoked as just `emacs`.
+    let probe = "(princ (mapconcat 'identity (cdr command-line-args) \"|\"))";
     let argv_a = ["--batch", "-Q", "--eval", probe];
     let argv_b = ["-Q", "--batch", "--eval", probe];
 
@@ -212,7 +194,6 @@ fn sort_args_orders_options_canonically() {
 }
 
 #[test]
-#[ignore = "needs working --batch --eval in neomacs (separate gap)"]
 fn double_dash_terminator_passes_through() {
     skip_unless_oracle!();
     let argv = [

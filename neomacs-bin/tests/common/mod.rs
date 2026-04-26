@@ -98,14 +98,17 @@ macro_rules! skip_unless_oracle {
 }
 
 /// Memory limit (bytes) imposed on each spawned subprocess to keep a
-/// runaway evaluation from triggering the system OOM killer. Mirrors
-/// `neovm-oracle-tests/src/common.rs:18` (default 500 MB; overridable
-/// via `NEOVM_ORACLE_MEM_LIMIT_MB`).
+/// runaway evaluation from triggering the system OOM killer.
+///
+/// The binary argv tests load the full final pdump, which maps more memory
+/// than the in-process oracle tests. Keep the limit high enough for normal
+/// startup while retaining an explicit runaway ceiling; callers can still
+/// override it with `NEOVM_ORACLE_MEM_LIMIT_MB`.
 fn oracle_mem_limit_bytes() -> u64 {
     let mb: u64 = std::env::var("NEOVM_ORACLE_MEM_LIMIT_MB")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(500);
+        .unwrap_or(2048);
     mb * 1024 * 1024
 }
 
