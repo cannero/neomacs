@@ -9253,11 +9253,11 @@ fn vm_documentation_and_help_builtins_use_shared_runtime_state() {
                  (describe-buffer-bindings (current-buffer))
                  (condition-case err
                      (describe-vector [1] 'display-buffer)
-                   (void-function (car err)))
+                   (wrong-type-argument (car err)))
                  (help--describe-vector nil nil nil nil nil nil nil)))",
             crate::test_utils::load_minimal_gnu_help_runtime,
         ),
-        "OK (t \"doc\" t nil void-function nil)"
+        "OK (t \"doc\" t nil wrong-type-argument nil)"
     );
 }
 

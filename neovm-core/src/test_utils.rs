@@ -36,12 +36,12 @@ pub fn init_test_tracing() {
 /// without paying for full `loadup.el` startup.
 pub fn load_minimal_gnu_backquote_runtime(eval: &mut Context) {
     eval.set_lexical_binding(true);
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest.parent().expect("project root");
+    let lisp_dir = project_root.join("lisp");
     eval.set_variable(
         "load-path",
-        Value::list(vec![
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp/emacs-lisp")),
-            Value::string(concat!(env!("CARGO_MANIFEST_DIR"), "/../lisp")),
-        ]),
+        Value::list(bootstrap_load_path_entries(&lisp_dir)),
     );
     let load_path = get_load_path(&eval.obarray());
     for name in &[
@@ -338,9 +338,28 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         "custom",
         "cus-face",
         "faces",
+        "bindings",
         "emacs-lisp/macroexp",
         "emacs-lisp/pcase",
         "emacs-lisp/gv",
+    ] {
+        let path = find_file_in_load_path(name, &load_path)
+            .unwrap_or_else(|| panic!("cannot find {name}"));
+        load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
+    }
+    apply_ldefs_boot_autoloads_for_names(
+        eval,
+        &[
+            "define-derived-mode",
+            "define-inline",
+            "define-minor-mode",
+            "help-fns-function-name",
+            "regexp-opt",
+            "rx",
+        ],
+    )
+    .expect("ldefs-boot help runtime autoloads");
+    for name in &[
         "emacs-lisp/cl-preloaded",
         "emacs-lisp/oclosure",
         "obarray",
@@ -367,9 +386,6 @@ pub fn load_minimal_gnu_help_runtime(eval: &mut Context) {
         load_file(eval, &path).unwrap_or_else(|err| panic!("load {name}: {err:?}"));
     }
     load_gnu_elisp_syntax_table_runtime(eval);
-    apply_ldefs_boot_autoloads_for_names(eval, &["help-fns-function-name"])
-        .expect("ldefs-boot help-fns-function-name autoload");
-
     // Force the .el source — `find_file_in_load_path("help", ...)`
     // returns help.elc when both exist, but `read_to_string` then
     // mis-parses .elc binary data and emits `(nil . OFFSET)` doc
