@@ -10508,6 +10508,22 @@ fn message_eval_stores_echo_text_without_immediate_redisplay() {
 }
 
 #[test]
+fn batch_newline_output_uses_stdout_not_echo_area() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.set_variable("noninteractive", Value::T);
+
+    eval.eval_str("(progn (terpri) (write-char 10) nil)")
+        .expect("batch newline output should evaluate");
+
+    assert_eq!(
+        eval.current_message_text(),
+        None,
+        "GNU print.c routes batch terpri/write-char to stdout, not current-message"
+    );
+}
+
+#[test]
 fn make_string_nonunicode_char_code_bounds_match_oracle() {
     crate::test_utils::init_test_tracing();
     let overflow = dispatch_builtin_pure(

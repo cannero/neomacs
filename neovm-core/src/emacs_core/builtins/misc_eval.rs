@@ -1684,7 +1684,7 @@ pub(crate) fn builtin_terpri_impl(
     expect_max_args("terpri", &args, 2)?;
     let target = resolve_print_target_in_state(ctx, args.first());
     if print_target_is_direct(target) {
-        write_print_output_to_target(&mut ctx.buffers, &mut ctx.current_message, target, "\n")?;
+        write_print_output_from_ctx(ctx, args.first(), "\n")?;
         return Ok(Some(Value::T));
     }
     Ok(None)
@@ -1791,12 +1791,7 @@ pub(crate) fn builtin_write_char_impl(
 
     if print_target_is_direct(target) {
         if let Some(text) = write_char_rendered_text(char_code) {
-            write_print_output_to_target(
-                &mut ctx.buffers,
-                &mut ctx.current_message,
-                target,
-                &text,
-            )?;
+            write_print_output_from_ctx(ctx, args.get(1), &text)?;
         }
         return Ok(Some(Value::fixnum(char_code)));
     }
