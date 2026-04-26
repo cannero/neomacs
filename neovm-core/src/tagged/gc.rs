@@ -9,8 +9,9 @@
 //!   structure GNU Emacs uses in `alloc.c`.
 //!
 //! - **All other heap objects** (string, float, vectorlike): allocated
-//!   via the system allocator, linked via intrusive `GcHeader.next` list.
-//!   The GC walks this list during sweep.
+//!   via the system allocator, linked via intrusive `GcHeader.next` list
+//!   for sweeping, with an address index for O(1) ownership checks during
+//!   marking.
 //!
 //! - **Mark phase**: walk from roots, decode tags, follow heap pointers.
 //! - **Sweep phase**: walk cons blocks (bitmap) and the intrusive list
@@ -536,6 +537,13 @@ pub struct TaggedHeap {
     /// Intrusive linked list of all non-cons heap objects.
     /// Points to the GcHeader of the first object; follow `next` to traverse.
     all_objects: *mut GcHeader,
+    /// Exact address set for ordinary non-cons object headers.
+    ///
+    /// GNU's GC reaches ordinary heap ownership through allocator metadata and
+    /// dumped-object ownership through `pdumper_object_p` range metadata. Keep
+    /// the same fast-path split here: mark-time checks must not scan
+    /// `all_objects`.
+    non_cons_object_addrs: FxHashSet<usize>,
 
     /// Total number of allocated objects (cons + non-cons).
     pub allocated_count: usize,
@@ -566,9 +574,11 @@ pub struct TaggedHeap {
     /// Vectorlike objects loaded directly from a mapped pdump image.  Their
     /// object headers are in the mapped image, but mark state remains external.
     mapped_veclike_objects: Vec<MappedVecLikeObject>,
+    mapped_veclike_index_by_addr: FxHashMap<usize, usize>,
     /// String objects loaded directly from a mapped pdump image.  Their text
     /// properties can contain Lisp roots, so mark state must be external too.
     mapped_string_objects: Vec<MappedStringObject>,
+    mapped_string_index_by_addr: FxHashMap<usize, usize>,
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
@@ -608,6 +618,7 @@ impl TaggedHeap {
             cons_blocks: Vec::new(),
             cons_block_index_by_base: FxHashMap::default(),
             all_objects: std::ptr::null_mut(),
+            non_cons_object_addrs: FxHashSet::default(),
             allocated_count: 0,
             gc_threshold: 100_000 * size_of::<usize>(),
             gc_threshold_overridden: false,
@@ -618,7 +629,9 @@ impl TaggedHeap {
             mapped_cons_ranges: Vec::new(),
             mapped_float_ranges: Vec::new(),
             mapped_veclike_objects: Vec::new(),
+            mapped_veclike_index_by_addr: FxHashMap::default(),
             mapped_string_objects: Vec::new(),
+            mapped_string_index_by_addr: FxHashMap::default(),
             cons_live_count: 0,
             marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
@@ -770,6 +783,13 @@ impl TaggedHeap {
             return;
         }
         debug_assert_eq!(header as usize % std::mem::align_of::<VecLikeHeader>(), 0);
+        let index = self.mapped_veclike_objects.len();
+        debug_assert!(
+            self.mapped_veclike_index_by_addr
+                .insert(header as usize, index)
+                .is_none(),
+            "mapped vectorlike object registered twice"
+        );
         self.mapped_veclike_objects
             .push(MappedVecLikeObject::new(header, byte_len));
         self.allocated_count = self.allocated_count.saturating_add(1);
@@ -790,6 +810,13 @@ impl TaggedHeap {
             return;
         }
         debug_assert_eq!(ptr as usize % std::mem::align_of::<StringObj>(), 0);
+        let index = self.mapped_string_objects.len();
+        debug_assert!(
+            self.mapped_string_index_by_addr
+                .insert(ptr as usize, index)
+                .is_none(),
+            "mapped string object registered twice"
+        );
         self.mapped_string_objects
             .push(MappedStringObject::new(ptr, byte_len));
         self.allocated_count = self.allocated_count.saturating_add(1);
@@ -1301,14 +1328,24 @@ impl TaggedHeap {
     /// Link a non-cons object into the all_objects intrusive list.
     fn link_object(&mut self, header: &mut GcHeader) {
         header.next = self.all_objects;
-        self.all_objects = header as *mut GcHeader;
+        let ptr = header as *mut GcHeader;
+        debug_assert!(
+            self.non_cons_object_addrs.insert(ptr as usize),
+            "non-cons object linked twice"
+        );
+        self.all_objects = ptr;
     }
 
     /// Link a veclike object into the all_objects list.
     fn link_veclike(&mut self, header: *mut VecLikeHeader) {
         unsafe {
             (*header).gc.next = self.all_objects;
-            self.all_objects = &mut (*header).gc as *mut GcHeader;
+            let gc_header = &mut (*header).gc as *mut GcHeader;
+            debug_assert!(
+                self.non_cons_object_addrs.insert(gc_header as usize),
+                "veclike object linked twice"
+            );
+            self.all_objects = gc_header;
         }
     }
 
@@ -1551,31 +1588,29 @@ impl TaggedHeap {
     }
 
     fn mark_mapped_veclike(&mut self, ptr: *const VecLikeHeader) -> bool {
-        for object in &mut self.mapped_veclike_objects {
-            if !std::ptr::eq(object.header as *const VecLikeHeader, ptr) {
-                continue;
-            }
-            if object.marked {
-                return false;
-            }
-            object.marked = true;
-            return true;
+        let Some(&index) = self.mapped_veclike_index_by_addr.get(&(ptr as usize)) else {
+            return false;
+        };
+        let object = &mut self.mapped_veclike_objects[index];
+        debug_assert!(std::ptr::eq(object.header as *const VecLikeHeader, ptr));
+        if object.marked {
+            return false;
         }
-        false
+        object.marked = true;
+        true
     }
 
     fn mark_mapped_string(&mut self, ptr: *const StringObj) -> bool {
-        for object in &mut self.mapped_string_objects {
-            if !std::ptr::eq(object.ptr as *const StringObj, ptr) {
-                continue;
-            }
-            if object.marked {
-                return false;
-            }
-            object.marked = true;
-            return true;
+        let Some(&index) = self.mapped_string_index_by_addr.get(&(ptr as usize)) else {
+            return false;
+        };
+        let object = &mut self.mapped_string_objects[index];
+        debug_assert!(std::ptr::eq(object.ptr as *const StringObj, ptr));
+        if object.marked {
+            return false;
         }
-        false
+        object.marked = true;
+        true
     }
 
     /// Trace children of a vectorlike object, pushing them onto the gray queue.
@@ -1734,6 +1769,7 @@ impl TaggedHeap {
                 } else {
                     // Free it — unlink from list
                     *prev = next;
+                    self.non_cons_object_addrs.remove(&(current as usize));
                     self.free_gc_object(current);
                     self.allocated_count = self.allocated_count.saturating_sub(1);
                     current = next;
@@ -1809,19 +1845,7 @@ impl TaggedHeap {
     }
 
     fn owns_non_cons_object(&self, ptr: *const u8) -> bool {
-        if ptr.is_null() {
-            return false;
-        }
-        let mut current = self.all_objects;
-        while !current.is_null() {
-            if std::ptr::eq(current as *const u8, ptr) {
-                return true;
-            }
-            unsafe {
-                current = (*current).next;
-            }
-        }
-        false
+        !ptr.is_null() && self.non_cons_object_addrs.contains(&(ptr as usize))
     }
 
     #[inline]
@@ -1897,6 +1921,33 @@ impl Drop for TaggedHeap {
             }
         }
         // ConsBlocks are dropped automatically (they implement Drop)
+    }
+}
+
+#[cfg(test)]
+mod ownership_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_non_cons_ownership_index_tracks_sweep() {
+        crate::test_utils::init_test_tracing();
+        let mut heap = TaggedHeap::new();
+
+        let live = heap.alloc_float(1.0);
+        let dead = heap.alloc_float(2.0);
+        let live_ptr = live.as_float_ptr().unwrap() as *const u8;
+        let dead_ptr = dead.as_float_ptr().unwrap() as *const u8;
+
+        assert!(heap.owns_non_cons_object(live_ptr));
+        assert!(heap.owns_non_cons_object(dead_ptr));
+        assert_eq!(heap.non_cons_object_addrs.len(), 2);
+
+        heap.collect_exact(std::iter::once(live));
+
+        assert!(heap.owns_non_cons_object(live_ptr));
+        assert!(!heap.owns_non_cons_object(dead_ptr));
+        assert_eq!(heap.non_cons_object_addrs.len(), 1);
+        assert!((live.xfloat() - 1.0).abs() < f64::EPSILON);
     }
 }
 
