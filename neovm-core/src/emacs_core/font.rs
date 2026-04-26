@@ -971,7 +971,10 @@ pub(crate) fn builtin_font_put(args: Vec<Value>) -> EvalResult {
     }
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Vector) => {
-            let mut elems = args[0].as_vector_data().cloned().unwrap_or_default();
+            let mut elems = args[0]
+                .as_vector_data()
+                .map(|items| items.to_vec())
+                .unwrap_or_default();
             font_spec_put(&mut elems, &args[1], &args[2]);
             let _ = args[0].replace_vector_data(elems);
             Ok(normalize_font_prop_value(&args[1], &args[2]))
@@ -1534,7 +1537,10 @@ fn build_font_object(face: &RuntimeFace) -> Value {
     let font_object = Value::vector(elems);
     let xlfd = builtin_font_xlfd_name(vec![font_object]).unwrap_or_else(|_| Value::NIL);
     if font_object.is_vector() {
-        let mut items = font_object.as_vector_data().cloned().unwrap_or_default();
+        let mut items = font_object
+            .as_vector_data()
+            .map(|items| items.to_vec())
+            .unwrap_or_default();
         items.push(Value::keyword("name"));
         items.push(if xlfd.is_nil() { Value::NIL } else { xlfd });
         let _ = font_object.replace_vector_data(items);

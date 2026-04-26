@@ -49,7 +49,7 @@ pub fn with_vector_data_mut<R>(
     }
     note_heap_write(value, HeapWriteKind::VectorBulk);
     let ptr = value.as_veclike_ptr().unwrap() as *mut VectorObj;
-    Some(f(unsafe { &mut (*ptr).data }))
+    Some(f(unsafe { (*ptr).data.ensure_owned() }))
 }
 
 #[inline]
@@ -63,7 +63,7 @@ pub fn set_vector_slot(value: TaggedValue, index: usize, item: TaggedValue) -> b
         return false;
     }
     let ptr = value.as_veclike_ptr().unwrap() as *mut VectorObj;
-    let data = unsafe { &mut (*ptr).data };
+    let data = unsafe { (*ptr).data.ensure_owned() };
     let slot = match data.get_mut(index) {
         Some(slot) => slot,
         None => return false,
@@ -83,7 +83,7 @@ pub fn with_record_data_mut<R>(
     }
     note_heap_write(value, HeapWriteKind::RecordBulk);
     let ptr = value.as_veclike_ptr().unwrap() as *mut RecordObj;
-    Some(f(unsafe { &mut (*ptr).data }))
+    Some(f(unsafe { (*ptr).data.ensure_owned() }))
 }
 
 #[inline]
@@ -97,7 +97,7 @@ pub fn set_record_slot(value: TaggedValue, index: usize, item: TaggedValue) -> b
         return false;
     }
     let ptr = value.as_veclike_ptr().unwrap() as *mut RecordObj;
-    let data = unsafe { &mut (*ptr).data };
+    let data = unsafe { (*ptr).data.ensure_owned() };
     let slot = match data.get_mut(index) {
         Some(slot) => slot,
         None => return false,
@@ -119,7 +119,7 @@ pub fn with_closure_slots_mut<R>(
             unsafe {
                 let obj = &mut *ptr;
                 let _ = obj.parsed_params.take();
-                Some(f(&mut obj.data))
+                Some(f(obj.data.ensure_owned()))
             }
         }
         VecLikeType::Macro => {
@@ -127,7 +127,7 @@ pub fn with_closure_slots_mut<R>(
             unsafe {
                 let obj = &mut *ptr;
                 let _ = obj.parsed_params.take();
-                Some(f(&mut obj.data))
+                Some(f(obj.data.ensure_owned()))
             }
         }
         _ => None,

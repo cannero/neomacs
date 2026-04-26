@@ -23,8 +23,8 @@ use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
-    BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, MacroObj, MarkerObj,
-    OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
+    BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, LispValueSlice, MacroObj,
+    MarkerObj, OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
 };
 use crate::tagged::mutate;
 use crate::tagged::value::TaggedValue;
@@ -1146,15 +1146,15 @@ impl TaggedValue {
     }
 
     /// Get the closure slot vector for a Lambda or Macro.
-    pub fn closure_slots(self) -> Option<&'static Vec<Value>> {
+    pub fn closure_slots(self) -> Option<&'static LispValueSlice> {
         match self.veclike_type()? {
             VecLikeType::Lambda => {
                 let ptr = self.as_veclike_ptr().unwrap() as *const LambdaObj;
-                Some(unsafe { &(*ptr).data })
+                Some(unsafe { LispValueSlice::from_slice((*ptr).data.as_slice()) })
             }
             VecLikeType::Macro => {
                 let ptr = self.as_veclike_ptr().unwrap() as *const MacroObj;
-                Some(unsafe { &(*ptr).data })
+                Some(unsafe { LispValueSlice::from_slice((*ptr).data.as_slice()) })
             }
             _ => None,
         }
@@ -1334,10 +1334,10 @@ impl TaggedValue {
     }
 
     /// Get vector elements.
-    pub fn as_vector_data(self) -> Option<&'static Vec<Value>> {
+    pub fn as_vector_data(self) -> Option<&'static LispValueSlice> {
         if self.is_vector() {
             let ptr = self.as_veclike_ptr().unwrap() as *const VectorObj;
-            Some(unsafe { &(*ptr).data })
+            Some(unsafe { LispValueSlice::from_slice((*ptr).data.as_slice()) })
         } else {
             None
         }
@@ -1359,10 +1359,10 @@ impl TaggedValue {
     }
 
     /// Get record elements.
-    pub fn as_record_data(self) -> Option<&'static Vec<Value>> {
+    pub fn as_record_data(self) -> Option<&'static LispValueSlice> {
         if self.is_record() {
             let ptr = self.as_veclike_ptr().unwrap() as *const RecordObj;
-            Some(unsafe { &(*ptr).data })
+            Some(unsafe { LispValueSlice::from_slice((*ptr).data.as_slice()) })
         } else {
             None
         }

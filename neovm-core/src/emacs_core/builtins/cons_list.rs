@@ -62,7 +62,10 @@ pub(crate) fn lambda_to_cons_list(value: &Value) -> Option<Value> {
         {
             interactive
         } else if interactive.is_vector() {
-            let items = interactive.as_vector_data().cloned().unwrap_or_default();
+            let items = interactive
+                .as_vector_data()
+                .map(|items| items.to_vec())
+                .unwrap_or_default();
             let mut list_items = Vec::with_capacity(items.len() + 1);
             list_items.push(Value::symbol("interactive"));
             list_items.extend(items);
@@ -103,7 +106,10 @@ pub(crate) fn lambda_closure_length(value: &Value) -> Option<i64> {
 /// NeoVM does not currently store the optional interactive slot.
 /// This is used by `aref` on closures for oclosure slot access.
 pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
-    value.closure_slots().cloned().unwrap_or_default()
+    value
+        .closure_slots()
+        .map(|slots| slots.to_vec())
+        .unwrap_or_default()
 }
 
 pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
@@ -724,7 +730,7 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
     }
 
     fn reverse_bool_vector(value: Value) -> EvalResult {
-        let Some(mut data) = value.as_vector_data().cloned() else {
+        let Some(mut data) = value.as_vector_data().map(|items| items.to_vec()) else {
             return Err(signal(
                 "wrong-type-argument",
                 vec![Value::symbol("sequencep"), value],
@@ -827,14 +833,20 @@ pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
                 let logical_len =
                     super::chartable::bool_vector_length(&args[0]).unwrap_or_default() as usize;
                 let bits_end = 2 + logical_len;
-                let mut data = args[0].as_vector_data().cloned().unwrap_or_default();
+                let mut data = args[0]
+                    .as_vector_data()
+                    .map(|items| items.to_vec())
+                    .unwrap_or_default();
                 if data.len() >= bits_end {
                     data[2..bits_end].reverse();
                 }
                 let _ = args[0].replace_vector_data(data);
                 return Ok(args[0]);
             }
-            let mut data = args[0].as_vector_data().cloned().unwrap_or_default();
+            let mut data = args[0]
+                .as_vector_data()
+                .map(|items| items.to_vec())
+                .unwrap_or_default();
             data.reverse();
             let _ = args[0].replace_vector_data(data);
             Ok(args[0])

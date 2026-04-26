@@ -456,7 +456,10 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
 /// Panics if `table` is not a char-table Vector.
 pub fn ct_set_single(table: &Value, ch: i64, value: Value) {
     if table.is_vector() {
-        let mut vec = table.as_vector_data().cloned().unwrap_or_default();
+        let mut vec = table
+            .as_vector_data()
+            .map(|items| items.to_vec())
+            .unwrap_or_default();
         ct_set_char(&mut vec, ch, value);
         let _ = table.replace_vector_data(vec);
     } else {
@@ -1516,7 +1519,10 @@ fn store_bv_result_with_expected_lengths(
         payload.push(Value::fixnum(len as i64));
         return Err(signal("wrong-length-argument", payload));
     }
-    let mut slots = dest.as_vector_data().cloned().unwrap_or_default();
+    let mut slots = dest
+        .as_vector_data()
+        .map(|items| items.to_vec())
+        .unwrap_or_default();
     for (i, &b) in bits.iter().enumerate() {
         slots[2 + i] = Value::fixnum(if b { 1 } else { 0 });
     }

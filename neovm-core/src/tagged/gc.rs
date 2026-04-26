@@ -592,6 +592,12 @@ impl TaggedHeap {
         values.capacity().saturating_mul(size_of::<T>())
     }
 
+    fn lisp_value_vec_storage_bytes(values: &LispValueVec) -> usize {
+        values
+            .owned_capacity()
+            .saturating_mul(size_of::<TaggedValue>())
+    }
+
     fn hash_map_storage_bytes<K, V, S>(values: &std::collections::HashMap<K, V, S>) -> usize {
         values.capacity().saturating_mul(size_of::<(K, V)>())
     }
@@ -608,11 +614,11 @@ impl TaggedHeap {
     }
 
     fn lambda_object_bytes(obj: &LambdaObj) -> usize {
-        size_of::<LambdaObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+        size_of::<LambdaObj>().saturating_add(Self::lisp_value_vec_storage_bytes(&obj.data))
     }
 
     fn macro_object_bytes(obj: &MacroObj) -> usize {
-        size_of::<MacroObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+        size_of::<MacroObj>().saturating_add(Self::lisp_value_vec_storage_bytes(&obj.data))
     }
 
     fn bytecode_object_bytes(obj: &ByteCodeObj) -> usize {
@@ -641,7 +647,7 @@ impl TaggedHeap {
     }
 
     fn record_object_bytes(obj: &RecordObj) -> usize {
-        size_of::<RecordObj>().saturating_add(Self::vector_storage_bytes(&obj.data))
+        size_of::<RecordObj>().saturating_add(Self::lisp_value_vec_storage_bytes(&obj.data))
     }
 
     fn object_bytes_from_header(header: *const GcHeader) -> usize {
@@ -655,7 +661,7 @@ impl TaggedHeap {
                         VecLikeType::Vector => {
                             let obj = &*(ptr as *const VectorObj);
                             size_of::<VectorObj>()
-                                .saturating_add(Self::vector_storage_bytes(&obj.data))
+                                .saturating_add(Self::lisp_value_vec_storage_bytes(&obj.data))
                         }
                         VecLikeType::HashTable => {
                             Self::hash_table_object_bytes(&*(ptr as *const HashTableObj))
@@ -762,14 +768,14 @@ impl TaggedHeap {
     pub fn alloc_vector(&mut self, items: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(VectorObj {
             header: VecLikeHeader::new(VecLikeType::Vector),
-            data: items,
+            data: items.into(),
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);
         self.allocated_count += 1;
         self.note_allocation_bytes(
             size_of::<VectorObj>()
-                .saturating_add(Self::vector_storage_bytes(unsafe { &(*ptr).data })),
+                .saturating_add(Self::lisp_value_vec_storage_bytes(unsafe { &(*ptr).data })),
         );
         unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
     }
@@ -796,7 +802,7 @@ impl TaggedHeap {
     pub fn alloc_lambda(&mut self, slots: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(LambdaObj {
             header: VecLikeHeader::new(VecLikeType::Lambda),
-            data: slots,
+            data: slots.into(),
             parsed_params: std::sync::OnceLock::new(),
         });
         let ptr = Box::into_raw(obj);
@@ -820,7 +826,7 @@ impl TaggedHeap {
     pub fn alloc_macro(&mut self, slots: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(MacroObj {
             header: VecLikeHeader::new(VecLikeType::Macro),
-            data: slots,
+            data: slots.into(),
             parsed_params: std::sync::OnceLock::new(),
         });
         let ptr = Box::into_raw(obj);
@@ -911,7 +917,7 @@ impl TaggedHeap {
     pub fn alloc_record(&mut self, items: Vec<TaggedValue>) -> TaggedValue {
         let obj = Box::new(RecordObj {
             header: VecLikeHeader::new(VecLikeType::Record),
-            data: items,
+            data: items.into(),
         });
         let ptr = Box::into_raw(obj);
         self.link_veclike(ptr as *mut VecLikeHeader);

@@ -3186,7 +3186,10 @@ fn interactive_form_from_stored_closure_spec(spec: Value) -> Value {
     if spec.is_cons() && spec.cons_car().as_symbol_name() == Some("interactive") {
         spec
     } else if spec.is_vector() {
-        let items = spec.as_vector_data().cloned().unwrap_or_default();
+        let items = spec
+            .as_vector_data()
+            .map(|items| items.to_vec())
+            .unwrap_or_default();
         let mut list_items = Vec::with_capacity(items.len() + 1);
         list_items.push(Value::symbol("interactive"));
         list_items.extend(items);

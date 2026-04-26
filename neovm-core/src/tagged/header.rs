@@ -156,6 +156,175 @@ pub enum VecLikeType {
 
 use std::sync::OnceLock;
 
+/// Slot storage for vectorlike objects that can either be ordinary Rust-owned
+/// storage or a borrowed slice in a mapped pdump image.
+pub struct LispValueVec {
+    storage: LispValueVecStorage,
+}
+
+#[repr(transparent)]
+pub struct LispValueSlice([TaggedValue]);
+
+impl LispValueSlice {
+    pub fn from_slice(slice: &[TaggedValue]) -> &Self {
+        unsafe { &*(slice as *const [TaggedValue] as *const Self) }
+    }
+
+    pub fn as_slice(&self) -> &[TaggedValue] {
+        &self.0
+    }
+
+    pub fn to_vec(&self) -> Vec<TaggedValue> {
+        self.0.to_vec()
+    }
+
+    pub fn clone(&self) -> Vec<TaggedValue> {
+        self.to_vec()
+    }
+}
+
+impl std::ops::Deref for LispValueSlice {
+    type Target = [TaggedValue];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl std::fmt::Debug for LispValueSlice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_slice().fmt(f)
+    }
+}
+
+impl PartialEq<Vec<TaggedValue>> for LispValueSlice {
+    fn eq(&self, other: &Vec<TaggedValue>) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl PartialEq<LispValueSlice> for Vec<TaggedValue> {
+    fn eq(&self, other: &LispValueSlice) -> bool {
+        self.as_slice() == other.as_slice()
+    }
+}
+
+impl<'a> IntoIterator for &'a LispValueSlice {
+    type Item = &'a TaggedValue;
+    type IntoIter = std::slice::Iter<'a, TaggedValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a &'a LispValueSlice {
+    type Item = &'a TaggedValue;
+    type IntoIter = std::slice::Iter<'a, TaggedValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
+enum LispValueVecStorage {
+    Owned(Vec<TaggedValue>),
+    Mapped { ptr: *const TaggedValue, len: usize },
+}
+
+// Mapped slots are read-only through shared references.  Mutation paths use
+// `ensure_owned` before exposing `&mut Vec<TaggedValue>`.
+unsafe impl Send for LispValueVecStorage {}
+unsafe impl Sync for LispValueVecStorage {}
+
+impl LispValueVec {
+    pub fn owned(items: Vec<TaggedValue>) -> Self {
+        Self {
+            storage: LispValueVecStorage::Owned(items),
+        }
+    }
+
+    /// Build slot storage whose contents live in a mapped pdump image.
+    ///
+    /// # Safety
+    /// `ptr..ptr+len` must remain mapped and immutable for the lifetime of the
+    /// returned storage unless a mutation first copies the slots into owned
+    /// storage.
+    pub(crate) unsafe fn mapped(ptr: *const TaggedValue, len: usize) -> Self {
+        Self {
+            storage: LispValueVecStorage::Mapped { ptr, len },
+        }
+    }
+
+    pub fn as_slice(&self) -> &[TaggedValue] {
+        match self.storage {
+            LispValueVecStorage::Owned(ref items) => items,
+            LispValueVecStorage::Mapped { ptr, len } => {
+                if len == 0 {
+                    &[]
+                } else {
+                    unsafe { std::slice::from_raw_parts(ptr, len) }
+                }
+            }
+        }
+    }
+
+    pub fn ensure_owned(&mut self) -> &mut Vec<TaggedValue> {
+        if let LispValueVecStorage::Mapped { .. } = self.storage {
+            let items = self.as_slice().to_vec();
+            self.storage = LispValueVecStorage::Owned(items);
+        }
+        match self.storage {
+            LispValueVecStorage::Owned(ref mut items) => items,
+            LispValueVecStorage::Mapped { .. } => {
+                unreachable!("mapped vector storage was copied to owned slots")
+            }
+        }
+    }
+
+    pub fn owned_capacity(&self) -> usize {
+        match self.storage {
+            LispValueVecStorage::Owned(ref items) => items.capacity(),
+            LispValueVecStorage::Mapped { .. } => 0,
+        }
+    }
+}
+
+impl From<Vec<TaggedValue>> for LispValueVec {
+    fn from(value: Vec<TaggedValue>) -> Self {
+        Self::owned(value)
+    }
+}
+
+impl Clone for LispValueVec {
+    fn clone(&self) -> Self {
+        Self::owned(self.as_slice().to_vec())
+    }
+}
+
+impl std::ops::Deref for LispValueVec {
+    type Target = [TaggedValue];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl std::ops::DerefMut for LispValueVec {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ensure_owned().as_mut_slice()
+    }
+}
+
+impl<'a> IntoIterator for &'a LispValueVec {
+    type Item = &'a TaggedValue;
+    type IntoIter = std::slice::Iter<'a, TaggedValue>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.as_slice().iter()
+    }
+}
+
 /// Header for all vectorlike heap objects.
 ///
 /// Extends `GcHeader` with a type tag. The type-specific data follows
@@ -181,7 +350,7 @@ impl VecLikeHeader {
 #[repr(C)]
 pub struct VectorObj {
     pub header: VecLikeHeader,
-    pub data: Vec<TaggedValue>,
+    pub data: LispValueVec,
 }
 
 /// Heap-allocated hash table.
@@ -208,7 +377,7 @@ pub struct HashTableObj {
 pub struct LambdaObj {
     pub header: VecLikeHeader,
     /// All closure data as GC-managed Value slots.
-    pub data: Vec<super::value::TaggedValue>,
+    pub data: LispValueVec,
     /// Parsed lambda params cached from slot 0 for fast calls/arity checks.
     pub parsed_params: OnceLock<crate::emacs_core::value::LambdaParams>,
 }
@@ -227,7 +396,7 @@ pub const CLOSURE_MIN_SLOTS: usize = 6;
 #[repr(C)]
 pub struct MacroObj {
     pub header: VecLikeHeader,
-    pub data: Vec<super::value::TaggedValue>,
+    pub data: LispValueVec,
     /// Parsed lambda params cached from slot 0 for fast calls/arity checks.
     pub parsed_params: OnceLock<crate::emacs_core::value::LambdaParams>,
 }
@@ -243,7 +412,7 @@ pub struct ByteCodeObj {
 #[repr(C)]
 pub struct RecordObj {
     pub header: VecLikeHeader,
-    pub data: Vec<TaggedValue>,
+    pub data: LispValueVec,
 }
 
 /// Heap-allocated overlay.
@@ -364,4 +533,39 @@ pub struct SymbolWithPosObj {
     pub sym: TaggedValue,
     /// Source byte offset. Must always be a fixnum.
     pub pos: TaggedValue,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LispValueSlice, LispValueVec};
+    use crate::tagged::value::TaggedValue;
+
+    #[test]
+    fn mapped_lisp_value_vec_borrows_until_mutation() {
+        let slots = vec![TaggedValue::fixnum(1), TaggedValue::fixnum(2)];
+        let mut values = unsafe { LispValueVec::mapped(slots.as_ptr(), slots.len()) };
+
+        assert_eq!(values.as_slice(), slots.as_slice());
+        values.ensure_owned().push(TaggedValue::fixnum(3));
+
+        drop(slots);
+        assert_eq!(
+            values.as_slice(),
+            &[
+                TaggedValue::fixnum(1),
+                TaggedValue::fixnum(2),
+                TaggedValue::fixnum(3)
+            ]
+        );
+    }
+
+    #[test]
+    fn lisp_value_slice_clone_returns_owned_vec_for_compat_callers() {
+        let slots = vec![TaggedValue::fixnum(1), TaggedValue::fixnum(2)];
+        let slice = LispValueSlice::from_slice(&slots);
+
+        let owned = slice.clone();
+        drop(slots);
+        assert_eq!(owned, vec![TaggedValue::fixnum(1), TaggedValue::fixnum(2)]);
+    }
 }
