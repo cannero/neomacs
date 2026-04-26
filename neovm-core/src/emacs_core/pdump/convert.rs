@@ -61,7 +61,7 @@ use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
     BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, ConsCell, FloatObj, FrameObj, GcHeader,
     HashTableObj, HeapObjectKind, LambdaObj, LispValueVec, MacroObj, MarkerObj, OverlayObj,
-    RecordObj, StringObj, SubrObj, TimerObj, VectorObj, WindowObj,
+    RecordObj, StringObj, SubrObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
 };
 use crate::tagged::value::TaggedValue;
 
@@ -97,6 +97,7 @@ impl TaggedDumpState {
                 .collect(),
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         }
     }
@@ -201,6 +202,7 @@ pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     mapped_cons: Vec<Option<DumpConsSpan>>,
     mapped_floats: Vec<Option<DumpFloatSpan>>,
+    mapped_veclikes: Vec<Option<DumpVecLikeSpan>>,
     mapped_slots: Vec<Option<DumpSlotSpan>>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -227,6 +229,7 @@ impl TaggedLoadState {
             objects: heap.objects.clone(),
             mapped_cons: heap.mapped_cons.clone(),
             mapped_floats: heap.mapped_floats.clone(),
+            mapped_veclikes: heap.mapped_veclikes.clone(),
             mapped_slots: heap.mapped_slots.clone(),
             values: vec![None; len],
             populated: vec![false; len],
@@ -261,6 +264,7 @@ impl LoadDecoder {
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
         self.register_mapped_cons_ranges()?;
         self.register_mapped_float_ranges()?;
+        self.register_mapped_veclike_objects()?;
         for index in 0..self.state.objects.len() {
             self.allocate_tagged_placeholder(TaggedHeapRef {
                 index: index as u32,
@@ -270,6 +274,53 @@ impl LoadDecoder {
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
+        }
+        Ok(())
+    }
+
+    fn register_mapped_veclike_objects(&self) -> Result<(), DumpError> {
+        let mapped_heap = self.state.mapped_heap;
+        for (index, span) in self.state.mapped_veclikes.iter().enumerate() {
+            let Some(span) = *span else {
+                continue;
+            };
+            let mapped_heap = mapped_heap.ok_or_else(|| {
+                DumpError::ImageFormatError(
+                    "dump reserves mapped vectorlike objects but image has no heap section".into(),
+                )
+            })?;
+            let (ptr, byte_len) = match &self.state.objects[index] {
+                DumpHeapObject::Vector(_) => (
+                    mapped_heap
+                        .typed_object_mut::<VectorObj>(span, "vector")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<VectorObj>(),
+                ),
+                DumpHeapObject::Lambda(_) => (
+                    mapped_heap
+                        .typed_object_mut::<LambdaObj>(span, "lambda")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<LambdaObj>(),
+                ),
+                DumpHeapObject::Macro(_) => (
+                    mapped_heap
+                        .typed_object_mut::<MacroObj>(span, "macro")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<MacroObj>(),
+                ),
+                DumpHeapObject::Record(_) => (
+                    mapped_heap
+                        .typed_object_mut::<RecordObj>(span, "record")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<RecordObj>(),
+                ),
+                other => {
+                    return Err(DumpError::ImageFormatError(format!(
+                        "mapped vectorlike span attached to non-vectorlike object: {other:?}"
+                    )));
+                }
+            };
+            with_tagged_heap(|heap| unsafe { heap.register_mapped_veclike_object(ptr, byte_len) });
         }
         Ok(())
     }
@@ -477,6 +528,28 @@ impl LoadDecoder {
         mapped_heap.float_obj_mut(span).map(Some)
     }
 
+    fn mapped_typed_object_for_object<T>(
+        &self,
+        id: TaggedHeapRef,
+        label: &'static str,
+    ) -> Result<Option<*mut T>, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_veclikes
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped vectorlike objects but image has no heap section".into(),
+            )
+        })?;
+        mapped_heap.typed_object_mut::<T>(span, label).map(Some)
+    }
+
     fn install_mapped_vector_slots(value: Value, storage: LispValueVec) -> bool {
         if value.veclike_type() != Some(VecLikeType::Vector) {
             return false;
@@ -539,7 +612,22 @@ impl LoadDecoder {
                     Value::cons(Value::NIL, Value::NIL)
                 }
             }
-            DumpHeapObject::Vector(items) => Value::make_vector(vec![Value::NIL; items.len()]),
+            DumpHeapObject::Vector(items) => {
+                if let Some(ptr) = self.mapped_typed_object_for_object::<VectorObj>(id, "vector")? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            VectorObj {
+                                header: VecLikeHeader::new(VecLikeType::Vector),
+                                data: LispValueVec::owned(vec![Value::NIL; items.len()]),
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    Value::make_vector(vec![Value::NIL; items.len()])
+                }
+            }
             DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
                 heap.alloc_hash_table(LispHashTable::new_with_options(
                     load_hash_table_test(&ht.test),
@@ -571,12 +659,42 @@ impl LoadDecoder {
                     Value::make_float(*value)
                 }
             }
-            DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
-                heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
-            }),
-            DumpHeapObject::Macro(slots) => with_tagged_heap(|heap| {
-                heap.alloc_macro(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
-            }),
+            DumpHeapObject::Lambda(slots) => {
+                let len = slots.len().max(CLOSURE_MIN_SLOTS);
+                if let Some(ptr) = self.mapped_typed_object_for_object::<LambdaObj>(id, "lambda")? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            LambdaObj {
+                                header: VecLikeHeader::new(VecLikeType::Lambda),
+                                data: LispValueVec::owned(vec![Value::NIL; len]),
+                                parsed_params: std::sync::OnceLock::new(),
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    with_tagged_heap(|heap| heap.alloc_lambda(vec![Value::NIL; len]))
+                }
+            }
+            DumpHeapObject::Macro(slots) => {
+                let len = slots.len().max(CLOSURE_MIN_SLOTS);
+                if let Some(ptr) = self.mapped_typed_object_for_object::<MacroObj>(id, "macro")? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            MacroObj {
+                                header: VecLikeHeader::new(VecLikeType::Macro),
+                                data: LispValueVec::owned(vec![Value::NIL; len]),
+                                parsed_params: std::sync::OnceLock::new(),
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    with_tagged_heap(|heap| heap.alloc_macro(vec![Value::NIL; len]))
+                }
+            }
             DumpHeapObject::ByteCode(_) => Value::make_bytecode(ByteCodeFunction {
                 ops: Vec::new(),
                 constants: Vec::new(),
@@ -591,7 +709,22 @@ impl LoadDecoder {
                 doc_form: None,
                 interactive: None,
             }),
-            DumpHeapObject::Record(items) => Value::make_record(vec![Value::NIL; items.len()]),
+            DumpHeapObject::Record(items) => {
+                if let Some(ptr) = self.mapped_typed_object_for_object::<RecordObj>(id, "record")? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            RecordObj {
+                                header: VecLikeHeader::new(VecLikeType::Record),
+                                data: LispValueVec::owned(vec![Value::NIL; items.len()]),
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    Value::make_record(vec![Value::NIL; items.len()])
+                }
+            }
             DumpHeapObject::Marker(marker) => {
                 let value = Value::make_marker(crate::heap_types::MarkerData {
                     buffer: marker.buffer.map(|id| BufferId(id.0)),
@@ -833,6 +966,7 @@ mod tests {
             objects,
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
         let mut decoder = LoadDecoder::new(&heap);
@@ -2340,6 +2474,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
             objects: Vec::new(),
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         },
         obarray: dump_obarray(&mut encoder, eval),

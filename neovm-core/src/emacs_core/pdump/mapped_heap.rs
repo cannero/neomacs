@@ -9,9 +9,9 @@
 use super::DumpError;
 use super::types::{
     DumpByteData, DumpConsSpan, DumpContextState, DumpFloatSpan, DumpHeapObject, DumpSlotSpan,
-    DumpTaggedHeap,
+    DumpTaggedHeap, DumpVecLikeSpan,
 };
-use crate::tagged::header::{ConsCell, FloatObj};
+use crate::tagged::header::{ConsCell, FloatObj, LambdaObj, MacroObj, RecordObj, VectorObj};
 use crate::tagged::value::TaggedValue;
 
 const HEAP_PAYLOAD_ALIGN: usize = 8;
@@ -179,6 +179,46 @@ impl MappedHeapView {
         }
         Ok(unsafe { self.ptr.add(start).cast::<FloatObj>() })
     }
+
+    pub(crate) fn typed_object_mut<T>(
+        self,
+        span: DumpVecLikeSpan,
+        label: &'static str,
+    ) -> Result<*mut T, DumpError> {
+        if !self.writable {
+            return Err(DumpError::ImageFormatError(
+                "mapped heap view is not writable".to_string(),
+            ));
+        }
+        let start = usize::try_from(span.offset).map_err(|_| {
+            DumpError::ImageFormatError(format!("mapped {label} span offset overflows usize"))
+        })?;
+        let len = usize::try_from(span.len).map_err(|_| {
+            DumpError::ImageFormatError(format!("mapped {label} span length overflows usize"))
+        })?;
+        let expected = std::mem::size_of::<T>();
+        if len != expected {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped {label} span length {len} does not match object size {expected}"
+            )));
+        }
+        let end = start.checked_add(len).ok_or_else(|| {
+            DumpError::ImageFormatError(format!("mapped {label} span range overflow"))
+        })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped {label} span {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<T>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped {label} span offset {start} is not {}-byte aligned",
+                std::mem::align_of::<T>()
+            )));
+        }
+        Ok(unsafe { self.ptr.add(start).cast::<T>() })
+    }
 }
 
 pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Vec<u8> {
@@ -192,6 +232,8 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
     heap.mapped_cons.resize(heap.objects.len(), None);
     heap.mapped_floats.clear();
     heap.mapped_floats.resize(heap.objects.len(), None);
+    heap.mapped_veclikes.clear();
+    heap.mapped_veclikes.resize(heap.objects.len(), None);
     heap.mapped_slots.clear();
     heap.mapped_slots.resize(heap.objects.len(), None);
 
@@ -227,6 +269,22 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
                 offset: offset as u64,
             });
             float_index += 1;
+        }
+
+        match object {
+            DumpHeapObject::Vector(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<VectorObj>());
+            }
+            DumpHeapObject::Lambda(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<LambdaObj>());
+            }
+            DumpHeapObject::Macro(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<MacroObj>());
+            }
+            DumpHeapObject::Record(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<RecordObj>());
+            }
+            _ => {}
         }
 
         if let DumpHeapObject::Str { data, .. } = object
@@ -323,6 +381,19 @@ impl MappedHeapBuilder {
             .resize(offset + float_count * std::mem::size_of::<FloatObj>(), 0);
         Some(offset)
     }
+
+    fn reserve_typed_object<T>(&mut self) -> DumpVecLikeSpan {
+        let align = std::mem::align_of::<T>().max(HEAP_PAYLOAD_ALIGN);
+        let padding = align_padding(self.bytes.len(), align);
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        let offset = self.bytes.len();
+        let len = std::mem::size_of::<T>();
+        self.bytes.resize(offset + len, 0);
+        DumpVecLikeSpan {
+            offset: offset as u64,
+            len: len as u64,
+        }
+    }
 }
 
 fn align_padding(value: usize, align: usize) -> usize {
@@ -346,6 +417,7 @@ mod tests {
             }],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -373,6 +445,7 @@ mod tests {
             }],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -397,18 +470,25 @@ mod tests {
             ])],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
-        let heap = extract_tagged_heap_payloads(&mut tagged_heap);
-        assert_eq!(
-            heap.len(),
-            2 * std::mem::size_of::<crate::tagged::value::TaggedValue>()
-        );
+        let mut heap = extract_tagged_heap_payloads(&mut tagged_heap);
+        assert!(heap.len() >= std::mem::size_of::<VectorObj>());
+        assert_eq!(tagged_heap.mapped_veclikes.len(), 1);
+        let object_span = tagged_heap.mapped_veclikes[0].expect("vector object span");
+        assert_eq!(object_span.offset, 0);
+        assert_eq!(object_span.len as usize, std::mem::size_of::<VectorObj>());
         assert_eq!(tagged_heap.mapped_slots.len(), 1);
         let span = tagged_heap.mapped_slots[0].expect("vector slot span");
-        assert_eq!(span.offset, 0);
+        assert!(span.offset as usize >= std::mem::size_of::<VectorObj>());
         assert_eq!(span.len, 2);
+        let view = MappedHeapView::from_mut_slice(&mut heap);
+        let ptr = view
+            .typed_object_mut::<VectorObj>(object_span, "vector")
+            .unwrap();
+        assert_eq!(ptr.cast::<u8>(), heap.as_mut_ptr());
     }
 
     #[test]
@@ -426,6 +506,7 @@ mod tests {
             ],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -448,6 +529,7 @@ mod tests {
             objects: vec![DumpHeapObject::Float(1.0), DumpHeapObject::Float(2.0)],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -462,5 +544,42 @@ mod tests {
         let view = MappedHeapView::from_mut_slice(&mut heap);
         let ptr = view.float_obj_mut(first).unwrap();
         assert_eq!(ptr.cast::<u8>(), heap.as_mut_ptr());
+    }
+
+    #[test]
+    fn reserves_mapped_vectorlike_headers_as_heap_objects() {
+        let mut tagged_heap = DumpTaggedHeap {
+            objects: vec![
+                DumpHeapObject::Vector(Vec::new()),
+                DumpHeapObject::Record(Vec::new()),
+                DumpHeapObject::Lambda(Vec::new()),
+                DumpHeapObject::Macro(Vec::new()),
+            ],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_veclikes: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+
+        let heap = extract_tagged_heap_payloads(&mut tagged_heap);
+
+        assert_eq!(tagged_heap.mapped_veclikes.len(), 4);
+        assert_eq!(
+            tagged_heap.mapped_veclikes[0].unwrap().len as usize,
+            std::mem::size_of::<VectorObj>()
+        );
+        assert_eq!(
+            tagged_heap.mapped_veclikes[1].unwrap().len as usize,
+            std::mem::size_of::<RecordObj>()
+        );
+        assert_eq!(
+            tagged_heap.mapped_veclikes[2].unwrap().len as usize,
+            std::mem::size_of::<LambdaObj>()
+        );
+        assert_eq!(
+            tagged_heap.mapped_veclikes[3].unwrap().len as usize,
+            std::mem::size_of::<MacroObj>()
+        );
+        assert!(heap.len() >= std::mem::size_of::<VectorObj>());
     }
 }

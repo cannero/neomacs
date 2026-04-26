@@ -365,6 +365,7 @@ fn autoload_manager_pdump_uses_symbol_and_lisp_identity() {
         objects: Vec::new(),
         mapped_cons: Vec::new(),
         mapped_floats: Vec::new(),
+        mapped_veclikes: Vec::new(),
         mapped_slots: Vec::new(),
     };
     let mut decoder = crate::emacs_core::pdump::convert::LoadDecoder::new(&empty_heap);

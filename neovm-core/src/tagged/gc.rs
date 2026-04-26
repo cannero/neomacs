@@ -490,6 +490,22 @@ impl MappedFloatRange {
     }
 }
 
+struct MappedVecLikeObject {
+    header: *mut VecLikeHeader,
+    byte_len: usize,
+    marked: bool,
+}
+
+impl MappedVecLikeObject {
+    fn new(header: *mut VecLikeHeader, byte_len: usize) -> Self {
+        Self {
+            header,
+            byte_len,
+            marked: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TaggedHeap — the main GC-managed heap
 // ---------------------------------------------------------------------------
@@ -531,6 +547,9 @@ pub struct TaggedHeap {
     /// Float objects loaded directly from a mapped pdump image.  Like GNU
     /// pdumper dump objects, their mark state lives outside the mapped bytes.
     mapped_float_ranges: Vec<MappedFloatRange>,
+    /// Vectorlike objects loaded directly from a mapped pdump image.  Their
+    /// object headers are in the mapped image, but mark state remains external.
+    mapped_veclike_objects: Vec<MappedVecLikeObject>,
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
@@ -579,6 +598,7 @@ impl TaggedHeap {
             cons_free_list: std::ptr::null_mut(),
             mapped_cons_ranges: Vec::new(),
             mapped_float_ranges: Vec::new(),
+            mapped_veclike_objects: Vec::new(),
             cons_live_count: 0,
             marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
@@ -714,6 +734,26 @@ impl TaggedHeap {
         self.live_bytes = self
             .live_bytes
             .saturating_add(len.saturating_mul(size_of::<FloatObj>()));
+    }
+
+    /// Register a vectorlike object whose storage is owned by the loaded pdump image.
+    ///
+    /// # Safety
+    /// `header` must point at a complete, aligned vectorlike object that remains
+    /// mapped and writable for the lifetime of this heap.
+    pub(crate) unsafe fn register_mapped_veclike_object(
+        &mut self,
+        header: *mut VecLikeHeader,
+        byte_len: usize,
+    ) {
+        if byte_len == 0 {
+            return;
+        }
+        debug_assert_eq!(header as usize % std::mem::align_of::<VecLikeHeader>(), 0);
+        self.mapped_veclike_objects
+            .push(MappedVecLikeObject::new(header, byte_len));
+        self.allocated_count = self.allocated_count.saturating_add(1);
+        self.live_bytes = self.live_bytes.saturating_add(byte_len);
     }
 
     pub fn dirty_owner_count(&self) -> usize {
@@ -1266,6 +1306,9 @@ impl TaggedHeap {
         for range in &mut self.mapped_float_ranges {
             range.clear_marks();
         }
+        for object in &mut self.mapped_veclike_objects {
+            object.marked = false;
+        }
         // Clear marks on non-cons objects
         let mut obj = self.all_objects;
         while !obj.is_null() {
@@ -1386,6 +1429,14 @@ impl TaggedHeap {
             };
         } else if val.is_veclike() {
             let ptr = val.as_veclike_ptr().unwrap() as *mut VecLikeHeader;
+            if !self.owns_non_cons_object(ptr as *const u8) {
+                if self.mark_mapped_veclike(ptr) {
+                    unsafe {
+                        self.trace_veclike(ptr);
+                    }
+                }
+                return;
+            }
             unsafe {
                 if (*ptr).gc.marked {
                     return;
@@ -1437,6 +1488,20 @@ impl TaggedHeap {
                 return false;
             }
             range.mark_ptr(ptr);
+            return true;
+        }
+        false
+    }
+
+    fn mark_mapped_veclike(&mut self, ptr: *const VecLikeHeader) -> bool {
+        for object in &mut self.mapped_veclike_objects {
+            if !std::ptr::eq(object.header as *const VecLikeHeader, ptr) {
+                continue;
+            }
+            if object.marked {
+                return false;
+            }
+            object.marked = true;
             return true;
         }
         false
@@ -1612,6 +1677,12 @@ impl TaggedHeap {
         self.mapped_float_ranges
             .iter()
             .map(|range| range.live_count().saturating_mul(size_of::<FloatObj>()))
+            .chain(
+                self.mapped_veclike_objects
+                    .iter()
+                    .filter(|object| object.marked)
+                    .map(|object| object.byte_len),
+            )
             .sum()
     }
 

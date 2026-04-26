@@ -77,27 +77,161 @@ fn file_pdump_loads_vector_slots_from_mmap_image() {
     let mut eval = Context::new();
     eval.obarray.set_symbol_value(
         "test-pdump-mapped-vector",
-        Value::vector(vec![Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]),
+        Value::vector(vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::string("mapped-vector-child"),
+        ]),
     );
 
     let dir = tempfile::tempdir().unwrap();
     let dump_path = dir.path().join("mapped-vector.pdump");
     dump_to_file(&eval, &dump_path).expect("dump should succeed");
 
-    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
     let value = *loaded
         .obarray
         .symbol_value("test-pdump-mapped-vector")
         .expect("restored vector symbol");
     let slots = value.as_vector_data().expect("restored vector");
 
+    assert_eq!(slots.as_slice()[0], Value::fixnum(1));
+    assert_eq!(slots.as_slice()[1], Value::fixnum(2));
     assert_eq!(
-        slots.as_slice(),
-        &[Value::fixnum(1), Value::fixnum(2), Value::fixnum(3)]
+        slots.as_slice()[2]
+            .as_lisp_string()
+            .expect("vector child string")
+            .as_bytes(),
+        b"mapped-vector-child"
+    );
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_veclike_ptr().unwrap().cast::<u8>()),
+        "loaded vector object must be a tagged pointer into the retained mmap image"
     );
     assert!(
         loaded.pdump_image_contains_ptr(slots.as_slice().as_ptr().cast::<u8>()),
         "loaded vector slots must be borrowed from the retained mmap image"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-vector")
+        .expect("restored vector symbol after GC");
+    assert_eq!(
+        value_after_gc.as_vector_data().unwrap().as_slice()[2]
+            .as_lisp_string()
+            .expect("vector child string after GC")
+            .as_bytes(),
+        b"mapped-vector-child",
+        "mapped vector GC marking must trace children from the mmap object"
+    );
+}
+
+#[test]
+fn file_pdump_loads_record_object_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-record",
+        Value::make_record(vec![
+            Value::symbol("record-type"),
+            Value::string("mapped-record-child"),
+        ]),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-record.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-record")
+        .expect("restored record symbol");
+    let slots = value.as_record_data().expect("restored record");
+
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_veclike_ptr().unwrap().cast::<u8>()),
+        "loaded record object must be a tagged pointer into the retained mmap image"
+    );
+    assert!(
+        loaded.pdump_image_contains_ptr(slots.as_slice().as_ptr().cast::<u8>()),
+        "loaded record slots must be borrowed from the retained mmap image"
+    );
+    assert_eq!(
+        slots.as_slice()[1]
+            .as_lisp_string()
+            .expect("record child string")
+            .as_bytes(),
+        b"mapped-record-child"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-record")
+        .expect("restored record symbol after GC");
+    assert_eq!(
+        value_after_gc.as_record_data().unwrap().as_slice()[1]
+            .as_lisp_string()
+            .expect("record child string after GC")
+            .as_bytes(),
+        b"mapped-record-child",
+        "mapped record GC marking must trace children from the mmap object"
+    );
+}
+
+#[test]
+fn file_pdump_loads_lambda_object_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let mut slots = vec![Value::NIL; crate::tagged::header::CLOSURE_MIN_SLOTS];
+    slots[1] = Value::string("mapped-lambda-child");
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-lambda",
+        Value::make_lambda_with_slots(slots),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-lambda.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-lambda")
+        .expect("restored lambda symbol");
+    let slots = value.closure_slots().expect("restored lambda slots");
+
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_veclike_ptr().unwrap().cast::<u8>()),
+        "loaded lambda object must be a tagged pointer into the retained mmap image"
+    );
+    assert!(
+        loaded.pdump_image_contains_ptr(slots.as_slice().as_ptr().cast::<u8>()),
+        "loaded lambda slots must be borrowed from the retained mmap image"
+    );
+    assert_eq!(
+        slots.as_slice()[1]
+            .as_lisp_string()
+            .expect("lambda child string")
+            .as_bytes(),
+        b"mapped-lambda-child"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-lambda")
+        .expect("restored lambda symbol after GC");
+    assert_eq!(
+        value_after_gc.closure_slots().unwrap().as_slice()[1]
+            .as_lisp_string()
+            .expect("lambda child string after GC")
+            .as_bytes(),
+        b"mapped-lambda-child",
+        "mapped lambda GC marking must trace children from the mmap object"
     );
 }
 

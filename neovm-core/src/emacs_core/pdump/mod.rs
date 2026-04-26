@@ -68,7 +68,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v31: Float DumpValues now refer to heap objects, and those FloatObj payloads
 //   load as real tagged pointers into the mmap heap image with external GC mark
 //   bits, matching GNU pdumper's `dump_float` object-shaped cold dump.
-const FORMAT_VERSION: u32 = 31;
+// v32: Vector, record, lambda, and macro object headers load from the mmap heap
+//   image too; their slot payloads remain in mapped slot spans, mirroring GNU's
+//   vectorlike header + Lisp_Object content dump shape.
+const FORMAT_VERSION: u32 = 32;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
