@@ -14,6 +14,35 @@ fn create_frame_and_window() {
 }
 
 #[test]
+fn deleting_child_frame_that_shares_minibuffer_does_not_delete_owner_minibuffer() {
+    crate::test_utils::init_test_tracing();
+    let mut mgr = FrameManager::new();
+    let root_id = mgr.create_frame("F1", 80, 25, BufferId(1));
+    let child_id = mgr.create_frame("child", 10, 4, BufferId(1));
+    let root_minibuffer = mgr
+        .get(root_id)
+        .and_then(|frame| frame.minibuffer_window)
+        .expect("root minibuffer");
+
+    {
+        let child = mgr.get_mut(child_id).expect("child frame");
+        child.parent_frame = Value::make_frame(root_id.0);
+        child.minibuffer_window = Some(root_minibuffer);
+        child.minibuffer_leaf = None;
+    }
+
+    assert_eq!(mgr.find_window_frame_id(root_minibuffer), Some(root_id));
+    assert_eq!(
+        mgr.find_valid_window_frame_id(root_minibuffer),
+        Some(root_id)
+    );
+    assert!(mgr.delete_frame(child_id));
+    assert!(!mgr.deleted_windows.contains(&root_minibuffer));
+    assert_eq!(mgr.find_window_frame_id(root_minibuffer), Some(root_id));
+    assert!(mgr.lookup_window(root_minibuffer).is_some());
+}
+
+#[test]
 fn frame_manager_gc_traces_name_icon_name_and_title_values() {
     crate::test_utils::init_test_tracing();
     let mut mgr = FrameManager::new();

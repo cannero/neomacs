@@ -1955,8 +1955,8 @@ impl Frame {
 
     fn live_window_ids_with_minibuffer(&self) -> Vec<WindowId> {
         let mut ids = self.window_list();
-        if let Some(wid) = self.minibuffer_window {
-            ids.push(wid);
+        if let Some(minibuffer_leaf) = self.minibuffer_leaf.as_ref() {
+            ids.push(minibuffer_leaf.id());
         }
         ids
     }
@@ -2270,12 +2270,11 @@ impl FrameManager {
                         .insert(wid, window.parameters().clone());
                 }
             }
-            if let Some(minibuffer_wid) = frame.minibuffer_window {
+            if let Some(minibuffer_leaf) = frame.minibuffer_leaf.as_ref() {
+                let minibuffer_wid = minibuffer_leaf.id();
                 self.deleted_windows.insert(minibuffer_wid);
-                if let Some(window) = frame.find_window(minibuffer_wid) {
-                    self.deleted_window_parameters
-                        .insert(minibuffer_wid, window.parameters().clone());
-                }
+                self.deleted_window_parameters
+                    .insert(minibuffer_wid, minibuffer_leaf.parameters().clone());
             }
             if self.selected == Some(id) {
                 self.selected = self.frames.keys().next().copied();
@@ -2517,16 +2516,7 @@ impl FrameManager {
     /// Return the frame containing a live window ID, if any.
     pub fn find_window_frame_id(&self, window_id: WindowId) -> Option<FrameId> {
         self.frames.iter().find_map(|(frame_id, frame)| {
-            if frame.minibuffer_window == Some(window_id) {
-                return Some(*frame_id);
-            }
-            frame.find_window(window_id).and_then(|window| {
-                if window.is_leaf() {
-                    Some(*frame_id)
-                } else {
-                    None
-                }
-            })
+            frame.find_window(window_id)?.is_leaf().then_some(*frame_id)
         })
     }
 
@@ -2535,12 +2525,9 @@ impl FrameManager {
     /// Valid windows include live leaf windows, internal windows, and the
     /// minibuffer window of a live frame.
     pub fn find_valid_window_frame_id(&self, window_id: WindowId) -> Option<FrameId> {
-        self.frames.iter().find_map(|(frame_id, frame)| {
-            if frame.minibuffer_window == Some(window_id) {
-                return Some(*frame_id);
-            }
-            frame.find_window(window_id).map(|_| *frame_id)
-        })
+        self.frames
+            .iter()
+            .find_map(|(frame_id, frame)| frame.find_window(window_id).map(|_| *frame_id))
     }
 
     /// Return true when WINDOW-ID designates a live window in any frame.
@@ -2563,9 +2550,6 @@ impl FrameManager {
     /// walk.
     pub fn lookup_window(&self, window_id: WindowId) -> Option<&Window> {
         for frame in self.frames.values() {
-            if frame.minibuffer_window == Some(window_id) {
-                return frame.minibuffer_leaf.as_ref();
-            }
             if let Some(w) = frame.find_window(window_id) {
                 return Some(w);
             }
@@ -2577,9 +2561,6 @@ impl FrameManager {
     /// mutable reference.
     pub fn lookup_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
         for frame in self.frames.values_mut() {
-            if frame.minibuffer_window == Some(window_id) {
-                return frame.minibuffer_leaf.as_mut();
-            }
             if let Some(w) = frame.find_window_mut(window_id) {
                 return Some(w);
             }
