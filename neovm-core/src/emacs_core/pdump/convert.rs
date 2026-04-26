@@ -7,6 +7,7 @@ use std::rc::Rc;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::DumpError;
+use super::mapped_heap::MappedHeapView;
 use super::types::*;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType};
 use crate::buffer::buffer_text::BufferText;
@@ -212,6 +213,7 @@ pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
+    mapped_heap: Option<MappedHeapView>,
     buffers: HashMap<u64, Value>,
     windows: HashMap<u64, Value>,
     frames: HashMap<u64, Value>,
@@ -229,12 +231,13 @@ pub(crate) struct TaggedLoadState {
 }
 
 impl TaggedLoadState {
-    fn new(heap: &DumpTaggedHeap) -> Self {
+    fn new(heap: &DumpTaggedHeap, mapped_heap: Option<MappedHeapView>) -> Self {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
             values: vec![None; len],
             populated: vec![false; len],
+            mapped_heap,
             buffers: HashMap::new(),
             windows: HashMap::new(),
             frames: HashMap::new(),
@@ -251,8 +254,15 @@ pub(crate) struct LoadDecoder {
 
 impl LoadDecoder {
     pub(crate) fn new(heap: &DumpTaggedHeap) -> Self {
+        Self::new_with_mapped_heap(heap, None)
+    }
+
+    pub(crate) fn new_with_mapped_heap(
+        heap: &DumpTaggedHeap,
+        mapped_heap: Option<MappedHeapView>,
+    ) -> Self {
         Self {
-            state: TaggedLoadState::new(heap),
+            state: TaggedLoadState::new(heap, mapped_heap),
         }
     }
 
@@ -315,6 +325,26 @@ impl LoadDecoder {
             .or_insert_with(|| Value::make_timer(id))
     }
 
+    fn load_dump_string(
+        &self,
+        data: &DumpByteData,
+        size: usize,
+        size_byte: i64,
+    ) -> Result<LispString, DumpError> {
+        match data {
+            DumpByteData::Owned(bytes) => Ok(LispString::from_dump(bytes.clone(), size, size_byte)),
+            DumpByteData::Mapped(_) => {
+                let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+                    DumpError::ImageFormatError(
+                        "dump references mapped heap bytes but image has no heap section".into(),
+                    )
+                })?;
+                let bytes = mapped_heap.bytes(data)?;
+                Ok(unsafe { LispString::from_mapped_bytes(bytes.ptr, bytes.len, size, size_byte) })
+            }
+        }
+    }
+
     fn allocate_tagged_placeholder(&mut self, id: TaggedHeapRef) -> Result<Value, DumpError> {
         if let Some(value) = self.state.values[id.index as usize] {
             return Ok(value);
@@ -336,7 +366,7 @@ impl LoadDecoder {
                 size,
                 size_byte,
                 ..
-            } => Value::heap_string(LispString::from_dump(data.clone(), *size, *size_byte)),
+            } => Value::heap_string(self.load_dump_string(data, *size, *size_byte)?),
             DumpHeapObject::Float(value) => Value::make_float(*value),
             DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
                 heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
@@ -863,7 +893,7 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
             DumpHeapObject::Str {
-                data: string.as_bytes().to_vec(),
+                data: DumpByteData::owned(string.as_bytes().to_vec()),
                 size: string.schars(),
                 size_byte: if string.is_multibyte() {
                     string.sbytes() as i64

@@ -34,6 +34,44 @@ fn test_pdump_round_trip_basic() {
 }
 
 #[test]
+fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-string",
+        Value::string("mapped-pdump-string"),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-string.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let image = super::mmap_image::load_image(&dump_path).expect("load raw mmap image");
+    let heap_section = image
+        .section(super::mmap_image::DumpSectionKind::HeapImage)
+        .expect("heap image section");
+    assert!(
+        heap_section
+            .windows(b"mapped-pdump-string".len())
+            .any(|window| window == b"mapped-pdump-string"),
+        "heap string bytes should live in the mmap heap section"
+    );
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-string")
+        .expect("restored string symbol");
+    let string = value.as_lisp_string().expect("restored string");
+
+    assert_eq!(string.as_bytes(), b"mapped-pdump-string");
+    assert!(
+        loaded.pdump_image_contains_ptr(string.as_bytes().as_ptr()),
+        "loaded string bytes must be borrowed from the retained mmap image"
+    );
+}
+
+#[test]
 fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

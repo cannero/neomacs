@@ -14,6 +14,7 @@
 //! ```
 
 pub mod convert;
+pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub mod runtime;
 pub mod types;
@@ -56,7 +57,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   vectorlike is 101, float is 111. `Qunbound` is a noncanonical symbol
 //   value, and subrs are PVEC_SUBR-like vectorlike objects instead of
 //   Neomacs-only immediate tag 111 values.
-const FORMAT_VERSION: u32 = 27;
+// v28: Heap string bytes move out of the runtime-state bincode payload into
+//   the mmap heap section, matching GNU pdumper's hot string header plus cold
+//   string data split.
+const FORMAT_VERSION: u32 = 28;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -147,19 +151,27 @@ pub struct ActiveRuntimeSnapshot {
 
 /// Serialize the evaluator state to a pdump file.
 pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
-    let state = dump_evaluator(eval);
+    let mut state = dump_evaluator(eval);
+    let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
 
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
-    mmap_image::write_image(
-        path,
-        &[ImageSection {
-            kind: DumpSectionKind::RuntimeState,
+    let mut sections = Vec::with_capacity(if heap_payload.is_empty() { 1 } else { 2 });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::RuntimeState,
+        flags: 0,
+        bytes: &payload,
+    });
+    if !heap_payload.is_empty() {
+        sections.push(ImageSection {
+            kind: DumpSectionKind::HeapImage,
             flags: 0,
-            bytes: &payload,
-        }],
-    )
+            bytes: &heap_payload,
+        });
+    }
+
+    mmap_image::write_image(path, &sections)
 }
 
 /// Load evaluator state from a pdump file.
@@ -168,19 +180,23 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
 /// setting up thread-local pointers and resetting caches.
 pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let load_start = std::time::Instant::now();
-    let image = mmap_image::load_image(path)?;
+    let mut image = mmap_image::load_image(path)?;
+    image.apply_relocations()?;
     let payload = image
         .section(DumpSectionKind::RuntimeState)
         .ok_or_else(|| DumpError::ImageFormatError("missing runtime-state section".into()))?;
 
-    // Deserialize
     let state: types::DumpContextState = bincode::deserialize(payload)
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
-    // Reconstruct evaluator
-    let mut eval = reconstruct_evaluator(&state)?;
+    let mapped_heap = image
+        .section(DumpSectionKind::HeapImage)
+        .map(mapped_heap::MappedHeapView::from_slice);
+
+    let mut eval = reconstruct_evaluator(&state, mapped_heap)?;
     record_loaded_dump(path, load_start.elapsed());
     mark_after_pdump_load_hook_pending(&mut eval);
+    eval.install_pdump_image(image);
     Ok(eval)
 }
 
@@ -228,7 +244,7 @@ pub fn restore_active_runtime(eval: &mut Context, snapshot: &ActiveRuntimeSnapsh
 
 /// Reconstruct an evaluator from a previously captured in-memory pdump snapshot.
 pub fn restore_snapshot(state: &DumpContextState) -> Result<Context, DumpError> {
-    reconstruct_evaluator(state)
+    reconstruct_evaluator(state, None)
 }
 
 /// Clone a live evaluator through the pdump conversion pipeline.
@@ -248,7 +264,10 @@ pub fn clone_active_evaluator(eval: &mut Context) -> Result<Context, DumpError> 
 }
 
 /// Reconstruct an `Context` from deserialized dump state.
-fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError> {
+fn reconstruct_evaluator(
+    state: &DumpContextState,
+    mapped_heap: Option<mapped_heap::MappedHeapView>,
+) -> Result<Context, DumpError> {
     struct RestoreCleanup;
 
     impl Drop for RestoreCleanup {
@@ -266,7 +285,7 @@ fn reconstruct_evaluator(state: &DumpContextState) -> Result<Context, DumpError>
     // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    let mut decoder = LoadDecoder::new(&state.tagged_heap);
+    let mut decoder = LoadDecoder::new_with_mapped_heap(&state.tagged_heap, mapped_heap);
     decoder.preload_tagged_heap()?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.

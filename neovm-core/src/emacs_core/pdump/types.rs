@@ -26,6 +26,35 @@ pub struct DumpNameId(pub u32);
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DumpBufferId(pub u64);
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DumpByteSpan {
+    pub offset: u64,
+    pub len: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum DumpByteData {
+    Owned(Vec<u8>),
+    Mapped(DumpByteSpan),
+}
+
+impl DumpByteData {
+    pub fn owned(data: Vec<u8>) -> Self {
+        Self::Owned(data)
+    }
+
+    pub fn mapped(offset: u64, len: u64) -> Self {
+        Self::Mapped(DumpByteSpan { offset, len })
+    }
+
+    pub fn as_owned_bytes(&self) -> Option<&[u8]> {
+        match self {
+            Self::Owned(data) => Some(data),
+            Self::Mapped(_) => None,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Value
 // ---------------------------------------------------------------------------
@@ -82,7 +111,7 @@ pub enum DumpHeapObject {
     Vector(Vec<DumpValue>),
     HashTable(DumpLispHashTable),
     Str {
-        data: Vec<u8>,
+        data: DumpByteData,
         size: usize,
         size_byte: i64,
         #[serde(default)]

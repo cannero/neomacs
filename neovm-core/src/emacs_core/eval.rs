@@ -1368,6 +1368,9 @@ pub(crate) struct BcFrame {
 pub struct Context {
     /// Tagged pointer heap — sole GC and allocator.
     pub(crate) tagged_heap: Box<crate::tagged::gc::TaggedHeap>,
+    /// Mmap-backed pdump image that owns any mapped heap payloads borrowed by
+    /// this evaluator's Lisp objects.
+    pub(crate) pdump_image: Option<super::pdump::mmap_image::LoadedMmapImage>,
     /// The obarray — unified symbol table with value cells, function cells, plists.
     pub(crate) obarray: Obarray,
     /// Specpdl — special binding stack that writes directly to the obarray.
@@ -4110,6 +4113,7 @@ impl Context {
 
         let mut ev = Self {
             tagged_heap,
+            pdump_image: None,
             obarray,
             specpdl: Vec::new(),
             lexenv: Value::NIL,
@@ -4260,6 +4264,7 @@ impl Context {
 
         let mut ev = Self {
             tagged_heap,
+            pdump_image: None,
             obarray,
             specpdl: Vec::new(),
             lexenv,
@@ -4370,6 +4375,17 @@ impl Context {
         ev.finish_runtime_activation(true);
 
         ev
+    }
+
+    pub(crate) fn install_pdump_image(&mut self, image: super::pdump::mmap_image::LoadedMmapImage) {
+        self.pdump_image = Some(image);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pdump_image_contains_ptr(&self, ptr: *const u8) -> bool {
+        self.pdump_image
+            .as_ref()
+            .is_some_and(|image| image.contains_ptr(ptr))
     }
 
     // -----------------------------------------------------------------------

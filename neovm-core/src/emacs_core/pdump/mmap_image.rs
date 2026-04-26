@@ -178,7 +178,11 @@ impl LoadedMmapImage {
         Ok(start..end)
     }
 
-    #[cfg(test)]
+    pub(crate) fn contains_ptr(&self, ptr: *const u8) -> bool {
+        let ptr = ptr as usize;
+        self.mapped_range().contains(&ptr)
+    }
+
     fn mapped_range(&self) -> std::ops::Range<usize> {
         let start = self.mmap.as_ptr() as usize;
         start..start + self.mmap.len()
