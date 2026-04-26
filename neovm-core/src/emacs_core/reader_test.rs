@@ -1272,6 +1272,27 @@ fn completing_read_signals_end_of_file() {
 }
 
 #[test]
+fn completing_read_calls_completing_read_function_before_interactive_read() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let result = ev
+        .eval_str(
+            r#"(let ((completing-read-function
+                      (lambda (&rest args)
+                        (cons 'called args))))
+                 (completing-read "Choose: " '("alpha") nil t nil 'hist "alpha" t))"#,
+        )
+        .expect("custom completing-read-function should evaluate");
+
+    let values = list_to_vec(&result).expect("result should be a proper list");
+    assert_eq!(values[0], Value::symbol("called"));
+    assert_eq!(values[1].as_utf8_str(), Some("Choose: "));
+    assert!(values[4].is_t());
+    assert_eq!(values[7].as_utf8_str(), Some("alpha"));
+    assert!(values[8].is_t());
+}
+
+#[test]
 fn completing_read_non_character_event_stays_queued_and_signals_end_of_file() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

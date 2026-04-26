@@ -1768,11 +1768,19 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
     expect_max_args("font-at", &args, 3)?;
 
     let (frame_id, window_id) = resolve_live_window_for_font_at(eval, args.get(1))?;
-    let window = eval
-        .frames
-        .get(frame_id)
-        .and_then(|frame| frame.find_window(window_id))
-        .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
+    let (window_buffer_id, has_window_system) = {
+        let frame = eval
+            .frames
+            .get(frame_id)
+            .ok_or_else(|| signal("error", vec![Value::string("No selected frame")]))?;
+        let window = frame
+            .find_window(window_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Window not found")]))?;
+        (
+            window.buffer_id(),
+            frame.effective_window_system().is_some(),
+        )
+    };
 
     if let Some(string_value) = args.get(2) {
         if !string_value.is_nil() {
@@ -1801,6 +1809,9 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
                     vec![*string_value, Value::fixnum(pos)],
                 ));
             }
+            if !has_window_system {
+                return Ok(Value::NIL);
+            }
             let bytepos = if string.is_multibyte() {
                 crate::emacs_core::emacs_char::char_to_byte_pos(string.as_bytes(), pos as usize)
             } else {
@@ -1826,7 +1837,7 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    if window.buffer_id() != Some(current_buffer_id) {
+    if window_buffer_id != Some(current_buffer_id) {
         return Err(signal(
             "error",
             vec![Value::string(
@@ -1848,6 +1859,10 @@ pub(crate) fn builtin_font_at(eval: &mut super::eval::Context, args: Vec<Value>)
             "args-out-of-range",
             vec![args[0], Value::fixnum(beg), Value::fixnum(end)],
         ));
+    }
+
+    if !has_window_system {
+        return Ok(Value::NIL);
     }
 
     let bytepos = buffer.lisp_pos_to_accessible_byte(pos);

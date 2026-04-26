@@ -4026,6 +4026,12 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_completing_read_shared(&mut self, args: &[Value]) -> EvalResult {
+        crate::emacs_core::reader::validate_completing_read_arity(args)?;
+        if let Some(function) = crate::emacs_core::reader::completing_read_function_value(&self.ctx)
+        {
+            return self.call_function(function, args.to_vec());
+        }
+
         crate::emacs_core::reader::finish_completing_read_in_vm_runtime(&mut self.ctx, args)
     }
 

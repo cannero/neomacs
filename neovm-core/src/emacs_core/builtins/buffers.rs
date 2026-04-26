@@ -4066,6 +4066,9 @@ pub(crate) fn builtin_buffer_local_value(
                     .flatten()
             })
             .ok_or_else(|| signal("void-variable", vec![original_arg])),
+        None if crate::buffer::buffer::lookup_buffer_slot(&resolved).is_some() => buf
+            .buffer_local_value(&resolved)
+            .ok_or_else(|| signal("void-variable", vec![original_arg])),
         None if resolved == "nil" => Ok(Value::NIL),
         None if resolved == "t" => Ok(Value::T),
         None if resolved.starts_with(':') => Ok(Value::symbol(resolved)),

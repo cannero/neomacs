@@ -1408,12 +1408,16 @@ pub(crate) fn builtin_active_minibuffer_window(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("active-minibuffer-window", &args, 0)?;
+    Ok(active_minibuffer_window_id(eval)
+        .map(window_value)
+        .unwrap_or(Value::NIL))
+}
+
+fn active_minibuffer_window_id(eval: &super::eval::Context) -> Option<WindowId> {
     if let Some(wid) = eval.active_minibuffer_window {
-        return Ok(window_value(wid));
+        return Some(wid);
     }
-    let Some(state) = eval.minibuffers.current() else {
-        return Ok(Value::NIL);
-    };
+    let state = eval.minibuffers.current()?;
 
     for frame_id in eval.frames.frame_list() {
         let Some(frame) = eval.frames.get(frame_id) else {
@@ -1423,11 +1427,11 @@ pub(crate) fn builtin_active_minibuffer_window(
             && let Some(window) = frame.find_window(minibuffer_wid)
             && window.buffer_id() == Some(state.buffer_id)
         {
-            return Ok(window_value(minibuffer_wid));
+            return Some(minibuffer_wid);
         }
     }
 
-    Ok(Value::NIL)
+    None
 }
 /// `(window-frame &optional WINDOW)` -> frame of WINDOW.
 pub(crate) fn builtin_window_frame(
@@ -3224,6 +3228,7 @@ pub(crate) fn builtin_window_list_1(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    let active_minibuffer_window = active_minibuffer_window_id(eval);
     let (frames, buffers) = (&mut eval.frames, &mut eval.buffers);
     expect_max_args("window-list-1", &args, 3)?;
     let _ = ensure_selected_frame_id_in_state(frames, buffers);
@@ -3293,7 +3298,20 @@ pub(crate) fn builtin_window_list_1(
         frame_ids.rotate_left(start_pos);
     }
 
-    let include_minibuffer = args.get(1).is_some_and(|v| *v == Value::T);
+    #[derive(Clone, Copy)]
+    enum MinibufferListMode {
+        None,
+        Active(WindowId),
+        All,
+    }
+
+    let minibuffer_list_mode = match args.get(1).copied() {
+        Some(value) if value == Value::T => MinibufferListMode::All,
+        Some(value) if !value.is_nil() => MinibufferListMode::None,
+        _ => active_minibuffer_window
+            .map(MinibufferListMode::Active)
+            .unwrap_or(MinibufferListMode::None),
+    };
     let mut seen_window_ids: HashSet<u64> = HashSet::new();
     let mut windows: Vec<Value> = Vec::new();
 
@@ -3316,12 +3334,17 @@ pub(crate) fn builtin_window_list_1(
             }
         }
 
-        if include_minibuffer {
-            if let Some(minibuffer_wid) = frame.minibuffer_window {
-                if seen_window_ids.insert(minibuffer_wid.0) {
-                    windows.push(window_value(minibuffer_wid));
-                }
+        let minibuffer_wid = match minibuffer_list_mode {
+            MinibufferListMode::None => None,
+            MinibufferListMode::Active(wid) => {
+                (frame.minibuffer_window == Some(wid)).then_some(wid)
             }
+            MinibufferListMode::All => frame.minibuffer_window,
+        };
+        if let Some(minibuffer_wid) = minibuffer_wid
+            && seen_window_ids.insert(minibuffer_wid.0)
+        {
+            windows.push(window_value(minibuffer_wid));
         }
     }
 
@@ -5970,6 +5993,47 @@ pub(crate) fn make_frame_with_state(
     make_frame_plain(frames, buffers, args)
 }
 
+fn resolve_tty_child_shared_minibuffer(
+    frames: &FrameManager,
+    parent_id: FrameId,
+    minibuffer_param: Option<Value>,
+) -> Result<Option<WindowId>, Flow> {
+    let Some(minibuffer_param) = minibuffer_param else {
+        return Ok(None);
+    };
+
+    if minibuffer_param.is_nil() || matches!(minibuffer_param.as_symbol_name(), Some("none")) {
+        return Ok(frames
+            .root_frame_id(parent_id)
+            .and_then(|root_id| frames.get(root_id))
+            .and_then(|root| root.minibuffer_window));
+    }
+
+    let Some(raw_window_id) = minibuffer_param.as_window_id() else {
+        return Ok(None);
+    };
+    let window_id = WindowId(raw_window_id);
+    let valid_minibuffer = frames
+        .find_valid_window_frame_id(window_id)
+        .and_then(|frame_id| {
+            let owner = frames.get(frame_id)?;
+            (owner.minibuffer_window == Some(window_id)
+                && frames.root_frame_id(frame_id) == frames.root_frame_id(parent_id))
+            .then_some(())
+        })
+        .is_some();
+    if valid_minibuffer {
+        Ok(Some(window_id))
+    } else {
+        Err(signal(
+            "error",
+            vec![Value::string(
+                "The `minibuffer' parameter does not specify a valid minibuffer window",
+            )],
+        ))
+    }
+}
+
 /// `(make-terminal-frame PARMS)` -> frame.
 pub(crate) fn builtin_make_terminal_frame(
     eval: &mut super::eval::Context,
@@ -6080,10 +6144,8 @@ fn make_frame_plain(
                 .unwrap_or(BufferId(0));
             let fid =
                 frames.create_frame_value_on_terminal(name, terminal_id, width, height, buf_id);
-            let root_minibuffer = frames
-                .root_frame_id(parent_id)
-                .and_then(|root_id| frames.get(root_id))
-                .and_then(|root| root.minibuffer_window);
+            let shared_minibuffer =
+                resolve_tty_child_shared_minibuffer(frames, parent_id, minibuffer_param)?;
             let z_order = 1 + frames.max_child_z_order(parent_id);
             let frame = frames
                 .get_mut(fid)
@@ -6101,22 +6163,17 @@ fn make_frame_plain(
             frame.undecorated = undecorated;
             frame.no_accept_focus = no_accept_focus;
             frame.no_split = no_split;
-            let surrogate_minibuffer = if minibuffer_param.is_some_and(|value| value.is_nil()) {
-                root_minibuffer
-            } else {
-                None
-            };
-            if let Some(root_minibuffer) = surrogate_minibuffer {
+            if let Some(shared_minibuffer) = shared_minibuffer {
                 frame.minibuffer_leaf = None;
-                frame.minibuffer_window = Some(root_minibuffer);
+                frame.minibuffer_window = Some(shared_minibuffer);
             }
             for (key, value) in all_params {
                 frame.set_parameter(key, value);
             }
-            if let Some(root_minibuffer) = surrogate_minibuffer {
+            if let Some(shared_minibuffer) = shared_minibuffer {
                 frame.set_parameter(
                     Value::symbol("minibuffer"),
-                    Value::make_window(root_minibuffer.0),
+                    Value::make_window(shared_minibuffer.0),
                 );
             }
             frame.set_parameter(Value::symbol("parent-frame"), parent_frame);

@@ -1036,6 +1036,47 @@ fn get_buffer_window_list_returns_matching_windows() {
 }
 
 #[test]
+fn get_buffer_window_list_includes_active_minibuffer_by_default() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let fid = super::seed_batch_startup_frame_in_state(&mut ev.frames, &mut ev.buffers);
+    let minibuffer_buffer = {
+        let frame = ev.frames.get(fid).expect("frame should exist");
+        let minibuffer_wid = frame.minibuffer_window.expect("minibuffer window");
+        frame
+            .find_window(minibuffer_wid)
+            .and_then(|window| window.buffer_id())
+            .expect("minibuffer buffer")
+    };
+    ev.minibuffers
+        .read_from_minibuffer(minibuffer_buffer, "M-x ", None, None)
+        .expect("active minibuffer state");
+    ev.buffers.set_current(minibuffer_buffer);
+
+    let active_minibuffer =
+        super::builtin_active_minibuffer_window(&mut ev, vec![]).expect("active minibuffer");
+    let default_list =
+        super::builtin_window_list_1(&mut ev, vec![Value::NIL, Value::NIL, Value::NIL])
+            .expect("window-list-1 with nil minibuf");
+    let default_windows =
+        crate::emacs_core::value::list_to_vec(&default_list).expect("default window list");
+    assert!(
+        default_windows.contains(&active_minibuffer),
+        "nil MINIBUF should include the active minibuffer"
+    );
+
+    let excluded_list =
+        super::builtin_window_list_1(&mut ev, vec![Value::NIL, Value::symbol("not"), Value::NIL])
+            .expect("window-list-1 with non-nil non-t minibuf");
+    let excluded_windows =
+        crate::emacs_core::value::list_to_vec(&excluded_list).expect("excluded window list");
+    assert!(
+        !excluded_windows.contains(&active_minibuffer),
+        "non-t MINIBUF should exclude the active minibuffer"
+    );
+}
+
+#[test]
 fn get_buffer_window_and_list_match_optional_and_missing_buffer_semantics() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_with_frame(
@@ -3331,6 +3372,48 @@ fn make_terminal_frame_creates_tty_child_frame_with_gnu_geometry_semantics() {
 }
 
 #[test]
+fn make_terminal_frame_accepts_tty_minibuffer_window_parameter() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let scratch = ev.buffers.create_buffer("*scratch*");
+    ev.buffers.set_current(scratch);
+    let root_id = ev.frames.create_frame("F1", 80, 25, scratch);
+    {
+        let root = ev.frames.get_mut(root_id).expect("root frame");
+        root.char_width = 1.0;
+        root.char_height = 1.0;
+        root.font_pixel_size = 1.0;
+    }
+
+    let root = Value::make_frame(root_id.0);
+    let root_minibuffer = ev
+        .frames
+        .get(root_id)
+        .expect("root frame")
+        .minibuffer_window
+        .expect("root minibuffer");
+    let root_minibuffer_value = Value::make_window(root_minibuffer.0);
+    let params = Value::list(vec![
+        Value::cons(Value::symbol("parent-frame"), root),
+        Value::cons(Value::symbol("width"), Value::fixnum(6)),
+        Value::cons(Value::symbol("height"), Value::fixnum(3)),
+        Value::cons(Value::symbol("minibuffer"), root_minibuffer_value),
+        Value::cons(Value::symbol("visibility"), Value::NIL),
+    ]);
+
+    let child =
+        super::builtin_make_terminal_frame(&mut ev, vec![params]).expect("make-terminal-frame");
+    let child_id = crate::window::FrameId(child.as_frame_id().expect("child frame"));
+    let child_frame = ev.frames.get(child_id).expect("child frame");
+    assert_eq!(child_frame.minibuffer_window, Some(root_minibuffer));
+    assert!(child_frame.minibuffer_leaf.is_none());
+    assert_eq!(
+        child_frame.parameter("minibuffer"),
+        Some(root_minibuffer_value)
+    );
+}
+
+#[test]
 fn x_create_frame_creates_live_frame_and_preserves_char_geometry_params() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -3821,6 +3904,13 @@ fn frame_parameter_icon_name_defaults_to_nil() {
     crate::test_utils::init_test_tracing();
     let r = eval_one_with_frame("(frame-parameter (selected-frame) 'icon-name)");
     assert_eq!(r, "OK nil");
+}
+
+#[test]
+fn frame_parameter_minibuffer_defaults_to_t() {
+    crate::test_utils::init_test_tracing();
+    let r = eval_one_with_frame("(frame-parameter (selected-frame) 'minibuffer)");
+    assert_eq!(r, "OK t");
 }
 
 #[test]

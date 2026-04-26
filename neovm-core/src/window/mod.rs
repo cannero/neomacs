@@ -1491,6 +1491,7 @@ impl Frame {
                 // parameter even when the tab bar is disabled. Lisp window
                 // deletion code compares it with `>`, so nil is not compatible.
                 params.insert(Value::symbol("tab-bar-lines"), Value::fixnum(0));
+                params.insert(Value::symbol("minibuffer"), Value::T);
                 params
             },
             visible: true,

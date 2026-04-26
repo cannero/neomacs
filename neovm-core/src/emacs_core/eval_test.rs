@@ -5399,6 +5399,33 @@ fn buffer_local_value_follows_alias_and_keyword_semantics() {
 }
 
 #[test]
+fn buffer_local_value_reads_forwarded_slot_default_when_not_local() {
+    crate::test_utils::init_test_tracing();
+    let results = bootstrap_eval_all(
+        r#"(with-temp-buffer
+             (list (boundp 'line-spacing)
+                   (default-value 'line-spacing)
+                   (buffer-local-value 'line-spacing (current-buffer))
+                   (local-variable-p 'line-spacing (current-buffer))
+                   (local-variable-if-set-p 'line-spacing (current-buffer))))
+           (progn
+             (setq-default line-spacing 2)
+             (with-temp-buffer
+               (list (default-value 'line-spacing)
+                     (buffer-local-value 'line-spacing (current-buffer))
+                     (local-variable-p 'line-spacing (current-buffer)))))
+           (with-temp-buffer
+             (setq-local line-spacing 4)
+             (list (default-value 'line-spacing)
+                   (buffer-local-value 'line-spacing (current-buffer))
+                   (local-variable-p 'line-spacing (current-buffer))))"#,
+    );
+    assert_eq!(results[0], "OK (t nil nil nil t)");
+    assert_eq!(results[1], "OK (2 2 nil)");
+    assert_eq!(results[2], "OK (2 4 t)");
+}
+
+#[test]
 fn local_variable_if_set_p_follows_alias_and_contract_semantics() {
     crate::test_utils::init_test_tracing();
     let results = eval_all(
@@ -5539,6 +5566,7 @@ fn apply_works() {
     crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(apply #'+ '(1 2 3))"), "OK 6");
     assert_eq!(eval_one("(apply #'+ 1 2 '(3))"), "OK 6");
+    assert_eq!(eval_one("(apply (list #'+ 1 2 3))"), "OK 6");
 }
 
 #[test]

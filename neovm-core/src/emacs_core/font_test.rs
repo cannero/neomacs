@@ -7,7 +7,7 @@ use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::face::{Color, FaceAttrValue};
 use crate::heap_types::LispString;
 use crate::test_utils::runtime_startup_eval_all;
-use crate::window::FRAME_ID_BASE;
+use crate::window::{FRAME_ID_BASE, FrameId};
 use std::cell::RefCell;
 use std::fs;
 use std::path::PathBuf;
@@ -25,6 +25,16 @@ macro_rules! call_font_builtin {
         let args = $args;
         $builtin(&mut eval, args)
     }};
+}
+
+fn ensure_selected_gui_frame(eval: &mut Context) -> FrameId {
+    let frame_id = crate::emacs_core::window_cmds::ensure_selected_frame_id(eval);
+    let frame = eval
+        .frame_manager_mut()
+        .get_mut(frame_id)
+        .expect("selected frame");
+    frame.set_window_system(Some(Value::symbol("neo")));
+    frame_id
 }
 
 #[test]
@@ -610,7 +620,7 @@ fn close_font_accepts_tagged_font_object_and_checks_arity() {
 fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
-    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    ensure_selected_gui_frame(&mut eval);
 
     let face = Value::symbol("font-at-buffer-face");
     builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
@@ -646,10 +656,35 @@ fn font_at_eval_returns_font_object_for_multibyte_buffer_face() {
 }
 
 #[test]
-fn font_at_eval_returns_font_object_for_multibyte_string_face() {
+fn font_at_eval_returns_nil_on_terminal_frame_after_position_validation() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
     crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer for terminal font-at test")
+        .insert("abc");
+
+    assert!(
+        builtin_font_at(&mut eval, vec![Value::fixnum(1)])
+            .expect("valid terminal font-at should evaluate")
+            .is_nil()
+    );
+
+    let err = builtin_font_at(&mut eval, vec![Value::fixnum(4)])
+        .expect_err("out-of-range terminal font-at should still validate position");
+    match err {
+        Flow::Signal(sig) => assert_eq!(sig.symbol_name(), "args-out-of-range"),
+        other => panic!("expected args-out-of-range signal, got {other:?}"),
+    }
+}
+
+#[test]
+fn font_at_eval_returns_font_object_for_multibyte_string_face() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    ensure_selected_gui_frame(&mut eval);
 
     let face = Value::symbol("font-at-string-face");
     builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
@@ -687,7 +722,7 @@ fn font_at_eval_returns_font_object_for_multibyte_string_face() {
 fn font_at_eval_preserves_raw_unibyte_string_face() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
-    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    ensure_selected_gui_frame(&mut eval);
 
     let face = Value::symbol("font-at-raw-string-face");
     builtin_internal_make_lisp_face(&mut eval, vec![face]).unwrap();
@@ -721,7 +756,7 @@ fn font_at_eval_preserves_raw_unibyte_string_face() {
 fn font_at_eval_reads_source_style_inline_face_keywords() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
-    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    ensure_selected_gui_frame(&mut eval);
 
     let buffer = eval
         .buffers
@@ -770,7 +805,7 @@ fn font_at_eval_reads_source_style_inline_face_keywords() {
 fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
-    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    ensure_selected_gui_frame(&mut eval);
 
     let captured = Rc::new(RefCell::new(None));
     eval.set_display_host(Box::new(CapturingFontAtDisplayHost {
@@ -820,7 +855,7 @@ fn font_at_eval_passes_inline_face_weight_and_family_to_display_host() {
 fn font_at_eval_prefers_backend_selected_font_match_when_available() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
-    crate::emacs_core::window_cmds::ensure_selected_frame_id(&mut eval);
+    ensure_selected_gui_frame(&mut eval);
     eval.set_display_host(Box::new(FontAtDisplayHost {
         matched: Some(ResolvedFontMatch {
             family: LispString::from_utf8("Noto Sans Mono CJK SC"),

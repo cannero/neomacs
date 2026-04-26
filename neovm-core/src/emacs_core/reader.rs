@@ -1293,6 +1293,11 @@ pub(crate) fn builtin_completing_read(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    validate_completing_read_arity(&args)?;
+    if let Some(function) = completing_read_function_value(eval) {
+        return eval.apply(function, args);
+    }
+
     builtin_completing_read_in_runtime(eval, &args)?;
     finish_completing_read_in_eval(eval, &args)
 }
@@ -1331,8 +1336,7 @@ pub(crate) fn builtin_completing_read_in_runtime(
     runtime: &impl KeyboardInputRuntime,
     args: &[Value],
 ) -> Result<(), Flow> {
-    expect_min_args("completing-read", args, 2)?;
-    expect_max_args("completing-read", args, 8)?;
+    validate_completing_read_arity(args)?;
     let prompt = args[0];
     expect_string(&prompt)?;
     if let Some(initial) = args.get(4) {
@@ -1344,6 +1348,18 @@ pub(crate) fn builtin_completing_read_in_runtime(
     } else {
         Err(stdin_end_of_file_error())
     }
+}
+
+pub(crate) fn validate_completing_read_arity(args: &[Value]) -> Result<(), Flow> {
+    expect_min_args("completing-read", args, 2)?;
+    expect_max_args("completing-read", args, 8)?;
+    Ok(())
+}
+
+pub(crate) fn completing_read_function_value(eval: &super::eval::Context) -> Option<Value> {
+    eval.eval_symbol("completing-read-function")
+        .ok()
+        .filter(|function| !function.is_nil())
 }
 
 pub(crate) fn finish_completing_read_in_state_with_minibuffer(

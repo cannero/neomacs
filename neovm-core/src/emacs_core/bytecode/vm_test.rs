@@ -4296,6 +4296,20 @@ fn vm_minibuffer_reader_frontends_use_shared_runtime_batch_eof_path() {
 }
 
 #[test]
+fn vm_completing_read_calls_completing_read_function() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_eval_str(
+            r#"(let ((completing-read-function
+                      (lambda (&rest args)
+                        (cons 'called args))))
+                 (completing-read "Prompt: " '("alpha") nil t nil 'hist "alpha" t))"#
+        ),
+        r#"OK (called "Prompt: " ("alpha") nil t nil hist "alpha" t)"#
+    );
+}
+
+#[test]
 fn vm_printer_builtins_use_shared_runtime_entry() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
@@ -5935,7 +5949,7 @@ fn vm_font_stub_tail_uses_direct_dispatch() {
                  (progn
                    (erase-buffer)
                    (insert "a")
-                   (fontp (font-at 1 (selected-window)) 'font-object))
+                   (null (font-at 1 (selected-window))))
                  (condition-case nil
                      (font-face-attributes nil)
                    (error t))

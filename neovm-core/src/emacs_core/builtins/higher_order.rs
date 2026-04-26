@@ -1,29 +1,20 @@
 use super::*;
 pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    // GNU fns.c Fapply: minimum one arg (the function). With one arg the
-    // last arg IS the spread list, and with `nargs == 1` GNU dispatches
-    // to `Ffuncall (0, args)` — i.e. calling the function with no args.
-    // We currently still reject the 1-arg case as wrong-type-argument
-    // (audit §6.2). That's a separate issue from the unsafe-panic
-    // hazard this commit fixes; leave the 0-arg / 1-arg arity behaviour
-    // unchanged here.
+    // GNU eval.c Fapply: with one argument, the argument itself is the spread
+    // list.  Its first element is the function and the remaining elements are
+    // the arguments.
     if args.is_empty() {
         return Err(signal(
             "wrong-number-of-arguments",
             vec![Value::symbol("apply"), Value::fixnum(args.len() as i64)],
         ));
     }
-    if args.len() == 1 {
-        return Err(signal(
-            "wrong-type-argument",
-            vec![Value::symbol("listp"), args[0]],
-        ));
-    }
-    let func = args[0];
-    let last = &args[args.len() - 1];
-    let mut call_args: Vec<Value> = args[1..args.len() - 1].to_vec();
 
-    // Last argument must be a list, which gets spread.
+    let last = args[args.len() - 1];
+    let mut spread_args = Vec::new();
+
+    // Last argument must be a list, which gets spread.  In the one-argument
+    // case, that list supplies both the function and its arguments.
     //
     // GNU Emacs Fapply iterates with CHECK_LIST_END / FOR_EACH_TAIL_SAFE
     // and pushes each car onto the call args. There is no per-element
@@ -39,14 +30,14 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
     match last.kind() {
         ValueKind::Nil => {}
         ValueKind::Cons => {
-            let mut cursor = *last;
+            let mut cursor = last;
             loop {
                 match cursor.kind() {
                     ValueKind::Nil => break,
                     ValueKind::Cons => {
                         let pair_car = cursor.cons_car();
                         let pair_cdr = cursor.cons_cdr();
-                        call_args.push(pair_car);
+                        spread_args.push(pair_car);
                         cursor = pair_cdr;
                     }
                     _ => {
@@ -61,10 +52,21 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
         _ => {
             return Err(signal(
                 "wrong-type-argument",
-                vec![Value::symbol("listp"), *last],
+                vec![Value::symbol("listp"), last],
             ));
         }
     }
+
+    let (func, call_args) = if args.len() == 1 {
+        match spread_args.split_first() {
+            Some((func, rest)) => (*func, rest.to_vec()),
+            None => (args[0], Vec::new()),
+        }
+    } else {
+        let mut call_args = args[1..args.len() - 1].to_vec();
+        call_args.extend(spread_args);
+        (args[0], call_args)
+    };
 
     eval.apply(func, call_args)
 }
