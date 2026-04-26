@@ -9308,6 +9308,255 @@ fn prin1_to_string_respects_print_overrides_for_control_characters() {
 }
 
 #[test]
+fn prin1_to_string_honors_print_number_table_string_alias() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r##"
+            (let* ((s (make-string 1 ?x))
+                   (print-circle t)
+                   (print-continuous-numbering t)
+                   (print-number-table (make-hash-table :test 'eq)))
+              (puthash s "#$" print-number-table)
+              (prin1-to-string s))
+            "##,
+        )
+        .expect("prin1-to-string should honor print-number-table string aliases");
+
+    assert_eq!(result, Value::string("#$"));
+}
+
+#[test]
+fn prin1_to_string_honors_print_number_table_string_alias_in_lists() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r##"
+            (let* ((s (make-string 1 ?x))
+                   (print-circle t)
+                   (print-continuous-numbering t)
+                   (print-number-table (make-hash-table :test 'eq)))
+              (puthash s "#$" print-number-table)
+              (prin1-to-string (list s s)))
+            "##,
+        )
+        .expect("prin1-to-string should use aliases for nested repeated objects");
+
+    assert_eq!(result, Value::string("(#$ #$)"));
+}
+
+#[test]
+fn prin1_to_string_ignores_print_number_table_without_continuous_numbering() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r##"
+            (let* ((s (make-string 1 ?x))
+                   (print-circle t)
+                   (print-continuous-numbering nil)
+                   (print-number-table (make-hash-table :test 'eq)))
+              (puthash s "#$" print-number-table)
+              (prin1-to-string (list s s)))
+            "##,
+        )
+        .expect("print-number-table should reset unless numbering is continuous");
+
+    assert_eq!(result, Value::string(r#"(#1="x" #1#)"#));
+}
+
+#[test]
+fn prin1_to_string_honors_print_number_table_override() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r##"
+            (let* ((s (make-string 1 ?x))
+                   (table (make-hash-table :test 'eq)))
+              (puthash s "#$" table)
+              (prin1-to-string
+               s nil
+               (list (cons 'circle t)
+                     (cons 'continuous-numbering t)
+                     (cons 'number-table table))))
+            "##,
+        )
+        .expect("prin1-to-string overrides should include print-number-table");
+
+    assert_eq!(result, Value::string("#$"));
+}
+
+#[test]
+fn prin1_to_string_continuous_numbering_keeps_global_label_index() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (progn
+              (let ((print-circle t)
+                    (print-continuous-numbering nil))
+                (let ((x (list 0)))
+                  (prin1-to-string (list x x))))
+              (let ((print-circle t)
+                    (print-continuous-numbering t))
+                (concat
+                 (let ((print-number-table (make-hash-table :test 'eq)))
+                   (let ((x (list 1)))
+                     (prin1-to-string (list x x))))
+                 "\n"
+                 (let ((print-number-table (make-hash-table :test 'eq)))
+                   (let ((x (list 2)))
+                     (prin1-to-string (list x x)))))))
+            "#,
+        )
+        .expect("continuous numbering should keep labels across print calls");
+
+    assert_eq!(result, Value::string("(#1=(1) #1#)\n(#2=(2) #2#)"));
+}
+
+#[test]
+fn prin1_to_string_updates_print_number_table_after_first_print() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (let* ((x (list 1))
+                   (print-circle t)
+                   (print-continuous-numbering t)
+                   (print-number-table (make-hash-table :test 'eq)))
+              (prin1-to-string (list x x))
+              (gethash x print-number-table))
+            "#,
+        )
+        .expect("print-number-table should retain GNU positive label entries");
+
+    assert_eq!(result, Value::fixnum(1));
+}
+
+#[test]
+fn prin1_to_string_reuses_print_number_table_positive_label() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (let* ((x (list 1))
+                   (print-circle t)
+                   (print-continuous-numbering t)
+                   (print-number-table (make-hash-table :test 'eq)))
+              (concat (prin1-to-string (list x x))
+                      "\n"
+                      (prin1-to-string x)))
+            "#,
+        )
+        .expect("positive print-number-table entries should print as references");
+
+    assert_eq!(result, Value::string("(#1=(1) #1#)\n#1#"));
+}
+
+#[test]
+fn prin1_to_string_continuous_gensym_gets_print_number_label() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (progn
+              (let ((print-circle t)
+                    (print-continuous-numbering nil))
+                (let ((x (list 0)))
+                  (prin1-to-string (list x x))))
+              (let* ((s (make-symbol "g"))
+                     (print-gensym t)
+                     (print-circle t)
+                     (print-continuous-numbering t)
+                     (print-number-table (make-hash-table :test 'eq)))
+                (prin1-to-string s)))
+            "#,
+        )
+        .expect("GNU labels continuous print-gensym symbols even when seen once");
+
+    assert_eq!(result, Value::string("#1=#:g"));
+}
+
+#[test]
+fn prin1_to_string_noncontinuous_print_resets_label_index_even_without_circle() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (progn
+              (let ((print-circle t)
+                    (print-continuous-numbering nil))
+                (let ((x (list 0)))
+                  (prin1-to-string (list x x))))
+              (let* ((x (list 1))
+                     (print-circle t)
+                     (print-continuous-numbering t)
+                     (print-number-table (make-hash-table :test 'eq)))
+                (prin1-to-string (list x x)))
+              (let ((print-continuous-numbering nil))
+                (prin1-to-string 'reset))
+              (let* ((x (list 2))
+                     (print-circle t)
+                     (print-continuous-numbering t)
+                     (print-number-table (make-hash-table :test 'eq)))
+                (prin1-to-string (list x x))))
+            "#,
+        )
+        .expect("GNU resets print_number_index on any noncontinuous print call");
+
+    assert_eq!(result, Value::string("(#1=(2) #1#)"));
+}
+
+#[test]
+fn prin1_to_string_empty_container_print_resets_label_index() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let result = eval
+        .eval_str(
+            r#"
+            (progn
+              (let ((print-circle t)
+                    (print-continuous-numbering nil))
+                (let ((x (list 0)))
+                  (prin1-to-string (list x x))))
+              (let* ((x (list 1))
+                     (print-circle t)
+                     (print-continuous-numbering t)
+                     (print-number-table (make-hash-table :test 'eq)))
+                (prin1-to-string (list x x)))
+              (let ((print-continuous-numbering nil))
+                (prin1-to-string []))
+              (let* ((x (list 2))
+                     (print-circle t)
+                     (print-continuous-numbering t)
+                     (print-number-table (make-hash-table :test 'eq)))
+                (prin1-to-string (list x x))))
+            "#,
+        )
+        .expect("GNU resets print_number_index at print entry, including empty containers");
+
+    assert_eq!(result, Value::string("(#1=(2) #1#)"));
+}
+
+#[test]
 fn prin1_loaddefs_docstring_layout_matches_gnu_print_form() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::eval::Context::new();

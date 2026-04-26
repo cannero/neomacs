@@ -1473,14 +1473,21 @@ fn apply_print_override_setting(
         "gensym" => {
             options.print_gensym = value.is_truthy();
         }
+        "continuous-numbering" => {
+            options.print_continuous_numbering = value.is_truthy();
+            if !options.print_continuous_numbering {
+                options.print_number_table = None;
+            }
+        }
+        "number-table" => {
+            options.print_number_table = value.is_hash_table().then_some(value);
+        }
         // GNU accepts these override keys by dynamically binding print
         // variables that Neomacs does not yet model in PrintOptions.
         "quoted"
         | "charset-text-property"
         | "unreadable-function"
         | "unreadeable-function"
-        | "continuous-numbering"
-        | "number-table"
         | "float-format"
         | "integers-as-characters"
         | "symbols-bare" => {}

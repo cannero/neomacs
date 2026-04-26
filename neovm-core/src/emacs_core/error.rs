@@ -317,11 +317,24 @@ pub(crate) fn print_options_from_state(obarray: &super::symbol::Obarray) -> Prin
     let print_escape_control_characters = obarray
         .symbol_value("print-escape-control-characters")
         .is_some_and(|v| v.is_truthy());
+    let print_continuous_numbering = obarray
+        .symbol_value("print-continuous-numbering")
+        .is_some_and(|v| v.is_truthy());
+    let print_number_table = if print_continuous_numbering {
+        obarray
+            .symbol_value("print-number-table")
+            .filter(|v| v.is_hash_table())
+            .copied()
+    } else {
+        None
+    };
     let mut opts = PrintOptions::new(print_gensym, print_circle, print_level, print_length);
     opts.print_escape_newlines = print_escape_newlines;
     opts.print_escape_nonascii = print_escape_nonascii;
     opts.print_escape_multibyte = print_escape_multibyte;
     opts.print_escape_control_characters = print_escape_control_characters;
+    opts.print_continuous_numbering = print_continuous_numbering;
+    opts.print_number_table = print_number_table;
     opts
 }
 
@@ -355,6 +368,7 @@ fn format_value_in_state(
     value: &Value,
     options: PrintOptions,
 ) -> String {
+    let _print_guard = super::print::enter_print_call(&options);
     if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle;
     }
@@ -526,6 +540,7 @@ pub(crate) fn format_value_bytes_in_state_with_options(
     value: &Value,
     options: PrintOptions,
 ) -> Vec<u8> {
+    let _print_guard = super::print::enter_print_call(&options);
     if let Some(handle) = format_opaque_handle_in_state(buffers, frames, threads, value) {
         return handle.into_bytes();
     }

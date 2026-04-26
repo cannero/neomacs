@@ -1,6 +1,6 @@
 //! Value printing (Lisp representation).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -8,7 +8,8 @@ use super::chartable::{bool_vector_length, char_table_external_slots};
 use super::intern::{SymId, lookup_interned_lisp_string, resolve_sym, resolve_sym_lisp_string};
 use super::string_escape::{format_lisp_string_bytes_emacs, format_lisp_string_emacs};
 use super::value::{
-    HashTableTest, StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
+    HashKey, HashTableTest, StringTextPropertyRun, Value, get_string_text_properties_for_value,
+    list_to_vec,
 };
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 
@@ -22,6 +23,8 @@ pub struct PrintOptions {
     pub print_escape_control_characters: bool,
     pub print_level: Option<i64>,
     pub print_length: Option<i64>,
+    pub print_continuous_numbering: bool,
+    pub print_number_table: Option<Value>,
     backquote_output_level: usize,
 }
 
@@ -36,6 +39,8 @@ impl PrintOptions {
             print_escape_control_characters: false,
             print_level: None,
             print_length: None,
+            print_continuous_numbering: false,
+            print_number_table: None,
             backquote_output_level: 0,
         }
     }
@@ -56,6 +61,8 @@ impl PrintOptions {
             print_escape_control_characters: false,
             print_level,
             print_length,
+            print_continuous_numbering: false,
+            print_number_table: None,
             backquote_output_level: 0,
         }
     }
@@ -103,6 +110,23 @@ impl PrintCircleState {
     }
 }
 
+thread_local! {
+    static PRINT_NUMBER_INDEX: Cell<i64> = const { Cell::new(0) };
+    static PRINT_CALL_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+fn reset_print_number_index() {
+    PRINT_NUMBER_INDEX.with(|index| index.set(0));
+}
+
+fn next_print_number_index() -> i64 {
+    PRINT_NUMBER_INDEX.with(|index| {
+        let next = index.get() + 1;
+        index.set(next);
+        next
+    })
+}
+
 /// Combined print state used by the stateful print path.
 pub(crate) struct PrintState<'a> {
     pub options: PrintOptions,
@@ -135,6 +159,16 @@ fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
     }
 }
 
+fn is_uninterned_symbol(value: &Value) -> bool {
+    match value.kind() {
+        ValueKind::Symbol(id) => {
+            let name = resolve_sym_lisp_string(id);
+            lookup_interned_lisp_string(name) != Some(id)
+        }
+        _ => false,
+    }
+}
+
 /// Return a unique identity key for a circle-candidate value.
 fn object_identity_key(value: &Value) -> Option<u64> {
     match value.kind() {
@@ -154,12 +188,143 @@ fn object_identity_key(value: &Value) -> Option<u64> {
     }
 }
 
+fn active_print_number_table(options: &PrintOptions) -> Option<Value> {
+    if !options.print_continuous_numbering {
+        return None;
+    }
+    options
+        .print_number_table
+        .filter(|table| table.is_hash_table())
+}
+
+pub(crate) struct PrintNumberingGuard;
+
+pub(crate) fn enter_print_call(options: &PrintOptions) -> PrintNumberingGuard {
+    PRINT_CALL_DEPTH.with(|depth| {
+        let current = depth.get();
+        if current == 0
+            && (!options.print_continuous_numbering || active_print_number_table(options).is_none())
+        {
+            reset_print_number_index();
+        }
+        depth.set(current + 1);
+    });
+    PrintNumberingGuard
+}
+
+impl Drop for PrintNumberingGuard {
+    fn drop(&mut self) {
+        PRINT_CALL_DEPTH.with(|depth| {
+            depth.set(depth.get().saturating_sub(1));
+        });
+    }
+}
+
+fn print_number_table_key(table_value: Value, value: &Value) -> Option<HashKey> {
+    let table = table_value.as_hash_table()?;
+    Some(value.to_hash_key(&table.test))
+}
+
+fn get_print_number_table_entry(table_value: Value, value: &Value) -> Option<(HashKey, Value)> {
+    let key = print_number_table_key(table_value, value)?;
+    let entry = {
+        let table = table_value.as_hash_table()?;
+        table.data.get(&key).copied().unwrap_or(Value::NIL)
+    };
+    Some((key, entry))
+}
+
+fn put_print_number_table_entry(
+    table_value: Value,
+    key: HashKey,
+    key_value: Value,
+    entry_value: Value,
+) {
+    let _ = table_value.with_hash_table_mut(|table| {
+        let inserting_new_key = !table.data.contains_key(&key);
+        table.data.insert(key.clone(), entry_value);
+        if inserting_new_key {
+            table.key_snapshots.insert(key.clone(), key_value);
+            table.insertion_order.push(key);
+        }
+    });
+}
+
+fn remove_print_number_table_t_entries(table_value: Value) {
+    let _ = table_value.with_hash_table_mut(|table| {
+        let keys: Vec<HashKey> = table
+            .data
+            .iter()
+            .filter_map(|(key, value)| {
+                if *value == Value::T {
+                    Some(key.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for key in keys {
+            table.data.remove(&key);
+            table.key_snapshots.remove(&key);
+            table.insertion_order.retain(|existing| existing != &key);
+        }
+    });
+}
+
+fn print_number_entry_is_symbol(entry: Value) -> bool {
+    matches!(
+        entry.kind(),
+        ValueKind::Nil | ValueKind::T | ValueKind::Symbol(_)
+    )
+}
+
+fn print_number_entry_is_cdr_label(entry: Value) -> bool {
+    !entry.is_nil() && entry != Value::T
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PrintNumberTableAction {
+    PrintedReference,
+    PrintedPrefix,
+}
+
+fn write_print_number_table_entry(
+    value: &Value,
+    out: &mut String,
+    options: &PrintOptions,
+) -> Option<PrintNumberTableAction> {
+    if !options.print_circle {
+        return None;
+    }
+
+    let table_value = active_print_number_table(options)?;
+    let (key, entry) = get_print_number_table_entry(table_value, value)?;
+
+    match entry.kind() {
+        ValueKind::String => {
+            let s = entry.as_lisp_string().unwrap();
+            out.push_str(&crate::emacs_core::emacs_char::to_utf8_lossy(s.as_bytes()));
+            Some(PrintNumberTableAction::PrintedReference)
+        }
+        ValueKind::Fixnum(n) if n < 0 => {
+            write!(out, "#{}=", -n).unwrap();
+            put_print_number_table_entry(table_value, key, *value, Value::fixnum(-n));
+            Some(PrintNumberTableAction::PrintedPrefix)
+        }
+        ValueKind::Fixnum(n) if n > 0 => {
+            write!(out, "#{n}#").unwrap();
+            Some(PrintNumberTableAction::PrintedReference)
+        }
+        _ => None,
+    }
+}
+
 /// Preprocess pass: walk the value tree to find shared/circular structures.
 /// Uses an explicit stack (not recursive) matching GNU Emacs.
-fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: bool) {
+fn print_preprocess(value: &Value, state: &mut PrintCircleState, options: PrintOptions) {
     let mut stack: Vec<Value> = vec![*value];
     while let Some(obj) = stack.pop() {
-        if !is_print_circle_candidate(&obj, print_gensym) {
+        if !is_print_circle_candidate(&obj, options.print_gensym) {
             continue;
         }
         let key = match object_identity_key(&obj) {
@@ -169,10 +334,19 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
         if let Some(status) = state.number_table.get(&key) {
             if *status == 0 {
                 // Seen second time -- assign label
-                state.next_label += 1;
-                state.number_table.insert(key, -(state.next_label));
+                let label = if options.print_continuous_numbering {
+                    next_print_number_index()
+                } else {
+                    state.next_label += 1;
+                    state.next_label
+                };
+                state.number_table.insert(key, -label);
             }
             // Already labeled or already seen multiple times -- skip children
+            continue;
+        }
+        if options.print_continuous_numbering && is_uninterned_symbol(&obj) {
+            state.number_table.insert(key, -next_print_number_index());
             continue;
         }
         // First time seen -- mark and process children
@@ -214,6 +388,62 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, print_gensym: b
     state.number_table.retain(|_, v| *v != 0);
 }
 
+fn print_preprocess_external(value: &Value, table_value: Value, options: PrintOptions) {
+    let mut stack: Vec<Value> = vec![*value];
+    while let Some(obj) = stack.pop() {
+        if !is_print_circle_candidate(&obj, options.print_gensym) {
+            continue;
+        }
+        let Some((key, entry)) = get_print_number_table_entry(table_value, &obj) else {
+            continue;
+        };
+        if !entry.is_nil() || (options.print_continuous_numbering && is_uninterned_symbol(&obj)) {
+            if print_number_entry_is_symbol(entry) {
+                let label = next_print_number_index();
+                put_print_number_table_entry(table_value, key, obj, Value::fixnum(-label));
+            }
+            continue;
+        }
+
+        put_print_number_table_entry(table_value, key, obj, Value::T);
+        match obj.kind() {
+            ValueKind::Cons => {
+                let pair_car = obj.cons_car();
+                let pair_cdr = obj.cons_cdr();
+                if !pair_cdr.is_nil() {
+                    stack.push(pair_cdr);
+                }
+                stack.push(pair_car);
+            }
+            ValueKind::Veclike(VecLikeType::Vector) => {
+                let items = obj.as_vector_data().unwrap().clone();
+                for item in items.iter().rev() {
+                    stack.push(*item);
+                }
+            }
+            ValueKind::Veclike(VecLikeType::Record) => {
+                let items = obj.as_record_data().unwrap().clone();
+                for item in items.iter().rev() {
+                    stack.push(*item);
+                }
+            }
+            ValueKind::Veclike(VecLikeType::HashTable) => {
+                let table = obj.as_hash_table().unwrap().clone();
+                for key_hk in table.insertion_order.iter().rev() {
+                    if let Some(val) = table.data.get(key_hk) {
+                        stack.push(*val);
+                        let key_val = super::hashtab::hash_key_to_visible_value(&table, key_hk);
+                        stack.push(key_val);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    remove_print_number_table_t_entries(table_value);
+}
+
 /// Entry point for stateful printing (circle/level/length aware).
 /// Returns the printed representation as a String.
 pub(crate) fn print_value_stateful(value: &Value, options: PrintOptions) -> String {
@@ -225,13 +455,23 @@ pub(crate) fn print_value_stateful_with_buffers(
     buffers: Option<&crate::buffer::BufferManager>,
     options: PrintOptions,
 ) -> String {
+    let _print_guard = enter_print_call(&options);
     let mut out = String::new();
+    let number_table = active_print_number_table(&options);
     if options.print_circle {
         let mut circle = PrintCircleState::new();
-        print_preprocess(value, &mut circle, options.print_gensym);
+        if let Some(table_value) = number_table {
+            print_preprocess_external(value, table_value, options);
+        } else {
+            print_preprocess(value, &mut circle, options);
+        }
         let mut state = PrintState {
             options,
-            circle: Some(&mut circle),
+            circle: if number_table.is_some() {
+                None
+            } else {
+                Some(&mut circle)
+            },
             buffers,
             depth: 0,
         };
@@ -258,7 +498,16 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
 
     // Circle check: if this object is a circle candidate, handle #N= / #N#
     if is_print_circle_candidate(value, state.options.print_gensym) {
-        if let Some(ref mut circle) = state.circle {
+        let mut printed_number_table_prefix = false;
+        match write_print_number_table_entry(value, out, &state.options) {
+            Some(PrintNumberTableAction::PrintedReference) => return,
+            Some(PrintNumberTableAction::PrintedPrefix) => {
+                printed_number_table_prefix = true;
+            }
+            None => {}
+        }
+
+        if !printed_number_table_prefix && let Some(ref mut circle) = state.circle {
             if let Some(key) = object_identity_key(value) {
                 if let Some(label) = circle.number_table.get_mut(&key) {
                     if *label < 0 {
@@ -691,17 +940,24 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
 
                 // Check if cdr is a cons that has a circle label
                 if cursor.is_cons() {
-                    if let Some(ref circle) = state.circle {
-                        if let Some(key) = object_identity_key(&cursor) {
-                            if let Some(label) = circle.number_table.get(&key) {
-                                if *label != 0 {
-                                    // This cons is shared/circular -- print as dotted pair
-                                    out.push_str(" . ");
-                                    write_value_stateful(&cursor, out, state);
-                                    return;
-                                }
-                            }
+                    if let Some(table_value) = active_print_number_table(&state.options) {
+                        if let Some((_key, entry)) =
+                            get_print_number_table_entry(table_value, &cursor)
+                            && print_number_entry_is_cdr_label(entry)
+                        {
+                            out.push_str(" . ");
+                            write_value_stateful(&cursor, out, state);
+                            return;
                         }
+                    } else if let Some(ref circle) = state.circle
+                        && let Some(key) = object_identity_key(&cursor)
+                        && let Some(label) = circle.number_table.get(&key)
+                        && *label != 0
+                    {
+                        // This cons is shared/circular -- print as dotted pair
+                        out.push_str(" . ");
+                        write_value_stateful(&cursor, out, state);
+                        return;
                     }
                 }
             }
@@ -910,6 +1166,7 @@ pub fn print_value_with_buffers_and_options(
     buffers: &crate::buffer::BufferManager,
     options: PrintOptions,
 ) -> String {
+    let _print_guard = enter_print_call(&options);
     // Delegate to the stateful printer when circle/level/length are active.
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
         return print_value_stateful_with_buffers(value, Some(buffers), options);
@@ -1054,6 +1311,7 @@ pub fn print_value(value: &Value) -> String {
 }
 
 pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String {
+    let _print_guard = enter_print_call(&options);
     // Delegate to the stateful printer when circle/level/length are active.
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
         return print_value_stateful(value, options);
@@ -1187,6 +1445,7 @@ pub fn print_value_bytes(value: &Value) -> Vec<u8> {
 }
 
 pub fn print_value_bytes_with_options(value: &Value, options: PrintOptions) -> Vec<u8> {
+    let _print_guard = enter_print_call(&options);
     // Delegate to the stateful printer when circle/level/length are active.
     if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
         return print_value_stateful(value, options).into_bytes();
