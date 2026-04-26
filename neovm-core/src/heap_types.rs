@@ -6,7 +6,8 @@
 
 use crate::buffer::BufferId;
 use crate::emacs_core::emacs_char;
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A Lisp string.
 ///
@@ -17,13 +18,67 @@ use serde::{Deserialize, Serialize};
 ///
 /// - **Multibyte:** `size_byte >= 0`.  `size` = char count, `size_byte` = byte count.
 /// - **Unibyte:**   `size_byte == -1`. `size` = byte count (each byte is one char).
-#[derive(Serialize, Deserialize)]
 pub struct LispString {
-    data: Vec<u8>,
+    data: LispStringStorage,
     /// Character count (cached).
     size: usize,
     /// Byte count for multibyte strings, or -1 for unibyte.
     size_byte: i64,
+}
+
+enum LispStringStorage {
+    Owned(Vec<u8>),
+    /// Bytes owned by a mapped pdump image.  Mutation first copies these bytes
+    /// into ordinary Rust storage, matching GNU's writable object header plus
+    /// cold string-data split in pdumper.c.
+    Mapped {
+        ptr: *const u8,
+        len: usize,
+    },
+}
+
+// Mapped string storage is immutable by shared reference, and all mutation
+// paths copy into `Owned` storage before returning `&mut Vec<u8>`.
+unsafe impl Send for LispStringStorage {}
+unsafe impl Sync for LispStringStorage {}
+
+impl LispStringStorage {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Owned(data) => data,
+            Self::Mapped { ptr, len } => {
+                if *len == 0 {
+                    &[]
+                } else {
+                    unsafe { std::slice::from_raw_parts(*ptr, *len) }
+                }
+            }
+        }
+    }
+
+    fn ensure_owned(&mut self) -> &mut Vec<u8> {
+        if let Self::Mapped { .. } = self {
+            let data = self.as_slice().to_vec();
+            *self = Self::Owned(data);
+        }
+        match self {
+            Self::Owned(data) => data,
+            Self::Mapped { .. } => unreachable!("mapped string storage was copied to owned bytes"),
+        }
+    }
+
+    fn into_owned_bytes(self) -> Vec<u8> {
+        match self {
+            Self::Owned(data) => data,
+            Self::Mapped { ptr, len } => {
+                if len == 0 {
+                    Vec::new()
+                } else {
+                    unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+                }
+            }
+        }
+    }
 }
 
 impl LispString {
@@ -47,7 +102,7 @@ impl LispString {
         let size = emacs_char::chars_in_multibyte(&data);
         let size_byte = data.len() as i64;
         Self {
-            data,
+            data: LispStringStorage::Owned(data),
             size,
             size_byte,
         }
@@ -58,7 +113,26 @@ impl LispString {
     /// `size_byte` values (as stored in the dump file).
     pub fn from_dump(data: Vec<u8>, size: usize, size_byte: i64) -> Self {
         Self {
-            data,
+            data: LispStringStorage::Owned(data),
+            size,
+            size_byte,
+        }
+    }
+
+    /// Build a Lisp string whose bytes live in a mapped pdump image.
+    ///
+    /// # Safety
+    /// `ptr..ptr+len` must remain mapped and immutable for the lifetime of the
+    /// returned `LispString`, unless mutation first calls `data_mut`/similar and
+    /// copies the bytes into owned storage.
+    pub(crate) unsafe fn from_mapped_bytes(
+        ptr: *const u8,
+        len: usize,
+        size: usize,
+        size_byte: i64,
+    ) -> Self {
+        Self {
+            data: LispStringStorage::Mapped { ptr, len },
             size,
             size_byte,
         }
@@ -68,7 +142,7 @@ impl LispString {
     pub fn from_unibyte(data: Vec<u8>) -> Self {
         let size = data.len();
         Self {
-            data,
+            data: LispStringStorage::Owned(data),
             size,
             size_byte: -1,
         }
@@ -81,7 +155,7 @@ impl LispString {
         let size = s.chars().count();
         let size_byte = data.len() as i64;
         Self {
-            data,
+            data: LispStringStorage::Owned(data),
             size,
             size_byte,
         }
@@ -91,7 +165,7 @@ impl LispString {
 
     /// Raw byte access.
     pub fn as_bytes(&self) -> &[u8] {
-        &self.data
+        self.data.as_slice()
     }
 
     /// Try to view the data as a UTF-8 `&str`.
@@ -102,7 +176,7 @@ impl LispString {
     /// strings both return `None`, so `as_utf8_str() == as_utf8_str()` would
     /// silently treat them as equal.
     pub fn as_utf8_str(&self) -> Option<&str> {
-        std::str::from_utf8(&self.data).ok()
+        std::str::from_utf8(self.as_bytes()).ok()
     }
 
     /// Character count.
@@ -113,7 +187,7 @@ impl LispString {
     /// Byte count.  For multibyte strings this is `data.len()`; for unibyte
     /// strings this is also `data.len()` (= size, since each byte is one char).
     pub fn sbytes(&self) -> usize {
-        self.data.len()
+        self.as_bytes().len()
     }
 
     /// Whether this is a multibyte string (`size_byte >= 0`).
@@ -127,33 +201,36 @@ impl LispString {
     }
 
     pub(crate) fn byte_len(&self) -> usize {
-        self.data.len()
+        self.as_bytes().len()
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.as_bytes().is_empty()
     }
 
     pub(crate) fn is_ascii(&self) -> bool {
-        self.data.is_ascii()
+        self.as_bytes().is_ascii()
     }
 
     /// Get a mutable reference to the underlying bytes.
     /// After mutation the caller MUST call `recompute_size()` to keep the
     /// cached `size` / `size_byte` consistent.
     pub fn data_mut(&mut self) -> &mut Vec<u8> {
-        &mut self.data
+        self.data.ensure_owned()
     }
 
     /// Recompute cached `size` (and `size_byte`) from the current data.
     pub fn recompute_size(&mut self) {
         if self.size_byte >= 0 {
             // multibyte
-            self.size = emacs_char::chars_in_multibyte(&self.data);
-            self.size_byte = self.data.len() as i64;
+            let data = self.as_bytes();
+            let size = emacs_char::chars_in_multibyte(data);
+            let size_byte = data.len() as i64;
+            self.size = size;
+            self.size_byte = size_byte;
         } else {
             // unibyte
-            self.size = self.data.len();
+            self.size = self.as_bytes().len();
         }
     }
 
@@ -163,7 +240,9 @@ impl LispString {
     pub fn make_mut(&mut self) -> StringMutGuard<'_> {
         // Build a String from the current bytes (must be valid UTF-8 for this
         // compat path).
-        let s = String::from_utf8(std::mem::take(&mut self.data)).unwrap_or_else(|e| {
+        let old = std::mem::replace(&mut self.data, LispStringStorage::Owned(Vec::new()))
+            .into_owned_bytes();
+        let s = String::from_utf8(old).unwrap_or_else(|e| {
             // Fallback: lossy conversion for non-UTF-8 data
             let bytes = e.into_bytes();
             String::from_utf8_lossy(&bytes).into_owned()
@@ -176,10 +255,10 @@ impl LispString {
 
     /// Byte-index slice (returns None if out of bounds).
     pub fn slice(&self, start: usize, end: usize) -> Option<Self> {
-        if end > self.data.len() || start > end {
+        if end > self.as_bytes().len() || start > end {
             return None;
         }
-        let slice = &self.data[start..end];
+        let slice = &self.as_bytes()[start..end];
         if self.size_byte >= 0 {
             // multibyte
             Some(Self::from_emacs_bytes(slice.to_vec()))
@@ -189,8 +268,8 @@ impl LispString {
     }
 
     pub fn concat(&self, other: &Self) -> Self {
-        let mut data = self.data.clone();
-        data.extend_from_slice(&other.data);
+        let mut data = self.as_bytes().to_vec();
+        data.extend_from_slice(other.as_bytes());
         let multibyte = self.is_multibyte() || other.is_multibyte();
         if multibyte {
             Self::from_emacs_bytes(data)
@@ -202,7 +281,7 @@ impl LispString {
     /// Replace the entire contents with a UTF-8 string, preserving the
     /// multibyte/unibyte flag.
     pub fn set_from_str(&mut self, s: &str) {
-        self.data = s.as_bytes().to_vec();
+        self.data = LispStringStorage::Owned(s.as_bytes().to_vec());
         self.recompute_size();
     }
 }
@@ -229,7 +308,7 @@ impl std::ops::DerefMut for StringMutGuard<'_> {
 
 impl Drop for StringMutGuard<'_> {
     fn drop(&mut self) {
-        self.owner.data = std::mem::take(&mut self.string).into_bytes();
+        self.owner.data = LispStringStorage::Owned(std::mem::take(&mut self.string).into_bytes());
         self.owner.recompute_size();
     }
 }
@@ -237,7 +316,7 @@ impl Drop for StringMutGuard<'_> {
 impl Clone for LispString {
     fn clone(&self) -> Self {
         Self {
-            data: self.data.clone(),
+            data: LispStringStorage::Owned(self.as_bytes().to_vec()),
             size: self.size,
             size_byte: self.size_byte,
         }
@@ -249,7 +328,7 @@ impl std::fmt::Debug for LispString {
         let text: String = self
             .as_utf8_str()
             .map(|s| s.to_owned())
-            .unwrap_or_else(|| format!("<{} bytes>", self.data.len()));
+            .unwrap_or_else(|| format!("<{} bytes>", self.as_bytes().len()));
         f.debug_struct("LispString")
             .field("text", &text)
             .field("multibyte", &self.is_multibyte())
@@ -259,7 +338,7 @@ impl std::fmt::Debug for LispString {
 
 impl PartialEq for LispString {
     fn eq(&self, other: &Self) -> bool {
-        self.is_multibyte() == other.is_multibyte() && self.data == other.data
+        self.is_multibyte() == other.is_multibyte() && self.as_bytes() == other.as_bytes()
     }
 }
 
@@ -267,8 +346,68 @@ impl Eq for LispString {}
 
 impl std::hash::Hash for LispString {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
+        self.as_bytes().hash(state);
         self.size_byte.hash(state);
+    }
+}
+
+impl Serialize for LispString {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("LispString", 3)?;
+        state.serialize_field("data", self.as_bytes())?;
+        state.serialize_field("size", &self.size)?;
+        state.serialize_field("size_byte", &self.size_byte)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for LispString {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct LispStringOwned {
+            data: Vec<u8>,
+            size: usize,
+            size_byte: i64,
+        }
+
+        let owned = LispStringOwned::deserialize(deserializer)?;
+        Ok(Self::from_dump(owned.data, owned.size, owned.size_byte))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LispString;
+
+    #[test]
+    fn mapped_lisp_string_borrows_until_mutation() {
+        let bytes = b"abc".to_vec();
+        let mut string =
+            unsafe { LispString::from_mapped_bytes(bytes.as_ptr(), bytes.len(), 3, 3) };
+
+        assert_eq!(string.as_bytes(), b"abc");
+        string.data_mut().push(b'd');
+        string.recompute_size();
+
+        drop(bytes);
+        assert_eq!(string.as_bytes(), b"abcd");
+        assert_eq!(string.schars(), 4);
+    }
+
+    #[test]
+    fn mapped_lisp_string_clone_is_owned() {
+        let bytes = b"abc".to_vec();
+        let string = unsafe { LispString::from_mapped_bytes(bytes.as_ptr(), bytes.len(), 3, 3) };
+        let cloned = string.clone();
+
+        drop(bytes);
+        assert_eq!(cloned.as_bytes(), b"abc");
     }
 }
 
