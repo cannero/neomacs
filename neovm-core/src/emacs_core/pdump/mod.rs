@@ -1,16 +1,16 @@
 //! Portable dumper (pdump) for NeoVM.
 //!
-//! Serializes the post-bootstrap `Context` state to a binary file using
-//! serde + bincode, then deserializes on startup to skip the 3-5s bootstrap.
+//! File-backed dumps use an mmap image container: a fixed header, build
+//! fingerprint, section table, checksum, and private mmap on load.  The
+//! runtime-state section still carries `DumpContextState` while the heap
+//! sections are being converted to GNU-style mapped objects.
 //!
 //! File format:
 //! ```text
-//! [8 bytes: magic "NEOPDUMP"]
-//! [4 bytes: format version u32 LE]
-//! [32 bytes: build fingerprint]
-//! [32 bytes: SHA-256 of bincode payload]
-//! [4 bytes: payload length u32 LE]
-//! [N bytes: bincode-serialized DumpContextState]
+//! [fixed mmap image header]
+//! [section table]
+//! [runtime-state section]
+//! [heap/roots/relocation sections, as they are migrated]
 //! ```
 
 pub mod convert;
@@ -18,12 +18,10 @@ pub(crate) mod mmap_image;
 pub mod runtime;
 pub mod types;
 
-use std::io::{Read, Write};
 use std::path::Path;
 
-use sha2::{Digest, Sha256};
-
 use self::convert::*;
+use self::mmap_image::{DumpSectionKind, ImageSection};
 use self::runtime::*;
 use self::types::DumpContextState;
 use crate::emacs_core::charset::{
@@ -35,7 +33,6 @@ use crate::emacs_core::fontset::{
 };
 use crate::emacs_core::value;
 
-const MAGIC: &[u8; 8] = b"NEOPDUMP";
 const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook-pending";
 // Phase 21 bump: phase 16 introduced an explicit dump-local symbol table,
 // phase 17 fixed the on-disk `DumpSymbolData` layout, phase 18 stores subr
@@ -155,23 +152,14 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
-    let mut hasher = Sha256::new();
-    hasher.update(&payload);
-    let checksum = hasher.finalize();
-
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    let mut file = tempfile::NamedTempFile::new_in(parent)?;
-    file.write_all(MAGIC)?;
-    file.write_all(&FORMAT_VERSION.to_le_bytes())?;
-    file.write_all(&fingerprint_bytes())?;
-    file.write_all(&checksum)?;
-    file.write_all(&(payload.len() as u32).to_le_bytes())?;
-    file.write_all(&payload)?;
-    file.flush()?;
-    file.as_file().sync_all()?;
-
-    file.persist(path).map_err(|err| DumpError::Io(err.error))?;
-    Ok(())
+    mmap_image::write_image(
+        path,
+        &[ImageSection {
+            kind: DumpSectionKind::RuntimeState,
+            flags: 0,
+            bytes: &payload,
+        }],
+    )
 }
 
 /// Load evaluator state from a pdump file.
@@ -180,52 +168,13 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
 /// setting up thread-local pointers and resetting caches.
 pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let load_start = std::time::Instant::now();
-    let mut file = std::fs::File::open(path)?;
-
-    // Read and validate header
-    let mut magic = [0u8; 8];
-    file.read_exact(&mut magic)?;
-    if &magic != MAGIC {
-        return Err(DumpError::BadMagic);
-    }
-
-    let mut version_bytes = [0u8; 4];
-    file.read_exact(&mut version_bytes)?;
-    let version = u32::from_le_bytes(version_bytes);
-    if version != FORMAT_VERSION {
-        return Err(DumpError::UnsupportedVersion(version));
-    }
-
-    let mut found_fingerprint = [0u8; 32];
-    file.read_exact(&mut found_fingerprint)?;
-    let expected_fingerprint = fingerprint_bytes();
-    if found_fingerprint != expected_fingerprint {
-        return Err(DumpError::FingerprintMismatch {
-            expected: hex_string(&expected_fingerprint),
-            found: hex_string(&found_fingerprint),
-        });
-    }
-
-    let mut expected_checksum = [0u8; 32];
-    file.read_exact(&mut expected_checksum)?;
-
-    let mut len_bytes = [0u8; 4];
-    file.read_exact(&mut len_bytes)?;
-    let payload_len = u32::from_le_bytes(len_bytes) as usize;
-
-    let mut payload = vec![0u8; payload_len];
-    file.read_exact(&mut payload)?;
-
-    // Validate checksum
-    let mut hasher = Sha256::new();
-    hasher.update(&payload);
-    let actual_checksum = hasher.finalize();
-    if actual_checksum.as_slice() != &expected_checksum {
-        return Err(DumpError::ChecksumMismatch);
-    }
+    let image = mmap_image::load_image(path)?;
+    let payload = image
+        .section(DumpSectionKind::RuntimeState)
+        .ok_or_else(|| DumpError::ImageFormatError("missing runtime-state section".into()))?;
 
     // Deserialize
-    let state: types::DumpContextState = bincode::deserialize(&payload)
+    let state: types::DumpContextState = bincode::deserialize(payload)
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     // Reconstruct evaluator

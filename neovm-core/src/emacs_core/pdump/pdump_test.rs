@@ -309,7 +309,8 @@ fn test_pdump_rejects_fingerprint_mismatch() {
     dump_to_file(&eval, &dump_path).expect("dump should succeed");
 
     let mut bytes = std::fs::read(&dump_path).expect("read dump bytes");
-    bytes[12] ^= 0x01;
+    let fingerprint_start = 16 + 4 + 4 + 4 + 4;
+    bytes[fingerprint_start] ^= 0x01;
     std::fs::write(&dump_path, bytes).expect("rewrite dump bytes");
 
     match load_from_dump(&dump_path) {
@@ -980,10 +981,10 @@ fn test_pdump_sequential_decode_round_trip() {
     let dump_path = dir.path().join("sequential-decode.pdump");
     dump_to_file(&eval, &dump_path).expect("dump should succeed");
 
-    let bytes = std::fs::read(&dump_path).expect("read test pdump");
-    assert!(bytes.len() > 80, "pdump header should exist");
-    let payload_len = u32::from_le_bytes(bytes[76..80].try_into().unwrap()) as usize;
-    let payload = &bytes[80..80 + payload_len];
+    let image = mmap_image::load_image(&dump_path).expect("load mmap pdump image");
+    let payload = image
+        .section(DumpSectionKind::RuntimeState)
+        .expect("runtime-state section should exist");
 
     let mut cursor = std::io::Cursor::new(payload);
 

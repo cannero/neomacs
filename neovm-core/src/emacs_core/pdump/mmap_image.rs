@@ -30,6 +30,7 @@ pub(crate) enum DumpSectionKind {
     Relocations = 4,
     ObjectStarts = 5,
     EmacsRelocations = 6,
+    RuntimeState = 7,
 }
 
 impl DumpSectionKind {
@@ -41,6 +42,7 @@ impl DumpSectionKind {
             4 => Ok(Self::Relocations),
             5 => Ok(Self::ObjectStarts),
             6 => Ok(Self::EmacsRelocations),
+            7 => Ok(Self::RuntimeState),
             other => Err(DumpError::ImageFormatError(format!(
                 "unknown section kind {other}"
             ))),
