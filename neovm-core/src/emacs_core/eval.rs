@@ -1916,12 +1916,6 @@ fn begin_lambda_call_in_state(
     args: &[Value],
 ) -> Result<ActiveLambdaCallState, Flow> {
     if args.len() < params.min_arity() {
-        tracing::warn!(
-            "wrong-number-of-arguments (lambda call too few): got {} args, min={}, params={:?}",
-            args.len(),
-            params.min_arity(),
-            params,
-        );
         let arity_val = lambda_arity_cons(params);
         return Err(signal(
             "wrong-number-of-arguments",
