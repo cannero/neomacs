@@ -11,10 +11,12 @@ command = 'prlimit --as=8589934592 --'
 
 [profile.default]
 # Many tests use the bootstrap evaluator (which loads 122 .el files)
-# even without "bootstrap" in their name. Current full loadup-based cache
-# creation can take over 300s on this tree, so the old 180s cap still causes
-# false timeouts for healthy cache-writer/bootstrap-heavy tests.
-slow-timeout = { period = "60s", terminate-after = 1, grace-period = "0s" }
+# even without "bootstrap" in their name. On a clean tree, the first
+# bootstrap-heavy test may legitimately create the shared pdump cache,
+# mirroring GNU's bootstrap-emacs/bootstrap-emacs.pdmp build step. That cold
+# path can exceed 300s in debug builds, so keep the watchdog above the cold
+# bootstrap time while still catching real hangs.
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "0s" }
 
 # Apply memory limit to all tests
 [[profile.default.scripts]]
