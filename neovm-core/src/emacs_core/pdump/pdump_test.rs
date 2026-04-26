@@ -5,7 +5,10 @@ use crate::emacs_core::pdump::types::{
     DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpSymbolData,
     DumpSymbolVal, DumpValue,
 };
-use crate::emacs_core::value::Value;
+use crate::emacs_core::value::{
+    StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
+    set_string_text_properties_for_value,
+};
 use crate::heap_types::LispString;
 
 #[test]
@@ -66,8 +69,83 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
 
     assert_eq!(string.as_bytes(), b"mapped-pdump-string");
     assert!(
+        loaded.pdump_image_contains_ptr(value.as_string_ptr().unwrap().cast::<u8>()),
+        "loaded string object must be a tagged pointer into the retained mmap image"
+    );
+    assert!(
         loaded.pdump_image_contains_ptr(string.as_bytes().as_ptr()),
         "loaded string bytes must be borrowed from the retained mmap image"
+    );
+}
+
+#[test]
+fn file_pdump_loads_string_text_props_from_mmap_object() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let value = Value::string("mapped-props");
+    set_string_text_properties_for_value(
+        value,
+        vec![StringTextPropertyRun {
+            start: 0,
+            end: 6,
+            plist: Value::list(vec![
+                Value::symbol("face"),
+                Value::string("mapped-string-prop-value"),
+            ]),
+        }],
+    );
+    assert!(
+        get_string_text_properties_for_value(value).is_some(),
+        "test setup must attach string text properties before dumping"
+    );
+    eval.obarray
+        .set_symbol_value("test-pdump-mapped-string-props", value);
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-string-props.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+    let image = super::mmap_image::load_image(&dump_path).expect("load raw mmap image");
+    let payload = image
+        .section(super::mmap_image::DumpSectionKind::RuntimeState)
+        .expect("runtime state section");
+    let state: super::types::DumpContextState =
+        bincode::deserialize(payload).expect("decode runtime state");
+    assert!(
+        state.tagged_heap.objects.iter().any(|object| matches!(
+            object,
+            super::types::DumpHeapObject::Str { text_props, .. } if !text_props.is_empty()
+        )),
+        "dump should contain string text properties"
+    );
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-string-props")
+        .expect("restored string symbol");
+
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_string_ptr().unwrap().cast::<u8>()),
+        "loaded string object must be a tagged pointer into the retained mmap image"
+    );
+    assert!(
+        get_string_text_properties_for_value(value).is_some(),
+        "string text properties must be restored before GC"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-string-props")
+        .expect("restored string symbol after GC");
+    let runs = get_string_text_properties_for_value(value_after_gc).expect("text props after GC");
+    let plist = list_to_vec(&runs[0].plist).expect("plist values");
+    assert_eq!(
+        plist[1]
+            .as_lisp_string()
+            .expect("text prop string value")
+            .as_bytes(),
+        b"mapped-string-prop-value"
     );
 }
 

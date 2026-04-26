@@ -9,9 +9,11 @@
 use super::DumpError;
 use super::types::{
     DumpByteData, DumpConsSpan, DumpContextState, DumpFloatSpan, DumpHeapObject, DumpSlotSpan,
-    DumpTaggedHeap, DumpVecLikeSpan,
+    DumpStringSpan, DumpTaggedHeap, DumpVecLikeSpan,
 };
-use crate::tagged::header::{ConsCell, FloatObj, LambdaObj, MacroObj, RecordObj, VectorObj};
+use crate::tagged::header::{
+    ConsCell, FloatObj, LambdaObj, MacroObj, RecordObj, StringObj, VectorObj,
+};
 use crate::tagged::value::TaggedValue;
 
 const HEAP_PAYLOAD_ALIGN: usize = 8;
@@ -219,6 +221,16 @@ impl MappedHeapView {
         }
         Ok(unsafe { self.ptr.add(start).cast::<T>() })
     }
+
+    pub(crate) fn string_obj_mut(self, span: DumpStringSpan) -> Result<*mut StringObj, DumpError> {
+        self.typed_object_mut::<StringObj>(
+            DumpVecLikeSpan {
+                offset: span.offset,
+                len: span.len,
+            },
+            "string",
+        )
+    }
 }
 
 pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Vec<u8> {
@@ -232,6 +244,8 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
     heap.mapped_cons.resize(heap.objects.len(), None);
     heap.mapped_floats.clear();
     heap.mapped_floats.resize(heap.objects.len(), None);
+    heap.mapped_strings.clear();
+    heap.mapped_strings.resize(heap.objects.len(), None);
     heap.mapped_veclikes.clear();
     heap.mapped_veclikes.resize(heap.objects.len(), None);
     heap.mapped_slots.clear();
@@ -287,12 +301,17 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
             _ => {}
         }
 
-        if let DumpHeapObject::Str { data, .. } = object
-            && let DumpByteData::Owned(bytes) = data
-        {
-            let owned = std::mem::take(bytes);
-            let span = builder.push_bytes(&owned);
-            *data = DumpByteData::mapped(span.offset, span.len);
+        if let DumpHeapObject::Str { data, .. } = object {
+            let span = builder.reserve_typed_object::<StringObj>();
+            heap.mapped_strings[index] = Some(DumpStringSpan {
+                offset: span.offset,
+                len: span.len,
+            });
+            if let DumpByteData::Owned(bytes) = data {
+                let owned = std::mem::take(bytes);
+                let span = builder.push_bytes(&owned);
+                *data = DumpByteData::mapped(span.offset, span.len);
+            }
         }
 
         let slot_count = match object {
@@ -417,16 +436,19 @@ mod tests {
             }],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
         let heap = extract_tagged_heap_payloads(&mut tagged_heap);
-        assert_eq!(heap, b"abc");
+        assert_eq!(tagged_heap.mapped_strings.len(), 1);
+        let string_span = tagged_heap.mapped_strings[0].expect("string object span");
+        assert_eq!(string_span.offset, 0);
+        assert_eq!(string_span.len as usize, std::mem::size_of::<StringObj>());
         let DumpHeapObject::Str { data, .. } = &tagged_heap.objects[0] else {
             panic!("expected string object");
         };
-        assert_eq!(*data, DumpByteData::mapped(0, 3));
 
         let view = MappedHeapView::from_slice(&heap);
         let mapped = view.bytes(data).unwrap();
@@ -445,20 +467,20 @@ mod tests {
             }],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
         let heap = extract_tagged_heap_payloads(&mut tagged_heap);
-        assert_eq!(heap, [0]);
+        assert!(heap.len() > std::mem::size_of::<StringObj>());
         let DumpHeapObject::Str { data, .. } = &tagged_heap.objects[0] else {
             panic!("expected string object");
         };
-        assert_eq!(*data, DumpByteData::mapped(0, 0));
         let view = MappedHeapView::from_slice(&heap);
         let mapped = view.bytes(data).unwrap();
         assert_eq!(mapped.len, 0);
-        assert_eq!(mapped.ptr, heap.as_ptr());
+        assert!(mapped.ptr as usize >= heap.as_ptr() as usize);
     }
 
     #[test]
@@ -470,6 +492,7 @@ mod tests {
             ])],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
@@ -506,6 +529,7 @@ mod tests {
             ],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
@@ -529,6 +553,7 @@ mod tests {
             objects: vec![DumpHeapObject::Float(1.0), DumpHeapObject::Float(2.0)],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
@@ -557,6 +582,7 @@ mod tests {
             ],
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };

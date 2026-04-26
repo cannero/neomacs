@@ -71,7 +71,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v32: Vector, record, lambda, and macro object headers load from the mmap heap
 //   image too; their slot payloads remain in mapped slot spans, mirroring GNU's
 //   vectorlike header + Lisp_Object content dump shape.
-const FORMAT_VERSION: u32 = 32;
+// v33: String object headers also load from the mmap heap image; string bytes
+//   stay in mapped byte spans and text-property roots are marked externally.
+const FORMAT_VERSION: u32 = 33;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")

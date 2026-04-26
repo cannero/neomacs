@@ -97,6 +97,7 @@ impl TaggedDumpState {
                 .collect(),
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         }
@@ -202,6 +203,7 @@ pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     mapped_cons: Vec<Option<DumpConsSpan>>,
     mapped_floats: Vec<Option<DumpFloatSpan>>,
+    mapped_strings: Vec<Option<DumpStringSpan>>,
     mapped_veclikes: Vec<Option<DumpVecLikeSpan>>,
     mapped_slots: Vec<Option<DumpSlotSpan>>,
     values: Vec<Option<Value>>,
@@ -229,6 +231,7 @@ impl TaggedLoadState {
             objects: heap.objects.clone(),
             mapped_cons: heap.mapped_cons.clone(),
             mapped_floats: heap.mapped_floats.clone(),
+            mapped_strings: heap.mapped_strings.clone(),
             mapped_veclikes: heap.mapped_veclikes.clone(),
             mapped_slots: heap.mapped_slots.clone(),
             values: vec![None; len],
@@ -264,6 +267,7 @@ impl LoadDecoder {
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
         self.register_mapped_cons_ranges()?;
         self.register_mapped_float_ranges()?;
+        self.register_mapped_string_objects()?;
         self.register_mapped_veclike_objects()?;
         for index in 0..self.state.objects.len() {
             self.allocate_tagged_placeholder(TaggedHeapRef {
@@ -274,6 +278,31 @@ impl LoadDecoder {
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
+        }
+        Ok(())
+    }
+
+    fn register_mapped_string_objects(&self) -> Result<(), DumpError> {
+        let mapped_heap = self.state.mapped_heap;
+        for (index, span) in self.state.mapped_strings.iter().enumerate() {
+            let Some(span) = *span else {
+                continue;
+            };
+            if !matches!(&self.state.objects[index], DumpHeapObject::Str { .. }) {
+                return Err(DumpError::ImageFormatError(format!(
+                    "mapped string span attached to non-string object: {:?}",
+                    self.state.objects[index]
+                )));
+            }
+            let mapped_heap = mapped_heap.ok_or_else(|| {
+                DumpError::ImageFormatError(
+                    "dump reserves mapped string objects but image has no heap section".into(),
+                )
+            })?;
+            let ptr = mapped_heap.string_obj_mut(span)?;
+            with_tagged_heap(|heap| unsafe {
+                heap.register_mapped_string_object(ptr, std::mem::size_of::<StringObj>())
+            });
         }
         Ok(())
     }
@@ -528,6 +557,27 @@ impl LoadDecoder {
         mapped_heap.float_obj_mut(span).map(Some)
     }
 
+    fn mapped_string_obj_for_object(
+        &self,
+        id: TaggedHeapRef,
+    ) -> Result<Option<*mut StringObj>, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_strings
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped string objects but image has no heap section".into(),
+            )
+        })?;
+        mapped_heap.string_obj_mut(span).map(Some)
+    }
+
     fn mapped_typed_object_for_object<T>(
         &self,
         id: TaggedHeapRef,
@@ -642,7 +692,24 @@ impl LoadDecoder {
                 size,
                 size_byte,
                 ..
-            } => Value::heap_string(self.load_dump_string(data, *size, *size_byte)?),
+            } => {
+                let string = self.load_dump_string(data, *size, *size_byte)?;
+                if let Some(ptr) = self.mapped_string_obj_for_object(id)? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            StringObj {
+                                header: GcHeader::new(HeapObjectKind::String),
+                                data: string,
+                                text_props: TextPropertyTable::new(),
+                            },
+                        );
+                        Value::from_string_ptr(ptr)
+                    }
+                } else {
+                    Value::heap_string(string)
+                }
+            }
             DumpHeapObject::Float(value) => {
                 if let Some(ptr) = self.mapped_float_obj_for_object(id)? {
                     unsafe {
@@ -824,6 +891,9 @@ impl LoadDecoder {
             }
             DumpHeapObject::Str { text_props, .. } => {
                 if !text_props.is_empty() {
+                    for run in &text_props {
+                        self.populate_value_graph(&run.plist)?;
+                    }
                     let runs = text_props
                         .iter()
                         .map(|run| StringTextPropertyRun {
@@ -890,6 +960,72 @@ impl LoadDecoder {
         Ok(())
     }
 
+    fn populate_value_graph(&mut self, root: &DumpValue) -> Result<(), DumpError> {
+        let mut stack = vec![root.clone()];
+        let mut seen = FxHashSet::default();
+        while let Some(value) = stack.pop() {
+            let Some(id) = dump_value_heap_ref(&value) else {
+                continue;
+            };
+            if !seen.insert(id.index) {
+                continue;
+            }
+            self.populate_tagged_object(id)?;
+            match self.state.objects[id.index as usize].clone() {
+                DumpHeapObject::Cons { car, cdr } => {
+                    stack.push(car);
+                    stack.push(cdr);
+                }
+                DumpHeapObject::Vector(items)
+                | DumpHeapObject::Lambda(items)
+                | DumpHeapObject::Macro(items)
+                | DumpHeapObject::Record(items) => {
+                    stack.extend(items);
+                }
+                DumpHeapObject::HashTable(ht) => {
+                    for (_, value) in ht.entries {
+                        stack.push(value);
+                    }
+                    for (_, value) in ht.key_snapshots {
+                        stack.push(value);
+                    }
+                }
+                DumpHeapObject::Str { text_props, .. } => {
+                    for run in text_props {
+                        stack.push(run.plist);
+                    }
+                }
+                DumpHeapObject::ByteCode(bc) => {
+                    stack.extend(bc.constants);
+                    if let Some(arglist) = bc.arglist {
+                        stack.push(arglist);
+                    }
+                    if let Some(env) = bc.env {
+                        stack.push(env);
+                    }
+                    if let Some(doc_form) = bc.doc_form {
+                        stack.push(doc_form);
+                    }
+                    if let Some(interactive) = bc.interactive {
+                        stack.push(interactive);
+                    }
+                }
+                DumpHeapObject::Overlay(overlay) => {
+                    stack.push(overlay.plist);
+                }
+                DumpHeapObject::Float(_)
+                | DumpHeapObject::Marker(_)
+                | DumpHeapObject::Buffer(_)
+                | DumpHeapObject::Window(_)
+                | DumpHeapObject::Frame(_)
+                | DumpHeapObject::Timer(_)
+                | DumpHeapObject::Subr { .. }
+                | DumpHeapObject::Free => {}
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn load_value(&mut self, v: &DumpValue) -> Value {
         match v {
             DumpValue::Nil => Value::NIL,
@@ -933,6 +1069,33 @@ impl LoadDecoder {
     }
 }
 
+fn dump_value_heap_ref(value: &DumpValue) -> Option<TaggedHeapRef> {
+    match value {
+        DumpValue::Float(id)
+        | DumpValue::Str(id)
+        | DumpValue::Cons(id)
+        | DumpValue::Vector(id)
+        | DumpValue::Record(id)
+        | DumpValue::HashTable(id)
+        | DumpValue::Lambda(id)
+        | DumpValue::Macro(id)
+        | DumpValue::ByteCode(id)
+        | DumpValue::Marker(id)
+        | DumpValue::Overlay(id) => Some(tagged_heap_ref(id)),
+        DumpValue::Nil
+        | DumpValue::True
+        | DumpValue::Int(_)
+        | DumpValue::Symbol(_)
+        | DumpValue::Subr(_)
+        | DumpValue::Buffer(_)
+        | DumpValue::Window(_)
+        | DumpValue::Frame(_)
+        | DumpValue::Timer(_)
+        | DumpValue::Bignum(_)
+        | DumpValue::Unbound => None,
+    }
+}
+
 fn dump_heap_ref(id: TaggedHeapRef) -> DumpHeapRef {
     DumpHeapRef { index: id.index }
 }
@@ -966,6 +1129,7 @@ mod tests {
             objects,
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         };
@@ -2474,6 +2638,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
             objects: Vec::new(),
             mapped_cons: Vec::new(),
             mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
             mapped_veclikes: Vec::new(),
             mapped_slots: Vec::new(),
         },

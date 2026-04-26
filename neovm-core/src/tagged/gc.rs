@@ -506,6 +506,22 @@ impl MappedVecLikeObject {
     }
 }
 
+struct MappedStringObject {
+    ptr: *mut StringObj,
+    byte_len: usize,
+    marked: bool,
+}
+
+impl MappedStringObject {
+    fn new(ptr: *mut StringObj, byte_len: usize) -> Self {
+        Self {
+            ptr,
+            byte_len,
+            marked: false,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TaggedHeap — the main GC-managed heap
 // ---------------------------------------------------------------------------
@@ -550,6 +566,9 @@ pub struct TaggedHeap {
     /// Vectorlike objects loaded directly from a mapped pdump image.  Their
     /// object headers are in the mapped image, but mark state remains external.
     mapped_veclike_objects: Vec<MappedVecLikeObject>,
+    /// String objects loaded directly from a mapped pdump image.  Their text
+    /// properties can contain Lisp roots, so mark state must be external too.
+    mapped_string_objects: Vec<MappedStringObject>,
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
@@ -599,6 +618,7 @@ impl TaggedHeap {
             mapped_cons_ranges: Vec::new(),
             mapped_float_ranges: Vec::new(),
             mapped_veclike_objects: Vec::new(),
+            mapped_string_objects: Vec::new(),
             cons_live_count: 0,
             marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
@@ -752,6 +772,26 @@ impl TaggedHeap {
         debug_assert_eq!(header as usize % std::mem::align_of::<VecLikeHeader>(), 0);
         self.mapped_veclike_objects
             .push(MappedVecLikeObject::new(header, byte_len));
+        self.allocated_count = self.allocated_count.saturating_add(1);
+        self.live_bytes = self.live_bytes.saturating_add(byte_len);
+    }
+
+    /// Register a string object whose storage is owned by the loaded pdump image.
+    ///
+    /// # Safety
+    /// `ptr` must point at a complete, aligned string object that remains
+    /// mapped and writable for the lifetime of this heap.
+    pub(crate) unsafe fn register_mapped_string_object(
+        &mut self,
+        ptr: *mut StringObj,
+        byte_len: usize,
+    ) {
+        if byte_len == 0 {
+            return;
+        }
+        debug_assert_eq!(ptr as usize % std::mem::align_of::<StringObj>(), 0);
+        self.mapped_string_objects
+            .push(MappedStringObject::new(ptr, byte_len));
         self.allocated_count = self.allocated_count.saturating_add(1);
         self.live_bytes = self.live_bytes.saturating_add(byte_len);
     }
@@ -1309,6 +1349,9 @@ impl TaggedHeap {
         for object in &mut self.mapped_veclike_objects {
             object.marked = false;
         }
+        for object in &mut self.mapped_string_objects {
+            object.marked = false;
+        }
         // Clear marks on non-cons objects
         let mut obj = self.all_objects;
         while !obj.is_null() {
@@ -1402,6 +1445,20 @@ impl TaggedHeap {
             }
         } else if val.is_string() {
             let ptr = val.as_string_ptr().unwrap() as *mut StringObj;
+            if !self.owns_non_cons_object(ptr as *const u8) {
+                if self.mark_mapped_string(ptr) {
+                    unsafe {
+                        if !(*ptr).text_props.is_empty() {
+                            (*ptr).text_props.for_each_root(|root| {
+                                if root.is_heap_object() {
+                                    self.gray_queue.push(root);
+                                }
+                            });
+                        }
+                    }
+                }
+                return;
+            }
             unsafe {
                 if (*ptr).header.marked {
                     return;
@@ -1496,6 +1553,20 @@ impl TaggedHeap {
     fn mark_mapped_veclike(&mut self, ptr: *const VecLikeHeader) -> bool {
         for object in &mut self.mapped_veclike_objects {
             if !std::ptr::eq(object.header as *const VecLikeHeader, ptr) {
+                continue;
+            }
+            if object.marked {
+                return false;
+            }
+            object.marked = true;
+            return true;
+        }
+        false
+    }
+
+    fn mark_mapped_string(&mut self, ptr: *const StringObj) -> bool {
+        for object in &mut self.mapped_string_objects {
+            if !std::ptr::eq(object.ptr as *const StringObj, ptr) {
                 continue;
             }
             if object.marked {
@@ -1679,6 +1750,12 @@ impl TaggedHeap {
             .map(|range| range.live_count().saturating_mul(size_of::<FloatObj>()))
             .chain(
                 self.mapped_veclike_objects
+                    .iter()
+                    .filter(|object| object.marked)
+                    .map(|object| object.byte_len),
+            )
+            .chain(
+                self.mapped_string_objects
                     .iter()
                     .filter(|object| object.marked)
                     .map(|object| object.byte_len),

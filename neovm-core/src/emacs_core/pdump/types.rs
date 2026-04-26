@@ -49,6 +49,12 @@ pub struct DumpFloatSpan {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DumpStringSpan {
+    pub offset: u64,
+    pub len: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DumpVecLikeSpan {
     pub offset: u64,
     pub len: u64,
@@ -440,6 +446,8 @@ pub struct DumpTaggedHeap {
     pub mapped_cons: Vec<Option<DumpConsSpan>>,
     #[serde(default)]
     pub mapped_floats: Vec<Option<DumpFloatSpan>>,
+    #[serde(default)]
+    pub mapped_strings: Vec<Option<DumpStringSpan>>,
     #[serde(default)]
     pub mapped_veclikes: Vec<Option<DumpVecLikeSpan>>,
     #[serde(default)]
