@@ -481,9 +481,12 @@ fn merge_adjacent_same_properties() {
     // We can verify by checking that only one interval exists.
     assert!(table.get_property(0, Value::symbol("face")).is_some());
     assert!(table.get_property(7, Value::symbol("face")).is_some());
+    assert_eq!(table.intervals_snapshot().len(), 1);
 
     // next_property_change from 0 should go to 10 (not 5)
     assert_eq!(table.next_property_change(0), Some(10));
+    assert_eq!(table.next_property_change(5), Some(10));
+    assert_eq!(table.previous_property_change(10), Some(0));
 }
 
 #[test]

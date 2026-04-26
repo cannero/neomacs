@@ -263,8 +263,25 @@ impl TextPropertyTable {
     /// Return the next position at or after `pos` where any text property
     /// changes, or `None` if there is no change after `pos`.
     pub fn next_property_change(&self, pos: usize) -> Option<usize> {
-        if let Some(interval) = self.interval_containing(pos) {
-            return Some(interval.end);
+        if let Some(mut interval) = self.interval_containing(pos) {
+            let mut end = interval.end;
+            while let Some((_, next)) = self
+                .intervals
+                .range((
+                    std::ops::Bound::Excluded(interval.start),
+                    std::ops::Bound::Unbounded,
+                ))
+                .next()
+            {
+                if interval.end == next.start && props_equal(&interval.properties, &next.properties)
+                {
+                    interval = next;
+                    end = next.end;
+                    continue;
+                }
+                break;
+            }
+            return Some(end);
         }
         self.intervals
             .range((std::ops::Bound::Excluded(pos), std::ops::Bound::Unbounded))
@@ -275,11 +292,22 @@ impl TextPropertyTable {
     /// Return the previous position before `pos` where any text property
     /// changes, or `None` if there is no change before `pos`.
     pub fn previous_property_change(&self, pos: usize) -> Option<usize> {
-        if let Some(interval) = self.interval_containing(pos.saturating_sub(1))
+        if let Some(mut interval) = self.interval_containing(pos.saturating_sub(1))
             && pos <= interval.end
             && interval.start < pos
         {
-            return Some(interval.start);
+            let mut start = interval.start;
+            while let Some((_, previous)) = self.intervals.range(..interval.start).next_back() {
+                if previous.end == interval.start
+                    && props_equal(&previous.properties, &interval.properties)
+                {
+                    interval = previous;
+                    start = previous.start;
+                    continue;
+                }
+                break;
+            }
+            return Some(start);
         }
         self.intervals
             .range(..pos)
@@ -480,7 +508,7 @@ impl TextPropertyTable {
         }
 
         let mut keys = Vec::new();
-        if let Some((&key, _)) = self.intervals.range(..=start).next_back() {
+        if let Some((&key, _)) = self.intervals.range(..start).next_back() {
             keys.push(key);
         }
         keys.extend(self.intervals.range(start..=end).map(|(&key, _)| key));
