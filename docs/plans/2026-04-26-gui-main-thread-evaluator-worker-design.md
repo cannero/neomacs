@@ -1,174 +1,216 @@
 # GUI Main Thread, Evaluator Worker Design
 
 **Date:** 2026-04-26
-**Status:** Approved in working session; ready for big-bang implementation
-**Scope:** GUI/Desktop only (`winit` frontend). TTY and batch mode stay on their current ownership model.
+**Status:** Revised after audit. Do not implement the older startup/shutdown
+ordering.
+**Scope:** GUI/Desktop only (`winit` frontend). TTY and batch startup must stay
+on their current paths.
 
 ## Problem
 
-Neomacs currently runs the Elisp evaluator on the process main thread and spawns the GUI runtime as a render worker. In GUI mode, `neomacs-bin/src/main.rs` creates the evaluator, bootstraps buffers, installs the display host, then starts `RenderThread::spawn(...)`, after which the original thread enters `recursive_edit()`. The render worker builds and owns the `winit` event loop in `neomacs-display-runtime/src/render_thread/thread_handle.rs` and `bootstrap.rs`.
+Neomacs currently runs the Elisp evaluator on the process main thread and
+spawns the GUI runtime as a render worker. In GUI mode, `neomacs-bin/src/main.rs`
+creates the evaluator, bootstraps buffers, installs the display host, starts
+`RenderThread::spawn(...)`, publishes the first GUI frame, and then enters
+`recursive_edit()`. The render worker builds and owns the `winit` event loop in
+`neomacs-display-runtime/src/render_thread/thread_handle.rs` and
+`bootstrap.rs`.
 
-That shape is acceptable on Linux only because `winit` is currently configured with `with_any_thread(true)` on X11 and Wayland. It is not a sound long-term desktop model because macOS requires AppKit and `winit` event-loop ownership on the process main thread. Keeping the current topology would force either a permanent platform-specific exception or an unsound startup path on macOS.
+That works on Linux only because the current code uses `with_any_thread(true)`
+for X11/Wayland. It is the wrong long-term desktop shape because macOS/AppKit
+and `winit` require the GUI event loop to be created and run on the process main
+thread.
 
-The design goal is therefore not “make macOS pass,” but “establish one correct desktop ownership model.” The chosen model is:
+The target is therefore:
 
-- OS main thread owns the GUI runtime.
-- Evaluator thread owns `Context` and all editor mutations.
-- The channel boundary remains the existing `ThreadComms` split.
+- OS main thread owns `winit`, windows, surfaces, IME, monitor snapshots, and
+  platform callbacks.
+- Evaluator worker owns `Context`, editor state mutation, Lisp-visible thread
+  state, and `recursive_edit()`.
+- The two communicate only through explicit GUI/evaluator protocol channels.
 
-This keeps GUI platform rules satisfied while also isolating frontend work from Elisp latency.
+## GNU Design Anchors
+
+This is not permission to diverge from GNU editor semantics.
+
+GNU Emacs enters the editor from `src/emacs.c` by calling `Frecursive_edit()`.
+`src/keyboard.c` owns the command loop, key sequence reading, redisplay before
+input waits, and special-event handling. GUI backends feed events into that same
+runtime path:
+
+- X/GTK converts window-system events into keyboard-buffer events; for example,
+  `WM_DELETE_WINDOW` becomes `DELETE_WINDOW_EVENT` before command-loop handling.
+- NS/AppKit must pump Cocoa on the process main thread, but `nsterm.m` still
+  routes events back into Emacs input handling instead of letting the GUI layer
+  directly mutate editor state.
+- `src/thread.c` defines `main-thread` as GNU's Lisp-visible main runtime
+  thread.
+
+Neomacs may use a different Rust host-thread topology to satisfy `winit`, but
+the Lisp-visible contract must remain GNU-like:
+
+1. User input, resize, focus, close, menu, toolbar, and monitor changes are
+   input/events for the evaluator, not frontend-owned editor mutations.
+2. Window close is a request. The GUI must not unilaterally terminate the
+   editor before the evaluator has run the Lisp/frame policy.
+3. Redisplay publication is evaluator-owned. GUI-side animation such as cursor
+   blink may render without waking Lisp, but editor state changes still come
+   from the evaluator.
+4. The evaluator worker is Neomacs's Lisp `main-thread`; the OS process main
+   thread is the GUI owner. Code and docs must keep those concepts distinct.
 
 ## Decision
 
-For GUI/Desktop mode, Neomacs will run `winit`, window creation, `wgpu` surface ownership, monitor discovery, IME, platform callbacks, and GLib/WebKit pumping on the process main thread. The Elisp evaluator will move to a dedicated worker thread that owns the `Context` for its entire lifetime and executes `recursive_edit()`.
+For GUI/Desktop mode, run the GUI runtime on the OS main thread and move the
+Elisp evaluator to a dedicated worker thread that owns `Context` for its entire
+lifetime. TTY and batch mode remain unchanged.
 
-TTY and batch mode do not have the `winit` main-thread constraint and should remain on their current simpler path. This refactor is intentionally asymmetric:
-
-- GUI/Desktop: main-thread frontend supervisor + evaluator worker
-- TTY/Batch: existing startup path
-
-This is a deliberate design choice, not an incomplete unification. The desktop GUI path has stricter platform requirements and a stronger need for latency isolation. TTY does not.
-
-## Why Not Single-Thread GUI + Evaluator?
-
-It is possible to keep both `winit` and the evaluator on the process main thread. That would be closer to GNU Emacs’s ownership model, where the main thread also services the GUI backend. But that is not the right fit for Neomacs’s stated goals.
-
-If GUI and evaluator share one thread:
-
-- OS event pumping, IME, resize handling, redraw scheduling, and GPU submission directly compete with Elisp execution.
-- Long-running Elisp work freezes the GUI.
-- Busy GUI work steals time from the evaluator.
-- Future WebKit/media integration increases jitter on the same thread.
-
-Neomacs already has a clean inter-thread boundary between evaluator-side frame production and frontend-side rendering/input. Preserving that separation while flipping thread ownership is lower risk than collapsing everything onto one thread and then trying to time-slice the result.
-
-The worker-thread evaluator is therefore not a compromise. It is the preferred desktop model.
+This is a host architecture change, not a change in editor semantics. The
+worker-thread evaluator must preserve GNU-style command-loop ownership and event
+ordering.
 
 ## Ownership Invariants
 
-After the refactor, these invariants must hold:
+After the refactor:
 
-1. The OS main thread is the only thread allowed to build or run the GUI event loop.
-2. The evaluator thread is the only thread allowed to mutate `Context`, buffer state, frame state, or Lisp-visible runtime state.
-3. The evaluator thread is the Neomacs VM “main thread” for Lisp semantics. It does not need to be the OS process main thread.
-4. All GUI input observed by the OS main thread reaches the evaluator through explicit channel handoff.
-5. All frame publication and GUI commands observed by the evaluator reach the GUI thread through explicit channel handoff.
-6. No subsystem may rely on “GUI thread == evaluator thread” in GUI mode after the refactor.
-
-These invariants matter more than preserving today’s naming. If a type called `RenderThread` no longer represents the product architecture, the code should be renamed rather than keeping misleading ownership semantics.
-
-## Thread Roles
-
-### OS Main Thread
-
-The main thread owns:
-
-- `winit::event_loop::EventLoop`
-- window creation and `run_app()`
-- `wgpu` surface/device/queue ownership already stored in `RenderApp`
-- monitor snapshots
-- IME and window callbacks
-- GLib/WebKit event pumping
-- frontend shutdown mechanics
-
-The main thread does not own:
-
-- `Context`
-- `recursive_edit()`
-- editor state mutation
-- Lisp thread bookkeeping
-
-### Evaluator Worker Thread
-
-The worker thread owns:
-
-- `Context`
-- `setup_thread_locals()`
-- bootstrap evaluator/image load
-- frame/buffer bootstrap
-- display host installation
-- input system wiring
-- `redisplay_fn`
-- `recursive_edit()`
-- shutdown request production
-
-The evaluator must be constructed on this worker thread, not created on the main thread and moved later. `Context` setup establishes thread-local runtime state and GC stack assumptions in `neovm-core`, so the lifetime owner thread should also be the construction thread.
-
-### Input Bridge Thread
-
-The existing input bridge can remain for the first cut. It already translates frontend `InputEvent` values into evaluator keyboard events and updates `quit_requested` without requiring `&mut Context` access. Folding this work into the GUI thread is optional cleanup, not a prerequisite for the ownership inversion.
+1. Only the OS main thread builds and runs the `winit` event loop.
+2. Only the evaluator worker mutates `Context`, buffers, frames, windows,
+   keymaps, Lisp-visible thread state, timers, and process state.
+3. The evaluator worker is Lisp `main-thread`; do not conflate it with the OS
+   main thread.
+4. The GUI thread never calls into `Context`.
+5. The evaluator never directly touches `winit`, `wgpu` surfaces, windows, or
+   platform GUI objects.
+6. Any blocking evaluator request that needs GUI progress is illegal before the
+   GUI event loop is running.
+7. The main GUI event loop must not block waiting for an evaluator state that
+   can itself depend on the GUI loop draining commands.
 
 ## Startup Lifecycle
 
-GUI/Desktop startup becomes:
+The critical fix from the audit is ordering. The GUI runtime must be live before
+the evaluator performs any GUI-dependent publication or display-host request.
+
+Correct startup:
 
 1. `main()` parses startup options and determines GUI mode.
-2. `main()` creates `ThreadComms`, shared image dimensions, shared monitor state, primary-window-size tracking, and an evaluator startup/result channel.
+2. `main()` creates `ThreadComms`, shared image dimensions, shared monitor
+   state, primary-window-size tracking, and evaluator lifecycle channels.
 3. `main()` spawns the evaluator worker.
-4. The evaluator worker creates the `Context`, calls `setup_thread_locals()`, bootstraps buffers and frame state, installs the GUI display host, connects `init_input_system(...)`, sets the GUI redisplay callback, publishes the initial frame, and enters `recursive_edit()`.
-5. The OS main thread builds the event loop and immediately runs the frontend runtime on the current thread.
+4. The evaluator worker creates `Context` on the worker thread, calls
+   `setup_thread_locals()`, performs non-GUI-dependent bootstrap, installs the
+   channel-backed display host, wires the input bridge/input receiver, and then
+   waits for frontend readiness before any initial GUI frame publication.
+5. The OS main thread immediately builds the `winit` event loop and enters the
+   current-thread GUI runtime. It must not wait for "initial frame published"
+   or for any worker state that may require GUI command draining.
+6. During `resumed`/initial window creation, the GUI runtime creates the primary
+   window, initializes GPU state, records monitors/window size, and signals
+   frontend readiness to the evaluator.
+7. After frontend readiness, the evaluator may adopt the primary GUI frame,
+   publish the initial frame, run startup Lisp through `recursive_edit()`, and
+   service normal input.
 
-Steady state:
+Allowed startup waits:
 
-- evaluator thread publishes `FrameDisplayState` and `RenderCommand`
-- GUI thread consumes them and renders/presents
-- GUI thread sends `InputEvent`
-- input bridge converts and forwards evaluator keyboard events
+- Main may wait for a narrow worker preflight result that is guaranteed not to
+  send GUI commands or wait for GUI input.
+- Main must not wait for frame publication, image loading, window resize
+  acknowledgement, monitor discovery, or any display-host call.
+
+## Protocol Requirements
+
+The current `ThreadComms` split can stay, but the protocol must be made
+explicit enough to avoid hidden deadlocks.
+
+Evaluator -> GUI:
+
+- Frame publication is asynchronous. The GUI drains frames and renders the most
+  recent state.
+- Most `RenderCommand` values are asynchronous. The evaluator must treat send
+  failure as a real frontend error.
+- Requests that require a reply, such as image dimensions or primary window
+  size, must either use an explicit reply channel or a documented shared-state
+  handshake. They may only be issued after frontend readiness.
+- Blocking `send` on a bounded command channel is not allowed while the GUI
+  thread is waiting for the evaluator. Either ensure the GUI loop is running or
+  use a non-blocking/error-returning path with tests.
+
+GUI -> Evaluator:
+
+- Window events, keyboard/mouse input, resize, focus, monitor changes, menu bar,
+  toolbar, and file-drop events enter the evaluator through input/event
+  channels.
+- The wakeup pipe must wake the evaluator when input arrives.
+- Events dropped because the bounded input channel is full are bugs unless the
+  event type is explicitly documented as lossy.
 
 ## Shutdown Lifecycle
 
-Shutdown becomes asymmetric:
+Window close must mirror GNU's semantic direction: frontend event first, Lisp
+policy second.
 
-- If the evaluator exits first, it sends `RenderCommand::Shutdown`; the GUI event loop exits; the main thread returns the evaluator’s exit status.
-- If the GUI exits first, it sends `WindowClose` back toward the evaluator; the evaluator decides whether that means clean shutdown, `kill-emacs`, or surfaced error.
-- The main thread owns process shutdown mechanics, but not editor shutdown policy.
+Correct shutdown:
 
-This keeps process control with the GUI owner thread while keeping semantic shutdown decisions with the evaluator owner thread.
+- If the evaluator exits first, it sends `RenderCommand::Shutdown`; the GUI
+  event loop exits; main returns the evaluator's exit status.
+- If the user requests window close, the GUI sends `WindowClose`/delete-frame
+  style input to the evaluator and keeps the window/runtime alive. The
+  evaluator decides whether to delete a frame, run `kill-emacs`, ignore/cancel,
+  or surface an error.
+- The GUI event loop may exit first only for fatal frontend/backend loss. That
+  path must notify the evaluator and produce a clear error/shutdown result.
 
 ## Non-Goals
 
 This refactor does not attempt to:
 
-- unify TTY and GUI under one thread topology
-- redesign the `ThreadComms` protocol beyond ownership-driven changes
+- change TTY or batch startup
+- redesign Lisp thread semantics
+- move layout out of the evaluator
 - eliminate the input bridge in the first pass
-- change layout/rendering responsibilities
-- redesign Elisp thread semantics
-
-The goal is ownership inversion, not frontend feature work.
+- hide existing GUI rendering bugs
 
 ## Expected Code Shape
 
-The main structural changes are:
-
-- `neomacs-display-runtime` exposes a current-thread GUI runtime entrypoint for desktop startup.
-- `RenderThread::spawn(...)` stops being the product-facing GUI startup path.
-- `neomacs-bin/src/main.rs` extracts the evaluator-heavy GUI setup into a worker-thread entrypoint.
-- GUI startup result propagation becomes explicit rather than piggybacking on render-thread spawn success.
-- `FrontendHandle::Gui(RenderThread)` disappears or is replaced by a non-thread-handle GUI result model.
-
-TTY and batch mode continue to use the existing `FrontendHandle` ownership model.
+- `neomacs-display-runtime` exposes a current-thread GUI runtime entrypoint for
+  product GUI startup.
+- Product GUI startup no longer uses `RenderThread::spawn(...)`.
+- `neomacs-bin/src/main.rs` has an explicit GUI lifecycle model: main-thread
+  frontend owner, evaluator-worker owner, frontend-ready signal, evaluator-exit
+  result.
+- Display-host operations are classified as async commands or reply-bearing
+  requests.
+- Primary window close no longer calls `event_loop.exit()` until evaluator
+  policy has produced shutdown/delete-frame intent.
+- Comments and logs distinguish "OS main thread" from "Lisp main-thread".
 
 ## Risks
 
-The real risks are hidden thread-affinity assumptions:
-
-- evaluator startup currently happens on the same thread that parsed args and created frontend state
-- some helpers may assume startup happens before frontend existence
-- shutdown code currently assumes “send shutdown, then join frontend”
-- documentation and comments frequently describe the evaluator as the process main loop owner
-
-The refactor must update those assumptions consistently rather than leaving partial ownership leakage behind.
+- Startup deadlock if main waits for an evaluator milestone that requires the
+  GUI loop to drain `RenderCommand`.
+- Shutdown semantic regression if close destroys the GUI before Lisp policy can
+  run.
+- Hidden `Context` thread-affinity assumptions in GC, thread-local runtime
+  state, or `DisplayHost`.
+- Existing sync operations such as image dimension resolution timing out if they
+  run before frontend readiness.
+- Confusing docs/logs that call both OS main thread and Lisp main-thread "main".
 
 ## Validation
 
 Success criteria:
 
-1. GUI/Desktop startup no longer requires `with_any_thread(true)` as a product architecture crutch.
-2. The GUI event loop is built and run on the OS main thread.
-3. The evaluator is constructed and run on its dedicated worker thread.
-4. Input, frame publication, and shutdown semantics remain correct.
-5. TTY and batch mode remain unchanged.
+1. GUI startup no longer relies on Linux `with_any_thread(true)` in product
+   paths.
+2. GUI event loop is created and run on the OS main thread.
+3. Evaluator `Context` is constructed and run on the evaluator worker.
+4. First GUI frame publication happens only after frontend readiness.
+5. Primary window close is delivered to evaluator policy before event-loop exit.
+6. Input, resize, focus, monitor, menu, toolbar, image, and shutdown events keep
+   GNU-style ordering.
+7. TTY and batch behavior remain unchanged.
+8. Verification uses `cargo nextest` exclusively.
 
 Primary smoke check:
 
@@ -178,16 +220,7 @@ nix develop . -c bash -lc 'timeout 10s ./target/release/neomacs -Q'
 
 Expected result:
 
-- GUI window starts
-- no `winit` “event loop must be created on the main thread” failure
-- process exits only because of the timeout
-
-## Conclusion
-
-The correct long-term desktop model for Neomacs is:
-
-- `winit` on the OS main thread
-- evaluator on a dedicated worker thread
-- TTY/batch unchanged
-
-This preserves platform correctness, isolates frontend work from Elisp latency, and keeps Neomacs’s existing two-role architecture instead of collapsing it into a single-thread runtime that would directly work against the project’s performance goals.
+- GUI window starts.
+- No `winit` main-thread creation error.
+- No startup deadlock before the first frame.
+- Process exits with `124` only because of `timeout`.
