@@ -325,6 +325,7 @@ pub(super) struct RenderApp {
     pub(super) debug_surface_readback_frames_remaining: u32,
     pub(super) resumed_seen: bool,
     pub(super) about_to_wait_seen: bool,
+    pub(super) poll_when_idle: bool,
 }
 
 impl RenderApp {
@@ -335,6 +336,7 @@ impl RenderApp {
         title: String,
         image_dimensions: SharedImageDimensions,
         shared_monitors: SharedMonitorInfo,
+        poll_when_idle: bool,
         #[cfg(feature = "neo-term")] shared_terminals: crate::terminal::SharedTerminals,
     ) -> Self {
         #[cfg(feature = "wpe-webkit")]
@@ -443,6 +445,7 @@ impl RenderApp {
             }),
             resumed_seen: false,
             about_to_wait_seen: false,
+            poll_when_idle,
         }
     }
 }

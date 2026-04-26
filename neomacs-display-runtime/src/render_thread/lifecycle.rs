@@ -273,9 +273,14 @@ impl RenderApp {
         } else if self.cursor.blink_enabled {
             // Idle with cursor blink: wake at next toggle time
             self.cursor.last_blink_toggle + self.cursor.blink_interval
-        } else {
-            // Fully idle: poll for new Emacs frames at 60fps
+        } else if self.poll_when_idle {
+            // Compatibility mode for legacy RenderThread callers that do not
+            // own a winit EventLoopProxy and therefore cannot wake this loop
+            // when they enqueue frames or commands.
             now + std::time::Duration::from_millis(16)
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
         };
         event_loop.set_control_flow(ControlFlow::WaitUntil(next_wake));
     }

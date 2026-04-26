@@ -21,10 +21,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use neomacs_display_runtime::render_thread::{
-    RenderThread, SharedImageDimensions, SharedMonitorInfo,
+    RenderEventLoopProxy, RenderUserEvent, SharedImageDimensions, SharedMonitorInfo,
+    build_render_event_loop, run_render_loop_current_thread,
 };
 use neomacs_display_runtime::thread_comm::{
-    InputEvent as DisplayInputEvent, RenderCommand, ThreadComms,
+    EmacsComms, InputEvent as DisplayInputEvent, RenderCommand, ThreadComms,
 };
 use neomacs_layout_engine::font_metrics::FontMetricsService;
 use neomacs_layout_engine::fontconfig::face_height_to_pixels;
@@ -746,7 +747,6 @@ fn query_terminal_size_cells() -> Option<(u16, u16)> {
 }
 
 enum FrontendHandle {
-    Gui(RenderThread),
     /// Single-thread TTY path: input reader only, rendering via TtyRif on eval thread.
     TtyRifInput(tty_frontend::TtyInputReader),
     Batch,
@@ -755,15 +755,47 @@ enum FrontendHandle {
 impl FrontendHandle {
     fn join(self) {
         match self {
-            Self::Gui(handle) => handle.join(),
             Self::TtyRifInput(handle) => handle.join(),
             Self::Batch => {}
         }
     }
 }
 
+#[derive(Clone)]
+struct GuiEventLoopWaker {
+    proxy: RenderEventLoopProxy,
+}
+
+impl GuiEventLoopWaker {
+    fn new(proxy: RenderEventLoopProxy) -> Self {
+        Self { proxy }
+    }
+
+    fn wake(&self) {
+        if let Err(err) = self.proxy.send_event(RenderUserEvent::Wake) {
+            tracing::debug!("GUI event loop wake dropped after loop closed: {err}");
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EvaluatorExit {
+    exit_code: i32,
+    restart: bool,
+}
+
+impl EvaluatorExit {
+    const OK: Self = Self {
+        exit_code: 0,
+        restart: false,
+    };
+}
+
+const GUI_EVALUATOR_THREAD_STACK_SIZE: usize = 64 * 1024 * 1024;
+
 struct PrimaryWindowDisplayHost {
     cmd_tx: crossbeam_channel::Sender<RenderCommand>,
+    render_waker: Option<GuiEventLoopWaker>,
     primary_window_adopted: bool,
     primary_frame_id: Option<neovm_core::window::FrameId>,
     last_window_titles: Mutex<HashMap<neovm_core::window::FrameId, LispString>>,
@@ -935,6 +967,22 @@ fn record_primary_window_resize(shared: &SharedPrimaryWindowSize, event: &Displa
     }
 }
 
+impl PrimaryWindowDisplayHost {
+    fn send_render_command(
+        &self,
+        command: RenderCommand,
+        error_context: &str,
+    ) -> Result<(), String> {
+        self.cmd_tx
+            .send(command)
+            .map_err(|err| format!("{error_context}: {err}"))?;
+        if let Some(waker) = &self.render_waker {
+            waker.wake();
+        }
+        Ok(())
+    }
+}
+
 impl DisplayHost for PrimaryWindowDisplayHost {
     fn realize_gui_frame(&mut self, request: GuiFrameHostRequest) -> Result<(), String> {
         let title_string = request.title.as_utf8_str().unwrap_or("Neomacs").to_owned();
@@ -947,17 +995,19 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             title_string
         );
         if !self.primary_window_adopted {
-            self.cmd_tx
-                .send(RenderCommand::SetWindowTitle {
+            self.send_render_command(
+                RenderCommand::SetWindowTitle {
                     title: title_string.clone(),
-                })
-                .map_err(|err| format!("failed to update primary window title: {err}"))?;
-            self.cmd_tx
-                .send(RenderCommand::SetFrameGeometryHints {
+                },
+                "failed to update primary window title",
+            )?;
+            self.send_render_command(
+                RenderCommand::SetFrameGeometryHints {
                     emacs_frame_id: 0,
                     geometry_hints: request.geometry_hints,
-                })
-                .map_err(|err| format!("failed to update primary window geometry hints: {err}"))?;
+                },
+                "failed to update primary window geometry hints",
+            )?;
             // The opening GUI frame adopts the already-existing primary host
             // window. Do not push stale Lisp bootstrap dimensions back into
             // that window during adoption; host resize events remain the
@@ -965,15 +1015,16 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             self.primary_window_adopted = true;
             self.primary_frame_id = Some(request.frame_id);
         } else {
-            self.cmd_tx
-                .send(RenderCommand::CreateWindow {
+            self.send_render_command(
+                RenderCommand::CreateWindow {
                     emacs_frame_id: request.frame_id.0,
                     width: request.width,
                     height: request.height,
                     title: title_string,
                     geometry_hints: request.geometry_hints,
-                })
-                .map_err(|err| format!("failed to create additional GUI window: {err}"))?;
+                },
+                "failed to create additional GUI window",
+            )?;
         }
         self.last_window_titles
             .lock()
@@ -999,14 +1050,15 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             request.width,
             request.height
         );
-        self.cmd_tx
-            .send(RenderCommand::ResizeWindow {
+        self.send_render_command(
+            RenderCommand::ResizeWindow {
                 emacs_frame_id,
                 width: request.width,
                 height: request.height,
                 geometry_hints: request.geometry_hints,
-            })
-            .map_err(|err| format!("failed to resize GUI frame: {err}"))?;
+            },
+            "failed to resize GUI frame",
+        )?;
         Ok(())
     }
 
@@ -1021,12 +1073,13 @@ impl DisplayHost for PrimaryWindowDisplayHost {
             } else {
                 frame_id.0
             };
-        self.cmd_tx
-            .send(RenderCommand::SetFrameGeometryHints {
+        self.send_render_command(
+            RenderCommand::SetFrameGeometryHints {
                 emacs_frame_id,
                 geometry_hints,
-            })
-            .map_err(|err| format!("failed to update GUI frame geometry hints: {err}"))?;
+            },
+            "failed to update GUI frame geometry hints",
+        )?;
         Ok(())
     }
 
@@ -1054,12 +1107,13 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         } else {
             frame_id.0
         };
-        self.cmd_tx
-            .send(RenderCommand::SetFrameWindowTitle {
+        self.send_render_command(
+            RenderCommand::SetFrameWindowTitle {
                 emacs_frame_id,
                 title: title_string,
-            })
-            .map_err(|err| format!("failed to update GUI frame title: {err}"))?;
+            },
+            "failed to update GUI frame title",
+        )?;
         Ok(())
     }
 
@@ -1075,12 +1129,13 @@ impl DisplayHost for PrimaryWindowDisplayHost {
     }
 
     fn set_cursor_blink(&mut self, enabled: bool, interval_ms: u32) -> Result<(), String> {
-        self.cmd_tx
-            .send(RenderCommand::SetCursorBlink {
+        self.send_render_command(
+            RenderCommand::SetCursorBlink {
                 enabled,
                 interval_ms,
-            })
-            .map_err(|err| format!("failed to set cursor blink: {err}"))
+            },
+            "failed to set cursor blink",
+        )
     }
 
     fn resolve_font_for_char(
@@ -1207,28 +1262,30 @@ impl DisplayHost for PrimaryWindowDisplayHost {
         let image_id = next_host_image_id();
         match &request.source {
             ImageResolveSource::File(path) => {
-                self.cmd_tx
-                    .send(RenderCommand::ImageLoadFile {
+                self.send_render_command(
+                    RenderCommand::ImageLoadFile {
                         id: image_id,
                         path: path.as_utf8_str().unwrap_or_default().to_owned(),
                         max_width: request.max_width,
                         max_height: request.max_height,
                         fg_color: request.fg_color,
                         bg_color: request.bg_color,
-                    })
-                    .map_err(|err| format!("failed to queue image load: {err}"))?;
+                    },
+                    "failed to queue image load",
+                )?;
             }
             ImageResolveSource::Data(data) => {
-                self.cmd_tx
-                    .send(RenderCommand::ImageLoadData {
+                self.send_render_command(
+                    RenderCommand::ImageLoadData {
                         id: image_id,
                         data: data.clone(),
                         max_width: request.max_width,
                         max_height: request.max_height,
                         fg_color: request.fg_color,
                         bg_color: request.bg_color,
-                    })
-                    .map_err(|err| format!("failed to queue image data load: {err}"))?;
+                    },
+                    "failed to queue image data load",
+                )?;
             }
         }
 
@@ -1518,6 +1575,237 @@ fn raw_loadup_startup_surface(
     }
 }
 
+fn run_gui_main_thread(
+    mode: RuntimeMode,
+    startup: StartupOptions,
+    width: u32,
+    height: u32,
+    bootstrap_display: BootstrapDisplayConfig,
+) {
+    let event_loop = build_render_event_loop().unwrap_or_else(|err| {
+        eprintln!("neomacs: failed to build GUI event loop: {err}");
+        std::process::exit(1);
+    });
+    let render_waker = GuiEventLoopWaker::new(event_loop.create_proxy());
+
+    let comms = ThreadComms::new().expect("Failed to create thread comms");
+    let (emacs_comms, render_comms) = comms.split();
+    let primary_window_size: SharedPrimaryWindowSize =
+        Arc::new(Mutex::new(PrimaryWindowSize { width, height }));
+    let gui_image_dimensions: SharedImageDimensions =
+        Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
+    let shared_monitors: SharedMonitorInfo = Arc::new((Mutex::new(Vec::new()), Condvar::new()));
+
+    let evaluator_handle = spawn_gui_evaluator_worker(
+        mode,
+        startup,
+        width,
+        height,
+        bootstrap_display,
+        emacs_comms,
+        Arc::clone(&primary_window_size),
+        Arc::clone(&gui_image_dimensions),
+        Arc::clone(&shared_monitors),
+        render_waker.clone(),
+    );
+
+    tracing::info!(
+        "GUI event loop entering on OS main thread ({}x{})",
+        width,
+        height
+    );
+    let render_result = run_render_loop_current_thread(
+        event_loop,
+        render_comms,
+        width,
+        height,
+        "Neomacs".to_string(),
+        Arc::clone(&gui_image_dimensions),
+        Arc::clone(&shared_monitors),
+    );
+    if let Err(err) = &render_result {
+        tracing::error!("GUI event loop exited with error: {err}");
+    }
+
+    let evaluator_exit = match evaluator_handle.join() {
+        Ok(exit) => exit,
+        Err(payload) => {
+            std::panic::resume_unwind(payload);
+        }
+    };
+
+    if evaluator_exit.restart {
+        tracing::warn!("restart requested via kill-emacs, but restart is not implemented yet");
+    }
+    if evaluator_exit.exit_code != 0 {
+        std::process::exit(evaluator_exit.exit_code);
+    }
+    if render_result.is_err() {
+        std::process::exit(1);
+    }
+}
+
+fn spawn_gui_evaluator_worker(
+    mode: RuntimeMode,
+    startup: StartupOptions,
+    width: u32,
+    height: u32,
+    bootstrap_display: BootstrapDisplayConfig,
+    emacs_comms: EmacsComms,
+    primary_window_size: SharedPrimaryWindowSize,
+    gui_image_dimensions: SharedImageDimensions,
+    shared_monitors: SharedMonitorInfo,
+    render_waker: GuiEventLoopWaker,
+) -> std::thread::JoinHandle<EvaluatorExit> {
+    let cmd_tx_for_panic = emacs_comms.cmd_tx.clone();
+    let render_waker_for_panic = render_waker.clone();
+    std::thread::Builder::new()
+        .name("neomacs-evaluator".to_string())
+        // GNU grows the main C stack before Lisp startup.  In the GUI
+        // topology the Lisp evaluator is the Emacs main thread semantically,
+        // but it runs on a Rust worker so winit can own the OS main thread.
+        // Give that worker an explicit native stack instead of relying on
+        // pthread defaults chosen before increase_stack_limit runs.
+        .stack_size(GUI_EVALUATOR_THREAD_STACK_SIZE)
+        .spawn(move || {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_gui_evaluator_worker(
+                    mode,
+                    startup,
+                    width,
+                    height,
+                    bootstrap_display,
+                    emacs_comms,
+                    primary_window_size,
+                    gui_image_dimensions,
+                    shared_monitors,
+                    render_waker,
+                )
+            }));
+            match outcome {
+                Ok(exit) => exit,
+                Err(payload) => {
+                    let _ = cmd_tx_for_panic.try_send(RenderCommand::Shutdown);
+                    render_waker_for_panic.wake();
+                    std::panic::resume_unwind(payload);
+                }
+            }
+        })
+        .expect("Failed to spawn GUI evaluator worker")
+}
+
+fn run_gui_evaluator_worker(
+    mode: RuntimeMode,
+    startup: StartupOptions,
+    width: u32,
+    height: u32,
+    bootstrap_display: BootstrapDisplayConfig,
+    emacs_comms: EmacsComms,
+    primary_window_size: SharedPrimaryWindowSize,
+    gui_image_dimensions: SharedImageDimensions,
+    shared_monitors: SharedMonitorInfo,
+    render_waker: GuiEventLoopWaker,
+) -> EvaluatorExit {
+    let mut evaluator = create_startup_evaluator_for_mode(mode, &startup);
+    evaluator.setup_thread_locals();
+    evaluator.set_max_depth(1600);
+    reset_terminal_host();
+    reset_terminal_runtime();
+    evaluator.set_variable("dump-mode", Value::NIL);
+    tracing::info!("GUI evaluator context initialized");
+
+    let _bootstrap = bootstrap_buffers(&mut evaluator, width, height, bootstrap_display);
+    let frame_id = evaluator
+        .frame_manager()
+        .selected_frame()
+        .expect("No selected frame after bootstrap")
+        .id;
+    configure_gnu_startup_state(&mut evaluator, frame_id, &startup);
+    maybe_install_startup_phase_trace(&mut evaluator);
+
+    evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
+        cmd_tx: emacs_comms.cmd_tx.clone(),
+        render_waker: Some(render_waker.clone()),
+        primary_window_adopted: false,
+        primary_frame_id: None,
+        last_window_titles: Mutex::new(HashMap::new()),
+        font_metrics: None,
+        primary_window_size: Arc::clone(&primary_window_size),
+        image_dimensions: Arc::clone(&gui_image_dimensions),
+        resolved_images: Mutex::new(HashMap::new()),
+    }));
+    adopt_existing_primary_gui_frame(&mut evaluator)
+        .expect("bootstrap GUI frame adoption should succeed");
+
+    prime_initial_monitor_snapshot(&shared_monitors);
+
+    let (input_tx, input_rx) = crossbeam_channel::unbounded();
+    let display_input_rx = emacs_comms.input_rx;
+    let primary_window_size_for_input = Arc::clone(&primary_window_size);
+    let quit_requested = Arc::clone(&evaluator.quit_requested);
+    std::thread::Builder::new()
+        .name("input-bridge".to_string())
+        .spawn(move || {
+            while let Ok(event) = display_input_rx.recv() {
+                tracing::info!("input-bridge: received event");
+                record_primary_window_resize(&primary_window_size_for_input, &event);
+                if let Some(kb_event) = input_bridge::convert_display_event(event) {
+                    tracing::info!("input-bridge: converted to kb event");
+                    if let neovm_core::keyboard::InputEvent::KeyPress { key, .. } = &kb_event
+                        && key.is_default_quit_char()
+                    {
+                        quit_requested.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    if input_tx.send(kb_event).is_err() {
+                        break;
+                    }
+                }
+            }
+        })
+        .expect("Failed to spawn input bridge thread");
+
+    evaluator.init_input_system(input_rx, emacs_comms.wakeup_read_fd);
+
+    LAYOUT_ENGINE.with(|engine| {
+        engine.borrow_mut().enable_cosmic_metrics();
+    });
+    let frame_tx = emacs_comms.frame_tx;
+    let initial_frame_tx = frame_tx.clone();
+    let redisplay_waker = render_waker.clone();
+    evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
+        publish_gui_frame(eval, &frame_tx, Some(&redisplay_waker));
+    }));
+    publish_gui_frame(&mut evaluator, &initial_frame_tx, Some(&render_waker));
+
+    if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
+        let mut ul = buf.get_undo_list();
+        neovm_core::buffer::undo_list_boundary(&mut ul);
+        buf.set_undo_list(ul);
+    }
+
+    neovm_core::emacs_core::load::maybe_run_after_pdump_load_hook(&mut evaluator);
+    tracing::info!("Entering GNU command loop on GUI evaluator worker...");
+    let exit_status = evaluator.recursive_edit();
+    if exit_status.is_ok() {
+        tracing::info!("Command loop exited normally");
+    } else {
+        tracing::warn!("Command loop exited with error");
+    }
+
+    tracing::info!("GUI evaluator shutting down render loop...");
+    let _ = emacs_comms.cmd_tx.try_send(RenderCommand::Shutdown);
+    render_waker.wake();
+
+    if let Some(request) = evaluator.shutdown_request() {
+        return EvaluatorExit {
+            exit_code: request.exit_code,
+            restart: request.restart,
+        };
+    }
+
+    EvaluatorExit::OK
+}
+
 pub fn run(mode: RuntimeMode) {
     // Always enable full backtraces for debugging low-level runtime crashes.
     if std::env::var("RUST_BACKTRACE").is_err() {
@@ -1623,26 +1911,24 @@ pub fn run(mode: RuntimeMode) {
     // metrics via bootstrap_frame_metrics().
     let frame_metrics = bootstrap_frame_metrics_for_frontend(startup.frontend);
     let (width, height) = startup_dimensions(startup.frontend, frame_metrics);
+
+    if startup.frontend == FrontendKind::Gui {
+        run_gui_main_thread(mode, startup, width, height, bootstrap_display);
+        return;
+    }
+
     // 2. Initialize the evaluator from the canonical bootstrap surface.
     //    GNU loads the dumped bootstrap image here, then lets the outer
     //    command loop evaluate `top-level`/`normal-top-level`.
     let mut evaluator = create_startup_evaluator_for_mode(mode, &startup);
     evaluator.setup_thread_locals();
     evaluator.set_max_depth(1600);
-    match startup.frontend {
-        FrontendKind::Gui => {
-            reset_terminal_host();
-            reset_terminal_runtime();
-        }
-        FrontendKind::Tty => {
-            if should_enable_live_tty_io(&startup) {
-                reset_terminal_host();
-                configure_terminal_runtime(detect_tty_runtime(&startup));
-            } else {
-                reset_terminal_host();
-                reset_terminal_runtime();
-            }
-        }
+    if should_enable_live_tty_io(&startup) {
+        reset_terminal_host();
+        configure_terminal_runtime(detect_tty_runtime(&startup));
+    } else {
+        reset_terminal_host();
+        reset_terminal_runtime();
     }
     // GNU Emacs does NOT disable GC during startup — GC runs normally.
     // The bc_buf refactor and conservative stack scanning ensure all
@@ -1673,60 +1959,20 @@ pub fn run(mode: RuntimeMode) {
             cmd_tx: emacs_comms.cmd_tx.clone(),
         }));
     }
-    let gui_image_dimensions: SharedImageDimensions =
-        Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
-
-    if startup.frontend == FrontendKind::Gui {
-        evaluator.set_display_host(Box::new(PrimaryWindowDisplayHost {
-            cmd_tx: emacs_comms.cmd_tx.clone(),
-            primary_window_adopted: false,
-            primary_frame_id: None,
-            last_window_titles: Mutex::new(HashMap::new()),
-            font_metrics: None,
-            primary_window_size: Arc::clone(&primary_window_size),
-            image_dimensions: Arc::clone(&gui_image_dimensions),
-            resolved_images: Mutex::new(HashMap::new()),
-        }));
-        adopt_existing_primary_gui_frame(&mut evaluator)
-            .expect("bootstrap GUI frame adoption should succeed");
-    }
 
     // 5. Spawn the frontend loop matching the requested startup mode.
-    let frontend = match startup.frontend {
-        FrontendKind::Gui => {
-            let shared_monitors: SharedMonitorInfo =
-                Arc::new((Mutex::new(Vec::new()), Condvar::new()));
-            let render_thread = RenderThread::spawn(
-                render_comms,
-                width,
-                height,
-                "Neomacs".to_string(),
-                Arc::clone(&gui_image_dimensions),
-                Arc::clone(&shared_monitors),
-            )
-            .unwrap_or_else(|err| {
-                eprintln!("neomacs: failed to start GUI frontend: {err}");
-                std::process::exit(1);
-            });
-            prime_initial_monitor_snapshot(&shared_monitors);
-            tracing::info!("GUI render thread spawned ({}x{})", width, height);
-            FrontendHandle::Gui(render_thread)
-        }
-        FrontendKind::Tty => {
-            if startup.noninteractive {
-                // Batch mode: no terminal I/O, matching GNU which
-                // skips init_display() for --batch (emacs.c:1835).
-                tracing::info!("TTY batch mode — skipping terminal init");
-                FrontendHandle::Batch
-            } else {
-                // Single-thread TTY path: terminal init here, rendering via TtyRif
-                // on the evaluator thread, input reader on a background thread.
-                tty_init_terminal();
-                let input_reader = tty_frontend::TtyInputReader::spawn(render_comms);
-                tracing::info!("TTY frontend spawned (TtyRif single-thread redisplay)");
-                FrontendHandle::TtyRifInput(input_reader)
-            }
-        }
+    let frontend = if startup.noninteractive {
+        // Batch mode: no terminal I/O, matching GNU which skips
+        // init_display() for --batch (emacs.c:1835).
+        tracing::info!("TTY batch mode — skipping terminal init");
+        FrontendHandle::Batch
+    } else {
+        // Single-thread TTY path: terminal init here, rendering via TtyRif
+        // on the evaluator thread, input reader on a background thread.
+        tty_init_terminal();
+        let input_reader = tty_frontend::TtyInputReader::spawn(render_comms);
+        tracing::info!("TTY frontend spawned (TtyRif single-thread redisplay)");
+        FrontendHandle::TtyRifInput(input_reader)
     };
 
     // 6. Create input bridge: convert display runtime events → keyboard events.
@@ -1774,33 +2020,8 @@ pub fn run(mode: RuntimeMode) {
         evaluator.init_input_system(input_rx, wakeup_fd);
     }
 
-    // 8. Set up redisplay callback (layout engine + send frame)
-    match startup.frontend {
-        FrontendKind::Gui => {
-            // GUI mode: enable cosmic-text font metrics on the layout
-            // engine. The thread-local starts without fonts to keep
-            // TTY startup fast; GUI enables them here on first use.
-            LAYOUT_ENGINE.with(|engine| {
-                engine.borrow_mut().enable_cosmic_metrics();
-            });
-            let frame_tx = emacs_comms.frame_tx;
-            let initial_frame_tx = frame_tx.clone();
-            evaluator.redisplay_fn = Some(Box::new(move |eval: &mut Context| {
-                publish_gui_frame(eval, &frame_tx);
-            }));
-
-            // GNU creates and maps its initial X frame before loading the user
-            // init file; expose events can repaint that opening frame while
-            // startup Lisp runs. NeoMacs' render thread has no retained frame
-            // matrices until Lisp publishes one, so send the current opening
-            // frame once here. The normal command-loop redisplay will replace
-            // it after startup finishes.
-            publish_gui_frame(&mut evaluator, &initial_frame_tx);
-        }
-        FrontendKind::Tty => {
-            maybe_install_tty_redisplay_callback(&mut evaluator, &startup);
-        }
-    }
+    // 8. Set up redisplay callback (layout engine + TTY RIF render).
+    maybe_install_tty_redisplay_callback(&mut evaluator, &startup);
 
     // Add undo boundary after startup so initial content isn't undoable
     if let Some(buf) = evaluator.buffer_manager_mut().current_buffer_mut() {
@@ -2653,6 +2874,7 @@ fn current_layout_frame_id(evaluator: &Context) -> Option<FrameId> {
 fn publish_gui_frame(
     evaluator: &mut Context,
     frame_tx: &crossbeam_channel::Sender<neomacs_display_protocol::glyph_matrix::FrameDisplayState>,
+    render_waker: Option<&GuiEventLoopWaker>,
 ) {
     evaluator.setup_thread_locals();
     sync_selected_gui_chrome_state(evaluator);
@@ -2666,7 +2888,11 @@ fn publish_gui_frame(
     let Some(display_state) = display_state else {
         return;
     };
-    let _ = frame_tx.try_send(display_state);
+    if frame_tx.try_send(display_state).is_ok() {
+        if let Some(waker) = render_waker {
+            waker.wake();
+        }
+    }
 }
 
 thread_local! {

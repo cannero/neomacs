@@ -24,6 +24,7 @@ fn make_test_app(width: u32, height: u32, scale_factor: f64) -> RenderApp {
         "test".to_string(),
         image_dimensions,
         shared_monitors,
+        true,
         #[cfg(feature = "neo-term")]
         Arc::new(Mutex::new(HashMap::new())),
     );

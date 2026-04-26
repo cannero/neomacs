@@ -29,7 +29,7 @@ mod window_commands;
 mod window_events;
 mod x11_hints;
 
-pub use bootstrap::run_render_loop;
+pub use bootstrap::{build_render_event_loop, run_render_loop, run_render_loop_current_thread};
 #[cfg(feature = "wpe-webkit")]
 use state::WebKitImportPolicy;
 use state::{FpsCounter, ImeCursorArea, RenderApp, WindowChrome};
@@ -42,7 +42,7 @@ use std::thread::{self, JoinHandle};
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, KeyEvent, MouseButton, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
@@ -74,5 +74,12 @@ use crate::backend::wpe::sys::platform as plat;
 
 #[cfg(feature = "wpe-webkit")]
 use crate::backend::wpe::{WpeBackend, WpeWebView};
+
+#[derive(Clone, Copy, Debug)]
+pub enum RenderUserEvent {
+    Wake,
+}
+
+pub type RenderEventLoopProxy = EventLoopProxy<RenderUserEvent>;
 
 // All GPU caches (image, video, webkit) are managed by WgpuRenderer

@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use super::bootstrap::{build_render_event_loop, run_render_loop_with_event_loop};
+use super::bootstrap::{build_render_event_loop_any_thread, run_render_loop_with_event_loop};
 use super::{SharedImageDimensions, SharedMonitorInfo};
 use crate::thread_comm::RenderComms;
 
@@ -130,7 +130,7 @@ impl RenderThread {
         #[cfg(feature = "neo-term")] shared_terminals: crate::terminal::SharedTerminals,
     ) -> Result<Self, String> {
         let (startup_tx, startup_rx) = mpsc::sync_channel(1);
-        let handle = thread::spawn(move || match build_render_event_loop() {
+        let handle = thread::spawn(move || match build_render_event_loop_any_thread() {
             Ok(event_loop) => {
                 let _ = startup_tx.send(Ok(()));
                 if let Err(err) = run_render_loop_with_event_loop(
@@ -141,6 +141,7 @@ impl RenderThread {
                     title,
                     image_dimensions,
                     shared_monitors,
+                    true,
                     #[cfg(feature = "neo-term")]
                     shared_terminals,
                 ) {

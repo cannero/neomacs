@@ -1,4 +1,6 @@
-use super::{RenderApp, SharedImageDimensions, SharedMonitorInfo, surface_readback};
+use super::{
+    RenderApp, RenderUserEvent, SharedImageDimensions, SharedMonitorInfo, surface_readback,
+};
 use crate::thread_comm::{InputEvent, RenderComms};
 use neomacs_renderer_wgpu::{WgpuGlyphAtlas, WgpuRenderer};
 use std::sync::Arc;
@@ -216,42 +218,60 @@ impl RenderApp {
     }
 }
 
-pub(crate) fn build_render_event_loop() -> Result<EventLoop<()>, String> {
+fn build_render_event_loop_impl(
+    allow_any_thread: bool,
+) -> Result<EventLoop<RenderUserEvent>, String> {
     #[cfg(target_os = "linux")]
     {
         tracing::info!(
-            "Render thread building winit event loop (wayland_display_present={})",
-            std::env::var("WAYLAND_DISPLAY").is_ok()
+            "Building winit event loop (allow_any_thread={} wayland_display_present={})",
+            allow_any_thread,
+            std::env::var("WAYLAND_DISPLAY").is_ok(),
         );
-        let mut builder = EventLoop::builder();
+        let mut builder = EventLoop::<RenderUserEvent>::with_user_event();
         // Try Wayland first, fall back to X11.
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        } else {
-            EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+        if allow_any_thread {
+            if std::env::var("WAYLAND_DISPLAY").is_ok() {
+                EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
+            } else {
+                EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
+            }
         }
         let event_loop = builder
             .build()
             .map_err(|err| format!("Failed to create event loop: {err}"))?;
-        tracing::info!("Render thread built winit event loop");
+        tracing::info!("Built winit event loop");
         Ok(event_loop)
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        EventLoop::new().map_err(|err| format!("Failed to create event loop: {err}"))
+        EventLoop::<RenderUserEvent>::with_user_event()
+            .build()
+            .map_err(|err| format!("Failed to create event loop: {err}"))
     }
+}
+
+/// Build a render event loop for the current OS thread.
+pub fn build_render_event_loop() -> Result<EventLoop<RenderUserEvent>, String> {
+    build_render_event_loop_impl(false)
+}
+
+/// Build a render event loop for the legacy render-thread helper.
+pub(crate) fn build_render_event_loop_any_thread() -> Result<EventLoop<RenderUserEvent>, String> {
+    build_render_event_loop_impl(true)
 }
 
 /// Run the render loop with an already-created event loop.
 pub(crate) fn run_render_loop_with_event_loop(
-    event_loop: EventLoop<()>,
+    event_loop: EventLoop<RenderUserEvent>,
     comms: RenderComms,
     width: u32,
     height: u32,
     title: String,
     image_dimensions: SharedImageDimensions,
     shared_monitors: SharedMonitorInfo,
+    poll_when_idle: bool,
     #[cfg(feature = "neo-term")] shared_terminals: crate::terminal::SharedTerminals,
 ) -> Result<(), String> {
     tracing::info!("Render thread starting");
@@ -287,6 +307,7 @@ pub(crate) fn run_render_loop_with_event_loop(
         title,
         image_dimensions,
         shared_monitors,
+        poll_when_idle,
         #[cfg(feature = "neo-term")]
         shared_terminals,
     );
@@ -307,6 +328,35 @@ pub(crate) fn run_render_loop_with_event_loop(
     result.map_err(|err| format!("Event loop error: {err}"))
 }
 
+/// Run the render loop on the current OS thread. Product GUI startup uses
+/// this path so winit/AppKit/Windows ownership stays on the process main
+/// thread; evaluator-to-render traffic must wake it via EventLoopProxy.
+pub fn run_render_loop_current_thread(
+    event_loop: EventLoop<RenderUserEvent>,
+    comms: RenderComms,
+    width: u32,
+    height: u32,
+    title: String,
+    image_dimensions: SharedImageDimensions,
+    shared_monitors: SharedMonitorInfo,
+) -> Result<(), String> {
+    #[cfg(feature = "neo-term")]
+    let shared_terminals =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    run_render_loop_with_event_loop(
+        event_loop,
+        comms,
+        width,
+        height,
+        title,
+        image_dimensions,
+        shared_monitors,
+        false,
+        #[cfg(feature = "neo-term")]
+        shared_terminals,
+    )
+}
+
 /// Build the render event loop and run it on the render thread.
 pub fn run_render_loop(
     comms: RenderComms,
@@ -315,8 +365,10 @@ pub fn run_render_loop(
     title: String,
     image_dimensions: SharedImageDimensions,
     shared_monitors: SharedMonitorInfo,
-    #[cfg(feature = "neo-term")] shared_terminals: crate::terminal::SharedTerminals,
 ) -> Result<(), String> {
+    #[cfg(feature = "neo-term")]
+    let shared_terminals =
+        std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let event_loop = build_render_event_loop()?;
     run_render_loop_with_event_loop(
         event_loop,
@@ -326,6 +378,7 @@ pub fn run_render_loop(
         title,
         image_dimensions,
         shared_monitors,
+        false,
         #[cfg(feature = "neo-term")]
         shared_terminals,
     )

@@ -535,6 +535,7 @@ fn opening_gui_frame_adoption_does_not_push_stale_window_size() {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
     let mut host = PrimaryWindowDisplayHost {
         cmd_tx,
+        render_waker: None,
         primary_window_adopted: false,
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
@@ -600,6 +601,7 @@ fn bootstrap_gui_frame_adoption_routes_future_resizes_to_primary_window() {
 
     eval.set_display_host(Box::new(PrimaryWindowDisplayHost {
         cmd_tx,
+        render_waker: None,
         primary_window_adopted: false,
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
@@ -651,6 +653,7 @@ fn primary_window_resize_does_not_wait_for_host_acknowledgement() {
     let shared = shared_primary_window_size(843, 489);
     let mut host = PrimaryWindowDisplayHost {
         cmd_tx,
+        render_waker: None,
         primary_window_adopted: true,
         primary_frame_id: Some(FrameId(0x100000001)),
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
@@ -708,6 +711,7 @@ fn primary_window_display_host_forwards_cursor_blink_to_renderer() {
     let (cmd_tx, cmd_rx) = crossbeam_channel::unbounded();
     let mut host = PrimaryWindowDisplayHost {
         cmd_tx,
+        render_waker: None,
         primary_window_adopted: true,
         primary_frame_id: Some(FrameId(0x100000001)),
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
@@ -742,6 +746,7 @@ fn redisplay_title_sync_formats_frame_title_format_for_primary_window() {
 
     eval.set_display_host(Box::new(PrimaryWindowDisplayHost {
         cmd_tx,
+        render_waker: None,
         primary_window_adopted: false,
         primary_frame_id: None,
         last_window_titles: Mutex::new(std::collections::HashMap::new()),
@@ -834,7 +839,7 @@ fn publish_gui_frame_sends_opening_frame_before_startup_lisp() {
     });
     let (frame_tx, frame_rx) = crossbeam_channel::unbounded();
 
-    publish_gui_frame(&mut eval, &frame_tx);
+    publish_gui_frame(&mut eval, &frame_tx, None);
 
     let display_state = frame_rx
         .try_recv()
