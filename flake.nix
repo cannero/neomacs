@@ -287,7 +287,8 @@
                 libdrm
                 libxkbcommon
                 libgbm
-                # X11 libs dynamically loaded by winit
+                # Display libs dynamically loaded by winit
+                wayland
                 libx11
                 libxcursor
                 libxrandr
