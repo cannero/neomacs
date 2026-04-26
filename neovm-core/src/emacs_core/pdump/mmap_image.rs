@@ -57,6 +57,14 @@ pub(crate) struct ImageSection<'a> {
     pub bytes: &'a [u8],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ImageRelocation {
+    pub location_section: DumpSectionKind,
+    pub location_offset: u64,
+    pub target_section: DumpSectionKind,
+    pub target_offset: u64,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 struct DumpImageHeader {
@@ -84,8 +92,18 @@ struct DumpImageSection {
     reserved: u64,
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct DumpImageRelocation {
+    location_section: u32,
+    target_section: u32,
+    location_offset: u64,
+    target_offset: u64,
+}
+
 const HEADER_SIZE: usize = std::mem::size_of::<DumpImageHeader>();
 const SECTION_SIZE: usize = std::mem::size_of::<DumpImageSection>();
+const RELOCATION_SIZE: usize = std::mem::size_of::<DumpImageRelocation>();
 
 pub(crate) struct LoadedMmapImage {
     mmap: MmapMut,
@@ -109,6 +127,55 @@ impl LoadedMmapImage {
         let start = section.offset as usize;
         let end = start + section.len as usize;
         Some(&mut self.mmap[start..end])
+    }
+
+    pub(crate) fn apply_relocations(&mut self) -> Result<(), DumpError> {
+        let Some(reloc_section) = self.section(DumpSectionKind::Relocations) else {
+            return Ok(());
+        };
+        if !reloc_section.len().is_multiple_of(RELOCATION_SIZE) {
+            return Err(DumpError::ImageFormatError(format!(
+                "relocation section length {} is not a multiple of {RELOCATION_SIZE}",
+                reloc_section.len()
+            )));
+        }
+
+        let relocations: Vec<DumpImageRelocation> = reloc_section
+            .chunks_exact(RELOCATION_SIZE)
+            .map(|chunk| *bytemuck::from_bytes::<DumpImageRelocation>(chunk))
+            .collect();
+
+        for relocation in relocations {
+            let location_kind = DumpSectionKind::from_raw(relocation.location_section)?;
+            let target_kind = DumpSectionKind::from_raw(relocation.target_section)?;
+            let location = self.section_bounds(location_kind)?;
+            let target = self.section_bounds(target_kind)?;
+
+            let location_start = checked_end(
+                location.start,
+                relocation.location_offset as usize,
+                location.end,
+            )?;
+            let location_end =
+                checked_end(location_start, std::mem::size_of::<usize>(), location.end)?;
+            let target_start =
+                checked_end(target.start, relocation.target_offset as usize, target.end)?;
+            let target_ptr = self.mmap.as_mut_ptr() as usize + target_start;
+
+            self.mmap[location_start..location_end].copy_from_slice(&target_ptr.to_ne_bytes());
+        }
+        Ok(())
+    }
+
+    fn section_bounds(&self, kind: DumpSectionKind) -> Result<std::ops::Range<usize>, DumpError> {
+        let section = self
+            .sections
+            .iter()
+            .find(|section| section.kind == kind as u32)
+            .ok_or_else(|| DumpError::ImageFormatError(format!("missing {kind:?} section")))?;
+        let start = section.offset as usize;
+        let end = start + section.len as usize;
+        Ok(start..end)
     }
 
     #[cfg(test)]
@@ -182,6 +249,20 @@ pub(crate) fn write_image(path: &Path, sections: &[ImageSection<'_>]) -> Result<
     file.as_file().sync_all()?;
     file.persist(path).map_err(|err| DumpError::Io(err.error))?;
     Ok(())
+}
+
+pub(crate) fn relocation_section_bytes(relocations: &[ImageRelocation]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(relocations.len() * RELOCATION_SIZE);
+    for relocation in relocations {
+        let raw = DumpImageRelocation {
+            location_section: relocation.location_section as u32,
+            target_section: relocation.target_section as u32,
+            location_offset: relocation.location_offset,
+            target_offset: relocation.target_offset,
+        };
+        bytes.extend_from_slice(bytemuck::bytes_of(&raw));
+    }
+    bytes
 }
 
 pub(crate) fn load_image(path: &Path) -> Result<LoadedMmapImage, DumpError> {
@@ -426,6 +507,124 @@ mod tests {
 
         assert!(matches!(
             load_image(&path),
+            Err(DumpError::ImageFormatError(_))
+        ));
+    }
+
+    #[test]
+    fn relocations_patch_mapped_pointers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        let pointer_bytes = vec![0u8; std::mem::size_of::<usize>()];
+        let relocations = relocation_section_bytes(&[ImageRelocation {
+            location_section: DumpSectionKind::HeapImage,
+            location_offset: 0,
+            target_section: DumpSectionKind::Metadata,
+            target_offset: 2,
+        }]);
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 0,
+                    bytes: &pointer_bytes,
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Metadata,
+                    flags: 0,
+                    bytes: b"abcdef",
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Relocations,
+                    flags: 0,
+                    bytes: &relocations,
+                },
+            ],
+        )
+        .unwrap();
+
+        let mut image = load_image(&path).unwrap();
+        let before = image.section(DumpSectionKind::HeapImage).unwrap();
+        assert_eq!(before, pointer_bytes.as_slice());
+
+        image.apply_relocations().unwrap();
+
+        let heap = image.section(DumpSectionKind::HeapImage).unwrap();
+        let patched =
+            usize::from_ne_bytes(heap[..std::mem::size_of::<usize>()].try_into().unwrap());
+        let metadata = image.section(DumpSectionKind::Metadata).unwrap();
+        let expected = unsafe { metadata.as_ptr().add(2) as usize };
+        assert_eq!(patched, expected);
+        assert!(image.mapped_range().contains(&patched));
+    }
+
+    #[test]
+    fn rejects_malformed_relocation_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 0,
+                    bytes: &[0u8; std::mem::size_of::<usize>()],
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Relocations,
+                    flags: 0,
+                    bytes: &[0u8; RELOCATION_SIZE - 1],
+                },
+            ],
+        )
+        .unwrap();
+
+        let mut image = load_image(&path).unwrap();
+        assert!(matches!(
+            image.apply_relocations(),
+            Err(DumpError::ImageFormatError(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_relocation_outside_location_section() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        let relocations = relocation_section_bytes(&[ImageRelocation {
+            location_section: DumpSectionKind::HeapImage,
+            location_offset: 1,
+            target_section: DumpSectionKind::Metadata,
+            target_offset: 0,
+        }]);
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 0,
+                    bytes: &[0u8; std::mem::size_of::<usize>()],
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Metadata,
+                    flags: 0,
+                    bytes: b"target",
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Relocations,
+                    flags: 0,
+                    bytes: &relocations,
+                },
+            ],
+        )
+        .unwrap();
+
+        let mut image = load_image(&path).unwrap();
+        assert!(matches!(
+            image.apply_relocations(),
             Err(DumpError::ImageFormatError(_))
         ));
     }
