@@ -270,6 +270,26 @@ fn print_vector() {
 }
 
 #[test]
+fn print_default_handles_circular_vector_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let vector = Value::vector(vec![Value::NIL]);
+    assert!(vector.set_vector_slot(0, vector));
+
+    assert_eq!(print_value(&vector), "[#0]");
+    assert_eq!(print_value_bytes(&vector), b"[#0]");
+}
+
+#[test]
+fn print_default_handles_circular_cons_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let cell = Value::cons(Value::NIL, Value::NIL);
+    cell.set_cdr(cell);
+
+    assert_eq!(print_value(&cell), "(nil . #0)");
+    assert_eq!(print_value_bytes(&cell), b"(nil . #0)");
+}
+
+#[test]
 fn print_circle_handles_self_referential_records() {
     crate::test_utils::init_test_tracing();
     let record = Value::make_record(vec![Value::symbol("foo"), Value::NIL]);
@@ -279,6 +299,35 @@ fn print_circle_handles_self_referential_records() {
     assert_eq!(
         print_value_stateful_with_buffers(&record, None, options),
         "#1=#s(foo #1#)"
+    );
+}
+
+#[test]
+fn print_default_handles_self_referential_records_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let record = Value::make_record(vec![Value::symbol("foo"), Value::NIL]);
+    record.with_record_data_mut(|slots| slots[1] = record);
+
+    assert_eq!(print_value(&record), "#s(foo #0)");
+    assert_eq!(print_value_bytes(&record), b"#s(foo #0)");
+}
+
+#[test]
+fn print_default_handles_self_referential_bytecode_constants() {
+    crate::test_utils::init_test_tracing();
+    let mut function =
+        crate::emacs_core::bytecode::ByteCodeFunction::new(LambdaParams::simple(vec![]));
+    function.constants.push(Value::NIL);
+    let bytecode = Value::make_bytecode(function);
+    bytecode.with_bytecode_data_mut(|data| data.constants[0] = bytecode);
+
+    assert_eq!(print_value(&bytecode), "#[nil nil [#0] 0 nil]");
+    assert_eq!(print_value_bytes(&bytecode), b"#[nil nil [#0] 0 nil]");
+
+    let options = PrintOptions::new(false, true, None, None);
+    assert_eq!(
+        print_value_with_options(&bytecode, options),
+        "#1=#[nil nil [#1#] 0 nil]"
     );
 }
 

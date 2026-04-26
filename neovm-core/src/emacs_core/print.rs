@@ -133,6 +133,7 @@ pub(crate) struct PrintState<'a> {
     pub circle: Option<&'a mut PrintCircleState>,
     pub buffers: Option<&'a crate::buffer::BufferManager>,
     pub depth: i64,
+    object_stack: Vec<u64>,
 }
 
 /// Check if a value is a candidate for circle detection.
@@ -146,6 +147,9 @@ fn is_print_circle_candidate(value: &Value, print_gensym: bool) -> bool {
         }
         ValueKind::Veclike(VecLikeType::Record) => true,
         ValueKind::Veclike(VecLikeType::HashTable) => true,
+        ValueKind::Veclike(VecLikeType::Lambda) => true,
+        ValueKind::Veclike(VecLikeType::Macro) => true,
+        ValueKind::Veclike(VecLikeType::ByteCode) => true,
         ValueKind::String => {
             // Non-empty strings only
             value.as_utf8_str().map_or(false, |s| !s.is_empty())
@@ -178,6 +182,7 @@ fn object_identity_key(value: &Value) -> Option<u64> {
         | ValueKind::Veclike(VecLikeType::HashTable)
         | ValueKind::String
         | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::Macro)
         | ValueKind::Veclike(VecLikeType::ByteCode) => Some(value.0 as u64),
         ValueKind::Symbol(id) => {
             // Use a distinct namespace to avoid collisions with heap pointer keys.
@@ -381,6 +386,24 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, options: PrintO
                     }
                 }
             }
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
+                if let Some(doc) = obj.closure_doc_value() {
+                    stack.push(doc);
+                }
+                if let Some(env) = obj.closure_env().flatten() {
+                    stack.push(env);
+                }
+                if let Some(body) = obj.closure_body_value() {
+                    stack.push(body);
+                }
+            }
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                let _ = with_bytecode_literal_slots(&obj, |slots| {
+                    for item in slots.iter().rev() {
+                        stack.push(*item);
+                    }
+                });
+            }
             _ => {}
         }
     }
@@ -474,6 +497,7 @@ pub(crate) fn print_value_stateful_with_buffers(
             },
             buffers,
             depth: 0,
+            object_stack: Vec::new(),
         };
         write_value_stateful(value, &mut out, &mut state);
     } else {
@@ -482,10 +506,64 @@ pub(crate) fn print_value_stateful_with_buffers(
             circle: None,
             buffers,
             depth: 0,
+            object_stack: Vec::new(),
         };
         write_value_stateful(value, &mut out, &mut state);
     }
     out
+}
+
+pub(crate) fn default_cycle_candidate_key(value: &Value) -> Option<u64> {
+    match value.kind() {
+        ValueKind::Cons => object_identity_key(value),
+        ValueKind::Veclike(VecLikeType::Vector) => value
+            .as_vector_data()
+            .is_some_and(|items| !items.is_empty())
+            .then(|| object_identity_key(value))
+            .flatten(),
+        ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::Veclike(VecLikeType::HashTable)
+        | ValueKind::Veclike(VecLikeType::Lambda)
+        | ValueKind::Veclike(VecLikeType::Macro)
+        | ValueKind::Veclike(VecLikeType::ByteCode) => object_identity_key(value),
+        _ => None,
+    }
+}
+
+fn default_cycle_stack_index(value: &Value, state: &PrintState) -> Option<usize> {
+    if state.circle.is_some() {
+        return None;
+    }
+    let key = default_cycle_candidate_key(value)?;
+    state.object_stack.iter().position(|entry| *entry == key)
+}
+
+fn push_default_cycle_object(value: &Value, state: &mut PrintState) -> bool {
+    if state.circle.is_some() {
+        return false;
+    }
+    let Some(key) = default_cycle_candidate_key(value) else {
+        return false;
+    };
+    state.object_stack.push(key);
+    true
+}
+
+fn with_default_cycle_guard(
+    value: &Value,
+    out: &mut String,
+    state: &mut PrintState,
+    render: impl FnOnce(&mut String, &mut PrintState),
+) {
+    if let Some(index) = default_cycle_stack_index(value, state) {
+        write!(out, "#{index}").unwrap();
+        return;
+    }
+    let pushed = push_default_cycle_object(value, state);
+    render(out, state);
+    if pushed {
+        state.object_stack.pop();
+    }
 }
 
 /// Core stateful print routine. Writes the printed representation of `value`
@@ -543,23 +621,25 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
             }
         }
         ValueKind::Cons => {
-            // Level check for containers
-            if let Some(level) = state.options.print_level {
-                if state.depth >= level {
-                    out.push_str("#");
+            with_default_cycle_guard(value, out, state, |out, state| {
+                // Level check for containers
+                if let Some(level) = state.options.print_level {
+                    if state.depth >= level {
+                        out.push_str("#");
+                        return;
+                    }
+                }
+                // Try shorthand (quote, function, backquote, etc.)
+                if let Some(shorthand) = write_list_shorthand_stateful(value, state) {
+                    out.push_str(&shorthand);
                     return;
                 }
-            }
-            // Try shorthand (quote, function, backquote, etc.)
-            if let Some(shorthand) = write_list_shorthand_stateful(value, state) {
-                out.push_str(&shorthand);
-                return;
-            }
-            state.depth += 1;
-            out.push('(');
-            write_cons_stateful(value, out, state);
-            out.push(')');
-            state.depth -= 1;
+                state.depth += 1;
+                out.push('(');
+                write_cons_stateful(value, out, state);
+                out.push(')');
+                state.depth -= 1;
+            });
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = bool_vector_length(value) {
@@ -567,7 +647,38 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 return;
             }
             if let Some(slots) = char_table_external_slots(value) {
-                // Level check for char-table
+                with_default_cycle_guard(value, out, state, |out, state| {
+                    // Level check for char-table
+                    if let Some(level) = state.options.print_level {
+                        if state.depth >= level {
+                            out.push_str("#");
+                            return;
+                        }
+                    }
+                    state.depth += 1;
+                    out.push_str("#^[");
+                    for (idx, item) in slots.iter().enumerate() {
+                        if let Some(length) = state.options.print_length {
+                            if idx as i64 >= length {
+                                if idx > 0 {
+                                    out.push(' ');
+                                }
+                                out.push_str("...");
+                                break;
+                            }
+                        }
+                        if idx > 0 {
+                            out.push(' ');
+                        }
+                        write_value_stateful(item, out, state);
+                    }
+                    out.push(']');
+                    state.depth -= 1;
+                });
+                return;
+            }
+            with_default_cycle_guard(value, out, state, |out, state| {
+                // Level check
                 if let Some(level) = state.options.print_level {
                     if state.depth >= level {
                         out.push_str("#");
@@ -575,8 +686,9 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                     }
                 }
                 state.depth += 1;
-                out.push_str("#^[");
-                for (idx, item) in slots.iter().enumerate() {
+                out.push('[');
+                let items = value.as_vector_data().unwrap().clone();
+                for (idx, item) in items.iter().enumerate() {
                     if let Some(length) = state.options.print_length {
                         if idx as i64 >= length {
                             if idx > 0 {
@@ -593,111 +705,58 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 }
                 out.push(']');
                 state.depth -= 1;
-                return;
-            }
-            // Level check
-            if let Some(level) = state.options.print_level {
-                if state.depth >= level {
-                    out.push_str("#");
-                    return;
-                }
-            }
-            state.depth += 1;
-            out.push('[');
-            let items = value.as_vector_data().unwrap().clone();
-            for (idx, item) in items.iter().enumerate() {
-                if let Some(length) = state.options.print_length {
-                    if idx as i64 >= length {
-                        if idx > 0 {
-                            out.push(' ');
-                        }
-                        out.push_str("...");
-                        break;
-                    }
-                }
-                if idx > 0 {
-                    out.push(' ');
-                }
-                write_value_stateful(item, out, state);
-            }
-            out.push(']');
-            state.depth -= 1;
+            });
         }
         ValueKind::Veclike(VecLikeType::Record) => {
-            // Level check
-            if let Some(level) = state.options.print_level {
-                if state.depth >= level {
-                    out.push_str("#");
-                    return;
-                }
-            }
-            state.depth += 1;
-            out.push_str("#s(");
-            let items = value.as_record_data().unwrap().clone();
-            for (idx, item) in items.iter().enumerate() {
-                if let Some(length) = state.options.print_length {
-                    if idx as i64 >= length {
-                        if idx > 0 {
-                            out.push(' ');
-                        }
-                        out.push_str("...");
-                        break;
+            with_default_cycle_guard(value, out, state, |out, state| {
+                // Level check
+                if let Some(level) = state.options.print_level {
+                    if state.depth >= level {
+                        out.push_str("#");
+                        return;
                     }
                 }
-                if idx > 0 {
-                    out.push(' ');
+                state.depth += 1;
+                out.push_str("#s(");
+                let items = value.as_record_data().unwrap().clone();
+                for (idx, item) in items.iter().enumerate() {
+                    if let Some(length) = state.options.print_length {
+                        if idx as i64 >= length {
+                            if idx > 0 {
+                                out.push(' ');
+                            }
+                            out.push_str("...");
+                            break;
+                        }
+                    }
+                    if idx > 0 {
+                        out.push(' ');
+                    }
+                    write_value_stateful(item, out, state);
                 }
-                write_value_stateful(item, out, state);
-            }
-            out.push(')');
-            state.depth -= 1;
+                out.push(')');
+                state.depth -= 1;
+            });
         }
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            // Level check
-            if let Some(level) = state.options.print_level {
-                if state.depth >= level {
-                    out.push_str("#");
-                    return;
+            with_default_cycle_guard(value, out, state, |out, state| {
+                // Level check
+                if let Some(level) = state.options.print_level {
+                    if state.depth >= level {
+                        out.push_str("#");
+                        return;
+                    }
                 }
-            }
-            state.depth += 1;
-            write_hash_table_stateful(value, out, state);
-            state.depth -= 1;
+                state.depth += 1;
+                write_hash_table_stateful(value, out, state);
+                state.depth -= 1;
+            });
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {
-            let obj_key = value.0;
-            let text = with_print_object_guard(
-                PrintObjectRef::Lambda(obj_key),
-                |index| format!("#{index}"),
-                || {
-                    if value.closure_env().flatten().is_some() {
-                        return format_interpreted_closure(value, state.options);
-                    }
-                    if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value)
-                    {
-                        return print_value_with_options(&list_form, state.options);
-                    }
-                    let params = value
-                        .closure_params()
-                        .map_or_else(|| "nil".to_string(), format_params);
-                    let body = value
-                        .closure_body_value()
-                        .map(|body| format_closure_body_forms(body, state.options))
-                        .unwrap_or_else(|| "nil".to_string());
-                    format!("(lambda {} {})", params, body)
-                },
-            );
-            out.push_str(&text);
+            write_lambda_stateful(value, out, state);
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
-            let params = value
-                .closure_params()
-                .map_or_else(|| "nil".to_string(), format_params);
-            let body = value
-                .closure_body_value()
-                .map(|body| format_closure_body_forms(body, state.options))
-                .unwrap_or_else(|| "nil".to_string());
-            write!(out, "(macro {} {})", params, body).unwrap();
+            write_macro_stateful(value, out, state);
         }
         ValueKind::Subr(id) => write!(out, "#<subr {}>", resolve_sym(id)).unwrap(),
         ValueKind::Veclike(VecLikeType::Subr) => {
@@ -715,7 +774,17 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
         ),
         ValueKind::Veclike(VecLikeType::Buffer) => {
             let bid = value.as_buffer_id().unwrap();
-            write!(out, "#<buffer {}>", bid.0).unwrap();
+            if let Some(buffers) = state.buffers {
+                if let Some(buf) = buffers.get(bid) {
+                    write!(out, "#<buffer {}>", buf.name_runtime_string_owned()).unwrap();
+                } else if buffers.dead_buffer_last_name_value(bid).is_some() {
+                    out.push_str("#<killed buffer>");
+                } else {
+                    write!(out, "#<buffer {}>", bid.0).unwrap();
+                }
+            } else {
+                write!(out, "#<buffer {}>", bid.0).unwrap();
+            }
         }
         ValueKind::Veclike(VecLikeType::Window) => {
             let wid = value.as_window_id().unwrap();
@@ -790,32 +859,34 @@ fn with_bytecode_literal_slots<R>(value: &Value, f: impl FnOnce(&[Value]) -> R) 
 }
 
 fn write_bytecode_literal_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
-    let _ = with_bytecode_literal_slots(value, |slots| {
-        if let Some(level) = state.options.print_level {
-            if state.depth >= level {
-                out.push_str("#");
-                return;
-            }
-        }
-        state.depth += 1;
-        out.push_str("#[");
-        for (idx, item) in slots.iter().enumerate() {
-            if let Some(length) = state.options.print_length {
-                if idx as i64 >= length {
-                    if idx > 0 {
-                        out.push(' ');
-                    }
-                    out.push_str("...");
-                    break;
+    with_default_cycle_guard(value, out, state, |out, state| {
+        let _ = with_bytecode_literal_slots(value, |slots| {
+            if let Some(level) = state.options.print_level {
+                if state.depth >= level {
+                    out.push_str("#");
+                    return;
                 }
             }
-            if idx > 0 {
-                out.push(' ');
+            state.depth += 1;
+            out.push_str("#[");
+            for (idx, item) in slots.iter().enumerate() {
+                if let Some(length) = state.options.print_length {
+                    if idx as i64 >= length {
+                        if idx > 0 {
+                            out.push(' ');
+                        }
+                        out.push_str("...");
+                        break;
+                    }
+                }
+                if idx > 0 {
+                    out.push(' ');
+                }
+                write_value_stateful(item, out, state);
             }
-            write_value_stateful(item, out, state);
-        }
-        out.push(']');
-        state.depth -= 1;
+            out.push(']');
+            state.depth -= 1;
+        });
     });
 }
 
@@ -828,6 +899,96 @@ fn format_bytecode_literal(value: &Value, options: PrintOptions) -> String {
         format!("#[{}]", parts.join(" "))
     })
     .unwrap_or_else(|| "#<bytecode>".to_string())
+}
+
+fn write_closure_body_forms_stateful(body: Value, out: &mut String, state: &mut PrintState) {
+    let Some(forms) = list_to_vec(&body) else {
+        write_value_stateful(&body, out, state);
+        return;
+    };
+    if forms.is_empty() {
+        out.push_str("nil");
+    } else {
+        for (idx, form) in forms.iter().enumerate() {
+            if idx > 0 {
+                out.push(' ');
+            }
+            write_value_stateful(form, out, state);
+        }
+    }
+}
+
+fn write_interpreted_closure_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    out.push_str("#[");
+    out.push_str(
+        &value
+            .closure_params()
+            .map_or_else(|| "nil".to_string(), format_params),
+    );
+    out.push(' ');
+    if let Some(body) = value.closure_body_value() {
+        write_value_stateful(&body, out, state);
+    } else {
+        out.push_str("nil");
+    }
+    out.push(' ');
+    let env = value.closure_env().flatten().expect("closure env");
+    if env == Value::NIL {
+        out.push_str("(t)");
+    } else {
+        write_value_stateful(&env, out, state);
+    }
+    if let Some(doc_value) = value.closure_doc_value()
+        && !doc_value.is_nil()
+    {
+        out.push_str(" nil ");
+        if doc_value.is_string() {
+            let ls = doc_value.as_lisp_string().unwrap();
+            out.push_str(&format_lisp_string_emacs(ls, &PrintOptions::default()));
+        } else {
+            write_value_stateful(&doc_value, out, state);
+        }
+    }
+    out.push(']');
+}
+
+fn write_lambda_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    with_lambda_print_guard(value, out, state, |out, state| {
+        with_default_cycle_guard(value, out, state, |out, state| {
+            if value.closure_env().flatten().is_some() {
+                write_interpreted_closure_stateful(value, out, state);
+            } else if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value)
+            {
+                write_value_stateful(&list_form, out, state);
+            } else {
+                let params = value
+                    .closure_params()
+                    .map_or_else(|| "nil".to_string(), format_params);
+                write!(out, "(lambda {} ", params).unwrap();
+                if let Some(body) = value.closure_body_value() {
+                    write_closure_body_forms_stateful(body, out, state);
+                } else {
+                    out.push_str("nil");
+                }
+                out.push(')');
+            }
+        });
+    });
+}
+
+fn write_macro_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
+    with_default_cycle_guard(value, out, state, |out, state| {
+        let params = value
+            .closure_params()
+            .map_or_else(|| "nil".to_string(), format_params);
+        write!(out, "(macro {} ", params).unwrap();
+        if let Some(body) = value.closure_body_value() {
+            write_closure_body_forms_stateful(body, out, state);
+        } else {
+            out.push_str("nil");
+        }
+        out.push(')');
+    });
 }
 
 fn append_bytecode_literal_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
@@ -912,9 +1073,19 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
     let mut cursor = *value;
     let mut first = true;
     let mut count: i64 = 0;
+    let stack_len = state.object_stack.len();
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
+                if !first && state.circle.is_none() {
+                    if let Some(index) = default_cycle_stack_index(&cursor, state) {
+                        out.push_str(" . ");
+                        write!(out, "#{index}").unwrap();
+                        state.object_stack.truncate(stack_len);
+                        return;
+                    }
+                    push_default_cycle_object(&cursor, state);
+                }
                 // Length check
                 if let Some(length) = state.options.print_length {
                     if count >= length {
@@ -922,6 +1093,7 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                             out.push(' ');
                         }
                         out.push_str("...");
+                        state.object_stack.truncate(stack_len);
                         return;
                     }
                 }
@@ -961,12 +1133,16 @@ fn write_cons_stateful(value: &Value, out: &mut String, state: &mut PrintState) 
                     }
                 }
             }
-            ValueKind::Nil => return,
+            ValueKind::Nil => {
+                state.object_stack.truncate(stack_len);
+                return;
+            }
             _ => {
                 if !first {
                     out.push_str(" . ");
                 }
                 write_value_stateful(&cursor, out, state);
+                state.object_stack.truncate(stack_len);
                 return;
             }
         }
@@ -1029,6 +1205,7 @@ fn write_hash_table_stateful(value: &Value, out: &mut String, state: &mut PrintS
 
 thread_local! {
     static PRINT_OBJECT_STACK: RefCell<Vec<PrintObjectRef>> = const { RefCell::new(Vec::new()) };
+    static PRINT_BYTES_OBJECT_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1051,6 +1228,68 @@ fn with_print_object_guard<R>(
         stack.borrow_mut().pop();
         rendered
     })
+}
+
+fn with_lambda_print_guard(
+    value: &Value,
+    out: &mut String,
+    state: &mut PrintState,
+    render: impl FnOnce(&mut String, &mut PrintState),
+) {
+    let object = PrintObjectRef::Lambda(value.0);
+    PRINT_OBJECT_STACK.with(|stack| {
+        if let Some(index) = stack.borrow().iter().position(|entry| *entry == object) {
+            write!(out, "#{index}").unwrap();
+            return;
+        }
+
+        stack.borrow_mut().push(object);
+        render(out, state);
+        stack.borrow_mut().pop();
+    });
+}
+
+fn append_bytes_cycle_ref_if_any(value: &Value, out: &mut Vec<u8>) -> bool {
+    let Some(key) = default_cycle_candidate_key(value) else {
+        return false;
+    };
+    PRINT_BYTES_OBJECT_STACK.with(|stack| {
+        if let Some(index) = stack.borrow().iter().position(|entry| *entry == key) {
+            out.extend_from_slice(format!("#{index}").as_bytes());
+            true
+        } else {
+            false
+        }
+    })
+}
+
+fn push_bytes_cycle_object(value: &Value) -> bool {
+    let Some(key) = default_cycle_candidate_key(value) else {
+        return false;
+    };
+    PRINT_BYTES_OBJECT_STACK.with(|stack| stack.borrow_mut().push(key));
+    true
+}
+
+fn pop_bytes_cycle_object(pushed: bool) {
+    if pushed {
+        PRINT_BYTES_OBJECT_STACK.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+
+fn bytes_object_stack_len() -> usize {
+    PRINT_BYTES_OBJECT_STACK.with(|stack| stack.borrow().len())
+}
+
+fn truncate_bytes_object_stack(len: usize) {
+    PRINT_BYTES_OBJECT_STACK.with(|stack| stack.borrow_mut().truncate(len));
+}
+
+fn bytes_cycle_stack_index(value: &Value) -> Option<usize> {
+    let key = default_cycle_candidate_key(value)?;
+    PRINT_BYTES_OBJECT_STACK.with(|stack| stack.borrow().iter().position(|entry| *entry == key))
 }
 
 fn format_marker_handle(
@@ -1166,61 +1405,7 @@ pub fn print_value_with_buffers_and_options(
     buffers: &crate::buffer::BufferManager,
     options: PrintOptions,
 ) -> String {
-    let _print_guard = enter_print_call(&options);
-    // Delegate to the stateful printer when circle/level/length are active.
-    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
-        return print_value_stateful_with_buffers(value, Some(buffers), options);
-    }
-    if let Some(handle) = print_special_handle(value, Some(buffers)) {
-        return handle;
-    }
-    match value.kind() {
-        ValueKind::Veclike(VecLikeType::Buffer) => {
-            let bid = value.as_buffer_id().unwrap();
-            if let Some(buf) = buffers.get(bid) {
-                return format!("#<buffer {}>", buf.name_runtime_string_owned());
-            }
-            if buffers.dead_buffer_last_name_value(bid).is_some() {
-                return "#<killed buffer>".to_string();
-            }
-            format!("#<buffer {}>", bid.0)
-        }
-        ValueKind::Cons => {
-            // Recurse with buffer awareness
-            if let Some(shorthand) = print_list_shorthand_with_buffers(value, buffers, options) {
-                return shorthand;
-            }
-            let mut out = String::from("(");
-            print_cons_with_buffers(value, &mut out, buffers, options);
-            out.push(')');
-            out
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            if let Some(nbits) = super::chartable::bool_vector_length(value) {
-                return format_bool_vector(value, nbits as usize);
-            }
-            if let Some(slots) = char_table_external_slots(value) {
-                let parts: Vec<String> = slots
-                    .iter()
-                    .map(|v| print_value_with_buffers_and_options(v, buffers, options))
-                    .collect();
-                return format!("#^[{}]", parts.join(" "));
-            }
-            let items = value.as_vector_data().unwrap().clone();
-            let parts: Vec<String> = items
-                .iter()
-                .map(|v| print_value_with_buffers_and_options(v, buffers, options))
-                .collect();
-            format!("[{}]", parts.join(" "))
-        }
-        ValueKind::Veclike(VecLikeType::Marker) => {
-            print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<marker>".to_string())
-        }
-        ValueKind::Veclike(VecLikeType::Overlay) => {
-            print_special_handle(value, Some(buffers)).unwrap_or_else(|| "#<overlay>".to_string())
-        }
-        _ => print_value_with_options(value, options),
-    }
+    print_value_stateful_with_buffers(value, Some(buffers), options)
 }
 
 fn print_list_shorthand_with_buffers(
@@ -1311,130 +1496,7 @@ pub fn print_value(value: &Value) -> String {
 }
 
 pub fn print_value_with_options(value: &Value, options: PrintOptions) -> String {
-    let _print_guard = enter_print_call(&options);
-    // Delegate to the stateful printer when circle/level/length are active.
-    if options.print_circle || options.print_level.is_some() || options.print_length.is_some() {
-        return print_value_stateful(value, options);
-    }
-    if let Some(handle) = print_special_handle(value, None) {
-        return handle;
-    }
-    match value.kind() {
-        ValueKind::Nil => "nil".to_string(),
-        ValueKind::T => "t".to_string(),
-        ValueKind::Fixnum(v) => v.to_string(),
-        ValueKind::Float => format_float(value.xfloat()),
-        ValueKind::Symbol(id) => format_symbol(id, options),
-        ValueKind::String => {
-            let ls = value.as_lisp_string().unwrap();
-            match get_string_text_properties_for_value(*value) {
-                Some(runs) => format_lisp_propertized_string_emacs(ls, &runs, options),
-                None => format_lisp_string_emacs(ls, &options),
-            }
-        }
-        // Emacs chars are integer values, so print as codepoint.
-        ValueKind::Cons => {
-            if let Some(shorthand) = print_list_shorthand(value, options) {
-                return shorthand;
-            }
-            let mut out = String::from("(");
-            print_cons(value, &mut out, options);
-            out.push(')');
-            out
-        }
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            if let Some(nbits) = bool_vector_length(value) {
-                return format_bool_vector(value, nbits as usize);
-            }
-            if let Some(slots) = char_table_external_slots(value) {
-                let parts: Vec<String> = slots
-                    .iter()
-                    .map(|item| print_value_with_options(item, options))
-                    .collect();
-                return format!("#^[{}]", parts.join(" "));
-            }
-            let items = value.as_vector_data().unwrap().clone();
-            let parts: Vec<String> = items
-                .iter()
-                .map(|item| print_value_with_options(item, options))
-                .collect();
-            format!("[{}]", parts.join(" "))
-        }
-        ValueKind::Veclike(VecLikeType::Record) => {
-            let items = value.as_record_data().unwrap().clone();
-            let parts: Vec<String> = items
-                .iter()
-                .map(|item| print_value_with_options(item, options))
-                .collect();
-            format!("#s({})", parts.join(" "))
-        }
-        ValueKind::Veclike(VecLikeType::HashTable) => format_hash_table(value, options),
-        ValueKind::Veclike(VecLikeType::Lambda) => with_print_object_guard(
-            PrintObjectRef::Lambda(value.0),
-            |index| format!("#{index}"),
-            || {
-                if value.closure_env().flatten().is_some() {
-                    return format_interpreted_closure(value, options);
-                }
-                if let Some(list_form) = crate::emacs_core::builtins::lambda_to_cons_list(value) {
-                    return print_value_with_options(&list_form, options);
-                }
-                let params = value
-                    .closure_params()
-                    .map_or_else(|| "nil".to_string(), format_params);
-                let body = value
-                    .closure_body_value()
-                    .map(|body| format_closure_body_forms(body, options))
-                    .unwrap_or_else(|| "nil".to_string());
-                format!("(lambda {} {})", params, body)
-            },
-        ),
-        ValueKind::Veclike(VecLikeType::Macro) => {
-            let params = value
-                .closure_params()
-                .map_or_else(|| "nil".to_string(), format_params);
-            let body = value
-                .closure_body_value()
-                .map(|body| format_closure_body_forms(body, options))
-                .unwrap_or_else(|| "nil".to_string());
-            format!("(macro {} {})", params, body)
-        }
-        ValueKind::Subr(id) => {
-            format!("#<subr {}>", resolve_sym(id))
-        }
-        ValueKind::Veclike(VecLikeType::Subr) => {
-            let id = value.as_subr_id().unwrap();
-            format!("#<subr {}>", resolve_sym(id))
-        }
-        ValueKind::Veclike(VecLikeType::ByteCode) => format_bytecode_literal(value, options),
-        ValueKind::Veclike(VecLikeType::Marker) => {
-            print_special_handle(value, None).unwrap_or_else(|| "#<marker>".to_string())
-        }
-        ValueKind::Veclike(VecLikeType::Overlay) => {
-            print_special_handle(value, None).unwrap_or_else(|| "#<overlay>".to_string())
-        }
-        ValueKind::Veclike(VecLikeType::Buffer) => {
-            format!("#<buffer {}>", value.as_buffer_id().unwrap().0)
-        }
-        ValueKind::Veclike(VecLikeType::Window) => {
-            format!("#<window {}>", value.as_window_id().unwrap())
-        }
-        ValueKind::Veclike(VecLikeType::Frame) => format_frame_handle(value.as_frame_id().unwrap()),
-        ValueKind::Veclike(VecLikeType::Timer) => {
-            format!("#<timer {}>", value.as_timer_id().unwrap())
-        }
-        ValueKind::Veclike(VecLikeType::Bignum) => value.as_bignum().unwrap().to_string(),
-        ValueKind::Veclike(VecLikeType::SymbolWithPos) => {
-            // GNU prints symbol-with-pos as the bare symbol name.
-            // Full implementation in Task 7.
-            value
-                .as_symbol_with_pos_sym()
-                .map(|sym| print_value_with_options(&sym, options))
-                .unwrap_or_else(|| "#<symbol-with-pos>".to_string())
-        }
-        ValueKind::Unbound => "#<unbound>".to_string(),
-        ValueKind::Unknown => format!("#<unknown {:#x}>", value.0),
-    }
+    print_value_stateful(value, options)
 }
 
 /// Print a `Value` as a Lisp byte sequence.
@@ -1486,19 +1548,29 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             }
         }
         ValueKind::Cons => {
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             if let Some(shorthand) = print_list_shorthand_bytes(value, options) {
                 out.extend_from_slice(&shorthand);
+                pop_bytes_cycle_object(pushed);
                 return;
             }
             out.push(b'(');
             print_cons_bytes(value, out, options);
             out.push(b')');
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
             if let Some(nbits) = bool_vector_length(value) {
                 append_bool_vector_bytes(value, nbits as usize, out);
                 return;
             }
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             if let Some(slots) = char_table_external_slots(value) {
                 out.extend_from_slice(b"#^[");
                 for (idx, item) in slots.iter().enumerate() {
@@ -1508,6 +1580,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                     append_print_value_bytes(item, out, options);
                 }
                 out.push(b']');
+                pop_bytes_cycle_object(pushed);
                 return;
             }
             out.push(b'[');
@@ -1519,8 +1592,13 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 append_print_value_bytes(item, out, options);
             }
             out.push(b']');
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::Record) => {
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             out.extend_from_slice(b"#s(");
             let items = value.as_record_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
@@ -1530,11 +1608,21 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 append_print_value_bytes(item, out, options);
             }
             out.push(b')');
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            out.extend_from_slice(format_hash_table(value, options).as_bytes());
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
+            append_hash_table_bytes(value, out, options);
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::Lambda) => {
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             let text = with_print_object_guard(
                 PrintObjectRef::Lambda(value.0),
                 |index| format!("#{index}"),
@@ -1559,8 +1647,13 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 },
             );
             out.extend_from_slice(text.as_bytes());
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::Macro) => {
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             let params = value
                 .closure_params()
                 .map_or_else(|| "nil".to_string(), format_params);
@@ -1569,6 +1662,7 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 .map(|body| format_closure_body_forms(body, options))
                 .unwrap_or_else(|| "nil".to_string());
             out.extend_from_slice(format!("(macro {} {})", params, body).as_bytes());
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Subr(id) => {
             out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
@@ -1578,7 +1672,12 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
             out.extend_from_slice(format!("#<subr {}>", resolve_sym(id)).as_bytes())
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => {
+            if append_bytes_cycle_ref_if_any(value, out) {
+                return;
+            }
+            let pushed = push_bytes_cycle_object(value);
             append_bytecode_literal_bytes(value, out, options);
+            pop_bytes_cycle_object(pushed);
         }
         ValueKind::Veclike(VecLikeType::Marker) => out.extend_from_slice(
             print_special_handle(value, None)
@@ -2050,9 +2149,19 @@ fn print_cons(value: &Value, out: &mut String, options: PrintOptions) {
 fn print_cons_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
     let mut cursor = *value;
     let mut first = true;
+    let stack_len = bytes_object_stack_len();
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
+                if !first {
+                    if let Some(index) = bytes_cycle_stack_index(&cursor) {
+                        out.extend_from_slice(b" . ");
+                        out.extend_from_slice(format!("#{index}").as_bytes());
+                        truncate_bytes_object_stack(stack_len);
+                        return;
+                    }
+                    push_bytes_cycle_object(&cursor);
+                }
                 if !first {
                     out.push(b' ');
                 }
@@ -2062,12 +2171,16 @@ fn print_cons_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
                 cursor = pair_cdr;
                 first = false;
             }
-            ValueKind::Nil => return,
+            ValueKind::Nil => {
+                truncate_bytes_object_stack(stack_len);
+                return;
+            }
             _ => {
                 if !first {
                     out.extend_from_slice(b" . ");
                 }
                 append_print_value_bytes(&cursor, out, options);
+                truncate_bytes_object_stack(stack_len);
                 return;
             }
         }
@@ -2173,6 +2286,48 @@ fn format_hash_table(value: &Value, options: PrintOptions) -> String {
 
     out.push(')');
     out
+}
+
+fn append_hash_table_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOptions) {
+    let table = value.as_hash_table().unwrap().clone();
+    out.extend_from_slice(b"#s(hash-table");
+
+    match table.test {
+        HashTableTest::Eq => out.extend_from_slice(b" test eq"),
+        HashTableTest::Equal => out.extend_from_slice(b" test equal"),
+        HashTableTest::Eql => {}
+    }
+
+    if let Some(ref weakness) = table.weakness {
+        let name = match weakness {
+            super::value::HashTableWeakness::Key => "key",
+            super::value::HashTableWeakness::Value => "value",
+            super::value::HashTableWeakness::KeyOrValue => "key-or-value",
+            super::value::HashTableWeakness::KeyAndValue => "key-and-value",
+        };
+        out.extend_from_slice(b" weakness ");
+        out.extend_from_slice(name.as_bytes());
+    }
+
+    if !table.data.is_empty() {
+        out.extend_from_slice(b" data (");
+        let mut first = true;
+        for key in &table.insertion_order {
+            if let Some(val) = table.data.get(key) {
+                if !first {
+                    out.push(b' ');
+                }
+                let key_val = super::hashtab::hash_key_to_visible_value(&table, key);
+                append_print_value_bytes(&key_val, out, options);
+                out.push(b' ');
+                append_print_value_bytes(val, out, options);
+                first = false;
+            }
+        }
+        out.push(b')');
+    }
+
+    out.push(b')');
 }
 
 #[cfg(test)]

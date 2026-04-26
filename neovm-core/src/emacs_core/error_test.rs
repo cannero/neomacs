@@ -160,3 +160,25 @@ fn eval_context_printer_matches_gnu_backquote_shorthand_rules() {
         "`(a ,x)"
     );
 }
+
+#[test]
+fn eval_context_printer_handles_default_circular_vector_backreference() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    let vector = Value::vector(vec![Value::NIL]);
+    assert!(vector.set_vector_slot(0, vector));
+
+    assert_eq!(print_value_with_eval(&eval, &vector), "[#0]");
+    assert_eq!(print_value_bytes_with_eval(&eval, &vector), b"[#0]");
+}
+
+#[test]
+fn eval_context_printer_handles_default_circular_cons_backreference() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+    let cell = Value::cons(Value::NIL, Value::NIL);
+    cell.set_cdr(cell);
+
+    assert_eq!(print_value_with_eval(&eval, &cell), "(nil . #0)");
+    assert_eq!(print_value_bytes_with_eval(&eval, &cell), b"(nil . #0)");
+}

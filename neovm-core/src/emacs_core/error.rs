@@ -1,5 +1,6 @@
 //! Error and signal types for the evaluator.
 
+use std::cell::RefCell;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
@@ -8,6 +9,10 @@ use super::print::PrintOptions;
 use super::value::{Value, ValueKind, VecLikeType};
 use crate::emacs_core::eval::ResumeTarget;
 use crate::window::WindowId;
+
+thread_local! {
+    static FORMAT_OBJECT_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+}
 
 /// Public-facing evaluation error.
 #[derive(Clone, Debug)]
@@ -360,6 +365,35 @@ pub(crate) fn print_value_in_state_with_options(
     )
 }
 
+fn format_cycle_stack_index(value: &Value) -> Option<usize> {
+    let key = super::print::default_cycle_candidate_key(value)?;
+    FORMAT_OBJECT_STACK.with(|stack| stack.borrow().iter().position(|entry| *entry == key))
+}
+
+fn push_format_cycle_object(value: &Value) -> bool {
+    let Some(key) = super::print::default_cycle_candidate_key(value) else {
+        return false;
+    };
+    FORMAT_OBJECT_STACK.with(|stack| stack.borrow_mut().push(key));
+    true
+}
+
+fn pop_format_cycle_object(pushed: bool) {
+    if pushed {
+        FORMAT_OBJECT_STACK.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+
+fn format_object_stack_len() -> usize {
+    FORMAT_OBJECT_STACK.with(|stack| stack.borrow().len())
+}
+
+fn truncate_format_object_stack(len: usize) {
+    FORMAT_OBJECT_STACK.with(|stack| stack.borrow_mut().truncate(len));
+}
+
 fn format_value_in_state(
     obarray: &super::symbol::Obarray,
     buffers: &crate::buffer::BufferManager,
@@ -380,7 +414,14 @@ fn format_value_in_state(
     }
     match value.kind() {
         ValueKind::Cons | ValueKind::Veclike(VecLikeType::Vector) => {
-            format_value_in_state_slow(obarray, buffers, frames, threads, value, options)
+            if let Some(index) = format_cycle_stack_index(value) {
+                return format!("#{index}");
+            }
+            let pushed = push_format_cycle_object(value);
+            let rendered =
+                format_value_in_state_slow(obarray, buffers, frames, threads, value, options);
+            pop_format_cycle_object(pushed);
+            rendered
         }
         _ => super::print::print_value_with_options(value, options),
     }
@@ -484,9 +525,19 @@ fn format_cons_in_state(
 ) {
     let mut cursor = *value;
     let mut first = true;
+    let stack_len = format_object_stack_len();
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
+                if !first {
+                    if let Some(index) = format_cycle_stack_index(&cursor) {
+                        out.push_str(" . ");
+                        out.push_str(&format!("#{index}"));
+                        truncate_format_object_stack(stack_len);
+                        return;
+                    }
+                    push_format_cycle_object(&cursor);
+                }
                 if !first {
                     out.push(' ');
                 }
@@ -498,7 +549,10 @@ fn format_cons_in_state(
                 cursor = pair_cdr;
                 first = false;
             }
-            ValueKind::Nil => return,
+            ValueKind::Nil => {
+                truncate_format_object_stack(stack_len);
+                return;
+            }
             _ => {
                 if !first {
                     out.push_str(" . ");
@@ -506,6 +560,7 @@ fn format_cons_in_state(
                 out.push_str(&format_value_in_state(
                     obarray, buffers, frames, threads, &cursor, options,
                 ));
+                truncate_format_object_stack(stack_len);
                 return;
             }
         }
@@ -551,10 +606,24 @@ pub(crate) fn format_value_bytes_in_state_with_options(
     }
     match value.kind() {
         ValueKind::Cons => {
-            format_cons_bytes_in_state(obarray, buffers, frames, threads, value, options)
+            if let Some(index) = format_cycle_stack_index(value) {
+                return format!("#{index}").into_bytes();
+            }
+            let pushed = push_format_cycle_object(value);
+            let rendered =
+                format_cons_bytes_in_state(obarray, buffers, frames, threads, value, options);
+            pop_format_cycle_object(pushed);
+            rendered
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            format_vector_bytes_in_state(obarray, buffers, frames, threads, value, options)
+            if let Some(index) = format_cycle_stack_index(value) {
+                return format!("#{index}").into_bytes();
+            }
+            let pushed = push_format_cycle_object(value);
+            let rendered =
+                format_vector_bytes_in_state(obarray, buffers, frames, threads, value, options);
+            pop_format_cycle_object(pushed);
+            rendered
         }
         _ => super::print::print_value_bytes_with_options(value, options),
     }
@@ -691,9 +760,19 @@ fn append_cons_bytes_in_state(
 ) {
     let mut cursor = *value;
     let mut first = true;
+    let stack_len = format_object_stack_len();
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
+                if !first {
+                    if let Some(index) = format_cycle_stack_index(&cursor) {
+                        out.extend_from_slice(b" . ");
+                        out.extend_from_slice(format!("#{index}").as_bytes());
+                        truncate_format_object_stack(stack_len);
+                        return;
+                    }
+                    push_format_cycle_object(&cursor);
+                }
                 if !first {
                     out.push(b' ');
                 }
@@ -705,7 +784,10 @@ fn append_cons_bytes_in_state(
                 cursor = pair_cdr;
                 first = false;
             }
-            ValueKind::Nil => return,
+            ValueKind::Nil => {
+                truncate_format_object_stack(stack_len);
+                return;
+            }
             _ => {
                 if !first {
                     out.extend_from_slice(b" . ");
@@ -713,6 +795,7 @@ fn append_cons_bytes_in_state(
                 out.extend(format_value_bytes_in_state_with_options(
                     obarray, buffers, frames, threads, &cursor, options,
                 ));
+                truncate_format_object_stack(stack_len);
                 return;
             }
         }
