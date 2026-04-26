@@ -356,6 +356,73 @@ impl Drop for ConsBlock {
     }
 }
 
+struct MappedConsRange {
+    start: *mut ConsCell,
+    len: usize,
+    mark_bits: Vec<usize>,
+}
+
+impl MappedConsRange {
+    fn new(start: *mut ConsCell, len: usize) -> Self {
+        Self {
+            start,
+            len,
+            mark_bits: vec![0; cons_mark_words(len)],
+        }
+    }
+
+    #[inline]
+    fn contains_ptr(&self, ptr: *const ConsCell) -> bool {
+        if ptr.is_null() || self.len == 0 {
+            return false;
+        }
+        let start = self.start as usize;
+        let end = start + self.len * size_of::<ConsCell>();
+        let ptr = ptr as usize;
+        start <= ptr && ptr < end && (ptr - start).is_multiple_of(size_of::<ConsCell>())
+    }
+
+    #[inline]
+    fn index_of_ptr(&self, ptr: *const ConsCell) -> usize {
+        (ptr as usize - self.start as usize) / size_of::<ConsCell>()
+    }
+
+    #[inline]
+    fn is_marked_ptr(&self, ptr: *const ConsCell) -> bool {
+        let index = self.index_of_ptr(ptr);
+        let (word, mask) = ConsBlock::mark_bit(index);
+        (self.mark_bits[word] & mask) != 0
+    }
+
+    #[inline]
+    fn mark_ptr(&mut self, ptr: *const ConsCell) {
+        let index = self.index_of_ptr(ptr);
+        let (word, mask) = ConsBlock::mark_bit(index);
+        self.mark_bits[word] |= mask;
+    }
+
+    fn clear_marks(&mut self) {
+        self.mark_bits.fill(0);
+    }
+
+    fn live_count(&self) -> usize {
+        self.mark_bits
+            .iter()
+            .enumerate()
+            .map(|(word_index, word)| {
+                let full_words = self.len / CONS_MARK_BITS_PER_WORD;
+                let tail_bits = self.len % CONS_MARK_BITS_PER_WORD;
+                if word_index < full_words || tail_bits == 0 {
+                    word.count_ones() as usize
+                } else {
+                    let mask = (1usize << tail_bits) - 1;
+                    (word & mask).count_ones() as usize
+                }
+            })
+            .sum()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TaggedHeap — the main GC-managed heap
 // ---------------------------------------------------------------------------
@@ -390,6 +457,10 @@ pub struct TaggedHeap {
     /// Reclaimed cons cells threaded through the dead cells themselves,
     /// matching GNU alloc.c's `cons_free_list`.
     cons_free_list: *mut ConsCell,
+    /// Cons cells loaded directly from a mapped pdump image.  GNU's pdumper
+    /// uses external mark bits for dumped objects rather than writing mark
+    /// state into malloc/GC allocation headers; mirror that for mapped conses.
+    mapped_cons_ranges: Vec<MappedConsRange>,
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
@@ -436,6 +507,7 @@ impl TaggedHeap {
             live_bytes: 0,
             gray_queue: Vec::new(),
             cons_free_list: std::ptr::null_mut(),
+            mapped_cons_ranges: Vec::new(),
             cons_live_count: 0,
             marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
@@ -535,6 +607,24 @@ impl TaggedHeap {
 
     pub fn register_timer_value(&mut self, id: u64, value: TaggedValue) {
         self.timer_registry.insert(id, value);
+    }
+
+    /// Register cons cells whose storage is owned by the loaded pdump image.
+    ///
+    /// # Safety
+    /// `start..start+len` must remain mapped and writable for the lifetime of
+    /// this heap.  The range must contain aligned `ConsCell` objects.
+    pub(crate) unsafe fn register_mapped_cons_range(&mut self, start: *mut ConsCell, len: usize) {
+        if len == 0 {
+            return;
+        }
+        debug_assert_eq!(start as usize % std::mem::align_of::<ConsCell>(), 0);
+        self.mapped_cons_ranges
+            .push(MappedConsRange::new(start, len));
+        self.allocated_count = self.allocated_count.saturating_add(len);
+        self.live_bytes = self
+            .live_bytes
+            .saturating_add(len.saturating_mul(size_of::<ConsCell>()));
     }
 
     pub fn dirty_owner_count(&self) -> usize {
@@ -1081,6 +1171,9 @@ impl TaggedHeap {
         for block in &mut self.cons_blocks {
             block.clear_marks();
         }
+        for range in &mut self.mapped_cons_ranges {
+            range.clear_marks();
+        }
         // Clear marks on non-cons objects
         let mut obj = self.all_objects;
         while !obj.is_null() {
@@ -1207,7 +1300,7 @@ impl TaggedHeap {
     /// Mark a cons cell. Returns true if newly marked (not previously marked).
     fn mark_cons(&mut self, ptr: *const ConsCell) -> bool {
         if !self.owns_cons_ptr(ptr) {
-            return false;
+            return self.mark_mapped_cons(ptr);
         }
         let block_base = ConsBlock::block_base_for_ptr(ptr);
         let block_index = *self
@@ -1220,6 +1313,20 @@ impl TaggedHeap {
         }
         block.mark_ptr(ptr);
         true
+    }
+
+    fn mark_mapped_cons(&mut self, ptr: *const ConsCell) -> bool {
+        for range in &mut self.mapped_cons_ranges {
+            if !range.contains_ptr(ptr) {
+                continue;
+            }
+            if range.is_marked_ptr(ptr) {
+                return false;
+            }
+            range.mark_ptr(ptr);
+            return true;
+        }
+        false
     }
 
     /// Trace children of a vectorlike object, pushing them onto the gray queue.
@@ -1347,7 +1454,14 @@ impl TaggedHeap {
             .allocated_count
             .saturating_sub(old_live)
             .saturating_add(new_live);
-        new_live.saturating_mul(size_of::<ConsCell>())
+        let mapped_live = self
+            .mapped_cons_ranges
+            .iter()
+            .map(MappedConsRange::live_count)
+            .sum::<usize>();
+        new_live
+            .saturating_add(mapped_live)
+            .saturating_mul(size_of::<ConsCell>())
     }
 
     /// Sweep non-cons objects: walk intrusive list, free unmarked, rebuild list.

@@ -62,7 +62,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   string data split.
 // v29: Vector, record, lambda, and macro slot arrays are installed from
 //   mmap heap spans during file pdump load.
-const FORMAT_VERSION: u32 = 29;
+// v30: Cons cells are loaded as real tagged pointers into the mmap heap image
+//   with external GC mark bits, matching GNU pdumper's dumped-object marking
+//   model for conses instead of reconstructing them as fresh heap allocations.
+const FORMAT_VERSION: u32 = 30;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")

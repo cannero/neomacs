@@ -59,9 +59,9 @@ use crate::face::{
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
-    BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, FloatObj, FrameObj, HashTableObj, LambdaObj,
-    LispValueVec, MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj, TimerObj,
-    VectorObj, WindowObj,
+    BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, ConsCell, FloatObj, FrameObj, HashTableObj,
+    LambdaObj, LispValueVec, MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj,
+    TimerObj, VectorObj, WindowObj,
 };
 use crate::tagged::value::TaggedValue;
 
@@ -99,6 +99,7 @@ impl TaggedDumpState {
                 .into_iter()
                 .map(|obj| obj.unwrap_or(DumpHeapObject::Free))
                 .collect(),
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         }
     }
@@ -213,6 +214,7 @@ impl DumpEncoder {
 
 pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
+    mapped_cons: Vec<Option<DumpConsSpan>>,
     mapped_slots: Vec<Option<DumpSlotSpan>>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -238,6 +240,7 @@ impl TaggedLoadState {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
+            mapped_cons: heap.mapped_cons.clone(),
             mapped_slots: heap.mapped_slots.clone(),
             values: vec![None; len],
             populated: vec![false; len],
@@ -271,6 +274,7 @@ impl LoadDecoder {
     }
 
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
+        self.register_mapped_cons_ranges()?;
         for index in 0..self.state.objects.len() {
             self.allocate_tagged_placeholder(TaggedHeapRef {
                 index: index as u32,
@@ -281,6 +285,43 @@ impl LoadDecoder {
                 index: index as u32,
             })?;
         }
+        Ok(())
+    }
+
+    fn register_mapped_cons_ranges(&self) -> Result<(), DumpError> {
+        let mut offsets: Vec<_> = self
+            .state
+            .mapped_cons
+            .iter()
+            .flatten()
+            .map(|span| span.offset)
+            .collect();
+        if offsets.is_empty() {
+            return Ok(());
+        }
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped cons cells but image has no heap section".into(),
+            )
+        })?;
+        offsets.sort_unstable();
+        let cell_size = std::mem::size_of::<ConsCell>() as u64;
+        let mut run_start = offsets[0];
+        let mut run_len = 1usize;
+        let mut prev = offsets[0];
+        for offset in offsets.into_iter().skip(1) {
+            if offset == prev + cell_size {
+                run_len += 1;
+            } else {
+                let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
+                with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, run_len) });
+                run_start = offset;
+                run_len = 1;
+            }
+            prev = offset;
+        }
+        let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
+        with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, run_len) });
         Ok(())
     }
 
@@ -379,6 +420,27 @@ impl LoadDecoder {
         }))
     }
 
+    fn mapped_cons_cell_for_object(
+        &self,
+        id: TaggedHeapRef,
+    ) -> Result<Option<*mut ConsCell>, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_cons
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped cons cells but image has no heap section".into(),
+            )
+        })?;
+        mapped_heap.cons_cell_mut(span).map(Some)
+    }
+
     fn install_mapped_vector_slots(value: Value, storage: LispValueVec) -> bool {
         if value.veclike_type() != Some(VecLikeType::Vector) {
             return false;
@@ -430,7 +492,17 @@ impl LoadDecoder {
             return Ok(value);
         }
         let value = match &self.state.objects[id.index as usize] {
-            DumpHeapObject::Cons { .. } => Value::cons(Value::NIL, Value::NIL),
+            DumpHeapObject::Cons { .. } => {
+                if let Some(cell) = self.mapped_cons_cell_for_object(id)? {
+                    unsafe {
+                        (*cell).set_car(Value::NIL);
+                        (*cell).set_cdr(Value::NIL);
+                        Value::from_cons_ptr(cell)
+                    }
+                } else {
+                    Value::cons(Value::NIL, Value::NIL)
+                }
+            }
             DumpHeapObject::Vector(items) => Value::make_vector(vec![Value::NIL; items.len()]),
             DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
                 heap.alloc_hash_table(LispHashTable::new_with_options(
@@ -708,6 +780,7 @@ mod tests {
             .collect();
         let heap = DumpTaggedHeap {
             objects,
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         };
         let mut decoder = LoadDecoder::new(&heap);
@@ -2213,6 +2286,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         symbol_table: dump_symbol_table(),
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         },
         obarray: dump_obarray(&mut encoder, eval),

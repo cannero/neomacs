@@ -102,6 +102,62 @@ fn file_pdump_loads_vector_slots_from_mmap_image() {
 }
 
 #[test]
+fn file_pdump_loads_cons_cells_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-cons",
+        Value::cons(
+            Value::string("mapped-cons-car"),
+            Value::vector(vec![Value::fixnum(9)]),
+        ),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-cons.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-cons")
+        .expect("restored cons symbol");
+
+    assert!(value.is_cons());
+    assert!(
+        loaded.pdump_image_contains_ptr(value.xcons_ptr().cast::<u8>()),
+        "loaded cons cell must be a tagged pointer into the retained mmap image"
+    );
+    assert_eq!(
+        value
+            .cons_car()
+            .as_lisp_string()
+            .expect("cons car string")
+            .as_bytes(),
+        b"mapped-cons-car"
+    );
+    assert_eq!(
+        value.cons_cdr().as_vector_data().unwrap().as_slice(),
+        &[Value::fixnum(9)]
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-cons")
+        .expect("restored cons symbol after GC");
+    assert_eq!(
+        value_after_gc
+            .cons_car()
+            .as_lisp_string()
+            .expect("cons car string after GC")
+            .as_bytes(),
+        b"mapped-cons-car",
+        "mapped cons GC marking must trace children from the mmap cell"
+    );
+}
+
+#[test]
 fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

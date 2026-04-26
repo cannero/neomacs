@@ -7,7 +7,10 @@
 //! mmap-backed heap section.
 
 use super::DumpError;
-use super::types::{DumpByteData, DumpContextState, DumpHeapObject, DumpSlotSpan, DumpTaggedHeap};
+use super::types::{
+    DumpByteData, DumpConsSpan, DumpContextState, DumpHeapObject, DumpSlotSpan, DumpTaggedHeap,
+};
+use crate::tagged::header::ConsCell;
 use crate::tagged::value::TaggedValue;
 
 const HEAP_PAYLOAD_ALIGN: usize = 8;
@@ -119,6 +122,33 @@ impl MappedHeapView {
             Ok(unsafe { self.ptr.add(start).cast::<TaggedValue>() })
         }
     }
+
+    pub(crate) fn cons_cell_mut(self, span: DumpConsSpan) -> Result<*mut ConsCell, DumpError> {
+        if !self.writable {
+            return Err(DumpError::ImageFormatError(
+                "mapped heap view is not writable".to_string(),
+            ));
+        }
+        let start = usize::try_from(span.offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped cons span offset overflows usize".into())
+        })?;
+        let end = start
+            .checked_add(std::mem::size_of::<ConsCell>())
+            .ok_or_else(|| DumpError::ImageFormatError("mapped cons span range overflow".into()))?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped cons span {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<ConsCell>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped cons span offset {start} is not {}-byte aligned",
+                std::mem::align_of::<ConsCell>()
+            )));
+        }
+        Ok(unsafe { self.ptr.add(start).cast::<ConsCell>() })
+    }
 }
 
 pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Vec<u8> {
@@ -128,10 +158,29 @@ pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Vec<
 fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
     let mut builder = MappedHeapBuilder::default();
 
+    heap.mapped_cons.clear();
+    heap.mapped_cons.resize(heap.objects.len(), None);
     heap.mapped_slots.clear();
     heap.mapped_slots.resize(heap.objects.len(), None);
 
+    let cons_count = heap
+        .objects
+        .iter()
+        .filter(|object| matches!(object, DumpHeapObject::Cons { .. }))
+        .count();
+    let cons_base = builder.reserve_cons_cells(cons_count);
+    let mut cons_index = 0usize;
+
     for (index, object) in heap.objects.iter_mut().enumerate() {
+        if matches!(object, DumpHeapObject::Cons { .. }) {
+            let offset = cons_base.expect("non-zero cons count should reserve a mapped cons arena")
+                + cons_index * std::mem::size_of::<ConsCell>();
+            heap.mapped_cons[index] = Some(DumpConsSpan {
+                offset: offset as u64,
+            });
+            cons_index += 1;
+        }
+
         if let DumpHeapObject::Str { data, .. } = object
             && let DumpByteData::Owned(bytes) = data
         {
@@ -200,6 +249,19 @@ impl MappedHeapBuilder {
             len: slot_count as u64,
         }
     }
+
+    fn reserve_cons_cells(&mut self, cons_count: usize) -> Option<usize> {
+        if cons_count == 0 {
+            return None;
+        }
+        let align = std::mem::align_of::<ConsCell>().max(HEAP_PAYLOAD_ALIGN);
+        let padding = align_padding(self.bytes.len(), align);
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        let offset = self.bytes.len();
+        self.bytes
+            .resize(offset + cons_count * std::mem::size_of::<ConsCell>(), 0);
+        Some(offset)
+    }
 }
 
 fn align_padding(value: usize, align: usize) -> usize {
@@ -221,6 +283,7 @@ mod tests {
                 size_byte: 3,
                 text_props: Vec::new(),
             }],
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -246,6 +309,7 @@ mod tests {
                 size_byte: 0,
                 text_props: Vec::new(),
             }],
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -268,6 +332,7 @@ mod tests {
                 crate::emacs_core::pdump::types::DumpValue::Int(1),
                 crate::emacs_core::pdump::types::DumpValue::Int(2),
             ])],
+            mapped_cons: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -280,5 +345,35 @@ mod tests {
         let span = tagged_heap.mapped_slots[0].expect("vector slot span");
         assert_eq!(span.offset, 0);
         assert_eq!(span.len, 2);
+    }
+
+    #[test]
+    fn reserves_mapped_cons_cells_as_heap_objects() {
+        let mut tagged_heap = DumpTaggedHeap {
+            objects: vec![
+                DumpHeapObject::Cons {
+                    car: crate::emacs_core::pdump::types::DumpValue::Int(1),
+                    cdr: crate::emacs_core::pdump::types::DumpValue::Int(2),
+                },
+                DumpHeapObject::Cons {
+                    car: crate::emacs_core::pdump::types::DumpValue::Int(3),
+                    cdr: crate::emacs_core::pdump::types::DumpValue::Nil,
+                },
+            ],
+            mapped_cons: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+
+        let mut heap = extract_tagged_heap_payloads(&mut tagged_heap);
+        assert_eq!(heap.len(), 2 * std::mem::size_of::<ConsCell>());
+        assert_eq!(tagged_heap.mapped_cons.len(), 2);
+        let first = tagged_heap.mapped_cons[0].expect("first cons span");
+        let second = tagged_heap.mapped_cons[1].expect("second cons span");
+        assert_eq!(first.offset, 0);
+        assert_eq!(second.offset as usize, std::mem::size_of::<ConsCell>());
+
+        let view = MappedHeapView::from_mut_slice(&mut heap);
+        let ptr = view.cons_cell_mut(first).unwrap();
+        assert_eq!(ptr.cast::<u8>(), heap.as_mut_ptr());
     }
 }

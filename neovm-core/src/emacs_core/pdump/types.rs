@@ -38,6 +38,11 @@ pub struct DumpSlotSpan {
     pub len: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DumpConsSpan {
+    pub offset: u64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum DumpByteData {
     Owned(Vec<u8>),
@@ -420,6 +425,8 @@ pub struct DumpSymbolTable {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct DumpTaggedHeap {
     pub objects: Vec<DumpHeapObject>,
+    #[serde(default)]
+    pub mapped_cons: Vec<Option<DumpConsSpan>>,
     pub mapped_slots: Vec<Option<DumpSlotSpan>>,
 }
 
