@@ -343,6 +343,18 @@ impl LoadDecoder {
                         .cast::<VecLikeHeader>(),
                     std::mem::size_of::<RecordObj>(),
                 ),
+                DumpHeapObject::Marker(_) => (
+                    mapped_heap
+                        .typed_object_mut::<MarkerObj>(span, "marker")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<MarkerObj>(),
+                ),
+                DumpHeapObject::Overlay(_) => (
+                    mapped_heap
+                        .typed_object_mut::<OverlayObj>(span, "overlay")?
+                        .cast::<VecLikeHeader>(),
+                    std::mem::size_of::<OverlayObj>(),
+                ),
                 other => {
                     return Err(DumpError::ImageFormatError(format!(
                         "mapped vectorlike span attached to non-vectorlike object: {other:?}"
@@ -793,7 +805,7 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Marker(marker) => {
-                let value = Value::make_marker(crate::heap_types::MarkerData {
+                let data = crate::heap_types::MarkerData {
                     buffer: marker.buffer.map(|id| BufferId(id.0)),
                     insertion_type: marker.insertion_type,
                     marker_id: marker.marker_id,
@@ -801,7 +813,23 @@ impl LoadDecoder {
                     bytepos: marker.bytepos,
                     charpos: marker.charpos,
                     next_marker: std::ptr::null_mut(),
-                });
+                };
+                let value = if let Some(ptr) =
+                    self.mapped_typed_object_for_object::<MarkerObj>(id, "marker")?
+                {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            MarkerObj {
+                                header: VecLikeHeader::new(VecLikeType::Marker),
+                                data,
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    Value::make_marker(data)
+                };
                 // Index by `marker_id` so per-buffer chain reconstruction and
                 // state-marker resolution can do an O(1) lookup instead of a
                 // heap-wide walk. Both call sites consult `markers_by_id` in
@@ -816,14 +844,30 @@ impl LoadDecoder {
                 value
             }
             DumpHeapObject::Overlay(overlay) => {
-                Value::make_overlay(crate::heap_types::OverlayData {
+                let data = crate::heap_types::OverlayData {
                     plist: Value::NIL,
                     buffer: overlay.buffer.map(|id| BufferId(id.0)),
                     start: overlay.start,
                     end: overlay.end,
                     front_advance: overlay.front_advance,
                     rear_advance: overlay.rear_advance,
-                })
+                };
+                if let Some(ptr) =
+                    self.mapped_typed_object_for_object::<OverlayObj>(id, "overlay")?
+                {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            OverlayObj {
+                                header: VecLikeHeader::new(VecLikeType::Overlay),
+                                data,
+                            },
+                        );
+                        Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
+                    }
+                } else {
+                    Value::make_overlay(data)
+                }
             }
             DumpHeapObject::Buffer(id) => self.load_cached_buffer(id.0),
             DumpHeapObject::Window(id) => self.load_cached_window(*id),

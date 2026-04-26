@@ -2,9 +2,9 @@
 //!
 //! GNU pdumper keeps object headers in the mapped image and writes cold string
 //! data later, then fixes string data pointers to the mapped cold region during
-//! load.  Neomacs still reconstructs Rust object headers during this migration,
-//! but heap string bytes and vectorlike slot arrays are already moved into the
-//! mmap-backed heap section.
+//! load.  Neomacs is migrating heap classes onto that same shape: mapped object
+//! headers, mapped string bytes, mapped vectorlike slot arrays, and external GC
+//! mark bits.
 
 use super::DumpError;
 use super::types::{
@@ -12,7 +12,7 @@ use super::types::{
     DumpStringSpan, DumpTaggedHeap, DumpVecLikeSpan,
 };
 use crate::tagged::header::{
-    ConsCell, FloatObj, LambdaObj, MacroObj, RecordObj, StringObj, VectorObj,
+    ConsCell, FloatObj, LambdaObj, MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, VectorObj,
 };
 use crate::tagged::value::TaggedValue;
 
@@ -297,6 +297,12 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
             }
             DumpHeapObject::Record(_) => {
                 heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<RecordObj>());
+            }
+            DumpHeapObject::Marker(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<MarkerObj>());
+            }
+            DumpHeapObject::Overlay(_) => {
+                heap.mapped_veclikes[index] = Some(builder.reserve_typed_object::<OverlayObj>());
             }
             _ => {}
         }

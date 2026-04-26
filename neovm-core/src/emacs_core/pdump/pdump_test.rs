@@ -9,7 +9,7 @@ use crate::emacs_core::value::{
     StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
     set_string_text_properties_for_value,
 };
-use crate::heap_types::LispString;
+use crate::heap_types::{LispString, MarkerData, OverlayData};
 
 #[test]
 fn test_pdump_round_trip_basic() {
@@ -401,6 +401,120 @@ fn file_pdump_loads_float_objects_from_mmap_image() {
         .symbol_value("test-pdump-mapped-float")
         .expect("restored float symbol after GC");
     assert_eq!(value_after_gc.xfloat(), std::f64::consts::PI);
+}
+
+#[test]
+fn file_pdump_loads_marker_object_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-marker",
+        Value::make_marker(MarkerData {
+            buffer: None,
+            insertion_type: true,
+            marker_id: Some(42),
+            bytepos: 7,
+            charpos: 7,
+            next_marker: std::ptr::null_mut(),
+        }),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-marker.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-marker")
+        .expect("restored marker symbol");
+    let marker = value.as_marker_data().expect("restored marker");
+
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_veclike_ptr().unwrap().cast::<u8>()),
+        "loaded marker object must be a tagged pointer into the retained mmap image"
+    );
+    assert!(marker.insertion_type);
+    assert_eq!(marker.marker_id, Some(42));
+    assert_eq!(marker.bytepos, 7);
+    assert_eq!(marker.charpos, 7);
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-marker")
+        .expect("restored marker symbol after GC");
+    assert_eq!(
+        value_after_gc
+            .as_marker_data()
+            .expect("marker after GC")
+            .marker_id,
+        Some(42)
+    );
+}
+
+#[test]
+fn file_pdump_loads_overlay_object_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-overlay",
+        Value::make_overlay(OverlayData {
+            plist: Value::list(vec![
+                Value::symbol("face"),
+                Value::string("mapped-overlay-child"),
+            ]),
+            buffer: None,
+            start: 2,
+            end: 9,
+            front_advance: true,
+            rear_advance: false,
+        }),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-overlay.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-overlay")
+        .expect("restored overlay symbol");
+    let overlay = value.as_overlay_data().expect("restored overlay");
+    let plist = list_to_vec(&overlay.plist).expect("overlay plist");
+
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_veclike_ptr().unwrap().cast::<u8>()),
+        "loaded overlay object must be a tagged pointer into the retained mmap image"
+    );
+    assert_eq!(overlay.start, 2);
+    assert_eq!(overlay.end, 9);
+    assert!(overlay.front_advance);
+    assert!(!overlay.rear_advance);
+    assert_eq!(
+        plist[1]
+            .as_lisp_string()
+            .expect("overlay child string")
+            .as_bytes(),
+        b"mapped-overlay-child"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-overlay")
+        .expect("restored overlay symbol after GC");
+    let overlay_after_gc = value_after_gc.as_overlay_data().expect("overlay after GC");
+    let plist_after_gc = list_to_vec(&overlay_after_gc.plist).expect("overlay plist after GC");
+    assert_eq!(
+        plist_after_gc[1]
+            .as_lisp_string()
+            .expect("overlay child string after GC")
+            .as_bytes(),
+        b"mapped-overlay-child",
+        "mapped overlay GC marking must trace plist children from the mmap object"
+    );
 }
 
 #[test]

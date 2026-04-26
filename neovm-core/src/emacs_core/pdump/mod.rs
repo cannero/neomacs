@@ -73,7 +73,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   vectorlike header + Lisp_Object content dump shape.
 // v33: String object headers also load from the mmap heap image; string bytes
 //   stay in mapped byte spans and text-property roots are marked externally.
-const FORMAT_VERSION: u32 = 33;
+// v34: Marker and overlay vectorlike object headers load from the mmap heap
+//   image and use the same external mapped-object mark bits as other dumped
+//   vectorlike objects.
+const FORMAT_VERSION: u32 = 34;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
