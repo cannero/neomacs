@@ -8,9 +8,10 @@
 
 use super::DumpError;
 use super::types::{
-    DumpByteData, DumpConsSpan, DumpContextState, DumpHeapObject, DumpSlotSpan, DumpTaggedHeap,
+    DumpByteData, DumpConsSpan, DumpContextState, DumpFloatSpan, DumpHeapObject, DumpSlotSpan,
+    DumpTaggedHeap,
 };
-use crate::tagged::header::ConsCell;
+use crate::tagged::header::{ConsCell, FloatObj};
 use crate::tagged::value::TaggedValue;
 
 const HEAP_PAYLOAD_ALIGN: usize = 8;
@@ -149,6 +150,35 @@ impl MappedHeapView {
         }
         Ok(unsafe { self.ptr.add(start).cast::<ConsCell>() })
     }
+
+    pub(crate) fn float_obj_mut(self, span: DumpFloatSpan) -> Result<*mut FloatObj, DumpError> {
+        if !self.writable {
+            return Err(DumpError::ImageFormatError(
+                "mapped heap view is not writable".to_string(),
+            ));
+        }
+        let start = usize::try_from(span.offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped float span offset overflows usize".into())
+        })?;
+        let end = start
+            .checked_add(std::mem::size_of::<FloatObj>())
+            .ok_or_else(|| {
+                DumpError::ImageFormatError("mapped float span range overflow".into())
+            })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped float span {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<FloatObj>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped float span offset {start} is not {}-byte aligned",
+                std::mem::align_of::<FloatObj>()
+            )));
+        }
+        Ok(unsafe { self.ptr.add(start).cast::<FloatObj>() })
+    }
 }
 
 pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Vec<u8> {
@@ -160,6 +190,8 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
 
     heap.mapped_cons.clear();
     heap.mapped_cons.resize(heap.objects.len(), None);
+    heap.mapped_floats.clear();
+    heap.mapped_floats.resize(heap.objects.len(), None);
     heap.mapped_slots.clear();
     heap.mapped_slots.resize(heap.objects.len(), None);
 
@@ -170,6 +202,13 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
         .count();
     let cons_base = builder.reserve_cons_cells(cons_count);
     let mut cons_index = 0usize;
+    let float_count = heap
+        .objects
+        .iter()
+        .filter(|object| matches!(object, DumpHeapObject::Float(_)))
+        .count();
+    let float_base = builder.reserve_float_objects(float_count);
+    let mut float_index = 0usize;
 
     for (index, object) in heap.objects.iter_mut().enumerate() {
         if matches!(object, DumpHeapObject::Cons { .. }) {
@@ -179,6 +218,15 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> Vec<u8> {
                 offset: offset as u64,
             });
             cons_index += 1;
+        }
+
+        if matches!(object, DumpHeapObject::Float(_)) {
+            let offset = float_base.expect("non-zero float count should reserve mapped floats")
+                + float_index * std::mem::size_of::<FloatObj>();
+            heap.mapped_floats[index] = Some(DumpFloatSpan {
+                offset: offset as u64,
+            });
+            float_index += 1;
         }
 
         if let DumpHeapObject::Str { data, .. } = object
@@ -262,6 +310,19 @@ impl MappedHeapBuilder {
             .resize(offset + cons_count * std::mem::size_of::<ConsCell>(), 0);
         Some(offset)
     }
+
+    fn reserve_float_objects(&mut self, float_count: usize) -> Option<usize> {
+        if float_count == 0 {
+            return None;
+        }
+        let align = std::mem::align_of::<FloatObj>().max(HEAP_PAYLOAD_ALIGN);
+        let padding = align_padding(self.bytes.len(), align);
+        self.bytes.resize(self.bytes.len() + padding, 0);
+        let offset = self.bytes.len();
+        self.bytes
+            .resize(offset + float_count * std::mem::size_of::<FloatObj>(), 0);
+        Some(offset)
+    }
 }
 
 fn align_padding(value: usize, align: usize) -> usize {
@@ -284,6 +345,7 @@ mod tests {
                 text_props: Vec::new(),
             }],
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -310,6 +372,7 @@ mod tests {
                 text_props: Vec::new(),
             }],
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -333,6 +396,7 @@ mod tests {
                 crate::emacs_core::pdump::types::DumpValue::Int(2),
             ])],
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -361,6 +425,7 @@ mod tests {
                 },
             ],
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         };
 
@@ -374,6 +439,28 @@ mod tests {
 
         let view = MappedHeapView::from_mut_slice(&mut heap);
         let ptr = view.cons_cell_mut(first).unwrap();
+        assert_eq!(ptr.cast::<u8>(), heap.as_mut_ptr());
+    }
+
+    #[test]
+    fn reserves_mapped_float_objects_as_heap_objects() {
+        let mut tagged_heap = DumpTaggedHeap {
+            objects: vec![DumpHeapObject::Float(1.0), DumpHeapObject::Float(2.0)],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+
+        let mut heap = extract_tagged_heap_payloads(&mut tagged_heap);
+        assert_eq!(heap.len(), 2 * std::mem::size_of::<FloatObj>());
+        assert_eq!(tagged_heap.mapped_floats.len(), 2);
+        let first = tagged_heap.mapped_floats[0].expect("first float span");
+        let second = tagged_heap.mapped_floats[1].expect("second float span");
+        assert_eq!(first.offset, 0);
+        assert_eq!(second.offset as usize, std::mem::size_of::<FloatObj>());
+
+        let view = MappedHeapView::from_mut_slice(&mut heap);
+        let ptr = view.float_obj_mut(first).unwrap();
         assert_eq!(ptr.cast::<u8>(), heap.as_mut_ptr());
     }
 }

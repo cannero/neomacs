@@ -158,6 +158,40 @@ fn file_pdump_loads_cons_cells_from_mmap_image() {
 }
 
 #[test]
+fn file_pdump_loads_float_objects_from_mmap_image() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-mapped-float",
+        Value::make_float(std::f64::consts::PI),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("mapped-float.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let mut loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-float")
+        .expect("restored float symbol");
+
+    assert!(value.is_float());
+    assert_eq!(value.xfloat(), std::f64::consts::PI);
+    assert!(
+        loaded.pdump_image_contains_ptr(value.as_float_ptr().unwrap().cast::<u8>()),
+        "loaded float object must be a tagged pointer into the retained mmap image"
+    );
+
+    loaded.gc_collect_exact();
+    let value_after_gc = *loaded
+        .obarray
+        .symbol_value("test-pdump-mapped-float")
+        .expect("restored float symbol after GC");
+    assert_eq!(value_after_gc.xfloat(), std::f64::consts::PI);
+}
+
+#[test]
 fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

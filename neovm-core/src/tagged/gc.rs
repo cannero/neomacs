@@ -423,6 +423,73 @@ impl MappedConsRange {
     }
 }
 
+struct MappedFloatRange {
+    start: *mut FloatObj,
+    len: usize,
+    mark_bits: Vec<usize>,
+}
+
+impl MappedFloatRange {
+    fn new(start: *mut FloatObj, len: usize) -> Self {
+        Self {
+            start,
+            len,
+            mark_bits: vec![0; cons_mark_words(len)],
+        }
+    }
+
+    #[inline]
+    fn contains_ptr(&self, ptr: *const FloatObj) -> bool {
+        if ptr.is_null() || self.len == 0 {
+            return false;
+        }
+        let start = self.start as usize;
+        let end = start + self.len * size_of::<FloatObj>();
+        let ptr = ptr as usize;
+        start <= ptr && ptr < end && (ptr - start).is_multiple_of(size_of::<FloatObj>())
+    }
+
+    #[inline]
+    fn index_of_ptr(&self, ptr: *const FloatObj) -> usize {
+        (ptr as usize - self.start as usize) / size_of::<FloatObj>()
+    }
+
+    #[inline]
+    fn is_marked_ptr(&self, ptr: *const FloatObj) -> bool {
+        let index = self.index_of_ptr(ptr);
+        let (word, mask) = ConsBlock::mark_bit(index);
+        (self.mark_bits[word] & mask) != 0
+    }
+
+    #[inline]
+    fn mark_ptr(&mut self, ptr: *const FloatObj) {
+        let index = self.index_of_ptr(ptr);
+        let (word, mask) = ConsBlock::mark_bit(index);
+        self.mark_bits[word] |= mask;
+    }
+
+    fn clear_marks(&mut self) {
+        self.mark_bits.fill(0);
+    }
+
+    fn live_count(&self) -> usize {
+        self.mark_bits
+            .iter()
+            .enumerate()
+            .map(|(word_index, word)| {
+                let full_words = self.len / CONS_MARK_BITS_PER_WORD;
+                let tail_bits = self.len % CONS_MARK_BITS_PER_WORD;
+                if word_index < full_words || tail_bits == 0 {
+                    word.count_ones() as usize
+                } else {
+                    let mask = (1usize << tail_bits) - 1;
+                    (word & mask).count_ones() as usize
+                }
+            })
+            .sum()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // TaggedHeap — the main GC-managed heap
 // ---------------------------------------------------------------------------
@@ -461,6 +528,9 @@ pub struct TaggedHeap {
     /// uses external mark bits for dumped objects rather than writing mark
     /// state into malloc/GC allocation headers; mirror that for mapped conses.
     mapped_cons_ranges: Vec<MappedConsRange>,
+    /// Float objects loaded directly from a mapped pdump image.  Like GNU
+    /// pdumper dump objects, their mark state lives outside the mapped bytes.
+    mapped_float_ranges: Vec<MappedFloatRange>,
     /// Number of live cons cells currently included in `allocated_count`.
     cons_live_count: usize,
 
@@ -508,6 +578,7 @@ impl TaggedHeap {
             gray_queue: Vec::new(),
             cons_free_list: std::ptr::null_mut(),
             mapped_cons_ranges: Vec::new(),
+            mapped_float_ranges: Vec::new(),
             cons_live_count: 0,
             marker_chain_head_slots: Vec::new(),
             buffer_registry: FxHashMap::default(),
@@ -625,6 +696,24 @@ impl TaggedHeap {
         self.live_bytes = self
             .live_bytes
             .saturating_add(len.saturating_mul(size_of::<ConsCell>()));
+    }
+
+    /// Register float objects whose storage is owned by the loaded pdump image.
+    ///
+    /// # Safety
+    /// `start..start+len` must remain mapped and writable for the lifetime of
+    /// this heap.  The range must contain aligned `FloatObj` objects.
+    pub(crate) unsafe fn register_mapped_float_range(&mut self, start: *mut FloatObj, len: usize) {
+        if len == 0 {
+            return;
+        }
+        debug_assert_eq!(start as usize % std::mem::align_of::<FloatObj>(), 0);
+        self.mapped_float_ranges
+            .push(MappedFloatRange::new(start, len));
+        self.allocated_count = self.allocated_count.saturating_add(len);
+        self.live_bytes = self
+            .live_bytes
+            .saturating_add(len.saturating_mul(size_of::<FloatObj>()));
     }
 
     pub fn dirty_owner_count(&self) -> usize {
@@ -1174,6 +1263,9 @@ impl TaggedHeap {
         for range in &mut self.mapped_cons_ranges {
             range.clear_marks();
         }
+        for range in &mut self.mapped_float_ranges {
+            range.clear_marks();
+        }
         // Clear marks on non-cons objects
         let mut obj = self.all_objects;
         while !obj.is_null() {
@@ -1233,7 +1325,10 @@ impl TaggedHeap {
         // -- Sweep phase --
         let cons_live_bytes = self.sweep_cons();
         let object_live_bytes = self.sweep_objects();
-        self.live_bytes = cons_live_bytes.saturating_add(object_live_bytes);
+        let mapped_object_live_bytes = self.mapped_non_cons_live_bytes();
+        self.live_bytes = cons_live_bytes
+            .saturating_add(object_live_bytes)
+            .saturating_add(mapped_object_live_bytes);
         self.bytes_since_gc = 0;
 
         // A full-heap collection subsumes any remembered-set bookkeeping.
@@ -1279,6 +1374,10 @@ impl TaggedHeap {
             };
         } else if val.is_float() {
             let ptr = val.as_float_ptr().unwrap() as *mut FloatObj;
+            if !self.owns_non_cons_object(ptr as *const u8) {
+                let _ = self.mark_mapped_float(ptr);
+                return;
+            }
             unsafe {
                 if (*ptr).header.marked {
                     return;
@@ -1317,6 +1416,20 @@ impl TaggedHeap {
 
     fn mark_mapped_cons(&mut self, ptr: *const ConsCell) -> bool {
         for range in &mut self.mapped_cons_ranges {
+            if !range.contains_ptr(ptr) {
+                continue;
+            }
+            if range.is_marked_ptr(ptr) {
+                return false;
+            }
+            range.mark_ptr(ptr);
+            return true;
+        }
+        false
+    }
+
+    fn mark_mapped_float(&mut self, ptr: *const FloatObj) -> bool {
+        for range in &mut self.mapped_float_ranges {
             if !range.contains_ptr(ptr) {
                 continue;
             }
@@ -1493,6 +1606,13 @@ impl TaggedHeap {
         }
 
         live_bytes
+    }
+
+    fn mapped_non_cons_live_bytes(&self) -> usize {
+        self.mapped_float_ranges
+            .iter()
+            .map(|range| range.live_count().saturating_mul(size_of::<FloatObj>()))
+            .sum()
     }
 
     /// Free a GC object by its header pointer.

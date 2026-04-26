@@ -43,6 +43,11 @@ pub struct DumpConsSpan {
     pub offset: u64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DumpFloatSpan {
+    pub offset: u64,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub enum DumpByteData {
     Owned(Vec<u8>),
@@ -75,7 +80,7 @@ pub enum DumpValue {
     Nil,
     True,
     Int(i64),
-    Float(f64, u32),
+    Float(DumpHeapRef),
     Symbol(DumpSymId),
     Str(DumpHeapRef),
     Cons(DumpHeapRef),
@@ -427,6 +432,9 @@ pub struct DumpTaggedHeap {
     pub objects: Vec<DumpHeapObject>,
     #[serde(default)]
     pub mapped_cons: Vec<Option<DumpConsSpan>>,
+    #[serde(default)]
+    pub mapped_floats: Vec<Option<DumpFloatSpan>>,
+    #[serde(default)]
     pub mapped_slots: Vec<Option<DumpSlotSpan>>,
 }
 

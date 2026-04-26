@@ -59,9 +59,9 @@ use crate::face::{
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
-    BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, ConsCell, FloatObj, FrameObj, HashTableObj,
-    LambdaObj, LispValueVec, MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, SubrObj,
-    TimerObj, VectorObj, WindowObj,
+    BufferObj, ByteCodeObj, CLOSURE_MIN_SLOTS, ConsCell, FloatObj, FrameObj, GcHeader,
+    HashTableObj, HeapObjectKind, LambdaObj, LispValueVec, MacroObj, MarkerObj, OverlayObj,
+    RecordObj, StringObj, SubrObj, TimerObj, VectorObj, WindowObj,
 };
 use crate::tagged::value::TaggedValue;
 
@@ -78,8 +78,6 @@ struct TaggedHeapRef {
 struct TaggedDumpState {
     objects: Vec<Option<DumpHeapObject>>,
     object_ids: HashMap<usize, TaggedHeapRef>,
-    float_ids: HashMap<usize, u32>,
-    next_float_id: u32,
 }
 
 impl TaggedDumpState {
@@ -87,8 +85,6 @@ impl TaggedDumpState {
         Self {
             objects: Vec::new(),
             object_ids: HashMap::new(),
-            float_ids: HashMap::new(),
-            next_float_id: 1,
         }
     }
 
@@ -100,6 +96,7 @@ impl TaggedDumpState {
                 .map(|obj| obj.unwrap_or(DumpHeapObject::Free))
                 .collect(),
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         }
     }
@@ -138,24 +135,12 @@ impl DumpEncoder {
         id
     }
 
-    fn dump_float_id(&mut self, v: &Value) -> u32 {
-        debug_assert!(v.is_float());
-        let bits = v.bits();
-        if let Some(id) = self.state.float_ids.get(&bits).copied() {
-            return id;
-        }
-        let id = self.state.next_float_id;
-        self.state.next_float_id += 1;
-        self.state.float_ids.insert(bits, id);
-        id
-    }
-
     fn dump_value(&mut self, v: &Value) -> DumpValue {
         match v.kind() {
             ValueKind::Nil => DumpValue::Nil,
             ValueKind::T => DumpValue::True,
             ValueKind::Fixnum(n) => DumpValue::Int(n),
-            ValueKind::Float => DumpValue::Float(v.xfloat(), self.dump_float_id(v)),
+            ValueKind::Float => DumpValue::Float(dump_heap_ref(self.value_to_heap_ref(v))),
             ValueKind::Symbol(s) => DumpValue::Symbol(dump_sym_id(s)),
             ValueKind::String => DumpValue::Str(dump_heap_ref(self.value_to_heap_ref(v))),
             ValueKind::Cons => DumpValue::Cons(dump_heap_ref(self.value_to_heap_ref(v))),
@@ -215,6 +200,7 @@ impl DumpEncoder {
 pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
     mapped_cons: Vec<Option<DumpConsSpan>>,
+    mapped_floats: Vec<Option<DumpFloatSpan>>,
     mapped_slots: Vec<Option<DumpSlotSpan>>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -223,7 +209,6 @@ pub(crate) struct TaggedLoadState {
     windows: HashMap<u64, Value>,
     frames: HashMap<u64, Value>,
     timers: HashMap<u64, Value>,
-    floats: HashMap<u32, Value>,
     /// O(1) `marker_id` → `MarkerObj*` index built during
     /// `preload_tagged_heap`. Replaces the post-T8
     /// `find_marker_by_id_during_load` heap scan that was used while
@@ -241,6 +226,7 @@ impl TaggedLoadState {
         Self {
             objects: heap.objects.clone(),
             mapped_cons: heap.mapped_cons.clone(),
+            mapped_floats: heap.mapped_floats.clone(),
             mapped_slots: heap.mapped_slots.clone(),
             values: vec![None; len],
             populated: vec![false; len],
@@ -249,7 +235,6 @@ impl TaggedLoadState {
             windows: HashMap::new(),
             frames: HashMap::new(),
             timers: HashMap::new(),
-            floats: HashMap::new(),
             markers_by_id: FxHashMap::default(),
         }
     }
@@ -275,6 +260,7 @@ impl LoadDecoder {
 
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
         self.register_mapped_cons_ranges()?;
+        self.register_mapped_float_ranges()?;
         for index in 0..self.state.objects.len() {
             self.allocate_tagged_placeholder(TaggedHeapRef {
                 index: index as u32,
@@ -285,6 +271,43 @@ impl LoadDecoder {
                 index: index as u32,
             })?;
         }
+        Ok(())
+    }
+
+    fn register_mapped_float_ranges(&self) -> Result<(), DumpError> {
+        let mut offsets: Vec<_> = self
+            .state
+            .mapped_floats
+            .iter()
+            .flatten()
+            .map(|span| span.offset)
+            .collect();
+        if offsets.is_empty() {
+            return Ok(());
+        }
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped float objects but image has no heap section".into(),
+            )
+        })?;
+        offsets.sort_unstable();
+        let object_size = std::mem::size_of::<FloatObj>() as u64;
+        let mut run_start = offsets[0];
+        let mut run_len = 1usize;
+        let mut prev = offsets[0];
+        for offset in offsets.into_iter().skip(1) {
+            if offset == prev + object_size {
+                run_len += 1;
+            } else {
+                let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
+                with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, run_len) });
+                run_start = offset;
+                run_len = 1;
+            }
+            prev = offset;
+        }
+        let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
+        with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, run_len) });
         Ok(())
     }
 
@@ -328,14 +351,6 @@ impl LoadDecoder {
     fn heap_ref_to_value(&mut self, id: TaggedHeapRef) -> Value {
         self.allocate_tagged_placeholder(id)
             .expect("pdump placeholder allocation should succeed")
-    }
-
-    fn load_float_value(&mut self, id: u32, value: f64) -> Value {
-        *self
-            .state
-            .floats
-            .entry(id)
-            .or_insert_with(|| Value::make_float(value))
     }
 
     fn load_cached_buffer(&mut self, id: u64) -> Value {
@@ -441,6 +456,27 @@ impl LoadDecoder {
         mapped_heap.cons_cell_mut(span).map(Some)
     }
 
+    fn mapped_float_obj_for_object(
+        &self,
+        id: TaggedHeapRef,
+    ) -> Result<Option<*mut FloatObj>, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_floats
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped float objects but image has no heap section".into(),
+            )
+        })?;
+        mapped_heap.float_obj_mut(span).map(Some)
+    }
+
     fn install_mapped_vector_slots(value: Value, storage: LispValueVec) -> bool {
         if value.veclike_type() != Some(VecLikeType::Vector) {
             return false;
@@ -519,7 +555,22 @@ impl LoadDecoder {
                 size_byte,
                 ..
             } => Value::heap_string(self.load_dump_string(data, *size, *size_byte)?),
-            DumpHeapObject::Float(value) => Value::make_float(*value),
+            DumpHeapObject::Float(value) => {
+                if let Some(ptr) = self.mapped_float_obj_for_object(id)? {
+                    unsafe {
+                        std::ptr::write(
+                            ptr,
+                            FloatObj {
+                                header: GcHeader::new(HeapObjectKind::Float),
+                                value: *value,
+                            },
+                        );
+                        Value::from_float_ptr(ptr)
+                    }
+                } else {
+                    Value::make_float(*value)
+                }
+            }
             DumpHeapObject::Lambda(slots) => with_tagged_heap(|heap| {
                 heap.alloc_lambda(vec![Value::NIL; slots.len().max(CLOSURE_MIN_SLOTS)])
             }),
@@ -711,7 +762,7 @@ impl LoadDecoder {
             DumpValue::Nil => Value::NIL,
             DumpValue::True => Value::T,
             DumpValue::Int(n) => Value::fixnum(*n),
-            DumpValue::Float(f, id) => self.load_float_value(*id, *f),
+            DumpValue::Float(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Symbol(s) => Value::symbol(load_sym_id(s)),
             DumpValue::Str(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Cons(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
@@ -781,6 +832,7 @@ mod tests {
         let heap = DumpTaggedHeap {
             objects,
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         };
         let mut decoder = LoadDecoder::new(&heap);
@@ -2287,6 +2339,7 @@ pub(crate) fn dump_evaluator(eval: &Context) -> DumpContextState {
         tagged_heap: DumpTaggedHeap {
             objects: Vec::new(),
             mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
             mapped_slots: Vec::new(),
         },
         obarray: dump_obarray(&mut encoder, eval),

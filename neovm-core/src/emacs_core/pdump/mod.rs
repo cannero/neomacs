@@ -65,7 +65,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v30: Cons cells are loaded as real tagged pointers into the mmap heap image
 //   with external GC mark bits, matching GNU pdumper's dumped-object marking
 //   model for conses instead of reconstructing them as fresh heap allocations.
-const FORMAT_VERSION: u32 = 30;
+// v31: Float DumpValues now refer to heap objects, and those FloatObj payloads
+//   load as real tagged pointers into the mmap heap image with external GC mark
+//   bits, matching GNU pdumper's `dump_float` object-shaped cold dump.
+const FORMAT_VERSION: u32 = 31;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
