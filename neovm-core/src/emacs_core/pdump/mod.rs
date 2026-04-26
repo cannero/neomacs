@@ -14,6 +14,7 @@
 //! ```
 
 pub mod convert;
+pub(crate) mod mmap_image;
 pub mod runtime;
 pub mod types;
 
@@ -108,6 +109,7 @@ pub enum DumpError {
     UnsupportedVersion(u32),
     FingerprintMismatch { expected: String, found: String },
     ChecksumMismatch,
+    ImageFormatError(String),
     SerializationError(String),
     DeserializationError(String),
 }
@@ -123,6 +125,7 @@ impl std::fmt::Display for DumpError {
                 "pdump fingerprint mismatch (expected {expected}, found {found})"
             ),
             DumpError::ChecksumMismatch => write!(f, "pdump checksum mismatch (corrupted file)"),
+            DumpError::ImageFormatError(s) => write!(f, "pdump image format error: {s}"),
             DumpError::SerializationError(s) => write!(f, "serialization error: {s}"),
             DumpError::DeserializationError(s) => write!(f, "deserialization error: {s}"),
         }

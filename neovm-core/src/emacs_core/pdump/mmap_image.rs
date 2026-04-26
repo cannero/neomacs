@@ -1,0 +1,430 @@
+//! Memory-mapped pdump image primitives.
+//!
+//! GNU Emacs's pdumper does not read a serialized payload and rebuild the Lisp
+//! heap.  It maps a dump image, validates the build fingerprint, then applies
+//! relocations to sections that already contain heap-shaped objects.  This
+//! module is the Neomacs image-format boundary for that design: a fixed header,
+//! section table, fingerprint, checksum, and an mmap-backed owner that exposes
+//! section bytes directly from the mapped file.
+
+use std::fs::File;
+use std::io::Write;
+use std::path::Path;
+
+use bytemuck::{Pod, Zeroable};
+use memmap2::{MmapMut, MmapOptions};
+use sha2::{Digest, Sha256};
+
+use super::{DumpError, fingerprint_bytes, hex_string};
+
+const MMAP_MAGIC: [u8; 16] = *b"NEOMMAPDUMP\0\0\0\0\0";
+const MMAP_FORMAT_VERSION: u32 = 1;
+const SECTION_ALIGN: u64 = 8;
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DumpSectionKind {
+    Metadata = 1,
+    HeapImage = 2,
+    Roots = 3,
+    Relocations = 4,
+    ObjectStarts = 5,
+    EmacsRelocations = 6,
+}
+
+impl DumpSectionKind {
+    fn from_raw(raw: u32) -> Result<Self, DumpError> {
+        match raw {
+            1 => Ok(Self::Metadata),
+            2 => Ok(Self::HeapImage),
+            3 => Ok(Self::Roots),
+            4 => Ok(Self::Relocations),
+            5 => Ok(Self::ObjectStarts),
+            6 => Ok(Self::EmacsRelocations),
+            other => Err(DumpError::ImageFormatError(format!(
+                "unknown section kind {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ImageSection<'a> {
+    pub kind: DumpSectionKind,
+    pub flags: u32,
+    pub bytes: &'a [u8],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct DumpImageHeader {
+    magic: [u8; 16],
+    version: u32,
+    header_size: u32,
+    section_count: u32,
+    reserved0: u32,
+    fingerprint: [u8; 32],
+    checksum: [u8; 32],
+    file_len: u64,
+    section_table_offset: u64,
+    section_table_len: u64,
+    payload_offset: u64,
+    flags: u64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct DumpImageSection {
+    kind: u32,
+    flags: u32,
+    offset: u64,
+    len: u64,
+    reserved: u64,
+}
+
+const HEADER_SIZE: usize = std::mem::size_of::<DumpImageHeader>();
+const SECTION_SIZE: usize = std::mem::size_of::<DumpImageSection>();
+
+pub(crate) struct LoadedMmapImage {
+    mmap: MmapMut,
+    sections: Vec<DumpImageSection>,
+}
+
+impl LoadedMmapImage {
+    pub(crate) fn section(&self, kind: DumpSectionKind) -> Option<&[u8]> {
+        let section = self
+            .sections
+            .iter()
+            .find(|section| section.kind == kind as u32)?;
+        Some(&self.mmap[section.offset as usize..section.offset as usize + section.len as usize])
+    }
+
+    pub(crate) fn section_mut(&mut self, kind: DumpSectionKind) -> Option<&mut [u8]> {
+        let section = self
+            .sections
+            .iter()
+            .find(|section| section.kind == kind as u32)?;
+        let start = section.offset as usize;
+        let end = start + section.len as usize;
+        Some(&mut self.mmap[start..end])
+    }
+
+    #[cfg(test)]
+    fn mapped_range(&self) -> std::ops::Range<usize> {
+        let start = self.mmap.as_ptr() as usize;
+        start..start + self.mmap.len()
+    }
+}
+
+pub(crate) fn write_image(path: &Path, sections: &[ImageSection<'_>]) -> Result<(), DumpError> {
+    if sections.is_empty() {
+        return Err(DumpError::ImageFormatError(
+            "mmap pdump image must contain at least one section".to_string(),
+        ));
+    }
+
+    let section_table_offset = HEADER_SIZE as u64;
+    let section_table_len = (sections.len() * SECTION_SIZE) as u64;
+    let payload_offset = align_up(section_table_offset + section_table_len, SECTION_ALIGN);
+
+    let mut section_headers = Vec::with_capacity(sections.len());
+    let mut cursor = payload_offset;
+    for section in sections {
+        cursor = align_up(cursor, SECTION_ALIGN);
+        section_headers.push(DumpImageSection {
+            kind: section.kind as u32,
+            flags: section.flags,
+            offset: cursor,
+            len: section.bytes.len() as u64,
+            reserved: 0,
+        });
+        cursor = cursor
+            .checked_add(section.bytes.len() as u64)
+            .ok_or_else(|| DumpError::ImageFormatError("pdump image length overflow".into()))?;
+    }
+
+    let file_len = cursor as usize;
+    let mut bytes = vec![0u8; file_len];
+
+    for (idx, section_header) in section_headers.iter().enumerate() {
+        let start = section_table_offset as usize + idx * SECTION_SIZE;
+        bytes[start..start + SECTION_SIZE].copy_from_slice(bytemuck::bytes_of(section_header));
+    }
+    for (section, section_header) in sections.iter().zip(section_headers.iter()) {
+        let start = section_header.offset as usize;
+        let end = start + section_header.len as usize;
+        bytes[start..end].copy_from_slice(section.bytes);
+    }
+
+    let checksum = checksum_body(&bytes);
+    let header = DumpImageHeader {
+        magic: MMAP_MAGIC,
+        version: MMAP_FORMAT_VERSION,
+        header_size: HEADER_SIZE as u32,
+        section_count: sections.len() as u32,
+        reserved0: 0,
+        fingerprint: fingerprint_bytes(),
+        checksum,
+        file_len: file_len as u64,
+        section_table_offset,
+        section_table_len,
+        payload_offset,
+        flags: 0,
+    };
+    bytes[..HEADER_SIZE].copy_from_slice(bytemuck::bytes_of(&header));
+
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let mut file = tempfile::NamedTempFile::new_in(parent)?;
+    file.write_all(&bytes)?;
+    file.flush()?;
+    file.as_file().sync_all()?;
+    file.persist(path).map_err(|err| DumpError::Io(err.error))?;
+    Ok(())
+}
+
+pub(crate) fn load_image(path: &Path) -> Result<LoadedMmapImage, DumpError> {
+    let file = File::open(path)?;
+    let mmap = unsafe { MmapOptions::new().map_copy(&file)? };
+    validate_image(mmap)
+}
+
+fn validate_image(mmap: MmapMut) -> Result<LoadedMmapImage, DumpError> {
+    if mmap.len() < HEADER_SIZE {
+        return Err(DumpError::BadMagic);
+    }
+
+    let header = *bytemuck::from_bytes::<DumpImageHeader>(&mmap[..HEADER_SIZE]);
+    if header.magic != MMAP_MAGIC {
+        return Err(DumpError::BadMagic);
+    }
+    if header.version != MMAP_FORMAT_VERSION {
+        return Err(DumpError::UnsupportedVersion(header.version));
+    }
+    if header.header_size != HEADER_SIZE as u32 {
+        return Err(DumpError::ImageFormatError(format!(
+            "header size {} does not match runtime header size {HEADER_SIZE}",
+            header.header_size
+        )));
+    }
+    if header.file_len as usize != mmap.len() {
+        return Err(DumpError::ImageFormatError(format!(
+            "header file length {} does not match mapped length {}",
+            header.file_len,
+            mmap.len()
+        )));
+    }
+
+    let expected_fingerprint = fingerprint_bytes();
+    if header.fingerprint != expected_fingerprint {
+        return Err(DumpError::FingerprintMismatch {
+            expected: hex_string(&expected_fingerprint),
+            found: hex_string(&header.fingerprint),
+        });
+    }
+
+    if checksum_body(&mmap) != header.checksum {
+        return Err(DumpError::ChecksumMismatch);
+    }
+
+    let section_table_start = header.section_table_offset as usize;
+    let section_table_len = header.section_table_len as usize;
+    let section_table_end = checked_end(section_table_start, section_table_len, mmap.len())?;
+    let expected_table_len = header.section_count as usize * SECTION_SIZE;
+    if section_table_len != expected_table_len {
+        return Err(DumpError::ImageFormatError(format!(
+            "section table length {section_table_len} does not match section count {}",
+            header.section_count
+        )));
+    }
+    if section_table_start < HEADER_SIZE {
+        return Err(DumpError::ImageFormatError(
+            "section table overlaps header".to_string(),
+        ));
+    }
+    if header.payload_offset < section_table_end as u64 {
+        return Err(DumpError::ImageFormatError(
+            "payload starts before section table ends".to_string(),
+        ));
+    }
+
+    let mut sections = Vec::with_capacity(header.section_count as usize);
+    for idx in 0..header.section_count as usize {
+        let start = section_table_start + idx * SECTION_SIZE;
+        let raw = *bytemuck::from_bytes::<DumpImageSection>(&mmap[start..start + SECTION_SIZE]);
+        DumpSectionKind::from_raw(raw.kind)?;
+        if raw.reserved != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "section {idx} reserved field is nonzero"
+            )));
+        }
+        if raw.offset % SECTION_ALIGN != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "section {idx} offset {} is not {SECTION_ALIGN}-byte aligned",
+                raw.offset
+            )));
+        }
+        if raw.offset < header.payload_offset {
+            return Err(DumpError::ImageFormatError(format!(
+                "section {idx} starts before payload offset"
+            )));
+        }
+        checked_end(raw.offset as usize, raw.len as usize, mmap.len())?;
+        sections.push(raw);
+    }
+
+    let mut ranges: Vec<_> = sections
+        .iter()
+        .map(|section| {
+            (
+                section.offset,
+                section.offset.saturating_add(section.len),
+                section.kind,
+            )
+        })
+        .collect();
+    ranges.sort_unstable_by_key(|range| range.0);
+    for pair in ranges.windows(2) {
+        if pair[0].1 > pair[1].0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "sections {} and {} overlap",
+                pair[0].2, pair[1].2
+            )));
+        }
+    }
+
+    Ok(LoadedMmapImage { mmap, sections })
+}
+
+fn checked_end(start: usize, len: usize, file_len: usize) -> Result<usize, DumpError> {
+    let end = start
+        .checked_add(len)
+        .ok_or_else(|| DumpError::ImageFormatError("pdump image offset overflow".into()))?;
+    if end > file_len {
+        return Err(DumpError::ImageFormatError(format!(
+            "section range {start}..{end} exceeds image length {file_len}"
+        )));
+    }
+    Ok(end)
+}
+
+fn align_up(value: u64, align: u64) -> u64 {
+    debug_assert!(align.is_power_of_two());
+    (value + align - 1) & !(align - 1)
+}
+
+fn checksum_body(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes[HEADER_SIZE..]);
+    hasher.finalize().into()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Seek, SeekFrom, Write};
+
+    use super::*;
+
+    #[test]
+    fn write_and_load_sections_from_mmap() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::Metadata,
+                    flags: 0,
+                    bytes: b"metadata",
+                },
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 7,
+                    bytes: b"heap bytes",
+                },
+            ],
+        )
+        .unwrap();
+
+        let image = load_image(&path).unwrap();
+        assert_eq!(
+            image.section(DumpSectionKind::Metadata),
+            Some(&b"metadata"[..])
+        );
+        assert_eq!(
+            image.section(DumpSectionKind::HeapImage),
+            Some(&b"heap bytes"[..])
+        );
+
+        let mapped = image.mapped_range();
+        let section_ptr = image.section(DumpSectionKind::HeapImage).unwrap().as_ptr() as usize;
+        assert!(
+            mapped.contains(&section_ptr),
+            "section bytes must be borrowed from the mmap, not copied"
+        );
+    }
+
+    #[test]
+    fn checksum_catches_payload_corruption() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        write_image(
+            &path,
+            &[ImageSection {
+                kind: DumpSectionKind::HeapImage,
+                flags: 0,
+                bytes: b"heap bytes",
+            }],
+        )
+        .unwrap();
+
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        file.seek(SeekFrom::End(-1)).unwrap();
+        let mut byte = [0u8; 1];
+        file.read_exact(&mut byte).unwrap();
+        byte[0] ^= 0x55;
+        file.seek(SeekFrom::End(-1)).unwrap();
+        file.write_all(&byte).unwrap();
+        file.sync_all().unwrap();
+
+        assert!(matches!(
+            load_image(&path),
+            Err(DumpError::ChecksumMismatch)
+        ));
+    }
+
+    #[test]
+    fn rejects_bad_section_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        write_image(
+            &path,
+            &[ImageSection {
+                kind: DumpSectionKind::HeapImage,
+                flags: 0,
+                bytes: b"heap bytes",
+            }],
+        )
+        .unwrap();
+
+        let mut bytes = std::fs::read(&path).unwrap();
+        let section_start = HEADER_SIZE;
+        let offset_start = section_start + 8;
+        let bogus_offset = (bytes.len() as u64 + 128).to_le_bytes();
+        bytes[offset_start..offset_start + 8].copy_from_slice(&bogus_offset);
+
+        let checksum = checksum_body(&bytes);
+        let checksum_start = 16 + 4 + 4 + 4 + 4 + 32;
+        bytes[checksum_start..checksum_start + 32].copy_from_slice(&checksum);
+        std::fs::write(&path, bytes).unwrap();
+
+        assert!(matches!(
+            load_image(&path),
+            Err(DumpError::ImageFormatError(_))
+        ));
+    }
+}
