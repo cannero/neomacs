@@ -7850,6 +7850,47 @@ fn load_file_does_not_enable_lexical_binding_from_non_cookie_second_line_text() 
 }
 
 #[test]
+fn autoload_load_preserves_callers_dynamic_lexical_binding() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempdir().expect("create temp autoload fixture dir");
+    let file = dir.path().join("vm-autoload-lb.el");
+    fs::write(
+        &file,
+        ";;; vm-autoload-lb.el --- probe -*- lexical-binding: t; -*-\n\
+         (fset 'vm-autoload-lb-probe (lambda () 42))\n",
+    )
+    .expect("write autoload lexical-binding fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    eval.set_lexical_binding(true);
+
+    let dir_lisp = dir
+        .path()
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let value = eval
+        .eval_str(&format!(
+            r#"(progn
+                 (setq load-path (list "{}"))
+                 (autoload 'vm-autoload-lb-probe "vm-autoload-lb")
+                 (let ((lexical-binding nil))
+                   (list lexical-binding
+                         (vm-autoload-lb-probe)
+                         lexical-binding
+                         (symbol-value 'lexical-binding))))"#,
+            dir_lisp
+        ))
+        .expect("autoload should preserve caller lexical-binding binding");
+    let payload = super::super::value::list_to_vec(&value).expect("expected result list");
+    assert_eq!(
+        payload,
+        vec![Value::NIL, Value::fixnum(42), Value::NIL, Value::NIL],
+        "loading a lexical file via autoload must not clobber the caller's dynamic lexical-binding"
+    );
+}
+
+#[test]
 fn load_file_accepts_utf8_bom_prefixed_source() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()

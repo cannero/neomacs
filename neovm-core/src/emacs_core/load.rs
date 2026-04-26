@@ -1231,9 +1231,16 @@ fn with_load_context<F>(
 where
     F: FnOnce(&mut super::eval::Context) -> Result<Value, EvalError>,
 {
-    let old_lexical = eval.lexical_binding();
     let old_reader_load_file = super::value_reader::get_reader_load_file_name_public();
     let old_macro_cache_disabled = eval.macro_cache_disabled;
+
+    let specpdl_count = eval.specpdl.len();
+    // GNU Fload first specbinds `lexical-binding' to nil, then assigns the
+    // file's cookie/default value before entering readevalloop. The specpdl
+    // binding is what preserves a caller's dynamic `(let ((lexical-binding
+    // nil)) ...)' across autoload-triggered loads.
+    eval.specbind(intern("lexical-binding"), Value::NIL);
+    eval.set_runtime_binding_by_id(intern("lexical-binding"), Value::bool_val(lexical_binding));
 
     // Mirrors GNU readevalloop (lread.c:2220-2222):
     //   specbind(Qinternal_interpreter_environment,
@@ -1241,7 +1248,6 @@ where
     // Use the specpdl for lexenv save/restore, matching GNU exactly.
     // This ensures all modifications to self.lexenv during file loading
     // are properly unwound by unbind_to, even if individual let forms leak.
-    let specpdl_count = eval.specpdl.len();
     {
         use super::eval::SpecBinding;
         eval.specpdl.push(SpecBinding::LexicalEnv {
@@ -1249,7 +1255,6 @@ where
         });
     }
     if lexical_binding {
-        eval.set_lexical_binding(true);
         eval.lexenv = Value::list(vec![Value::T]);
     } else {
         eval.lexenv = Value::NIL;
@@ -1288,11 +1293,11 @@ where
     super::value_reader::set_reader_load_file_name(old_reader_load_file);
     eval.macro_cache_disabled = old_macro_cache_disabled;
 
-    eval.set_lexical_binding(old_lexical);
     // Restore lexenv via specpdl unbind_to, matching GNU's
     // readevalloop cleanup. This pops the LexicalEnv entry we
-    // pushed above, along with load-file-name/load-true-file-name/
-    // current-load-list dynamic bindings, restoring their pre-load values.
+    // pushed above, along with lexical-binding/load-file-name/
+    // load-true-file-name/current-load-list dynamic bindings,
+    // restoring their pre-load values.
     eval.unbind_to(specpdl_count);
     eval.restore_specpdl_roots(roots);
 
