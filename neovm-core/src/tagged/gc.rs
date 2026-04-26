@@ -1096,7 +1096,8 @@ impl TaggedHeap {
     }
 
     fn seed_internal_runtime_roots(&mut self) {
-        // Subrs now use immediate encoding (not heap objects), so no root seeding needed.
+        // Static subr objects are leaked process/thread runtime objects, matching
+        // GNU's static `Lisp_Subr` storage. They are not swept by this heap.
         for value in self.buffer_registry.values() {
             if value.is_heap_object() {
                 self.gray_queue.push(*value);
@@ -1150,61 +1151,50 @@ impl TaggedHeap {
 
     /// Mark a single tagged value and push its children onto the gray queue.
     fn mark_value(&mut self, val: TaggedValue) {
-        match val.tag() {
-            0b010 => {
-                // Cons
-                let ptr = val.xcons_ptr();
-                if self.mark_cons(ptr) {
-                    // Newly marked — trace children
-                    let car = unsafe { (*ptr).car };
-                    let cdr = unsafe { (*ptr).cdr() };
-                    if car.is_heap_object() {
-                        self.gray_queue.push(car);
-                    }
-                    if cdr.is_heap_object() {
-                        self.gray_queue.push(cdr);
-                    }
+        if val.is_cons() {
+            let ptr = val.xcons_ptr();
+            if self.mark_cons(ptr) {
+                let car = unsafe { (*ptr).car };
+                let cdr = unsafe { (*ptr).cdr() };
+                if car.is_heap_object() {
+                    self.gray_queue.push(car);
+                }
+                if cdr.is_heap_object() {
+                    self.gray_queue.push(cdr);
                 }
             }
-            0b100 => {
-                // String — trace object-owned text properties.
-                let ptr = val.as_string_ptr().unwrap() as *mut StringObj;
-                unsafe {
-                    if (*ptr).header.marked {
-                        return;
-                    }
-                    (*ptr).header.marked = true;
-                    if !(*ptr).text_props.is_empty() {
-                        (*ptr).text_props.for_each_root(|root| {
-                            if root.is_heap_object() {
-                                self.gray_queue.push(root);
-                            }
-                        });
-                    }
-                };
-            }
-            0b110 => {
-                // Float — no children
-                let ptr = val.as_float_ptr().unwrap() as *mut FloatObj;
-                unsafe {
-                    if (*ptr).header.marked {
-                        return;
-                    }
-                    (*ptr).header.marked = true;
-                };
-            }
-            0b011 => {
-                // Vectorlike
-                let ptr = val.as_veclike_ptr().unwrap() as *mut VecLikeHeader;
-                unsafe {
-                    if (*ptr).gc.marked {
-                        return; // Already marked
-                    }
-                    (*ptr).gc.marked = true;
-                    self.trace_veclike(ptr);
+        } else if val.is_string() {
+            let ptr = val.as_string_ptr().unwrap() as *mut StringObj;
+            unsafe {
+                if (*ptr).header.marked {
+                    return;
                 }
+                (*ptr).header.marked = true;
+                if !(*ptr).text_props.is_empty() {
+                    (*ptr).text_props.for_each_root(|root| {
+                        if root.is_heap_object() {
+                            self.gray_queue.push(root);
+                        }
+                    });
+                }
+            };
+        } else if val.is_float() {
+            let ptr = val.as_float_ptr().unwrap() as *mut FloatObj;
+            unsafe {
+                if (*ptr).header.marked {
+                    return;
+                }
+                (*ptr).header.marked = true;
+            };
+        } else if val.is_veclike() {
+            let ptr = val.as_veclike_ptr().unwrap() as *mut VecLikeHeader;
+            unsafe {
+                if (*ptr).gc.marked {
+                    return;
+                }
+                (*ptr).gc.marked = true;
+                self.trace_veclike(ptr);
             }
-            _ => {} // Immediate values — nothing to mark
         }
     }
 

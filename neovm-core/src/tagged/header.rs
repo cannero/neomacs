@@ -326,6 +326,8 @@ pub enum SubrDispatchKind {
 #[repr(C)]
 pub struct SubrObj {
     pub header: VecLikeHeader,
+    /// The canonical symbol identity for this primitive function.
+    pub sym_id: crate::emacs_core::intern::SymId,
     /// The runtime-local name atom for the subr's public name.
     pub name: crate::emacs_core::intern::NameId,
     /// Minimum number of arguments.

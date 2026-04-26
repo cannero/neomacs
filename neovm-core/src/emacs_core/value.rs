@@ -875,7 +875,7 @@ impl TaggedValue {
             if !matches!(hdr.kind, crate::tagged::header::HeapObjectKind::String) {
                 // Check if the address is actually a VecLike — dump its type_tag
                 let vlh = unsafe { &*(ptr as *const crate::tagged::header::VecLikeHeader) };
-                let expected_tagged = ptr as usize | 0b011; // what the VecLike tag would be
+                let expected_tagged = ptr as usize | 0b101; // what the VecLike tag would be
                 panic!(
                     "CONS CAR BUG: car={:#x} (ptr {:?}, kind={:?}) is corrupt string.\n\
                      VecLikeHeader.type_tag={:?}\n\

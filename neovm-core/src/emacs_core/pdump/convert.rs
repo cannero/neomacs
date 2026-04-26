@@ -529,11 +529,12 @@ impl LoadDecoder {
             DumpValue::Macro(id) => self.heap_ref_to_value(tagged_heap_ref(id)),
             DumpValue::Subr(s) => {
                 let name_id = load_name_id(s);
-                // Convert NameId -> SymId for immediate subr encoding
+                // Convert NameId -> canonical SymId for the PVEC_SUBR-like
+                // object constructor.
                 if let Some(sym_id) = intern::canonical_symbol_for_name(name_id) {
                     Value::subr_from_sym_id(sym_id)
                 } else {
-                    // Fallback: intern the name to get a SymId
+                    // Fallback: intern the name to get a canonical SymId.
                     let name = intern::resolve_name(name_id);
                     Value::subr_from_sym_id(intern::intern(name))
                 }

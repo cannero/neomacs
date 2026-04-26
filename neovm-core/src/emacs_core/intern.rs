@@ -20,14 +20,17 @@ use crate::heap_types::LispString;
 
 /// A compact handle to a Lisp symbol object. Copy, 4 bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[repr(transparent)]
 pub struct SymId(pub(crate) u32);
 
 /// A compact handle to a deduplicated symbol-name atom. Runtime-local only.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+#[repr(transparent)]
 pub struct NameId(pub(crate) u32);
 
 pub const NIL_SYM_ID: SymId = SymId(0);
 pub const T_SYM_ID: SymId = SymId(1);
+pub const UNBOUND_SYM_ID: SymId = SymId(2);
 
 /// Append-only string interner used only for symbol names.
 pub struct StringInterner {
@@ -156,6 +159,10 @@ impl SymbolRegistry {
         let t_name = registry.names.intern("t");
         let t_id = registry.alloc_symbol(t_name, true);
         debug_assert_eq!(t_id, T_SYM_ID);
+
+        let unbound_name = registry.names.intern("unbound");
+        let unbound_id = registry.alloc_symbol(unbound_name, false);
+        debug_assert_eq!(unbound_id, UNBOUND_SYM_ID);
 
         registry
     }

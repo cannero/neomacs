@@ -54,7 +54,11 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   `DumpMarkerEntry` shape (per-buffer flat tuple) is no longer accepted; old v25
 //   dumps fail with `UnsupportedVersion` and are regenerated from scratch
 //   per the project's "no backward compat for pdump" policy.
-const FORMAT_VERSION: u32 = 26;
+// v27: GNU low-tag parity: fixnums use tags 010/110, cons is 011,
+//   vectorlike is 101, float is 111. `Qunbound` is a noncanonical symbol
+//   value, and subrs are PVEC_SUBR-like vectorlike objects instead of
+//   Neomacs-only immediate tag 111 values.
+const FORMAT_VERSION: u32 = 27;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")

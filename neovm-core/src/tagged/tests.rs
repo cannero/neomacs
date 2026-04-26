@@ -62,8 +62,40 @@ fn fixnum_not_nil() {
     assert!(!zero.is_nil());
     assert!(!zero.is_symbol());
     assert!(zero.is_fixnum());
-    // Fixnum 0 encoding: (0 << 2) | 1 = 1
-    assert_eq!(zero.bits(), 1);
+    // GNU low-tag layout: fixnum 0 is (0 << 2) | 2.
+    assert_eq!(zero.bits(), 2);
+}
+
+#[test]
+fn gnu_low_tag_layout() {
+    crate::test_utils::init_test_tracing();
+    let mut heap = super::gc::TaggedHeap::new();
+
+    assert_eq!(TaggedValue::from_sym_id(SymId(42)).tag(), 0b000);
+    assert_eq!(TaggedValue::fixnum(0).tag(), 0b010);
+    assert_eq!(TaggedValue::fixnum(1).tag(), 0b110);
+    assert_eq!(
+        heap.alloc_cons(TaggedValue::NIL, TaggedValue::NIL).tag(),
+        0b011
+    );
+    assert_eq!(
+        heap.alloc_string(crate::heap_types::LispString::from_utf8("x"))
+            .tag(),
+        0b100
+    );
+    assert_eq!(heap.alloc_vector(Vec::new()).tag(), 0b101);
+    assert_eq!(heap.alloc_float(1.0).tag(), 0b111);
+}
+
+#[test]
+fn q_unbound_is_not_user_interned_unbound_symbol() {
+    crate::test_utils::init_test_tracing();
+
+    let user_unbound = TaggedValue::from_sym_id(intern("unbound"));
+
+    assert!(TaggedValue::UNBOUND.is_unbound());
+    assert!(!user_unbound.is_unbound());
+    assert_ne!(TaggedValue::UNBOUND.bits(), user_unbound.bits());
 }
 
 #[test]
@@ -106,15 +138,14 @@ fn keyword_is_symbol() {
 }
 
 #[test]
-fn subr_is_immediate() {
+fn subr_is_gnu_shaped_vectorlike() {
     crate::test_utils::init_test_tracing();
-    // Subrs now use immediate encoding, not heap veclike objects
     let sym = intern("tagged-subr-test");
     let subr = TaggedValue::subr(sym);
     assert!(subr.is_subr());
-    assert!(subr.is_subr_static());
+    assert_eq!(subr.tag(), 0b101);
+    assert_eq!(subr.veclike_type(), Some(VecLikeType::Subr));
     assert_eq!(subr.as_subr_id(), Some(sym));
-    assert_eq!(subr.as_subr_sym_id_static(), Some(sym));
 }
 
 #[test]
@@ -142,22 +173,18 @@ fn subr_dispatch_kind_from_global_table() {
 }
 
 #[test]
-fn subr_immediate_encodes_sym_id_faithfully() {
+fn subr_object_resolves_by_public_name() {
     crate::test_utils::init_test_tracing();
 
     let canonical = intern("car");
     let canonical_subr = TaggedValue::subr(canonical);
 
-    // Immediate subr encoding round-trips the SymId
     assert_eq!(canonical_subr.as_subr_id(), Some(canonical));
-    assert_eq!(canonical_subr.as_subr_sym_id_static(), Some(canonical));
 
-    // Uninterned symbols get their OWN SymId in the immediate encoding
     let uninterned = intern_uninterned("car");
     let uninterned_subr = TaggedValue::subr(uninterned);
-    assert_eq!(uninterned_subr.as_subr_id(), Some(uninterned));
-    // They are NOT equal because they encode different SymIds
-    assert_ne!(canonical_subr, uninterned_subr);
+    assert_eq!(uninterned_subr.as_subr_id(), Some(canonical));
+    assert_eq!(canonical_subr.bits(), uninterned_subr.bits());
 }
 
 #[test]

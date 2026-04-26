@@ -5,34 +5,33 @@
 //! ```text
 //! Tag   Type         Payload                         Fast check
 //! 000   Symbol       sym_index << 3                  (v & 7) == 0
-//! xx1   Fixnum       integer << 2   (tags 001,011,101,111 — see below)
-//!                    Actually we use only 001/101:   (v & 3) == 1
-//! 010   Cons         pointer | 2                     (v & 7) == 2
-//! 011   Vectorlike   pointer | 3                     (v & 7) == 3
+//! 001   Unused       reserved by GNU Emacs
+//! xx10  Fixnum       integer << 2 | 2                 (v & 3) == 2
+//! 011   Cons         pointer | 3                     (v & 7) == 3
 //! 100   String       pointer | 4                     (v & 7) == 4
-//! 110   Float        pointer | 6                     (v & 7) == 6
-//! 111   Immediate    sub-tag in bits 3-7             (v & 7) == 7
+//! 101   Vectorlike   pointer | 5                     (v & 7) == 5
+//! 111   Float        pointer | 7                     (v & 7) == 7
 //! ```
 //!
-//! Fixnum uses tags 001 and 101 (both have `(v & 3) == 1`), giving
+//! Fixnum uses tags 010 and 110 (both have `(v & 3) == 2`), giving
 //! 62-bit signed integer range without heap allocation.
 //!
 //! Special values:
 //! - `nil`  = Symbol(0) = `0x0` (intern "nil" as SymId(0))
 //! - `t`    = Symbol(1) = `0x8` (intern "t" as SymId(1))
-//!
-//! Tag `111` is reserved. Characters are fixnums, keywords are ordinary
-//! symbols, and subrs are `PVEC_SUBR`-like heap objects.
+//! - `Qunbound` = noncanonical Symbol(2), matching GNU's symbol sentinel.
 
+use std::cell::RefCell;
 use std::fmt;
 
 use crate::emacs_core::intern::{
-    SymId, canonical_symbol_for_name, is_canonical_id, resolve_sym, resolve_sym_lisp_string,
+    SymId, UNBOUND_SYM_ID, canonical_symbol_for_name, is_canonical_id, resolve_name, resolve_sym,
+    resolve_sym_lisp_string, symbol_name_id,
 };
 use crate::heap_types::LispString;
 
 use super::header::{
-    BignumObj, ConsCell, FloatObj, GcHeader, StringObj, SymbolWithPosObj, VecLikeHeader,
+    BignumObj, ConsCell, FloatObj, GcHeader, StringObj, SubrObj, SymbolWithPosObj, VecLikeHeader,
     VecLikeType,
 };
 
@@ -51,34 +50,19 @@ const TAG_BITS: usize = 3;
 const TAG_MASK: usize = 0b111;
 
 const TAG_SYMBOL: usize = 0b000;
-const TAG_CONS: usize = 0b010;
-const TAG_VECLIKE: usize = 0b011;
+const TAG_CONS: usize = 0b011;
 const TAG_STRING: usize = 0b100;
-const TAG_FLOAT: usize = 0b110;
-// Tag 111 is reserved for sui generis sentinel values that aren't
-// representable as any other Lisp type. Chars, keywords, and subrs
-// all migrated away (chars=fixnum, keywords=symbol, subrs=PVEC_SUBR),
-// leaving `Qunbound` as the only inhabitant. Sub-tags (bits 3-7)
-// distinguish future sentinels if we ever add more.
-//
-// Reserving tag 111 for sentinels mirrors GNU's `Qunbound` which
-// is also a sui generis `Lisp_Object` not accessible from Lisp code.
-const TAG_IMMEDIATE: usize = 0b111;
+const TAG_VECLIKE: usize = 0b101;
+const TAG_FLOAT: usize = 0b111;
 
-// Immediate sub-tags. `Qunbound` uses sub-tag 0 so its full bit
-// pattern is `0b00000111 == 7`. NIL is 0 and T is 8, so UNBOUND
-// slots neatly into the Special Values range.
-const IMMED_UNBOUND: usize = (0 << TAG_BITS) | TAG_IMMEDIATE;
-
-/// Immediate sub-tag for static subr values: sub-tag 1 + immediate tag 111.
-/// Full low byte = `0b00001_111 == 0x0F`. The upper bits encode `SymId.0`
-/// (u32) shifted left by 8.
-const SUBR_IMMEDIATE_TAG: usize = 0x0F;
-
-// Fixnum uses two tags: 001 and 101. Both have (v & 3) == 1.
+// Fixnum uses two tags: 010 and 110. Both have (v & 3) == 2.
 const FIXNUM_CHECK_MASK: usize = 0b11;
-const FIXNUM_CHECK_VALUE: usize = 0b01;
+const FIXNUM_CHECK_VALUE: usize = 0b10;
 const FIXNUM_SHIFT: u32 = 2; // integer stored in bits 2..63
+
+thread_local! {
+    static STATIC_SUBR_OBJECTS: RefCell<Vec<Option<TaggedValue>>> = const { RefCell::new(Vec::new()) };
+}
 
 // ---------------------------------------------------------------------------
 // TaggedValue — the core type
@@ -111,6 +95,60 @@ impl PartialEq for TaggedValue {
 
 impl Eq for TaggedValue {}
 
+fn canonical_subr_object(sym_id: SymId) -> TaggedValue {
+    STATIC_SUBR_OBJECTS.with(|objects| {
+        let idx = sym_id.0 as usize;
+        if let Some(value) = objects.borrow().get(idx).and_then(|value| *value) {
+            return value;
+        }
+
+        let value = allocate_static_subr_object(sym_id);
+        let mut objects = objects.borrow_mut();
+        if objects.len() <= idx {
+            objects.resize_with(idx + 1, || None);
+        }
+        if let Some(existing) = objects[idx] {
+            existing
+        } else {
+            objects[idx] = Some(value);
+            value
+        }
+    })
+}
+
+fn allocate_static_subr_object(sym_id: SymId) -> TaggedValue {
+    let name_id = symbol_name_id(sym_id);
+    let entry = crate::emacs_core::eval::lookup_global_subr_entry(sym_id);
+    let (function, min_args, max_args, dispatch_kind) = if let Some(entry) = entry {
+        (
+            entry.function,
+            entry.min_args,
+            entry.max_args,
+            entry.dispatch_kind,
+        )
+    } else {
+        let (min_args, max_args, dispatch_kind) =
+            crate::emacs_core::subr_info::lookup_compat_subr_metadata(
+                resolve_name(name_id),
+                0,
+                None,
+            );
+        (None, min_args, max_args, dispatch_kind)
+    };
+
+    let obj = Box::new(SubrObj {
+        header: super::header::VecLikeHeader::new(VecLikeType::Subr),
+        sym_id,
+        name: name_id,
+        min_args,
+        max_args,
+        dispatch_kind,
+        function,
+    });
+    let ptr = Box::leak(obj) as *mut SubrObj;
+    unsafe { TaggedValue::from_veclike_ptr(ptr as *const VecLikeHeader) }
+}
+
 // ---------------------------------------------------------------------------
 // Constructors
 // ---------------------------------------------------------------------------
@@ -124,25 +162,22 @@ impl TaggedValue {
     /// The t (true) value. `t = Symbol(1) = 0x8`.
     pub const T: Self = Self(1 << TAG_BITS);
 
-    /// The `Qunbound` sentinel. A sui generis immediate value that
-    /// marks "no value" for symbol value cells and
-    /// `local_var_alist` entries. Mirrors GNU's `Qunbound` (defined
-    /// in `lisp.h` and used as the cdr of a BLV `defcell` / alist
-    /// entry when a LOCALIZED variable is void in a particular
-    /// buffer). See `data.c:1696-1740` (`blv_value`) and
-    /// `data.c:2209-2312` (`Fmake_local_variable`).
+    /// The `Qunbound` sentinel. GNU represents this as a real symbol
+    /// object, not as an immediate tag. Neomacs mirrors that shape with
+    /// a noncanonical process-global symbol named `unbound`.
     ///
     /// This must never leak into ordinary Lisp code — callers that
     /// observe it should either signal `void-variable` or treat it
     /// as "absent" depending on context.
-    pub const UNBOUND: Self = Self(IMMED_UNBOUND);
+    pub const UNBOUND: Self = Self((UNBOUND_SYM_ID.0 as usize) << TAG_BITS | TAG_SYMBOL);
 
     // -- Fixnum --
 
     /// Create a fixnum (62-bit signed integer, no heap allocation).
     #[inline]
     pub fn fixnum(n: i64) -> Self {
-        // Encode: (n << 2) | 1. The low 2 bits are `01`, matching tags 001 or 101.
+        // Encode: (n << 2) | 2. The low 2 bits are `10`, matching GNU's
+        // fixnum tags 010 and 110.
         Self(((n as usize) << FIXNUM_SHIFT) | FIXNUM_CHECK_VALUE)
     }
 
@@ -211,7 +246,7 @@ impl TaggedValue {
         Self(obj as usize | TAG_VECLIKE)
     }
 
-    // -- Immediates --
+    // -- GNU Lisp object constructors --
 
     /// Create a char value. In GNU Emacs, characters ARE integers (fixnums).
     /// `?A` is just the integer 65.
@@ -227,13 +262,18 @@ impl TaggedValue {
         Self::from_sym_id(id)
     }
 
-    /// Create a subr value from a SymId (static, not heap-allocated).
+    /// Create a subr value from a SymId.
+    ///
+    /// GNU Emacs represents subrs as `PVEC_SUBR` vectorlike objects, not as
+    /// immediate values. Neomacs keeps the Rust entry point in the global subr
+    /// table, while this value is the Lisp-visible `#<subr NAME>` object.
     #[inline]
     pub fn subr_from_sym_id(sym_id: crate::emacs_core::intern::SymId) -> Self {
-        Self((sym_id.0 as usize) << 8 | SUBR_IMMEDIATE_TAG)
+        let canonical = canonical_symbol_for_name(symbol_name_id(sym_id)).unwrap_or(sym_id);
+        canonical_subr_object(canonical)
     }
 
-    /// Create a subr (builtin function) value using the static immediate encoding.
+    /// Create a subr (builtin function) value.
     pub fn subr(id: SymId) -> Self {
         Self::subr_from_sym_id(id)
     }
@@ -299,13 +339,6 @@ impl TaggedValue {
         self.0 & TAG_MASK == TAG_VECLIKE
     }
 
-    /// True if this value is a sui generis immediate sentinel.
-    /// Currently only `Qunbound` (`Value::UNBOUND`) uses this tag.
-    #[inline]
-    pub fn is_immediate(self) -> bool {
-        self.0 & TAG_MASK == TAG_IMMEDIATE
-    }
-
     /// True if this is the `Qunbound` sentinel.
     ///
     /// `Qunbound` marks a "no value" state for symbol value cells
@@ -315,23 +348,7 @@ impl TaggedValue {
     /// Qunbound)` checks throughout `data.c`.
     #[inline]
     pub fn is_unbound(self) -> bool {
-        self.0 == IMMED_UNBOUND
-    }
-
-    /// Check if this value is a static subr (immediate encoding).
-    #[inline]
-    pub fn is_subr_static(self) -> bool {
-        self.0 & 0xFF == SUBR_IMMEDIATE_TAG
-    }
-
-    /// Extract the SymId from a static subr value.
-    #[inline]
-    pub fn as_subr_sym_id_static(self) -> Option<crate::emacs_core::intern::SymId> {
-        if self.is_subr_static() {
-            Some(crate::emacs_core::intern::SymId((self.0 >> 8) as u32))
-        } else {
-            None
-        }
+        self.0 == Self::UNBOUND.0
     }
 
     /// In GNU Emacs, characters are integers. `characterp` checks if the
@@ -353,11 +370,10 @@ impl TaggedValue {
             .is_some_and(crate::emacs_core::intern::is_keyword_id)
     }
 
-    /// Subrs are either immediate static subr values (new encoding) or
-    /// PVEC_SUBR veclike heap objects (old encoding, to be removed).
+    /// Subrs are PVEC_SUBR-like vectorlike objects, matching GNU Emacs.
     #[inline]
     pub fn is_subr(self) -> bool {
-        self.is_subr_static() || self.veclike_type() == Some(super::header::VecLikeType::Subr)
+        self.veclike_type() == Some(super::header::VecLikeType::Subr)
     }
 
     /// Bignums are PVEC_BIGNUM veclike heap objects (mirrors GNU `BIGNUMP`).
@@ -488,18 +504,12 @@ impl TaggedValue {
         }
     }
 
-    /// Extract the canonical public symbol id for a subr. Returns None if not a
-    /// subr value (either the new immediate encoding or the legacy heap encoding).
+    /// Extract the canonical public symbol id for a subr.
     #[inline]
     pub fn as_subr_id(self) -> Option<SymId> {
-        // New static subr path (immediate encoding)
-        if let Some(sym_id) = self.as_subr_sym_id_static() {
-            return Some(sym_id);
-        }
-        // Old heap subr path (legacy, kept for safety during migration)
         if self.veclike_type() == Some(super::header::VecLikeType::Subr) {
             let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
-            canonical_symbol_for_name(unsafe { (*ptr).name })
+            Some(unsafe { (*ptr).sym_id })
         } else {
             None
         }
@@ -630,6 +640,8 @@ impl TaggedValue {
                     ValueKind::Nil
                 } else if self.is_t() {
                     ValueKind::T
+                } else if self.is_unbound() {
+                    ValueKind::Unbound
                 } else {
                     ValueKind::Symbol(self.xsymbol_id())
                 }
@@ -641,11 +653,6 @@ impl TaggedValue {
             }
             TAG_STRING => ValueKind::String,
             TAG_FLOAT => ValueKind::Float,
-            TAG_IMMEDIATE if self.is_subr_static() => {
-                ValueKind::Subr(self.as_subr_sym_id_static().unwrap())
-            }
-            TAG_IMMEDIATE if self.is_unbound() => ValueKind::Unbound,
-            TAG_IMMEDIATE => ValueKind::Unknown,
             _ => ValueKind::Unknown,
         }
     }
@@ -864,8 +871,8 @@ pub enum ValueKind {
     Float,
     // NOTE: No Char variant. Characters are Fixnum in GNU Emacs.
     // NOTE: No Keyword variant. Keywords are Symbol in GNU Emacs.
-    /// Static subr (immediate encoding). The old `Veclike(VecLikeType::Subr)`
-    /// path is kept during migration but new subrs use this variant.
+    /// Legacy decoded subr variant. GNU-shaped runtime subrs are
+    /// `Veclike(VecLikeType::Subr)`.
     Subr(SymId),
     Veclike(VecLikeType),
     /// The `Qunbound` sentinel. Never reached by ordinary Lisp
