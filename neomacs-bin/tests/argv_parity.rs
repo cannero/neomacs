@@ -110,7 +110,6 @@ fn batch_eval_prints_result() {
 }
 
 #[test]
-#[ignore = "known gap: GNU abbreviates default-directory under HOME, Neomacs prints absolute path"]
 fn chdir_changes_default_directory() {
     skip_unless_oracle!();
     let tmp = tempfile::TempDir::new().unwrap();

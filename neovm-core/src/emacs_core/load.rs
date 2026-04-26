@@ -3395,6 +3395,14 @@ fn finalize_cached_bootstrap_eval(
         eval.set_variable("default-directory", Value::unibyte_string(cwd_string));
     }
 
+    // GNU's dumped image reaches `normal-top-level` with
+    // `abbreviated-home-dir` unset, so the first startup
+    // `abbreviate-file-name` computes the cache from the runtime HOME
+    // rather than the build/dump HOME.  Neomacs can compute the cache
+    // while constructing its dump; clear only the cache value here and
+    // let lisp/files.el repopulate its `home` plist entry.
+    eval.set_variable("abbreviated-home-dir", Value::NIL);
+
     eval.clear_top_level_eval_state();
 
     Ok(())
