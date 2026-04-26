@@ -101,6 +101,20 @@ fn symbols_with_pos_enabled_makes_lisp_comparison_primitives_transparent() {
 }
 
 #[test]
+fn keywordp_treats_positioned_keywords_like_gnu_when_enabled() {
+    let result = eval_one(
+        r#"(let ((pos-kw (position-symbol :neo-keyword 42)))
+             (list
+              (let ((symbols-with-pos-enabled t))
+                (list (symbolp pos-kw) (keywordp pos-kw) (eq pos-kw :neo-keyword)))
+              (let ((symbols-with-pos-enabled nil))
+                (list (symbolp pos-kw) (keywordp pos-kw) (eq pos-kw :neo-keyword)))))"#,
+    );
+
+    assert_eq!(result, "OK ((t t t) (nil nil nil))");
+}
+
+#[test]
 fn symbols_with_pos_enabled_makes_hash_table_keys_transparent() {
     let result = eval_one(
         r#"(progn

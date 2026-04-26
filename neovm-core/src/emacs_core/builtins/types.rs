@@ -57,8 +57,20 @@ pub(crate) fn builtin_vectorp_1(_eval: &mut super::eval::Context, arg: Value) ->
     Ok(Value::bool_val(is_vec))
 }
 
-pub(crate) fn builtin_keywordp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
-    Ok(Value::bool_val(arg.is_keyword()))
+fn keywordp_swp(arg: Value, symbols_with_pos_enabled: bool) -> bool {
+    let bare = if symbols_with_pos_enabled && arg.is_symbol_with_pos() {
+        arg.as_symbol_with_pos_sym().unwrap_or(arg)
+    } else {
+        arg
+    };
+    bare.is_keyword()
+}
+
+pub(crate) fn builtin_keywordp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(keywordp_swp(
+        arg,
+        eval.symbols_with_pos_enabled,
+    )))
 }
 
 pub(crate) fn builtin_eq_2(
@@ -295,7 +307,7 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_keywordp(args: Vec<Value>) -> EvalResult {
     expect_args("keywordp", &args, 1)?;
-    Ok(Value::bool_val(args[0].is_keyword()))
+    Ok(Value::bool_val(keywordp_swp(args[0], false)))
 }
 
 pub(crate) fn builtin_hash_table_p(args: Vec<Value>) -> EvalResult {
