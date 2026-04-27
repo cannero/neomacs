@@ -71,6 +71,14 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !obarray.symbols.is_empty(),
         "file pdumps must carry obarray symbol state in a raw mmap section"
     );
+    let roots_payload = image
+        .section(super::mmap_image::DumpSectionKind::Roots)
+        .expect("roots section");
+    let _roots = super::roots_image::load_roots_section(roots_payload).expect("roots");
+    assert!(
+        !roots_payload.is_empty(),
+        "file pdumps must carry top-level Lisp roots in a raw mmap section"
+    );
     let runtime_state = image
         .section(super::mmap_image::DumpSectionKind::RuntimeState)
         .expect("runtime-state section");
@@ -90,6 +98,17 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
             && state.obarray.function_unbound.is_empty()
             && state.obarray.function_epoch == 0,
         "obarray symbol state should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        state.dynamic.is_empty()
+            && matches!(state.lexenv, types::DumpValue::Nil)
+            && state.features.is_empty()
+            && state.require_stack.is_empty()
+            && state.loads_in_progress.is_empty()
+            && matches!(state.standard_syntax_table, types::DumpValue::Nil)
+            && matches!(state.standard_category_table, types::DumpValue::Nil)
+            && matches!(state.current_local_map, types::DumpValue::Nil),
+        "top-level Lisp roots should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()

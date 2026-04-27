@@ -19,6 +19,7 @@ pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub(crate) mod obarray_image;
+pub(crate) mod roots_image;
 pub mod runtime;
 pub(crate) mod symbol_table_image;
 pub mod types;
@@ -92,7 +93,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   fixed-layout HeapObjects mmap section with explicit heap/value tags.
 // v39: Obarray symbol state moves out of RuntimeState bincode and into a
 //   fixed-layout Obarray mmap section.
-const FORMAT_VERSION: u32 = 39;
+// v40: Top-level Lisp roots move out of RuntimeState bincode and into the
+//   fixed-layout Roots mmap section.
+const FORMAT_VERSION: u32 = 40;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -197,6 +200,16 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let heap_objects_payload =
         heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
     let obarray_payload = obarray_image::obarray_section_bytes(&state.obarray)?;
+    let roots_payload = roots_image::roots_section_bytes(&roots_image::DumpRootState {
+        dynamic: state.dynamic.clone(),
+        lexenv: state.lexenv.clone(),
+        features: state.features.clone(),
+        require_stack: state.require_stack.clone(),
+        loads_in_progress: state.loads_in_progress.clone(),
+        standard_syntax_table: state.standard_syntax_table.clone(),
+        standard_category_table: state.standard_category_table.clone(),
+        current_local_map: state.current_local_map.clone(),
+    })?;
     let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
     state.symbol_table.names.clear();
@@ -206,12 +219,20 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     state.obarray.global_members.clear();
     state.obarray.function_unbound.clear();
     state.obarray.function_epoch = 0;
+    state.dynamic.clear();
+    state.lexenv = types::DumpValue::Nil;
+    state.features.clear();
+    state.require_stack.clear();
+    state.loads_in_progress.clear();
+    state.standard_syntax_table = types::DumpValue::Nil;
+    state.standard_category_table = types::DumpValue::Nil;
+    state.current_local_map = types::DumpValue::Nil;
     mapped_heap::clear_heap_metadata(&mut state.tagged_heap);
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        4 + usize::from(!heap_payload.bytes.is_empty())
+        5 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -228,6 +249,11 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         kind: DumpSectionKind::Obarray,
         flags: 0,
         bytes: &obarray_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::Roots,
+        flags: 0,
+        bytes: &roots_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
@@ -281,6 +307,18 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::Obarray)
         .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
     state.obarray = obarray_image::load_obarray_section(obarray_payload)?;
+    let roots_payload = image
+        .section(DumpSectionKind::Roots)
+        .ok_or_else(|| DumpError::ImageFormatError("missing roots section".into()))?;
+    let roots = roots_image::load_roots_section(roots_payload)?;
+    state.dynamic = roots.dynamic;
+    state.lexenv = roots.lexenv;
+    state.features = roots.features;
+    state.require_stack = roots.require_stack;
+    state.loads_in_progress = roots.loads_in_progress;
+    state.standard_syntax_table = roots.standard_syntax_table;
+    state.standard_category_table = roots.standard_category_table;
+    state.current_local_map = roots.current_local_map;
     mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image
