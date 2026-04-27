@@ -79,6 +79,15 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !roots_payload.is_empty(),
         "file pdumps must carry top-level Lisp roots in a raw mmap section"
     );
+    let autoloads_payload = image
+        .section(super::mmap_image::DumpSectionKind::Autoloads)
+        .expect("autoloads section");
+    let _autoloads =
+        super::autoloads_image::load_autoloads_section(autoloads_payload).expect("autoloads");
+    assert!(
+        !autoloads_payload.is_empty(),
+        "file pdumps must carry autoload manager state in a raw mmap section"
+    );
     let runtime_state = image
         .section(super::mmap_image::DumpSectionKind::RuntimeState)
         .expect("runtime-state section");
@@ -109,6 +118,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
             && matches!(state.standard_category_table, types::DumpValue::Nil)
             && matches!(state.current_local_map, types::DumpValue::Nil),
         "top-level Lisp roots should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        super::autoloads_image::autoloads_is_empty(&state.autoloads),
+        "autoload manager state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()

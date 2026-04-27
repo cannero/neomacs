@@ -14,6 +14,7 @@
 //! [heap/roots/relocation sections, as they are migrated]
 //! ```
 
+pub(crate) mod autoloads_image;
 pub mod convert;
 pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
@@ -95,7 +96,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   fixed-layout Obarray mmap section.
 // v40: Top-level Lisp roots move out of RuntimeState bincode and into the
 //   fixed-layout Roots mmap section.
-const FORMAT_VERSION: u32 = 40;
+// v41: Autoload manager state moves out of RuntimeState bincode and into a
+//   fixed-layout Autoloads mmap section.
+const FORMAT_VERSION: u32 = 41;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -200,6 +203,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let heap_objects_payload =
         heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
     let obarray_payload = obarray_image::obarray_section_bytes(&state.obarray)?;
+    let autoloads_payload = autoloads_image::autoloads_section_bytes(&state.autoloads)?;
     let roots_payload = roots_image::roots_section_bytes(&roots_image::DumpRootState {
         dynamic: state.dynamic.clone(),
         lexenv: state.lexenv.clone(),
@@ -224,6 +228,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     state.features.clear();
     state.require_stack.clear();
     state.loads_in_progress.clear();
+    state.autoloads = autoloads_image::empty_autoloads();
     state.standard_syntax_table = types::DumpValue::Nil;
     state.standard_category_table = types::DumpValue::Nil;
     state.current_local_map = types::DumpValue::Nil;
@@ -232,7 +237,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        5 + usize::from(!heap_payload.bytes.is_empty())
+        6 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -254,6 +259,11 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         kind: DumpSectionKind::Roots,
         flags: 0,
         bytes: &roots_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::Autoloads,
+        flags: 0,
+        bytes: &autoloads_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
@@ -319,6 +329,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     state.standard_syntax_table = roots.standard_syntax_table;
     state.standard_category_table = roots.standard_category_table;
     state.current_local_map = roots.current_local_map;
+    let autoloads_payload = image
+        .section(DumpSectionKind::Autoloads)
+        .ok_or_else(|| DumpError::ImageFormatError("missing autoloads section".into()))?;
+    state.autoloads = autoloads_image::load_autoloads_section(autoloads_payload)?;
     mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image
