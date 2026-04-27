@@ -98,6 +98,15 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !face_payload.is_empty(),
         "file pdumps must carry Lisp face state in a raw mmap section"
     );
+    let buffer_payload = image
+        .section(super::mmap_image::DumpSectionKind::Buffers)
+        .expect("buffers section");
+    let _buffers =
+        super::buffer_image::load_buffer_manager_section(buffer_payload).expect("buffers");
+    assert!(
+        !buffer_payload.is_empty(),
+        "file pdumps must carry buffer state in a raw mmap section"
+    );
     let roots_payload = image
         .section(super::mmap_image::DumpSectionKind::Roots)
         .expect("roots section");
@@ -161,6 +170,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         super::face_image::face_table_is_empty(&state.face_table),
         "Lisp face state should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        super::buffer_image::buffer_manager_is_empty(&state.buffers),
+        "buffer state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()

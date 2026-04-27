@@ -15,6 +15,7 @@
 //! ```
 
 pub(crate) mod autoloads_image;
+pub(crate) mod buffer_image;
 pub(crate) mod charset_image;
 pub(crate) mod coding_system_image;
 pub mod convert;
@@ -107,7 +108,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   the fixed-layout CodingSystems mmap section.
 // v44: Lisp face table state moves out of RuntimeState bincode and into the
 //   fixed-layout FaceTable mmap section.
-const FORMAT_VERSION: u32 = 44;
+// v45: Buffer manager state moves out of RuntimeState bincode and into the
+//   fixed-layout Buffers mmap section.
+const FORMAT_VERSION: u32 = 45;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -216,6 +219,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let coding_system_payload =
         coding_system_image::coding_system_section_bytes(&state.coding_systems)?;
     let face_payload = face_image::face_table_section_bytes(&state.face_table)?;
+    let buffer_payload = buffer_image::buffer_manager_section_bytes(&state.buffers)?;
     let autoloads_payload = autoloads_image::autoloads_section_bytes(&state.autoloads)?;
     let roots_payload = roots_image::roots_section_bytes(&roots_image::DumpRootState {
         dynamic: state.dynamic.clone(),
@@ -239,6 +243,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     state.charset_registry = charset_image::empty_charset_registry();
     state.coding_systems = coding_system_image::empty_coding_system_manager();
     state.face_table = face_image::empty_face_table();
+    state.buffers = buffer_image::empty_buffer_manager();
     state.dynamic.clear();
     state.lexenv = types::DumpValue::Nil;
     state.features.clear();
@@ -253,7 +258,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        9 + usize::from(!heap_payload.bytes.is_empty())
+        10 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -285,6 +290,11 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         kind: DumpSectionKind::FaceTable,
         flags: 0,
         bytes: &face_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::Buffers,
+        flags: 0,
+        bytes: &buffer_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::Roots,
@@ -360,6 +370,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::FaceTable)
         .ok_or_else(|| DumpError::ImageFormatError("missing face-table section".into()))?;
     state.face_table = face_image::load_face_table_section(face_payload)?;
+    let buffer_payload = image
+        .section(DumpSectionKind::Buffers)
+        .ok_or_else(|| DumpError::ImageFormatError("missing buffers section".into()))?;
+    state.buffers = buffer_image::load_buffer_manager_section(buffer_payload)?;
     let roots_payload = image
         .section(DumpSectionKind::Roots)
         .ok_or_else(|| DumpError::ImageFormatError("missing roots section".into()))?;
