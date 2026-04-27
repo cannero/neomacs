@@ -1370,8 +1370,8 @@ fn streaming_readevalloop(
         pos = next_pos;
 
         if tracing::enabled!(tracing::Level::DEBUG) {
-            let preview: String = content[form_start..next_pos].chars().take(80).collect();
-            tracing::debug!("{} FORM[{}/streaming]: {}", file_name, form_idx, preview,);
+            let preview: String = content[form_start..next_pos].chars().take(160).collect();
+            tracing::debug!("{} FORM[{}/streaming]: {}", file_name, form_idx, preview.replace('\n', " "));
         }
 
         // Root the form value so it survives any GC triggered during
@@ -1476,9 +1476,9 @@ fn streaming_readevalloop_lisp_source(
             let preview: String = read_source
                 .storage_slice_range(form_start, next_pos)
                 .chars()
-                .take(80)
+                .take(160)
                 .collect();
-            tracing::debug!("{} FORM[{}/streaming]: {}", file_name, form_idx, preview,);
+            tracing::debug!("{} FORM[{}]: {}", file_name, form_idx, preview.replace('\n', " "));
         }
 
         let eval_roots = eval.save_specpdl_roots();
@@ -1607,22 +1607,20 @@ fn streaming_readevalloop_eager_expand_eval_inner(
 }
 
 /// Load and evaluate a file. Returns the last result.
-#[tracing::instrument(level = "info", skip(eval))]
 pub fn load_file(eval: &mut super::eval::Context, path: &Path) -> Result<Value, EvalError> {
     load_file_with_flags(eval, path, false, false)
 }
 
 /// Load and evaluate a file with the caller-visible `load` flags.
-#[tracing::instrument(level = "info", skip(eval))]
 pub fn load_file_with_flags(
     eval: &mut super::eval::Context,
     path: &Path,
     noerror: bool,
     nomessage: bool,
 ) -> Result<Value, EvalError> {
-    // Expand tilde in case the path comes from Elisp with ~ prefix
     let expanded = expand_tilde(&path.to_string_lossy());
     let path = std::path::Path::new(&expanded);
+    tracing::info!("load {}", path.display());
     let requested = load_path_lisp_string(path);
     load_file_with_requested_and_found_flags(eval, path, &requested, &requested, noerror, nomessage)
 }

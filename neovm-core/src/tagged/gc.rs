@@ -601,6 +601,10 @@ pub struct TaggedHeap {
     frame_registry: FxHashMap<u64, TaggedValue>,
     timer_registry: FxHashMap<u64, TaggedValue>,
 
+    /// Cumulative GC statistics.
+    gc_collections: usize,
+    gc_total_elapsed_us: u64,
+
     /// Owners mutated since the last full collection.
     ///
     /// This is the minimal remembered-set precursor for future generational
@@ -642,6 +646,8 @@ impl TaggedHeap {
             dirty_owners: Vec::new(),
             dirty_owner_bits: FxHashSet::default(),
             dirty_writes: Vec::new(),
+            gc_collections: 0,
+            gc_total_elapsed_us: 0,
         }
     }
 
@@ -1441,6 +1447,9 @@ impl TaggedHeap {
     }
 
     pub(crate) fn complete_collection(&mut self) {
+        let bytes_before = self.live_bytes;
+        let t0 = std::time::Instant::now();
+
         // -- Mark phase: drain gray queue --
         self.mark_all();
 
@@ -1459,6 +1468,23 @@ impl TaggedHeap {
             .saturating_add(object_live_bytes)
             .saturating_add(mapped_object_live_bytes);
         self.bytes_since_gc = 0;
+
+        let elapsed = t0.elapsed();
+        self.gc_collections += 1;
+        self.gc_total_elapsed_us += elapsed.as_micros() as u64;
+
+        tracing::info!(
+            "gc#{} {:.1}ms, {} → {} bytes ({:+.1}%), cons_live={}, threshold={}",
+            self.gc_collections,
+            self.gc_total_elapsed_us as f64 / self.gc_collections as f64 / 1000.0,
+            bytes_before,
+            self.live_bytes,
+            if bytes_before > 0 {
+                (self.live_bytes as f64 - bytes_before as f64) / bytes_before as f64 * 100.0
+            } else { 0.0 },
+            self.cons_live_count,
+            self.gc_threshold,
+        );
 
         // A full-heap collection subsumes any remembered-set bookkeeping.
         self.clear_dirty_owners();
