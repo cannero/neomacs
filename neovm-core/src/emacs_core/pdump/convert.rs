@@ -3168,7 +3168,15 @@ pub(crate) fn load_hash_table(decoder: &mut LoadDecoder, ht: &DumpLispHashTable)
 pub(crate) fn load_symbol_table(table: &DumpSymbolTable) -> Result<(), DumpError> {
     let symbol_names: Vec<u32> = table.symbols.iter().map(|entry| entry.name.0).collect();
     let canonical: Vec<bool> = table.symbols.iter().map(|entry| entry.canonical).collect();
-    let remap = intern::restore_runtime_interner(&table.names, &symbol_names, Some(&canonical))
+    load_symbol_table_parts(&table.names, &symbol_names, &canonical)
+}
+
+pub(crate) fn load_symbol_table_parts(
+    names: &[LispString],
+    symbol_names: &[u32],
+    canonical: &[bool],
+) -> Result<(), DumpError> {
+    let remap = intern::restore_runtime_interner(names, symbol_names, Some(canonical))
         .map_err(DumpError::DeserializationError)?;
     let intern::RestoredDumpSymbolTable { names, symbols } = remap;
     PDUMP_LOAD_NAME_REMAP.with(|slot| {

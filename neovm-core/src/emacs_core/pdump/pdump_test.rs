@@ -37,6 +37,41 @@ fn test_pdump_round_trip_basic() {
 }
 
 #[test]
+fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray
+        .set_symbol_value("pdump-symbol-section-probe", Value::fixnum(71));
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("symbol-table-section.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let image = super::mmap_image::load_image(&dump_path).expect("load raw mmap image");
+    assert!(
+        image
+            .section(super::mmap_image::DumpSectionKind::SymbolTable)
+            .is_some(),
+        "file pdumps must carry the symbol interner in a raw mmap section"
+    );
+    let runtime_state = image
+        .section(super::mmap_image::DumpSectionKind::RuntimeState)
+        .expect("runtime-state section");
+    let state: types::DumpContextState =
+        bincode::deserialize(runtime_state).expect("runtime-state should decode");
+    assert!(
+        state.symbol_table.names.is_empty() && state.symbol_table.symbols.is_empty(),
+        "symbol interner metadata should no longer be serialized in RuntimeState"
+    );
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    assert_eq!(
+        loaded.obarray.symbol_value("pdump-symbol-section-probe"),
+        Some(&Value::fixnum(71))
+    );
+}
+
+#[test]
 fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
@@ -1188,24 +1223,23 @@ fn test_restore_snapshot_does_not_report_file_based_pdump_session() {
 }
 
 #[test]
-fn test_pdump_checksum_mismatch() {
+fn test_pdump_rejects_corrupt_runtime_state_section() {
     crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().unwrap();
     let dump_path = dir.path().join("test.pdump");
 
-    let eval = Context::new();
-    dump_to_file(&eval, &dump_path).expect("dump should succeed");
-
-    // Corrupt a byte in the payload
-    let mut data = std::fs::read(&dump_path).unwrap();
-    if let Some(last) = data.last_mut() {
-        *last ^= 0xFF;
-    }
-    std::fs::write(&dump_path, &data).unwrap();
+    super::mmap_image::write_image(
+        &dump_path,
+        &[super::mmap_image::ImageSection {
+            kind: super::mmap_image::DumpSectionKind::RuntimeState,
+            flags: 0,
+            bytes: b"not a bincode DumpContextState",
+        }],
+    )
+    .expect("write corrupt runtime-state image");
 
     let result = load_from_dump(&dump_path);
-    // Should fail with checksum mismatch or deserialization error
-    assert!(result.is_err());
+    assert!(matches!(result, Err(DumpError::DeserializationError(_))));
 }
 
 #[test]

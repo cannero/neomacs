@@ -2,8 +2,9 @@
 //!
 //! File-backed dumps use an mmap image container: a fixed header, build
 //! fingerprint, section table, checksum, and private mmap on load.  The
-//! runtime-state section still carries `DumpContextState` while the heap
-//! sections are being converted to GNU-style mapped objects.
+//! runtime-state section still carries the not-yet-migrated parts of
+//! `DumpContextState` while heap and interner data move to GNU-style mapped
+//! sections.
 //!
 //! File format:
 //! ```text
@@ -17,6 +18,7 @@ pub mod convert;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub mod runtime;
+pub(crate) mod symbol_table_image;
 pub mod types;
 
 use std::path::Path;
@@ -79,7 +81,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v35: mmap relocations carry a tagged-value addend, and dump writes raw cons,
 //   float, and vector slot payload contents into the heap image instead of
 //   reserving empty arenas for load-time reconstruction.
-const FORMAT_VERSION: u32 = 35;
+// v36: Dump-local symbol interner metadata moves out of RuntimeState bincode
+//   and into a fixed-layout SymbolTable mmap section.
+const FORMAT_VERSION: u32 = 36;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -168,19 +172,35 @@ pub struct ActiveRuntimeSnapshot {
     fontset_registry: FontsetRegistrySnapshot,
 }
 
+struct RestoreCleanup;
+
+impl Drop for RestoreCleanup {
+    fn drop(&mut self) {
+        finish_load_interner();
+    }
+}
+
 /// Serialize the evaluator state to a pdump file.
 pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let mut state = dump_evaluator(eval);
+    let symbol_table_payload = symbol_table_image::symbol_table_section_bytes(&state.symbol_table)?;
     let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
     let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
+    state.symbol_table.names.clear();
+    state.symbol_table.symbols.clear();
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        1 + usize::from(!heap_payload.bytes.is_empty())
+        2 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
+    sections.push(ImageSection {
+        kind: DumpSectionKind::SymbolTable,
+        flags: 0,
+        bytes: &symbol_table_payload,
+    });
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
         flags: 0,
@@ -219,11 +239,18 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let state: types::DumpContextState = bincode::deserialize(payload)
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
+    let _cleanup = RestoreCleanup;
+    let symbol_table_payload = image
+        .section(DumpSectionKind::SymbolTable)
+        .ok_or_else(|| DumpError::ImageFormatError("missing symbol-table section".into()))?;
+    symbol_table_image::load_symbol_table_section(symbol_table_payload)?;
+
     let mapped_heap = image
         .section_mut(DumpSectionKind::HeapImage)
         .map(mapped_heap::MappedHeapView::from_mut_slice);
 
-    let mut eval = reconstruct_evaluator(&state, mapped_heap)?;
+    let mut eval = reconstruct_evaluator_after_symbol_table(&state, mapped_heap)?;
+    drop(_cleanup);
     record_loaded_dump(path, load_start.elapsed());
     mark_after_pdump_load_hook_pending(&mut eval);
     eval.install_pdump_image(image);
@@ -298,19 +325,19 @@ fn reconstruct_evaluator(
     state: &DumpContextState,
     mapped_heap: Option<mapped_heap::MappedHeapView>,
 ) -> Result<Context, DumpError> {
-    struct RestoreCleanup;
-
-    impl Drop for RestoreCleanup {
-        fn drop(&mut self) {
-            finish_load_interner();
-        }
-    }
-
     // 1. Reconstruct the dump-local symbol table before any values that refer
     // to dump-local `DumpSymId`s are loaded.
-    load_symbol_table(&state.symbol_table)?;
     let _cleanup = RestoreCleanup;
+    load_symbol_table(&state.symbol_table)?;
+    let eval = reconstruct_evaluator_after_symbol_table(state, mapped_heap)?;
+    drop(_cleanup);
+    Ok(eval)
+}
 
+fn reconstruct_evaluator_after_symbol_table(
+    state: &DumpContextState,
+    mapped_heap: Option<mapped_heap::MappedHeapView>,
+) -> Result<Context, DumpError> {
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads
     // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());

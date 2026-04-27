@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use super::{DumpError, fingerprint_bytes, hex_string};
 
 const MMAP_MAGIC: [u8; 16] = *b"NEOMMAPDUMP\0\0\0\0\0";
-const MMAP_FORMAT_VERSION: u32 = 2;
+const MMAP_FORMAT_VERSION: u32 = 3;
 const SECTION_ALIGN: u64 = 8;
 
 #[repr(u32)]
@@ -31,6 +31,7 @@ pub(crate) enum DumpSectionKind {
     ObjectStarts = 5,
     EmacsRelocations = 6,
     RuntimeState = 7,
+    SymbolTable = 8,
 }
 
 impl DumpSectionKind {
@@ -43,6 +44,7 @@ impl DumpSectionKind {
             5 => Ok(Self::ObjectStarts),
             6 => Ok(Self::EmacsRelocations),
             7 => Ok(Self::RuntimeState),
+            8 => Ok(Self::SymbolTable),
             other => Err(DumpError::ImageFormatError(format!(
                 "unknown section kind {other}"
             ))),
