@@ -2063,8 +2063,6 @@ fn begin_macro_expansion_scope_in_state(
     custom: &CustomManager,
     lexenv: Value,
 ) -> ActiveMacroExpansionScopeState {
-    let nil_symbol = nil_symbol();
-    let t_symbol = t_symbol();
     let saved_specpdl_len = specpdl.len();
     let old_lexical = obarray
         .symbol_value_id(lexical_binding_symbol())
@@ -2077,44 +2075,16 @@ fn begin_macro_expansion_scope_in_state(
     let dynvars_root_index = specpdl.len();
     specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
     let mut dynvars = old_dynvars;
+    // GNU eval.c only extends `macroexp--dynvars` from bare symbols in
+    // Vinternal_interpreter_environment; dynamic specpdl bindings are not
+    // part of this macro-expansion state.
     for sym in lexenv_bare_symbols(lexenv) {
-        if sym == t_symbol || sym == nil_symbol {
-            continue;
-        }
         dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
         match specpdl.get_mut(dynvars_root_index) {
             Some(SpecBinding::GcRoot { value }) => *value = dynvars,
             other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
         }
     }
-    let specpdl_dynvars: Vec<SymId> = specpdl
-        .iter()
-        .rev()
-        .filter_map(|entry| match entry {
-            SpecBinding::Let { sym_id, .. }
-            | SpecBinding::LetLocal { sym_id, .. }
-            | SpecBinding::LetDefault { sym_id, .. } => Some(*sym_id),
-            SpecBinding::LexicalEnv { .. }
-            | SpecBinding::GcRoot { .. }
-            | SpecBinding::Backtrace { .. }
-            | SpecBinding::Nop
-            | SpecBinding::UnwindProtect { .. }
-            | SpecBinding::SaveExcursion { .. }
-            | SpecBinding::SaveCurrentBuffer { .. }
-            | SpecBinding::SaveRestriction { .. } => None,
-        })
-        .collect();
-    for sym_id in specpdl_dynvars {
-        if sym_id == t_symbol || sym_id == nil_symbol {
-            continue;
-        }
-        dynvars = Value::cons(Value::from_sym_id(sym_id), dynvars);
-        match specpdl.get_mut(dynvars_root_index) {
-            Some(SpecBinding::GcRoot { value }) => *value = dynvars,
-            other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
-        }
-    }
-
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
         obarray,

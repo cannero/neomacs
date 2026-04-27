@@ -9528,13 +9528,14 @@ fn direct_context_apply_accepts_uninterned_symbol_function_designators() {
 }
 
 #[test]
-fn macro_expansion_scope_uses_specpdl_roots() {
+fn macro_expansion_scope_uses_lexenv_dynvars() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
     ev.set_lexical_binding(true);
     ev.gc_stress = true;
     ev.bind_lexical_value_rooted(intern("macro-scope-a"), Value::fixnum(1));
     ev.bind_lexical_value_rooted(intern("macro-scope-b"), Value::fixnum(2));
+    ev.lexenv = Value::cons(Value::from_sym_id(intern("macro-scope-special")), ev.lexenv);
     let specpdl_count = ev.specpdl.len();
     let dyn_sym = intern("macro-scope-dyn");
     ev.specbind(dyn_sym, Value::fixnum(9));
@@ -9551,8 +9552,24 @@ fn macro_expansion_scope_uses_specpdl_roots() {
         .symbol_value_id(macroexp_dynvars_symbol())
         .copied()
         .expect("macroexp--dynvars should be bound inside macro expansion scope");
-    let printed = crate::emacs_core::print::print_value(&dynvars);
-    assert!(printed.contains("macro-scope-dyn"), "{printed}");
+    let dynvars = list_to_vec(&dynvars).expect("macroexp--dynvars should stay a proper list");
+    assert!(dynvars.contains(&Value::T), "{dynvars:?}");
+    assert!(
+        dynvars.contains(&Value::from_sym_id(intern("macro-scope-special"))),
+        "{dynvars:?}"
+    );
+    assert!(
+        !dynvars.contains(&Value::from_sym_id(intern("macro-scope-a"))),
+        "{dynvars:?}"
+    );
+    assert!(
+        !dynvars.contains(&Value::from_sym_id(intern("macro-scope-b"))),
+        "{dynvars:?}"
+    );
+    assert!(
+        !dynvars.contains(&Value::from_sym_id(intern("macro-scope-dyn"))),
+        "{dynvars:?}"
+    );
 
     ev.finish_macro_expansion_scope(state);
 
