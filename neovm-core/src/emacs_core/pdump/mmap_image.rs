@@ -320,9 +320,10 @@ fn validate_image(mmap: MmapMut) -> Result<LoadedMmapImage, DumpError> {
         });
     }
 
-    if checksum_body(&mmap) != header.checksum {
-        return Err(DumpError::ChecksumMismatch);
-    }
+    // GNU pdumper validates the fixed header and build fingerprint on the
+    // startup path; it does not hash the full mapped image before relocation.
+    // Keep the checksum in the writer format for offline/debug validation, but
+    // do not make normal pdump startup walk the entire file.
 
     let section_table_start = header.section_table_offset as usize;
     let section_table_len = header.section_table_len as usize;
@@ -463,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn checksum_catches_payload_corruption() {
+    fn load_image_does_not_hash_payload_corruption_on_startup() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("image.pdump");
         write_image(
@@ -489,10 +490,11 @@ mod tests {
         file.write_all(&byte).unwrap();
         file.sync_all().unwrap();
 
-        assert!(matches!(
-            load_image(&path),
-            Err(DumpError::ChecksumMismatch)
-        ));
+        let image = load_image(&path).unwrap();
+        assert_ne!(
+            image.section(DumpSectionKind::HeapImage),
+            Some(&b"heap bytes"[..])
+        );
     }
 
     #[test]
