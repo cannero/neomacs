@@ -1385,24 +1385,24 @@ impl<'a> Cursor<'a> {
         Ok(Some(pairs))
     }
 
-    fn read_string(&mut self) -> Result<String, DumpError> {
+    pub(crate) fn read_string(&mut self) -> Result<String, DumpError> {
         let bytes = self.read_bytes()?;
         String::from_utf8(bytes)
             .map_err(|e| DumpError::ImageFormatError(format!("invalid UTF-8 string: {e}")))
     }
 
-    fn read_bytes(&mut self) -> Result<Vec<u8>, DumpError> {
+    pub(crate) fn read_bytes(&mut self) -> Result<Vec<u8>, DumpError> {
         let len = self.read_len("byte payload length")?;
         Ok(self.read_exact(len, "byte payload")?.to_vec())
     }
 
-    fn read_len(&mut self, what: &str) -> Result<usize, DumpError> {
+    pub(crate) fn read_len(&mut self, what: &str) -> Result<usize, DumpError> {
         let len = self.read_u64(what)?;
         usize::try_from(len)
             .map_err(|_| DumpError::ImageFormatError(format!("{what} overflows usize")))
     }
 
-    fn read_usize(&mut self, what: &str) -> Result<usize, DumpError> {
+    pub(crate) fn read_usize(&mut self, what: &str) -> Result<usize, DumpError> {
         let value = self.read_u64(what)?;
         usize::try_from(value)
             .map_err(|_| DumpError::ImageFormatError(format!("{what} overflows usize")))
@@ -1422,7 +1422,7 @@ impl<'a> Cursor<'a> {
         Ok(self.read_exact(1, what)?[0])
     }
 
-    fn read_u16(&mut self, what: &str) -> Result<u16, DumpError> {
+    pub(crate) fn read_u16(&mut self, what: &str) -> Result<u16, DumpError> {
         let bytes = self.read_exact(2, what)?;
         Ok(u16::from_ne_bytes([bytes[0], bytes[1]]))
     }
@@ -1439,21 +1439,21 @@ impl<'a> Cursor<'a> {
         ]))
     }
 
-    fn read_i64(&mut self, what: &str) -> Result<i64, DumpError> {
+    pub(crate) fn read_i64(&mut self, what: &str) -> Result<i64, DumpError> {
         let bytes = self.read_exact(8, what)?;
         Ok(i64::from_ne_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]))
     }
 
-    fn read_f64(&mut self, what: &str) -> Result<f64, DumpError> {
+    pub(crate) fn read_f64(&mut self, what: &str) -> Result<f64, DumpError> {
         let bytes = self.read_exact(8, what)?;
         Ok(f64::from_ne_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]))
     }
 
-    fn read_exact(&mut self, len: usize, what: &str) -> Result<&'a [u8], DumpError> {
+    pub(crate) fn read_exact(&mut self, len: usize, what: &str) -> Result<&'a [u8], DumpError> {
         let end = self
             .offset
             .checked_add(len)

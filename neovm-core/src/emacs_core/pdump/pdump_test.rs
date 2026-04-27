@@ -2,8 +2,7 @@ use super::*;
 use crate::emacs_core::intern::intern;
 use crate::emacs_core::mode::{FontLockDefaults, FontLockKeyword, MajorMode};
 use crate::emacs_core::pdump::types::{
-    DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpSymbolData,
-    DumpSymbolVal, DumpValue,
+    DumpByteCodeFunction, DumpHeapObject, DumpLambdaParams, DumpOp, DumpSymId, DumpValue,
 };
 use crate::emacs_core::value::{
     StringTextPropertyRun, Value, get_string_text_properties_for_value, list_to_vec,
@@ -124,64 +123,17 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !autoloads_payload.is_empty(),
         "file pdumps must carry autoload manager state in a raw mmap section"
     );
-    let runtime_state = image
-        .section(super::mmap_image::DumpSectionKind::RuntimeState)
-        .expect("runtime-state section");
-    let state: types::DumpContextState =
-        bincode::deserialize(runtime_state).expect("runtime-state should decode");
+    let runtime_managers_payload = image
+        .section(super::mmap_image::DumpSectionKind::RuntimeManagers)
+        .expect("runtime-managers section");
+    let _runtime_managers =
+        super::runtime_managers_image::load_runtime_managers_section(runtime_managers_payload)
+            .expect("runtime managers");
     assert!(
-        state.symbol_table.names.is_empty() && state.symbol_table.symbols.is_empty(),
-        "symbol interner metadata should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        state.tagged_heap.objects.is_empty(),
-        "heap object descriptors should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        state.obarray.symbols.is_empty()
-            && state.obarray.global_members.is_empty()
-            && state.obarray.function_unbound.is_empty()
-            && state.obarray.function_epoch == 0,
-        "obarray symbol state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        state.dynamic.is_empty()
-            && matches!(state.lexenv, types::DumpValue::Nil)
-            && state.features.is_empty()
-            && state.require_stack.is_empty()
-            && state.loads_in_progress.is_empty()
-            && matches!(state.standard_syntax_table, types::DumpValue::Nil)
-            && matches!(state.standard_category_table, types::DumpValue::Nil)
-            && matches!(state.current_local_map, types::DumpValue::Nil),
-        "top-level Lisp roots should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        super::autoloads_image::autoloads_is_empty(&state.autoloads),
-        "autoload manager state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        super::charset_image::charset_registry_is_empty(&state.charset_registry),
-        "charset registry state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        super::coding_system_image::coding_system_manager_is_empty(&state.coding_systems),
-        "coding system state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        super::face_image::face_table_is_empty(&state.face_table),
-        "Lisp face state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        super::buffer_image::buffer_manager_is_empty(&state.buffers),
-        "buffer state should no longer be serialized in RuntimeState"
-    );
-    assert!(
-        state.tagged_heap.mapped_cons.is_empty()
-            && state.tagged_heap.mapped_floats.is_empty()
-            && state.tagged_heap.mapped_strings.is_empty()
-            && state.tagged_heap.mapped_veclikes.is_empty()
-            && state.tagged_heap.mapped_slots.is_empty(),
-        "mapped heap span metadata should no longer be serialized in RuntimeState"
+        image
+            .section(super::mmap_image::DumpSectionKind::RuntimeState)
+            .is_none(),
+        "file pdumps must not carry a monolithic bincode RuntimeState section"
     );
 
     let loaded = load_from_dump(&dump_path).expect("load should succeed");
@@ -260,13 +212,13 @@ fn file_pdump_loads_string_text_props_from_mmap_object() {
     let dump_path = dir.path().join("mapped-string-props.pdump");
     dump_to_file(&eval, &dump_path).expect("dump should succeed");
     let image = super::mmap_image::load_image(&dump_path).expect("load raw mmap image");
-    let payload = image
-        .section(super::mmap_image::DumpSectionKind::RuntimeState)
-        .expect("runtime state section");
-    let state: super::types::DumpContextState =
-        bincode::deserialize(payload).expect("decode runtime state");
+    let heap_objects_payload = image
+        .section(super::mmap_image::DumpSectionKind::HeapObjects)
+        .expect("heap-objects section");
+    let heap_objects = super::heap_objects_image::load_heap_objects_section(heap_objects_payload)
+        .expect("heap objects");
     assert!(
-        state.tagged_heap.objects.iter().any(|object| matches!(
+        heap_objects.iter().any(|object| matches!(
             object,
             super::types::DumpHeapObject::Str { text_props, .. } if !text_props.is_empty()
         )),
@@ -691,44 +643,6 @@ fn pdump_dumps_default_value_for_active_dynamic_plain_binding() {
         loaded.obarray.symbol_value_id(sym),
         Some(&Value::symbol("default-value")),
         "pdump must serialize the top-level value, not the active dynamic binding"
-    );
-}
-
-#[test]
-fn test_dump_symbol_data_bincode_round_trip() {
-    crate::test_utils::init_test_tracing();
-
-    // Format v21: no legacy name/value/symbol_value/special/constant fields.
-    // plist is now a DumpValue (Lisp cons list) rather than Vec<(DumpSymId, DumpValue)>.
-    let original = DumpSymbolData {
-        redirect: 1, // Varalias
-        trapped_write: 0,
-        interned: 1,
-        declared_special: true,
-        val: DumpSymbolVal::Alias(DumpSymId(7)),
-        function: DumpValue::Int(9),
-        plist: DumpValue::Nil,
-    };
-
-    let encoded = bincode::serialize(&original).expect("symbol data should serialize");
-    let decoded: DumpSymbolData =
-        bincode::deserialize(&encoded).expect("symbol data should deserialize");
-
-    assert_eq!(decoded.redirect, 1, "redirect should round-trip");
-    assert_eq!(decoded.trapped_write, 0, "trapped_write should round-trip");
-    assert_eq!(decoded.interned, 1, "interned should round-trip");
-    assert!(
-        decoded.declared_special,
-        "declared_special should round-trip"
-    );
-    assert!(
-        matches!(decoded.val, DumpSymbolVal::Alias(DumpSymId(7))),
-        "val should round-trip as Alias(7)"
-    );
-    assert!(matches!(decoded.function, DumpValue::Int(9)));
-    assert!(
-        matches!(decoded.plist, DumpValue::Nil),
-        "empty plist should round-trip as Nil"
     );
 }
 
@@ -1343,23 +1257,11 @@ fn test_restore_snapshot_does_not_report_file_based_pdump_session() {
 }
 
 #[test]
-fn test_pdump_rejects_corrupt_runtime_state_section() {
+fn test_pdump_rejects_corrupt_runtime_managers_section() {
     crate::test_utils::init_test_tracing();
-    let dir = tempfile::tempdir().unwrap();
-    let dump_path = dir.path().join("test.pdump");
-
-    super::mmap_image::write_image(
-        &dump_path,
-        &[super::mmap_image::ImageSection {
-            kind: super::mmap_image::DumpSectionKind::RuntimeState,
-            flags: 0,
-            bytes: b"not a bincode DumpContextState",
-        }],
-    )
-    .expect("write corrupt runtime-state image");
-
-    let result = load_from_dump(&dump_path);
-    assert!(matches!(result, Err(DumpError::DeserializationError(_))));
+    let result =
+        super::runtime_managers_image::load_runtime_managers_section(b"not a runtime section");
+    assert!(matches!(result, Err(DumpError::ImageFormatError(_))));
 }
 
 #[test]
@@ -1606,75 +1508,4 @@ fn test_measure_current_workspace_bootstrap_pdump_raw_load() {
         load_from_dump(&bootstrap_path).expect("raw bootstrap load should succeed")
     });
     summarize_timings("raw bootstrap load_from_dump", &bootstrap_raw_load);
-}
-
-#[test]
-fn test_pdump_sequential_decode_round_trip() {
-    crate::test_utils::init_test_tracing();
-    let mut eval = Context::new();
-    eval.obarray
-        .set_symbol_value("pdump-sequential-decode-probe", Value::fixnum(17));
-
-    let dir = tempfile::tempdir().expect("tempdir");
-    let dump_path = dir.path().join("sequential-decode.pdump");
-    dump_to_file(&eval, &dump_path).expect("dump should succeed");
-
-    let image = mmap_image::load_image(&dump_path).expect("load mmap pdump image");
-    let payload = image
-        .section(DumpSectionKind::RuntimeState)
-        .expect("runtime-state section should exist");
-
-    let mut cursor = std::io::Cursor::new(payload);
-
-    macro_rules! decode_field {
-        ($label:literal, $ty:ty) => {{
-            let start = cursor.position();
-            let value: $ty = bincode::deserialize_from(&mut cursor).unwrap_or_else(|err| {
-                panic!(
-                    "failed decoding {} at payload offset {}: {}",
-                    $label, start, err
-                )
-            });
-            eprintln!(
-                "pdump decode: {} ok ({} -> {})",
-                $label,
-                start,
-                cursor.position()
-            );
-            value
-        }};
-    }
-
-    let _symbol_table = decode_field!("symbol_table", types::DumpSymbolTable);
-    let _tagged_heap = decode_field!("tagged_heap", types::DumpTaggedHeap);
-    let _obarray = decode_field!("obarray", types::DumpObarray);
-    let _dynamic = decode_field!("dynamic", Vec<types::DumpOrderedSymMap>);
-    let _lexenv = decode_field!("lexenv", types::DumpValue);
-    let _features = decode_field!("features", Vec<types::DumpSymId>);
-    let _require_stack = decode_field!("require_stack", Vec<types::DumpSymId>);
-    let _loads_in_progress = decode_field!("loads_in_progress", Vec<types::DumpLispString>);
-    let _buffers = decode_field!("buffers", types::DumpBufferManager);
-    let _autoloads = decode_field!("autoloads", types::DumpAutoloadManager);
-    let _custom = decode_field!("custom", types::DumpCustomManager);
-    let _modes = decode_field!("modes", types::DumpModeRegistry);
-    let _coding_systems = decode_field!("coding_systems", types::DumpCodingSystemManager);
-    let _charset_registry = decode_field!("charset_registry", types::DumpCharsetRegistry);
-    let _fontset_registry = decode_field!("fontset_registry", types::DumpFontsetRegistry);
-    let _face_table = decode_field!("face_table", types::DumpFaceTable);
-    let _abbrevs = decode_field!("abbrevs", types::DumpAbbrevManager);
-    let _interactive = decode_field!("interactive", types::DumpInteractiveRegistry);
-    let _rectangle = decode_field!("rectangle", types::DumpRectangleState);
-    let _standard_syntax_table = decode_field!("standard_syntax_table", types::DumpValue);
-    let _standard_category_table = decode_field!("standard_category_table", types::DumpValue);
-    let _current_local_map = decode_field!("current_local_map", types::DumpValue);
-    let _kmacro = decode_field!("kmacro", types::DumpKmacroManager);
-    let _registers = decode_field!("registers", types::DumpRegisterManager);
-    let _bookmarks = decode_field!("bookmarks", types::DumpBookmarkManager);
-    let _watchers = decode_field!("watchers", types::DumpVariableWatcherList);
-
-    assert_eq!(
-        cursor.position() as usize,
-        payload.len(),
-        "sequential decode should consume the whole payload"
-    );
 }

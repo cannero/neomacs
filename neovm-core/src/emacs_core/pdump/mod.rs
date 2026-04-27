@@ -1,17 +1,16 @@
 //! Portable dumper (pdump) for NeoVM.
 //!
 //! File-backed dumps use an mmap image container: a fixed header, build
-//! fingerprint, section table, checksum, and private mmap on load.  The
-//! runtime-state section still carries the not-yet-migrated parts of
-//! `DumpContextState` while heap and interner data move to GNU-style mapped
-//! sections.
+//! fingerprint, section table, checksum, and private mmap on load.  File load
+//! rebuilds the evaluator from explicit sections; it no longer deserializes a
+//! monolithic `DumpContextState` payload.
 //!
 //! File format:
 //! ```text
 //! [fixed mmap image header]
 //! [section table]
-//! [runtime-state section]
-//! [heap/roots/relocation sections, as they are migrated]
+//! [symbol/runtime manager/root sections]
+//! [heap/relocation sections]
 //! ```
 
 pub(crate) mod autoloads_image;
@@ -26,6 +25,7 @@ pub(crate) mod mmap_image;
 pub(crate) mod obarray_image;
 pub(crate) mod roots_image;
 pub mod runtime;
+pub(crate) mod runtime_managers_image;
 pub(crate) mod symbol_table_image;
 pub mod types;
 
@@ -110,7 +110,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   fixed-layout FaceTable mmap section.
 // v45: Buffer manager state moves out of RuntimeState bincode and into the
 //   fixed-layout Buffers mmap section.
-const FORMAT_VERSION: u32 = 45;
+// v46: The remaining runtime managers move out of RuntimeState bincode and
+//   into the fixed-layout RuntimeManagers mmap section. File pdumps no longer
+//   write or read RuntimeState.
+const FORMAT_VERSION: u32 = 46;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -191,6 +194,103 @@ impl From<std::io::Error> for DumpError {
     }
 }
 
+fn empty_lisp_string() -> types::DumpLispString {
+    types::DumpLispString {
+        data: Vec::new(),
+        size: 0,
+        size_byte: 0,
+    }
+}
+
+fn empty_context_state() -> DumpContextState {
+    DumpContextState {
+        symbol_table: types::DumpSymbolTable {
+            names: Vec::new(),
+            symbols: Vec::new(),
+        },
+        tagged_heap: types::DumpTaggedHeap {
+            objects: Vec::new(),
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: Vec::new(),
+            mapped_slots: Vec::new(),
+        },
+        obarray: types::DumpObarray {
+            symbols: Vec::new(),
+            global_members: Vec::new(),
+            function_unbound: Vec::new(),
+            function_epoch: 0,
+        },
+        dynamic: Vec::new(),
+        lexenv: types::DumpValue::Nil,
+        features: Vec::new(),
+        require_stack: Vec::new(),
+        loads_in_progress: Vec::new(),
+        buffers: buffer_image::empty_buffer_manager(),
+        autoloads: autoloads_image::empty_autoloads(),
+        custom: types::DumpCustomManager {
+            auto_buffer_local_syms: Vec::new(),
+            auto_buffer_local: Vec::new(),
+        },
+        modes: types::DumpModeRegistry {
+            major_modes: Vec::new(),
+            minor_modes: Vec::new(),
+            buffer_major_modes: Vec::new(),
+            buffer_minor_modes: Vec::new(),
+            global_minor_modes: Vec::new(),
+            auto_mode_alist_lisp: Vec::new(),
+            auto_mode_alist: Vec::new(),
+            custom_variables: Vec::new(),
+            custom_groups: Vec::new(),
+            fundamental_mode: types::DumpValue::Nil,
+        },
+        coding_systems: coding_system_image::empty_coding_system_manager(),
+        charset_registry: charset_image::empty_charset_registry(),
+        fontset_registry: types::DumpFontsetRegistry {
+            ordered_names_lisp: Vec::new(),
+            alias_to_name_lisp: Vec::new(),
+            fontsets_lisp: Vec::new(),
+            ordered_names: Vec::new(),
+            alias_to_name: Vec::new(),
+            fontsets: Vec::new(),
+            generation: 0,
+        },
+        face_table: face_image::empty_face_table(),
+        abbrevs: types::DumpAbbrevManager {
+            tables_syms: Vec::new(),
+            tables: Vec::new(),
+            global_table_sym: None,
+            global_table_name: empty_lisp_string(),
+            abbrev_mode: false,
+        },
+        interactive: types::DumpInteractiveRegistry { specs: Vec::new() },
+        rectangle: types::DumpRectangleState { killed: Vec::new() },
+        standard_syntax_table: types::DumpValue::Nil,
+        standard_category_table: types::DumpValue::Nil,
+        current_local_map: types::DumpValue::Nil,
+        kmacro: types::DumpKmacroManager {
+            current_macro: Vec::new(),
+            last_macro: None,
+            macro_ring: Vec::new(),
+            counter: 0,
+            counter_format_lisp: None,
+            counter_format: None,
+        },
+        registers: types::DumpRegisterManager {
+            registers: Vec::new(),
+        },
+        bookmarks: types::DumpBookmarkManager {
+            bookmarks_lisp: Vec::new(),
+            bookmarks: Vec::new(),
+            recent: Vec::new(),
+        },
+        watchers: types::DumpVariableWatcherList {
+            watchers: Vec::new(),
+        },
+    }
+}
+
 /// Thread-local semantic runtime state that must be restored when switching
 /// back from a cloned evaluator to the live evaluator on the same thread.
 #[derive(Clone, Debug)]
@@ -221,6 +321,9 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let face_payload = face_image::face_table_section_bytes(&state.face_table)?;
     let buffer_payload = buffer_image::buffer_manager_section_bytes(&state.buffers)?;
     let autoloads_payload = autoloads_image::autoloads_section_bytes(&state.autoloads)?;
+    let runtime_managers_payload = runtime_managers_image::runtime_managers_section_bytes(
+        &runtime_managers_image::RuntimeManagersState::from_context_state(&state),
+    )?;
     let roots_payload = roots_image::roots_section_bytes(&roots_image::DumpRootState {
         dynamic: state.dynamic.clone(),
         lexenv: state.lexenv.clone(),
@@ -233,32 +336,8 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     })?;
     let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
-    state.symbol_table.names.clear();
-    state.symbol_table.symbols.clear();
-    state.tagged_heap.objects.clear();
-    state.obarray.symbols.clear();
-    state.obarray.global_members.clear();
-    state.obarray.function_unbound.clear();
-    state.obarray.function_epoch = 0;
-    state.charset_registry = charset_image::empty_charset_registry();
-    state.coding_systems = coding_system_image::empty_coding_system_manager();
-    state.face_table = face_image::empty_face_table();
-    state.buffers = buffer_image::empty_buffer_manager();
-    state.dynamic.clear();
-    state.lexenv = types::DumpValue::Nil;
-    state.features.clear();
-    state.require_stack.clear();
-    state.loads_in_progress.clear();
-    state.autoloads = autoloads_image::empty_autoloads();
-    state.standard_syntax_table = types::DumpValue::Nil;
-    state.standard_category_table = types::DumpValue::Nil;
-    state.current_local_map = types::DumpValue::Nil;
-    mapped_heap::clear_heap_metadata(&mut state.tagged_heap);
-    let payload =
-        bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
-
     let mut sections = Vec::with_capacity(
-        10 + usize::from(!heap_payload.bytes.is_empty())
+        11 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -307,9 +386,9 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         bytes: &autoloads_payload,
     });
     sections.push(ImageSection {
-        kind: DumpSectionKind::RuntimeState,
+        kind: DumpSectionKind::RuntimeManagers,
         flags: 0,
-        bytes: &payload,
+        bytes: &runtime_managers_payload,
     });
     if !heap_payload.bytes.is_empty() {
         sections.push(ImageSection {
@@ -337,12 +416,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let load_start = std::time::Instant::now();
     let mut image = mmap_image::load_image(path)?;
     image.apply_relocations()?;
-    let payload = image
-        .section(DumpSectionKind::RuntimeState)
-        .ok_or_else(|| DumpError::ImageFormatError("missing runtime-state section".into()))?;
-
-    let mut state: types::DumpContextState = bincode::deserialize(payload)
-        .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
+    let mut state = empty_context_state();
 
     let _cleanup = RestoreCleanup;
     let symbol_table_payload = image
@@ -390,6 +464,11 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::Autoloads)
         .ok_or_else(|| DumpError::ImageFormatError("missing autoloads section".into()))?;
     state.autoloads = autoloads_image::load_autoloads_section(autoloads_payload)?;
+    let runtime_managers_payload = image
+        .section(DumpSectionKind::RuntimeManagers)
+        .ok_or_else(|| DumpError::ImageFormatError("missing runtime-managers section".into()))?;
+    runtime_managers_image::load_runtime_managers_section(runtime_managers_payload)?
+        .install_into(&mut state);
     mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image
