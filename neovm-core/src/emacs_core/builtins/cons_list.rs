@@ -191,13 +191,18 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
 pub fn parse_lambda_params_from_value(
     arglist: &Value,
 ) -> Result<LambdaParams, super::super::error::Flow> {
-    use crate::emacs_core::intern::{intern, resolve_sym};
+    use crate::emacs_core::intern::intern;
     let items = list_to_vec(arglist).unwrap_or_default();
     let mut required = Vec::new();
     let mut optional = Vec::new();
     let mut rest = None;
     let mut mode = 0; // 0=required, 1=optional, 2=rest
     for item in &items {
+        let item = if item.is_symbol_with_pos() {
+            item.as_symbol_with_pos_sym().unwrap()
+        } else {
+            *item
+        };
         if let Some(name) = item.as_symbol_name() {
             match name {
                 "&optional" => {

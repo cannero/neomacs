@@ -282,6 +282,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         &envs,
     )?;
 
+    run_compile_main(options, &paths, &envs)?;
+
     Ok(())
 }
 
@@ -401,6 +403,36 @@ fn remove_stale_secondary_loaddefs(
         }
     }
     println!("  INFO  removed {removed} stale secondary loaddefs artifacts");
+    Ok(())
+}
+
+fn remove_lisp_bytecode_without_source(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let files = generated_lisp_bytecode_files(&paths.lisp_root)?
+        .into_iter()
+        .filter(|file| !file.with_extension("el").is_file())
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("compile-main clean stale Lisp bytecode");
+    if options.dry_run {
+        for file in &files {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for file in &files {
+        if remove_file_if_exists(file)? {
+            removed += 1;
+        }
+    }
+    println!("  INFO  removed {removed} stale compile-main .elc files");
     Ok(())
 }
 
@@ -630,6 +662,203 @@ fn collect_loaddefs_dirs(root: &Path, current: &Path, out: &mut Vec<PathBuf>) ->
     Ok(())
 }
 
+fn run_compile_main(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    remove_lisp_bytecode_without_source(options, paths)?;
+
+    let main_first = parse_main_first_sources(&paths.makefile_in, &paths.lisp_root)?;
+    let mut sources = Vec::new();
+    let mut seen = BTreeSet::new();
+    for source in main_first {
+        push_compile_main_source(source, &mut seen, &mut sources)?;
+    }
+    for source in compile_main_sources(&paths.lisp_root)? {
+        push_compile_main_source(source, &mut seen, &mut sources)?;
+    }
+
+    let sources = sources
+        .into_iter()
+        .filter(|source| compile_main_needs_rebuild(source))
+        .collect::<Vec<_>>();
+
+    if sources.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("compile Lisp bytecode (GNU compile-main)");
+    println!("  INFO  byte-compiling {} .el files", sources.len());
+    for source in &sources {
+        let args = compile_main_args_for_source(options.native_comp, source);
+        run_command(options, &options.repo_root, &paths.final_bin, &args, envs)?;
+    }
+
+    Ok(())
+}
+
+fn push_compile_main_source(
+    source: PathBuf,
+    seen: &mut BTreeSet<PathBuf>,
+    out: &mut Vec<PathBuf>,
+) -> Result<()> {
+    if !source.is_file() {
+        return Err(format!("compile-main source does not exist: {}", source.display()).into());
+    }
+
+    if seen.insert(source.clone()) {
+        out.push(source);
+    }
+    Ok(())
+}
+
+fn parse_main_first_sources(makefile_in: &Path, lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    let contents = fs::read_to_string(makefile_in)?;
+    Ok(parse_main_first_sources_from_str(&contents, lisp_root))
+}
+
+fn parse_main_first_sources_from_str(contents: &str, lisp_root: &Path) -> Vec<PathBuf> {
+    let mut capture = false;
+    let mut seen = BTreeSet::new();
+    let mut out = Vec::new();
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim_end();
+        if let Some(rest) = strip_makefile_assignment(line, "MAIN_FIRST") {
+            capture = line.ends_with('\\');
+            emit_lisp_source_paths(rest, lisp_root, &mut seen, &mut out);
+            continue;
+        }
+
+        if capture {
+            emit_lisp_source_paths(line, lisp_root, &mut seen, &mut out);
+            capture = line.ends_with('\\');
+        }
+    }
+
+    out
+}
+
+fn compile_main_sources(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+    collect_lisp_dirs(lisp_root, &mut dirs)?;
+    dirs.sort();
+
+    let mut sources = Vec::new();
+    for dir in dirs {
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
+        let mut files = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .filter(|path| {
+                path.is_file()
+                    && path.extension() == Some(OsStr::new("el"))
+                    && !path
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with('.'))
+            })
+            .collect::<Vec<_>>();
+        files.sort();
+
+        for source in files {
+            if compile_main_should_consider(&source)? {
+                sources.push(source);
+            }
+        }
+    }
+
+    Ok(sources)
+}
+
+fn collect_lisp_dirs(current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
+    out.push(current.to_path_buf());
+
+    let entries = match fs::read_dir(current) {
+        Ok(entries) => entries,
+        Err(_) => return Ok(()),
+    };
+
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_lisp_dirs(&path, out)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn compile_main_should_consider(source: &Path) -> Result<bool> {
+    if source.with_extension("elc").is_file() {
+        return Ok(true);
+    }
+
+    Ok(!source_has_no_byte_compile_marker(source)?)
+}
+
+fn compile_main_needs_rebuild(source: &Path) -> bool {
+    if !compile_main_should_consider(source).unwrap_or(true) {
+        return false;
+    }
+    bytecode_needs_rebuild(source)
+}
+
+fn source_has_no_byte_compile_marker(source: &Path) -> Result<bool> {
+    let contents = fs::read(source)?;
+    let contents = String::from_utf8_lossy(&contents);
+    Ok(contents
+        .lines()
+        .any(|line| gnu_no_byte_compile_marker_line(line)))
+}
+
+fn gnu_no_byte_compile_marker_line(line: &str) -> bool {
+    if !line.starts_with(';') {
+        return false;
+    }
+
+    let needle = "no-byte-compile:";
+    let mut search_from = 0;
+    while let Some(relative_index) = line[search_from..].find(needle) {
+        let index = search_from + relative_index;
+        let previous = line[..index].chars().next_back();
+        if previous.is_some_and(|ch| !ch.is_ascii_alphabetic())
+            && line[index + needle.len()..].trim_start().starts_with('t')
+        {
+            return true;
+        }
+        search_from = index + needle.len();
+    }
+
+    false
+}
+
+fn compile_main_args_for_source(native_comp: bool, source: &Path) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("--eval"),
+        OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+        OsString::from("--eval"),
+        OsString::from("(setq org--inhibit-version-check t)"),
+    ];
+    if native_comp {
+        args.push(OsString::from("-l"));
+        args.push(OsString::from("comp"));
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("batch-byte+native-compile"));
+    } else {
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("batch-byte-compile"));
+    }
+    args.push(source.as_os_str().to_os_string());
+    args
+}
+
 fn parse_compile_first_sources(
     makefile_in: &Path,
     lisp_root: &Path,
@@ -687,9 +916,13 @@ fn parse_compile_first_sources_from_str(
 /// its .elc sibling is missing or older.  Mirrors what GNU make would do
 /// for a `%.elc: %.el` pattern rule under lisp/Makefile.in.
 fn compile_first_needs_rebuild(source: &Path) -> bool {
+    bytecode_needs_rebuild(source)
+}
+
+fn bytecode_needs_rebuild(source: &Path) -> bool {
     let elc = source.with_extension("elc");
     let Ok(source_meta) = fs::metadata(source) else {
-        // Can't stat the source — let bootstrap-neomacs surface the
+        // Can't stat the source — let the compiler surface the
         // error rather than silently skipping it.
         return true;
     };
@@ -723,19 +956,7 @@ fn compile_first_args_for_sources(native_comp: bool, sources: &[PathBuf]) -> Vec
 }
 
 fn strip_compile_first_assignment(line: &str) -> Option<&str> {
-    for prefix in [
-        "COMPILE_FIRST +=",
-        "COMPILE_FIRST +=",
-        "COMPILE_FIRST =",
-        "COMPILE_FIRST+=",
-    ] {
-        if let Some(rest) = line.strip_prefix(prefix) {
-            return Some(rest.trim_start());
-        }
-    }
-    line.strip_prefix("COMPILE_FIRST+=")
-        .map(str::trim_start)
-        .or_else(|| line.strip_prefix("COMPILE_FIRST=").map(str::trim_start))
+    strip_makefile_assignment(line, "COMPILE_FIRST")
 }
 
 fn emit_compile_first_paths(
@@ -744,9 +965,29 @@ fn emit_compile_first_paths(
     seen: &mut BTreeSet<PathBuf>,
     out: &mut Vec<PathBuf>,
 ) {
+    emit_lisp_source_paths(fragment, lisp_root, seen, out)
+}
+
+fn strip_makefile_assignment<'a>(line: &'a str, variable: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(variable)?;
+    let rest = rest.trim_start();
+    rest.strip_prefix("+=")
+        .or_else(|| rest.strip_prefix('='))
+        .map(str::trim_start)
+}
+
+fn emit_lisp_source_paths(
+    fragment: &str,
+    lisp_root: &Path,
+    seen: &mut BTreeSet<PathBuf>,
+    out: &mut Vec<PathBuf>,
+) {
     let normalized = fragment.replace('\\', " ");
     for token in normalized.split_whitespace() {
-        let Some(stripped) = token.strip_prefix("$(lisp)/") else {
+        let Some(stripped) = token
+            .strip_prefix("$(lisp)/")
+            .or_else(|| token.strip_prefix("./"))
+        else {
             continue;
         };
         let mut path = lisp_root.join(stripped);
@@ -840,6 +1081,7 @@ Build the GNU-shaped Neomacs runtime pipeline:
   3. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
   4. bootstrap-neomacs generates loaddefs / ldefs-boot
   5. neomacs-temacs --temacs=pdump
+  6. neomacs byte-compiles the GNU compile-main Lisp set into .elc files
 
 Options:
   --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs

@@ -82,6 +82,27 @@ COMPILE_FIRST += $(lisp)/emacs-lisp/early.elc
 }
 
 #[test]
+fn parse_main_first_sources_handles_gnu_multiline_list() {
+    let lisp_root = PathBuf::from("/repo/lisp");
+    let contents = "\
+MAIN_FIRST = ./emacs-lisp/eieio.el ./emacs-lisp/eieio-base.el \\
+  ./org/ox.el ./already-elc.elc
+";
+
+    let parsed = parse_main_first_sources_from_str(contents, &lisp_root);
+
+    assert_eq!(
+        parsed,
+        vec![
+            lisp_root.join("emacs-lisp/eieio.el"),
+            lisp_root.join("emacs-lisp/eieio-base.el"),
+            lisp_root.join("org/ox.el"),
+            lisp_root.join("already-elc.el"),
+        ]
+    );
+}
+
+#[test]
 fn generated_lisp_bytecode_files_collects_nested_elc_files() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
@@ -100,6 +121,59 @@ fn generated_lisp_bytecode_files_collects_nested_elc_files() {
             lisp_root.join("org/org.elc"),
         ]
     );
+}
+
+#[test]
+fn compile_main_sources_follow_gnu_no_byte_compile_filter() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    fs::create_dir_all(lisp_root.join("sub")).unwrap();
+    fs::write(lisp_root.join("a.el"), "").unwrap();
+    fs::write(lisp_root.join(".hidden.el"), "").unwrap();
+    fs::write(
+        lisp_root.join("skip.el"),
+        ";;; skip.el -*- no-byte-compile: t -*-\n",
+    )
+    .unwrap();
+    fs::write(
+        lisp_root.join("skip-existing.el"),
+        ";;; skip-existing.el -*- no-byte-compile: t -*-\n",
+    )
+    .unwrap();
+    fs::write(lisp_root.join("skip-existing.elc"), "").unwrap();
+    fs::write(lisp_root.join("sub/b.el"), "").unwrap();
+
+    let sources = compile_main_sources(&lisp_root).unwrap();
+
+    assert_eq!(
+        sources,
+        vec![
+            lisp_root.join("a.el"),
+            lisp_root.join("skip-existing.el"),
+            lisp_root.join("sub/b.el"),
+        ]
+    );
+}
+
+#[test]
+fn gnu_no_byte_compile_marker_matches_makefile_grep_shape() {
+    assert!(gnu_no_byte_compile_marker_line(
+        ";;; file.el -*- no-byte-compile: t -*-"
+    ));
+    assert!(gnu_no_byte_compile_marker_line(
+        ";; Local Variables: no-byte-compile: t"
+    ));
+    assert!(gnu_no_byte_compile_marker_line(
+        ";; local-no-byte-compile: t"
+    ));
+    assert!(!gnu_no_byte_compile_marker_line(";; ano-byte-compile: t"));
+    assert!(gnu_no_byte_compile_marker_line(
+        ";; ano-byte-compile: t; no-byte-compile: t"
+    ));
+    assert!(!gnu_no_byte_compile_marker_line(
+        ";;; file.el -*- no-byte-compile: nil -*-"
+    ));
+    assert!(!gnu_no_byte_compile_marker_line("(setq no-byte-compile t)"));
 }
 
 #[test]
@@ -180,6 +254,48 @@ fn compile_first_args_match_gnu_native_shape() {
             OsString::from("-f"),
             OsString::from("batch-byte-compile"),
             OsString::from("/tmp/macroexp.el"),
+        ]
+    );
+}
+
+#[test]
+fn compile_main_args_match_gnu_non_native_shape() {
+    let args = compile_main_args_for_source(false, Path::new("/tmp/simple.el"));
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("--eval"),
+            OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+            OsString::from("--eval"),
+            OsString::from("(setq org--inhibit-version-check t)"),
+            OsString::from("-f"),
+            OsString::from("batch-byte-compile"),
+            OsString::from("/tmp/simple.el"),
+        ]
+    );
+}
+
+#[test]
+fn compile_main_args_match_gnu_native_shape() {
+    let args = compile_main_args_for_source(true, Path::new("/tmp/simple.el"));
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("--eval"),
+            OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+            OsString::from("--eval"),
+            OsString::from("(setq org--inhibit-version-check t)"),
+            OsString::from("-l"),
+            OsString::from("comp"),
+            OsString::from("-f"),
+            OsString::from("batch-byte+native-compile"),
+            OsString::from("/tmp/simple.el"),
         ]
     );
 }

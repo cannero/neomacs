@@ -115,6 +115,24 @@ fn keywordp_treats_positioned_keywords_like_gnu_when_enabled() {
 }
 
 #[test]
+fn positioned_lambda_arguments_bind_bare_symbol_references() {
+    let result = eval_one(
+        r#"(let* ((symbols-with-pos-enabled t)
+                 (a (position-symbol 'a 11))
+                 (b (position-symbol 'b 22))
+                 (r (position-symbol 'r 33))
+                 (opt (position-symbol '&optional 44))
+                 (rest (position-symbol '&rest 55))
+                 (arglist (list a opt b rest r))
+                 (body (list 'list 'a 'b 'r))
+                 (f (eval (list 'function (list 'lambda arglist body)) t)))
+            (funcall f 1 2 3 4))"#,
+    );
+
+    assert_eq!(result, "OK (1 2 (3 4))");
+}
+
+#[test]
 fn symbols_with_pos_enabled_makes_hash_table_keys_transparent() {
     let result = eval_one(
         r#"(progn
