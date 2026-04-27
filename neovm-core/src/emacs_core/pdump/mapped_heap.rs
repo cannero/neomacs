@@ -266,6 +266,120 @@ pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> Mapp
     extract_tagged_heap_payloads(&mut state.tagged_heap)
 }
 
+pub(crate) fn clear_heap_metadata(heap: &mut DumpTaggedHeap) {
+    heap.mapped_cons.clear();
+    heap.mapped_floats.clear();
+    heap.mapped_strings.clear();
+    heap.mapped_veclikes.clear();
+    heap.mapped_slots.clear();
+}
+
+pub(crate) fn rebuild_heap_metadata(heap: &mut DumpTaggedHeap) -> Result<(), DumpError> {
+    let mut layout = HeapLayoutCursor::default();
+
+    heap.mapped_cons.clear();
+    heap.mapped_cons.resize(heap.objects.len(), None);
+    heap.mapped_floats.clear();
+    heap.mapped_floats.resize(heap.objects.len(), None);
+    heap.mapped_strings.clear();
+    heap.mapped_strings.resize(heap.objects.len(), None);
+    heap.mapped_veclikes.clear();
+    heap.mapped_veclikes.resize(heap.objects.len(), None);
+    heap.mapped_slots.clear();
+    heap.mapped_slots.resize(heap.objects.len(), None);
+
+    let cons_count = heap
+        .objects
+        .iter()
+        .filter(|object| matches!(object, DumpHeapObject::Cons { .. }))
+        .count();
+    let cons_base = layout.reserve_cons_cells(cons_count);
+    let mut cons_index = 0usize;
+    let float_count = heap
+        .objects
+        .iter()
+        .filter(|object| matches!(object, DumpHeapObject::Float(_)))
+        .count();
+    let float_base = layout.reserve_float_objects(float_count);
+    let mut float_index = 0usize;
+
+    for (index, object) in heap.objects.iter().enumerate() {
+        if matches!(object, DumpHeapObject::Cons { .. }) {
+            let offset = cons_base.expect("non-zero cons count should reserve a mapped cons arena")
+                + cons_index * std::mem::size_of::<ConsCell>();
+            heap.mapped_cons[index] = Some(DumpConsSpan {
+                offset: offset as u64,
+            });
+            cons_index += 1;
+        }
+
+        if matches!(object, DumpHeapObject::Float(_)) {
+            let offset = float_base.expect("non-zero float count should reserve mapped floats")
+                + float_index * std::mem::size_of::<FloatObj>();
+            heap.mapped_floats[index] = Some(DumpFloatSpan {
+                offset: offset as u64,
+            });
+            float_index += 1;
+        }
+
+        match object {
+            DumpHeapObject::Vector(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<VectorObj>());
+            }
+            DumpHeapObject::Lambda(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<LambdaObj>());
+            }
+            DumpHeapObject::Macro(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<MacroObj>());
+            }
+            DumpHeapObject::Record(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<RecordObj>());
+            }
+            DumpHeapObject::Marker(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<MarkerObj>());
+            }
+            DumpHeapObject::Overlay(_) => {
+                heap.mapped_veclikes[index] = Some(layout.reserve_typed_object::<OverlayObj>());
+            }
+            _ => {}
+        }
+
+        if let DumpHeapObject::Str { data, .. } = object {
+            let span = layout.reserve_typed_object::<StringObj>();
+            heap.mapped_strings[index] = Some(DumpStringSpan {
+                offset: span.offset,
+                len: span.len,
+            });
+            match data {
+                DumpByteData::Owned(bytes) => {
+                    layout.push_bytes_len(bytes.len());
+                }
+                DumpByteData::Mapped(span) => {
+                    let rebuilt = layout.push_bytes_len(span.len as usize);
+                    if rebuilt != *span {
+                        return Err(DumpError::ImageFormatError(format!(
+                            "mapped string data span mismatch for heap object {index}: dump has {span:?}, rebuilt {rebuilt:?}"
+                        )));
+                    }
+                }
+            }
+        }
+
+        let slot_count = match object {
+            DumpHeapObject::Vector(slots)
+            | DumpHeapObject::Lambda(slots)
+            | DumpHeapObject::Macro(slots)
+            | DumpHeapObject::Record(slots) => Some(slots.len()),
+            _ => None,
+        };
+        if let Some(slot_count) = slot_count {
+            heap.mapped_slots[index] = Some(layout.reserve_slots(slot_count));
+        }
+    }
+
+    Ok(())
+}
+
 fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> MappedHeapPayload {
     let mut builder = MappedHeapBuilder::default();
 
@@ -363,6 +477,84 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> MappedHeapPayload 
 
     builder.populate_raw_heap_payloads(heap);
     builder.finish()
+}
+
+#[derive(Default)]
+struct HeapLayoutCursor {
+    offset: usize,
+}
+
+impl HeapLayoutCursor {
+    fn push_bytes_len(&mut self, payload_len: usize) -> super::types::DumpByteSpan {
+        self.align_to(HEAP_PAYLOAD_ALIGN);
+        let offset = self.offset;
+        if payload_len == 0 {
+            self.offset += 1;
+            return super::types::DumpByteSpan {
+                offset: offset as u64,
+                len: 0,
+            };
+        }
+        self.offset += payload_len;
+        super::types::DumpByteSpan {
+            offset: offset as u64,
+            len: payload_len as u64,
+        }
+    }
+
+    fn reserve_slots(&mut self, slot_count: usize) -> DumpSlotSpan {
+        let align = std::mem::align_of::<TaggedValue>().max(HEAP_PAYLOAD_ALIGN);
+        self.align_to(align);
+        let offset = self.offset;
+        let byte_len = slot_count.saturating_mul(std::mem::size_of::<TaggedValue>());
+        if byte_len == 0 {
+            self.offset += std::mem::size_of::<TaggedValue>();
+        } else {
+            self.offset += byte_len;
+        }
+        DumpSlotSpan {
+            offset: offset as u64,
+            len: slot_count as u64,
+        }
+    }
+
+    fn reserve_cons_cells(&mut self, cons_count: usize) -> Option<usize> {
+        if cons_count == 0 {
+            return None;
+        }
+        let align = std::mem::align_of::<ConsCell>().max(HEAP_PAYLOAD_ALIGN);
+        self.align_to(align);
+        let offset = self.offset;
+        self.offset += cons_count * std::mem::size_of::<ConsCell>();
+        Some(offset)
+    }
+
+    fn reserve_float_objects(&mut self, float_count: usize) -> Option<usize> {
+        if float_count == 0 {
+            return None;
+        }
+        let align = std::mem::align_of::<FloatObj>().max(HEAP_PAYLOAD_ALIGN);
+        self.align_to(align);
+        let offset = self.offset;
+        self.offset += float_count * std::mem::size_of::<FloatObj>();
+        Some(offset)
+    }
+
+    fn reserve_typed_object<T>(&mut self) -> DumpVecLikeSpan {
+        let align = std::mem::align_of::<T>().max(HEAP_PAYLOAD_ALIGN);
+        self.align_to(align);
+        let offset = self.offset;
+        let len = std::mem::size_of::<T>();
+        self.offset += len;
+        DumpVecLikeSpan {
+            offset: offset as u64,
+            len: len as u64,
+        }
+    }
+
+    fn align_to(&mut self, align: usize) {
+        self.offset += align_padding(self.offset, align);
+    }
 }
 
 #[derive(Default)]
@@ -847,6 +1039,46 @@ mod tests {
             TaggedValue::fixnum(11).bits()
         );
         assert_eq!(read_usize(&heap.bytes, second), TaggedValue::T.bits());
+    }
+
+    #[test]
+    fn rebuild_heap_metadata_matches_extracted_layout() {
+        let mut tagged_heap = DumpTaggedHeap {
+            objects: vec![
+                DumpHeapObject::Str {
+                    data: DumpByteData::owned(b"abc".to_vec()),
+                    size: 3,
+                    size_byte: 3,
+                    text_props: Vec::new(),
+                },
+                DumpHeapObject::Vector(vec![
+                    crate::emacs_core::pdump::types::DumpValue::Int(1),
+                    crate::emacs_core::pdump::types::DumpValue::Nil,
+                ]),
+                DumpHeapObject::Cons {
+                    car: crate::emacs_core::pdump::types::DumpValue::Int(2),
+                    cdr: crate::emacs_core::pdump::types::DumpValue::Nil,
+                },
+            ],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+        let _heap = extract_tagged_heap_payloads(&mut tagged_heap);
+        let expected_cons = tagged_heap.mapped_cons.clone();
+        let expected_strings = tagged_heap.mapped_strings.clone();
+        let expected_veclikes = tagged_heap.mapped_veclikes.clone();
+        let expected_slots = tagged_heap.mapped_slots.clone();
+
+        clear_heap_metadata(&mut tagged_heap);
+        rebuild_heap_metadata(&mut tagged_heap).expect("rebuild heap metadata");
+
+        assert_eq!(tagged_heap.mapped_cons, expected_cons);
+        assert_eq!(tagged_heap.mapped_strings, expected_strings);
+        assert_eq!(tagged_heap.mapped_veclikes, expected_veclikes);
+        assert_eq!(tagged_heap.mapped_slots, expected_slots);
     }
 
     #[test]

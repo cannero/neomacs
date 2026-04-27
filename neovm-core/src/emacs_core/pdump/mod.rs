@@ -83,7 +83,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   reserving empty arenas for load-time reconstruction.
 // v36: Dump-local symbol interner metadata moves out of RuntimeState bincode
 //   and into a fixed-layout SymbolTable mmap section.
-const FORMAT_VERSION: u32 = 36;
+// v37: Mapped heap object/slot spans move out of RuntimeState bincode. File
+//   load rebuilds them from the dumped object list and the fixed heap-image
+//   layout algorithm instead of deserializing five span vectors.
+const FORMAT_VERSION: u32 = 37;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -189,6 +192,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
 
     state.symbol_table.names.clear();
     state.symbol_table.symbols.clear();
+    mapped_heap::clear_heap_metadata(&mut state.tagged_heap);
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
@@ -236,7 +240,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::RuntimeState)
         .ok_or_else(|| DumpError::ImageFormatError("missing runtime-state section".into()))?;
 
-    let state: types::DumpContextState = bincode::deserialize(payload)
+    let mut state: types::DumpContextState = bincode::deserialize(payload)
         .map_err(|e| DumpError::DeserializationError(e.to_string()))?;
 
     let _cleanup = RestoreCleanup;
@@ -244,6 +248,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::SymbolTable)
         .ok_or_else(|| DumpError::ImageFormatError("missing symbol-table section".into()))?;
     symbol_table_image::load_symbol_table_section(symbol_table_payload)?;
+    mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image
         .section_mut(DumpSectionKind::HeapImage)

@@ -63,6 +63,14 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         state.symbol_table.names.is_empty() && state.symbol_table.symbols.is_empty(),
         "symbol interner metadata should no longer be serialized in RuntimeState"
     );
+    assert!(
+        state.tagged_heap.mapped_cons.is_empty()
+            && state.tagged_heap.mapped_floats.is_empty()
+            && state.tagged_heap.mapped_strings.is_empty()
+            && state.tagged_heap.mapped_veclikes.is_empty()
+            && state.tagged_heap.mapped_slots.is_empty(),
+        "mapped heap span metadata should no longer be serialized in RuntimeState"
+    );
 
     let loaded = load_from_dump(&dump_path).expect("load should succeed");
     assert_eq!(
