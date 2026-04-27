@@ -114,14 +114,7 @@ pub fn lambda_to_closure_vector(value: &Value) -> Vec<Value> {
 
 pub(crate) fn bytecode_closure_length(value: &Value) -> Option<i64> {
     let bc = value.get_bytecode_data()?;
-    let mut logical_len = 4;
-    if bc.docstring.is_some() || bc.doc_form.is_some() {
-        logical_len = 5;
-    }
-    if bc.interactive.is_some() {
-        logical_len = 6;
-    }
-    Some(logical_len)
+    Some(bc.observable_closure_slot_count() as i64)
 }
 
 pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
@@ -132,9 +125,7 @@ pub(crate) fn closure_vector_length(value: &Value) -> Option<i64> {
     }
 }
 
-/// Convert a ByteCode value to the GNU Emacs closure vector layout:
-///   [0]=ARGLIST  [1]=CODE  [2]=ENV/CONSTANTS  [3]=DEPTH  [(4)=DOC/TYPE]
-/// NeoVM does not currently store the optional interactive slot.
+/// Convert a ByteCode value to the GNU Emacs closure vector layout.
 /// This is used by `aref` on bytecode closures for oclosure slot access.
 pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
     let bc = match value.get_bytecode_data() {
@@ -176,11 +167,19 @@ pub(crate) fn bytecode_to_closure_vector(value: &Value) -> Vec<Value> {
         .unwrap_or(Value::NIL);
     let slot5 = bc.interactive.unwrap_or(Value::NIL);
 
-    // GNU Emacs bytecode objects always have at least 5 slots (indices 0-4).
-    // Some code (e.g. advice--p) does (aref func 4) unconditionally.
-    let mut result = vec![args, code, env, depth, slot4];
-    if !slot5.is_nil() {
+    let slot_count = bc.observable_closure_slot_count();
+    let mut result = vec![args, code, env, depth];
+    if slot_count > 4 {
+        result.push(slot4);
+    }
+    if slot_count > 5 {
         result.push(slot5);
+    }
+    if slot_count > 6 {
+        let extra_count = slot_count - 6;
+        for idx in 0..extra_count {
+            result.push(bc.extra_slots.get(idx).copied().unwrap_or(Value::NIL));
+        }
     }
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
     result

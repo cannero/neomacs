@@ -5075,6 +5075,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
                 docstring: None,
                 doc_form: None,
                 interactive: None,
+                closure_slot_count: 4,
+                extra_slots: Vec::new(),
             };
 
             ctx.refresh_features_from_variable();
@@ -7521,18 +7523,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         1,
         Some(1),
     );
-    ctx.defsubr(
-        "plist-get",
-        |_ctx, args| builtin_plist_get(args),
-        2,
-        Some(3),
-    );
-    ctx.defsubr(
-        "plist-put",
-        |_ctx, args| builtin_plist_put(args),
-        3,
-        Some(4),
-    );
+    ctx.defsubr("plist-get", builtin_plist_get_with_ctx, 2, Some(3));
+    ctx.defsubr("plist-put", builtin_plist_put_with_ctx, 3, Some(4));
     ctx.defsubr(
         "copy-alist",
         |_ctx, args| super::misc::builtin_copy_alist(args),

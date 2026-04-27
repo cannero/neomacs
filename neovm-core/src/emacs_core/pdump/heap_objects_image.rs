@@ -507,9 +507,12 @@ fn write_byte_code(out: &mut Vec<u8>, function: &DumpByteCodeFunction) -> Result
     write_bool(out, function.lexical);
     write_opt_value(out, function.env.as_ref())?;
     write_opt_u32_pairs(out, function.gnu_byte_offset_map.as_ref())?;
+    write_opt_bytes(out, function.gnu_bytecode_bytes.as_deref())?;
     write_opt_lisp_string(out, function.docstring.as_ref())?;
     write_opt_value(out, function.doc_form.as_ref())?;
     write_opt_value(out, function.interactive.as_ref())?;
+    write_usize(out, function.closure_slot_count)?;
+    write_values(out, &function.extra_slots)?;
     Ok(())
 }
 
@@ -873,6 +876,14 @@ fn write_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), DumpError> {
     Ok(())
 }
 
+fn write_opt_bytes(out: &mut Vec<u8>, bytes: Option<&[u8]>) -> Result<(), DumpError> {
+    write_bool(out, bytes.is_some());
+    if let Some(bytes) = bytes {
+        write_bytes(out, bytes)?;
+    }
+    Ok(())
+}
+
 pub(crate) fn write_bool(out: &mut Vec<u8>, value: bool) {
     write_u8(out, u8::from(value));
 }
@@ -1149,9 +1160,12 @@ impl<'a> Cursor<'a> {
             lexical: self.read_bool("bytecode lexical flag")?,
             env: self.read_opt_value()?,
             gnu_byte_offset_map: self.read_opt_u32_pairs()?,
+            gnu_bytecode_bytes: self.read_opt_bytes()?,
             docstring: self.read_opt_lisp_string()?,
             doc_form: self.read_opt_value()?,
             interactive: self.read_opt_value()?,
+            closure_slot_count: self.read_usize("bytecode closure slot count")?,
+            extra_slots: self.read_values()?,
         })
     }
 
@@ -1396,6 +1410,14 @@ impl<'a> Cursor<'a> {
         Ok(self.read_exact(len, "byte payload")?.to_vec())
     }
 
+    fn read_opt_bytes(&mut self) -> Result<Option<Vec<u8>>, DumpError> {
+        if self.read_bool("bytes present")? {
+            Ok(Some(self.read_bytes()?))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn read_len(&mut self, what: &str) -> Result<usize, DumpError> {
         let len = self.read_u64(what)?;
         usize::try_from(len)
@@ -1507,6 +1529,7 @@ mod tests {
                 lexical: true,
                 env: Some(DumpValue::Vector(DumpHeapRef { index: 4 })),
                 gnu_byte_offset_map: Some(vec![(1, 2), (3, 4)]),
+                gnu_bytecode_bytes: Some(vec![0xC0, 0x87]),
                 docstring: Some(DumpLispString {
                     data: b"doc".to_vec(),
                     size: 3,
@@ -1514,6 +1537,8 @@ mod tests {
                 }),
                 doc_form: Some(DumpValue::True),
                 interactive: Some(DumpValue::Nil),
+                closure_slot_count: 6,
+                extra_slots: vec![],
             }),
             DumpHeapObject::HashTable(DumpLispHashTable {
                 test: DumpHashTableTest::Equal,

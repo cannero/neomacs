@@ -187,10 +187,16 @@ pub struct DumpByteCodeFunction {
     pub lexical: bool,
     pub env: Option<DumpValue>,
     pub gnu_byte_offset_map: Option<Vec<(u32, u32)>>,
+    #[serde(default)]
+    pub gnu_bytecode_bytes: Option<Vec<u8>>,
     pub docstring: Option<DumpLispString>,
     pub doc_form: Option<DumpValue>,
     #[serde(default)]
     pub interactive: Option<DumpValue>,
+    #[serde(default)]
+    pub closure_slot_count: usize,
+    #[serde(default)]
+    pub extra_slots: Vec<DumpValue>,
 }
 
 // ---------------------------------------------------------------------------

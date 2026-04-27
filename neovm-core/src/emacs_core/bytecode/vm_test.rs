@@ -1751,6 +1751,8 @@ fn vm_switch_branches_using_hash_table_jump_table() {
         docstring: None,
         doc_form: None,
         interactive: None,
+        closure_slot_count: 4,
+        extra_slots: Vec::new(),
     };
 
     let mut vm = new_vm(&mut eval);
@@ -1905,6 +1907,8 @@ fn vm_throw_restores_saved_stack_before_resuming_catch() {
         docstring: None,
         doc_form: None,
         interactive: None,
+        closure_slot_count: 4,
+        extra_slots: Vec::new(),
     };
 
     let mut eval = Context::new_vm_runtime_harness();
@@ -8873,6 +8877,8 @@ fn vm_gnu_arg_descriptor_preserves_optional_and_rest_slots() {
         docstring: None,
         doc_form: None,
         interactive: None,
+        closure_slot_count: 4,
+        extra_slots: Vec::new(),
     };
 
     let mut eval = Context::new_vm_runtime_harness();

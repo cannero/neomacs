@@ -860,6 +860,8 @@ impl LoadDecoder {
                 docstring: None,
                 doc_form: None,
                 interactive: None,
+                closure_slot_count: 4,
+                extra_slots: Vec::new(),
             }),
             DumpHeapObject::Record(items) => {
                 if let Some(ptr) = self.mapped_typed_object_for_object::<RecordObj>(id, "record")? {
@@ -1149,6 +1151,7 @@ impl LoadDecoder {
                     if let Some(interactive) = bc.interactive {
                         stack.push(interactive);
                     }
+                    stack.extend(bc.extra_slots);
                 }
                 DumpHeapObject::Overlay(overlay) => {
                     stack.push(overlay.plist);
@@ -1523,9 +1526,16 @@ pub(crate) fn dump_bytecode(
                 .map(|(byte_off, instr_idx)| (*byte_off as u32, *instr_idx as u32))
                 .collect()
         }),
+        gnu_bytecode_bytes: bc.gnu_bytecode_bytes.clone(),
         docstring: bc.docstring.as_ref().map(dump_lisp_string),
         doc_form: encoder.dump_opt_value(&bc.doc_form),
         interactive: encoder.dump_opt_value(&bc.interactive),
+        closure_slot_count: bc.observable_closure_slot_count(),
+        extra_slots: bc
+            .extra_slots
+            .iter()
+            .map(|value| encoder.dump_value(value))
+            .collect(),
     }
 }
 
@@ -3072,10 +3082,16 @@ pub(crate) fn load_bytecode(
                 .map(|(byte_off, instr_idx)| (*byte_off as usize, *instr_idx as usize))
                 .collect()
         }),
-        gnu_bytecode_bytes: None,
+        gnu_bytecode_bytes: bc.gnu_bytecode_bytes.clone(),
         docstring: bc.docstring.as_ref().map(load_lisp_string),
         doc_form: decoder.load_opt_value(&bc.doc_form),
         interactive: decoder.load_opt_value(&bc.interactive),
+        closure_slot_count: bc.closure_slot_count,
+        extra_slots: bc
+            .extra_slots
+            .iter()
+            .map(|value| decoder.load_value(value))
+            .collect(),
     })
 }
 

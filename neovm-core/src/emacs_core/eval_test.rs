@@ -172,6 +172,29 @@ fn symbols_with_pos_enabled_makes_hash_table_keys_transparent() {
 }
 
 #[test]
+fn symbols_with_pos_enabled_makes_plist_keys_transparent() {
+    let result = eval_one(
+        r#"(let ((symbols-with-pos-enabled t)
+                 (plist (list (position-symbol :group 1) 'mode-line-faces
+                              (position-symbol :version 2) "30.1")))
+             (list
+              (plist-get plist :version)
+              (plist-get plist (position-symbol :group 3))
+              (eq (car (plist-member plist :version)) :version)
+              (car (cdr (plist-member plist (position-symbol :version 4))))
+              (progn
+                (setq plist (plist-put plist :version "31.1"))
+                (list (plist-get plist (position-symbol :version 5))
+                      (length plist)))))"#,
+    );
+
+    assert_eq!(
+        result,
+        "OK (\"30.1\" mode-line-faces t \"30.1\" (\"31.1\" 4))"
+    );
+}
+
+#[test]
 fn get_honors_overriding_plist_environment() {
     let result = eval_one(
         r#"(progn

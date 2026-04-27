@@ -690,16 +690,68 @@ pub(crate) fn builtin_string_to_char(args: Vec<Value>) -> EvalResult {
 // ===========================================================================
 
 pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
+    builtin_plist_get_eq_swp(args, false)
+}
+
+pub(crate) fn builtin_plist_get_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("plist-get", &args, 2)?;
     expect_max_args("plist-get", &args, 3)?;
-    // Optional 3rd arg PREDICATE is accepted but ignored (we always use `eq`).
+    if args.get(2).is_none_or(|value| value.is_nil()) {
+        return builtin_plist_get_eq_swp(args, eval.symbols_with_pos_enabled);
+    }
+
+    let plist = args[0];
+    let prop = args[1];
+    let predicate = args[2];
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(plist);
+    eval.push_specpdl_root(prop);
+    eval.push_specpdl_root(predicate);
+
+    let mut cursor = plist;
+    let plist_result = loop {
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let pair_car = cursor.cons_car();
+                let pair_cdr = cursor.cons_cdr();
+                if !pair_cdr.is_cons() {
+                    break Ok(Value::NIL);
+                }
+                match eval.apply(predicate, vec![pair_car, prop]) {
+                    Ok(value) if value.is_truthy() => break Ok(pair_cdr.cons_car()),
+                    Ok(_) => {
+                        cursor = pair_cdr.cons_cdr();
+                    }
+                    Err(err) => break Err(err),
+                }
+            }
+            _ => break Ok(Value::NIL),
+        }
+    };
+
+    eval.restore_specpdl_roots(roots);
+    plist_result
+}
+
+fn builtin_plist_get_eq_swp(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
+    expect_min_args("plist-get", &args, 2)?;
+    expect_max_args("plist-get", &args, 3)?;
+    if args.get(2).is_some_and(|value| !value.is_nil()) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[2]],
+        ));
+    }
     let mut cursor = args[0];
     loop {
         match cursor.kind() {
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if eq_value(&pair_car, &args[1]) {
+                if eq_value_swp(&pair_car, &args[1], symbols_with_pos_enabled) {
                     // Next element is the value
                     match pair_cdr.kind() {
                         ValueKind::Cons => {
@@ -722,9 +774,85 @@ pub(crate) fn builtin_plist_get(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
+    builtin_plist_put_eq_swp(args, false)
+}
+
+pub(crate) fn builtin_plist_put_with_ctx(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_min_args("plist-put", &args, 3)?;
     expect_max_args("plist-put", &args, 4)?;
-    // Optional 4th arg PREDICATE is accepted but ignored (we always use `eq`).
+    if args.get(3).is_none_or(|value| value.is_nil()) {
+        return builtin_plist_put_eq_swp(args, eval.symbols_with_pos_enabled);
+    }
+
+    let plist = args[0];
+    let key = args[1];
+    let new_val = args[2];
+    let predicate = args[3];
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(plist);
+    eval.push_specpdl_root(key);
+    eval.push_specpdl_root(new_val);
+    eval.push_specpdl_root(predicate);
+
+    let mut cursor = plist;
+    let mut prev = Value::NIL;
+    let plist_result = loop {
+        match cursor.kind() {
+            ValueKind::Cons => {
+                let entry_key = cursor.cons_car();
+                let entry_rest = cursor.cons_cdr();
+                if !entry_rest.is_cons() {
+                    break Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("plistp"), plist],
+                    ));
+                }
+
+                match eval.apply(predicate, vec![entry_key, key]) {
+                    Ok(value) if value.is_truthy() => {
+                        entry_rest.set_car(new_val);
+                        break Ok(plist);
+                    }
+                    Ok(_) => {
+                        prev = cursor;
+                        cursor = entry_rest.cons_cdr();
+                    }
+                    Err(err) => break Err(err),
+                }
+            }
+            ValueKind::Nil => {
+                let new_cell = Value::cons(key, Value::cons(new_val, Value::NIL));
+                if prev.is_nil() {
+                    break Ok(new_cell);
+                }
+                prev.cons_cdr().set_cdr(new_cell);
+                break Ok(plist);
+            }
+            _ => {
+                break Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("plistp"), plist],
+                ));
+            }
+        }
+    };
+
+    eval.restore_specpdl_roots(roots);
+    plist_result
+}
+
+fn builtin_plist_put_eq_swp(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
+    expect_min_args("plist-put", &args, 3)?;
+    expect_max_args("plist-put", &args, 4)?;
+    if args.get(3).is_some_and(|value| !value.is_nil()) {
+        return Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("symbolp"), args[3]],
+        ));
+    }
     let plist = args[0];
     let key = args[1];
     let new_val = args[2];
@@ -744,7 +872,7 @@ pub(crate) fn builtin_plist_put(args: Vec<Value>) -> EvalResult {
 
                 match entry_rest.kind() {
                     ValueKind::Cons => {
-                        if eq_value(&entry_key, &key) {
+                        if eq_value_swp(&entry_key, &key, symbols_with_pos_enabled) {
                             entry_rest.set_car(new_val);
                             return Ok(plist);
                         }
@@ -786,7 +914,7 @@ pub(crate) fn builtin_plist_member(
         .get(2)
         .and_then(|value| if value.is_nil() { None } else { Some(*value) });
     if predicate.is_none() {
-        return plist_member_eq(args);
+        return plist_member_eq_swp(args, eval.symbols_with_pos_enabled);
     }
 
     expect_range_args("plist-member", &args, 2, 3)?;
@@ -855,6 +983,10 @@ pub(crate) fn builtin_plist_member(
 }
 
 pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
+    plist_member_eq_swp(args, false)
+}
+
+pub(crate) fn plist_member_eq_swp(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_range_args("plist-member", &args, 2, 3)?;
     let plist = args[0];
     let prop = args[1];
@@ -877,7 +1009,7 @@ pub(crate) fn plist_member_eq(args: Vec<Value>) -> EvalResult {
                 let entry_key = cursor.cons_car();
                 let entry_rest = cursor.cons_cdr();
 
-                if eq_value(&entry_key, &prop) {
+                if eq_value_swp(&entry_key, &prop, symbols_with_pos_enabled) {
                     return Ok(cursor);
                 }
 

@@ -470,17 +470,13 @@ fn pure_dispatch_typed_append_flattens_bytecode_slots() {
         .expect("builtin append should resolve")
         .expect("builtin append should evaluate");
     let slots = list_to_vec(&result).expect("bytecode append should produce a proper list");
-    // GNU bytecode objects always expose slots 0-4 (advice--p reads
-    // slot 4 unconditionally), so the closure vector is 5 wide even
-    // without an interactive form. Mirrored in
-    // bytecode_to_closure_vector (cons_list.rs).
-    assert_eq!(slots.len(), 5);
+    // GNU bytecode objects expose exactly the PVEC_CLOSURE slot count.
+    // A four-argument make-byte-code object has only slots 0-3.
+    assert_eq!(slots.len(), 4);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
-    // Slot 4: docstring/(fn ...) annotation; nil when neither is set.
-    assert!(slots[4].is_nil() || slots[4].is_string() || slots[4].is_cons());
 }
 
 #[test]
@@ -527,15 +523,12 @@ fn pure_dispatch_typed_vconcat_flattens_bytecode_slots() {
         panic!("expected vector result, got {result:?}");
     };
     let slots = result.as_vector_data().unwrap().clone();
-    // GNU bytecode objects always expose slots 0-4 (advice--p reads
-    // slot 4 unconditionally), so vconcat over a bytecode closure
-    // produces a 5-wide vector even without an interactive form.
-    assert_eq!(slots.len(), 5);
+    // GNU bytecode objects expose exactly the PVEC_CLOSURE slot count.
+    assert_eq!(slots.len(), 4);
     assert!((slots[0].is_cons() || slots[0].is_nil()));
     assert!((slots[1].is_nil() || slots[1].is_string()));
     assert!(slots[2].is_vector());
     assert!(slots[3].is_fixnum());
-    assert!(slots[4].is_nil() || slots[4].is_string() || slots[4].is_cons());
 }
 
 #[test]
@@ -6474,6 +6467,68 @@ fn make_byte_code_preserves_gnu_arg_slot_zero() {
             Value::symbol("arg1"),
         ]
     );
+}
+
+#[test]
+fn make_byte_code_preserves_gnu_closure_slot_count() {
+    crate::test_utils::init_test_tracing();
+
+    let with_nil_doc = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            Value::fixnum(0),
+            Value::string(""),
+            Value::vector(vec![]),
+            Value::fixnum(0),
+            Value::NIL,
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect("nil doc slot bytecode should build");
+
+    let len = dispatch_builtin_pure("length", vec![with_nil_doc])
+        .expect("builtin length should resolve")
+        .expect("length should evaluate");
+    assert_eq!(len, Value::fixnum(5));
+
+    let code = dispatch_builtin_pure("aref", vec![with_nil_doc, Value::fixnum(1)])
+        .expect("builtin aref should resolve")
+        .expect("aref 1 should evaluate");
+    assert_eq!(code, Value::string(""));
+
+    let slot4 = dispatch_builtin_pure("aref", vec![with_nil_doc, Value::fixnum(4)])
+        .expect("builtin aref should resolve")
+        .expect("aref 4 should evaluate");
+    assert_eq!(slot4, Value::NIL);
+
+    let slot5 = dispatch_builtin_pure("aref", vec![with_nil_doc, Value::fixnum(5)])
+        .expect("builtin aref should resolve");
+    assert!(slot5.is_err(), "slot 5 should be out of range");
+
+    let with_extra = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            Value::fixnum(0),
+            Value::string(""),
+            Value::vector(vec![]),
+            Value::fixnum(0),
+            Value::NIL,
+            Value::NIL,
+            Value::symbol("extra"),
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect("extra slot bytecode should build");
+
+    let len = dispatch_builtin_pure("length", vec![with_extra])
+        .expect("builtin length should resolve")
+        .expect("length should evaluate");
+    assert_eq!(len, Value::fixnum(7));
+
+    let slot6 = dispatch_builtin_pure("aref", vec![with_extra, Value::fixnum(6)])
+        .expect("builtin aref should resolve")
+        .expect("aref 6 should evaluate");
+    assert_eq!(slot6, Value::symbol("extra"));
 }
 
 #[test]

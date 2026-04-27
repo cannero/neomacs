@@ -1227,15 +1227,7 @@ impl<'a> Reader<'a> {
                     push_scratch_gc_root(*item);
                 }
                 let result = if items.len() >= 4 {
-                    crate::emacs_core::builtins::make_byte_code_from_parts(
-                        &items[0],
-                        &items[1],
-                        &items[2],
-                        &items[3],
-                        items.get(4),
-                        items.get(5),
-                    )
-                    .map_err(|e| {
+                    crate::emacs_core::builtins::make_byte_code_from_slots(&items).map_err(|e| {
                         let msg = match &e {
                             crate::emacs_core::error::Flow::Signal(sig) => sig
                                 .data

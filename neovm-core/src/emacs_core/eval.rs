@@ -8681,14 +8681,7 @@ impl Context {
             values.push(self.quote_value_with_bytecode(*item)?);
         }
 
-        crate::emacs_core::builtins::make_byte_code_from_parts(
-            &values[0],
-            &values[1],
-            &values[2],
-            &values[3],
-            values.get(4),
-            values.get(5),
-        )
+        crate::emacs_core::builtins::make_byte_code_from_slots(&values)
     }
 
     fn sf_byte_code_value(&mut self, tail: Value) -> EvalResult {
@@ -8776,6 +8769,8 @@ impl Context {
             docstring: None,
             doc_form: None,
             interactive: None,
+            closure_slot_count: 4,
+            extra_slots: Vec::new(),
         };
 
         let mut vm = super::bytecode::Vm::from_context(self);

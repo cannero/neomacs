@@ -65,6 +65,15 @@ pub struct ByteCodeFunction {
     /// Interactive spec from GNU closure slot 5 (CLOSURE_INTERACTIVE).
     /// Can be a string code, a form to evaluate, or a vector [spec, modes].
     pub interactive: Option<Value>,
+    /// GNU closure pseudovector size for observable sequence operations.
+    ///
+    /// GNU `make-byte-code` allocates a vector with exactly the number of
+    /// arguments supplied, then marks it as `PVEC_CLOSURE`.  Explicit nil slots
+    /// therefore still count for `length`, `aref`, `append`, printing, etc.
+    pub closure_slot_count: usize,
+    /// GNU accepts `&rest ELEMENTS` after the interactive slot.  They have no
+    /// execution significance, but remain observable through closure slots.
+    pub extra_slots: Vec<Value>,
 }
 
 #[cfg(test)]
@@ -98,6 +107,8 @@ impl Clone for ByteCodeFunction {
             docstring: self.docstring.clone(),
             doc_form: self.doc_form,
             interactive: self.interactive,
+            closure_slot_count: self.closure_slot_count,
+            extra_slots: self.extra_slots.clone(),
         }
     }
 }
@@ -118,7 +129,23 @@ impl ByteCodeFunction {
             docstring: None,
             doc_form: None,
             interactive: None,
+            closure_slot_count: 4,
+            extra_slots: Vec::new(),
         }
+    }
+
+    pub fn observable_closure_slot_count(&self) -> usize {
+        let mut count = self.closure_slot_count.max(4);
+        if self.docstring.is_some() || self.doc_form.is_some() {
+            count = count.max(5);
+        }
+        if self.interactive.is_some() {
+            count = count.max(6);
+        }
+        if !self.extra_slots.is_empty() {
+            count = count.max(6 + self.extra_slots.len());
+        }
+        count
     }
 
     /// Add a constant to the pool and return its index.

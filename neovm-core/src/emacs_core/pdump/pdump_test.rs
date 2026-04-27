@@ -1284,9 +1284,12 @@ fn test_restore_snapshot_rejects_legacy_unwind_protect_dump_opcode() {
             lexical: false,
             env: None,
             gnu_byte_offset_map: None,
+            gnu_bytecode_bytes: None,
             docstring: None,
             doc_form: None,
             interactive: None,
+            closure_slot_count: 4,
+            extra_slots: vec![],
         }));
     let result = restore_snapshot(&snapshot);
     match result {

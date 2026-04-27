@@ -5186,6 +5186,29 @@ fn bootstrap_runtime_cl_defstruct_autoload_state_matches_gnu() {
 }
 
 #[test]
+fn autoload_do_load_accepts_positioned_macro_funname() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
+    apply_runtime_startup_state(&mut eval).expect("runtime startup state");
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(progn
+             (require 'macroexp)
+             (let* ((symbols-with-pos-enabled t)
+                    (before (symbol-function 'let-alist))
+                    (pos (position-symbol 'let-alist 42))
+                    (loaded (autoload-do-load before pos 'macro))
+                    (expanded (macroexpand-1 (list pos 'rule '.modes))))
+               (list
+                (autoloadp before)
+                (eq (car-safe loaded) 'macro)
+                (eq (car-safe (symbol-function 'let-alist)) 'macro)
+                (eq (car-safe expanded) 'let))))"#,
+    );
+    assert_eq!(rendered, "OK (t t t t)");
+}
+
+#[test]
 fn bootstrap_runtime_cl_transform_lambda_matches_gnu() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");

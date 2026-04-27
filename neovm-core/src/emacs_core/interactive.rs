@@ -656,10 +656,10 @@ pub(crate) fn builtin_command_modes_impl(obarray: &Obarray, args: &[Value]) -> E
             let Some(bc) = function.get_bytecode_data() else {
                 return Ok(Value::NIL);
             };
-            let interactive = bc.interactive;
-            let Some(ref int_val) = interactive else {
+            if bc.observable_closure_slot_count() <= 5 {
                 return Ok(Value::NIL);
             };
+            let int_val = bc.interactive.unwrap_or(Value::NIL);
             if !int_val.is_vector() {
                 return Ok(Value::NIL);
             }
@@ -1059,7 +1059,7 @@ fn command_object_p_in_state(
         }
         ValueKind::Veclike(VecLikeType::ByteCode) => value
             .get_bytecode_data()
-            .is_some_and(|bc| bc.interactive.is_some()),
+            .is_some_and(|bc| bc.observable_closure_slot_count() > 5),
         ValueKind::Cons => quoted_lambda_has_interactive_form(value),
         ValueKind::Subr(id) => interactive.is_interactive(id) || builtin_command_symbol(id),
         ValueKind::Veclike(VecLikeType::Subr) => {
@@ -2631,20 +2631,21 @@ fn resolve_interactive_invocation_args(
     // For bytecoded functions: extract interactive spec from closure slot 5
     // (mirrors GNU Emacs CLOSURE_INTERACTIVE handling in callint.c)
     if let Some(bc) = func.get_bytecode_data() {
-        if let Some(spec) = &bc.interactive {
+        if bc.observable_closure_slot_count() > 5 {
+            let spec = bc.interactive.unwrap_or(Value::NIL);
             // If it's a vector [spec, modes], extract just the spec
             let spec_val = if spec.is_vector() {
                 if let Some(vec_data) = spec.as_vector_data() {
                     if !vec_data.is_empty() {
                         vec_data[0]
                     } else {
-                        *spec
+                        spec
                     }
                 } else {
-                    *spec
+                    spec
                 }
             } else {
-                *spec
+                spec
             };
             if let Some(s) = spec_val.as_lisp_string() {
                 // String interactive spec — parse as code letters
@@ -2972,20 +2973,21 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     }
 
     if let Some(bc) = func.get_bytecode_data()
-        && let Some(spec) = &bc.interactive
+        && bc.observable_closure_slot_count() > 5
     {
+        let spec = bc.interactive.unwrap_or(Value::NIL);
         let spec_val = if spec.is_vector() {
             if let Some(vec_data) = spec.as_vector_data() {
                 if !vec_data.is_empty() {
                     vec_data[0]
                 } else {
-                    *spec
+                    spec
                 }
             } else {
-                *spec
+                spec
             }
         } else {
-            *spec
+            spec
         };
         if spec_val.is_nil() {
             return Ok(Some((func, Vec::new())));
@@ -3100,20 +3102,21 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     }
 
     if let Some(bc) = func.get_bytecode_data()
-        && let Some(spec) = &bc.interactive
+        && bc.observable_closure_slot_count() > 5
     {
+        let spec = bc.interactive.unwrap_or(Value::NIL);
         let spec_val = if spec.is_vector() {
             if let Some(vec_data) = spec.as_vector_data() {
                 if !vec_data.is_empty() {
                     vec_data[0]
                 } else {
-                    *spec
+                    spec
                 }
             } else {
-                *spec
+                spec
             }
         } else {
-            *spec
+            spec
         };
         if spec_val.is_nil() {
             return Ok(Some((func, Vec::new())));

@@ -3276,16 +3276,21 @@ fn interactive_form_from_quoted_lambda(value: &Value) -> Result<Option<Value>, F
 
 fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
     let bc = function.get_bytecode_data()?;
-    let spec = bc.interactive;
-    spec.map(|s| {
-        let spec_val = if s.is_vector() {
-            let vec_data = s.as_vector_data().unwrap();
-            if !vec_data.is_empty() { vec_data[0] } else { s }
+    if bc.observable_closure_slot_count() <= 5 {
+        return None;
+    }
+    let spec = bc.interactive.unwrap_or(Value::NIL);
+    let spec_val = if spec.is_vector() {
+        let vec_data = spec.as_vector_data().unwrap();
+        if !vec_data.is_empty() {
+            vec_data[0]
         } else {
-            s
-        };
-        Value::list(vec![Value::symbol("interactive"), spec_val])
-    })
+            spec
+        }
+    } else {
+        spec
+    };
+    Some(Value::list(vec![Value::symbol("interactive"), spec_val]))
 }
 
 pub(crate) enum InteractiveFormPlan {
@@ -4468,13 +4473,29 @@ pub(crate) fn builtin_make_byte_code(args: Vec<Value>) -> EvalResult {
         ));
     }
 
-    make_byte_code_from_parts(
-        &args[0],
-        &args[1],
-        &args[2],
-        &args[3],
-        args.get(4),
-        args.get(5),
+    make_byte_code_from_slots(&args)
+}
+
+pub(crate) fn make_byte_code_from_slots(slots: &[Value]) -> EvalResult {
+    if slots.len() < 4 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![
+                Value::symbol("make-byte-code"),
+                Value::fixnum(slots.len() as i64),
+            ],
+        ));
+    }
+
+    make_byte_code_from_parts_with_slots(
+        &slots[0],
+        &slots[1],
+        &slots[2],
+        &slots[3],
+        slots.get(4),
+        slots.get(5),
+        slots.len(),
+        slots.get(6..).unwrap_or(&[]),
     )
 }
 
@@ -4488,6 +4509,36 @@ pub(crate) fn make_byte_code_from_parts(
     docstring: Option<&Value>,
     interactive: Option<&Value>,
 ) -> EvalResult {
+    let mut closure_slot_count = 4;
+    if docstring.is_some() {
+        closure_slot_count = 5;
+    }
+    if interactive.is_some() {
+        closure_slot_count = 6;
+    }
+
+    make_byte_code_from_parts_with_slots(
+        arglist,
+        bytecode_str,
+        constants_vec,
+        maxdepth,
+        docstring,
+        interactive,
+        closure_slot_count,
+        &[],
+    )
+}
+
+fn make_byte_code_from_parts_with_slots(
+    arglist: &Value,
+    bytecode_str: &Value,
+    constants_vec: &Value,
+    maxdepth: &Value,
+    docstring: Option<&Value>,
+    interactive: Option<&Value>,
+    closure_slot_count: usize,
+    extra_slots: &[Value],
+) -> EvalResult {
     use crate::emacs_core::bytecode::ByteCodeFunction;
     use crate::emacs_core::bytecode::decode::{
         decode_gnu_bytecode_with_offset_map, parse_arglist_value, string_value_to_bytes,
@@ -4500,12 +4551,10 @@ pub(crate) fn make_byte_code_from_parts(
     // Bytecode strings are unibyte and may contain arbitrary byte values
     // (including non-UTF-8), so we must access the raw bytes directly
     // rather than going through as_str() which requires valid UTF-8.
-    let raw_bytes = if let Some(ls) = bytecode_str.as_lisp_string() {
-        ls.as_bytes().to_vec()
-    } else {
-        // Could be nil for empty functions
-        Vec::new()
-    };
+    let gnu_bytecode_bytes = bytecode_str
+        .as_lisp_string()
+        .map(|ls| ls.as_bytes().to_vec());
+    let raw_bytes = gnu_bytecode_bytes.clone().unwrap_or_default();
 
     // 3. Extract constants from vector
     let mut constants: Vec<Value> = match constants_vec.kind() {
@@ -4566,11 +4615,7 @@ pub(crate) fn make_byte_code_from_parts(
         // bytecode string.  Required for `byte-compile-make-closure` which
         // reads the bytes via aref and passes them back to `make-byte-code`
         // when generating closure prototypes.
-        gnu_bytecode_bytes: if raw_bytes.is_empty() {
-            None
-        } else {
-            Some(raw_bytes)
-        },
+        gnu_bytecode_bytes,
         docstring: doc,
         doc_form,
         // GNU Emacs (eval.c:2301-2303): "Bytecode objects are interactive if
@@ -4579,6 +4624,8 @@ pub(crate) fn make_byte_code_from_parts(
         // function is interactive.  We mirror this: if the caller provided an
         // interactive argument at all (even nil), store Some(value).
         interactive: interactive.copied(),
+        closure_slot_count,
+        extra_slots: extra_slots.to_vec(),
     };
 
     Ok(Value::make_bytecode(bc))
@@ -4676,14 +4723,7 @@ pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     };
 
     if items.len() >= 4 && items[1].is_string() && (items[2].is_vector() || items[2].is_nil()) {
-        return match make_byte_code_from_parts(
-            &items[0],
-            &items[1],
-            &items[2],
-            &items[3],
-            items.get(4),
-            items.get(5),
-        ) {
+        return match make_byte_code_from_slots(&items) {
             Ok(bc) => bc,
             Err(_) => val,
         };

@@ -3970,7 +3970,10 @@ impl<'a> Vm<'a> {
                 }
             });
         }
-        crate::emacs_core::builtins::plist_member_eq(args.to_vec())
+        crate::emacs_core::builtins::plist_member_eq_swp(
+            args.to_vec(),
+            self.ctx.symbols_with_pos_enabled,
+        )
     }
 
     fn builtin_garbage_collect_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -849,9 +849,19 @@ fn with_bytecode_literal_slots<R>(value: &Value, f: impl FnOnce(&[Value]) -> R) 
     let interactive = bc.interactive.unwrap_or(Value::NIL);
     crate::emacs_core::eval::push_scratch_gc_root(interactive);
 
-    let mut slots = vec![arglist, code, constants, depth, doc];
-    if !interactive.is_nil() {
+    let slot_count = bc.observable_closure_slot_count();
+    let mut slots = vec![arglist, code, constants, depth];
+    if slot_count > 4 {
+        slots.push(doc);
+    }
+    if slot_count > 5 {
         slots.push(interactive);
+    }
+    if slot_count > 6 {
+        let extra_count = slot_count - 6;
+        for idx in 0..extra_count {
+            slots.push(bc.extra_slots.get(idx).copied().unwrap_or(Value::NIL));
+        }
     }
     let result = f(&slots);
     crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);

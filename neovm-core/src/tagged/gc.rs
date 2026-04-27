@@ -929,6 +929,12 @@ impl TaggedHeap {
                     .as_ref()
                     .map_or(0, Self::hash_map_storage_bytes),
             )
+            .saturating_add(
+                data.gnu_bytecode_bytes
+                    .as_ref()
+                    .map_or(0, |bytes| bytes.capacity().saturating_mul(size_of::<u8>())),
+            )
+            .saturating_add(Self::vector_storage_bytes(&data.extra_slots))
             .saturating_add(data.docstring.as_ref().map_or(0, |doc| doc.sbytes()))
     }
 
@@ -1686,6 +1692,11 @@ impl TaggedHeap {
                 if let Some(interactive) = data.interactive {
                     if interactive.is_heap_object() {
                         self.gray_queue.push(interactive);
+                    }
+                }
+                for val in &data.extra_slots {
+                    if val.is_heap_object() {
+                        self.gray_queue.push(*val);
                     }
                 }
             }

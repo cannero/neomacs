@@ -15,6 +15,7 @@ use super::intern::{intern, resolve_sym};
 use super::symbol::Obarray;
 use super::value::*;
 use crate::emacs_core::SymId;
+use crate::emacs_core::builtins::symbols::symbol_id;
 use crate::emacs_core::value::ValueKind;
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
@@ -390,8 +391,8 @@ pub(crate) fn plan_autoload_do_load_in_state(
         return Ok(AutoloadDoLoadPlan::Return(*fundef));
     };
 
-    let funname = if args.len() > 1 {
-        args[1].as_symbol_id()
+    let funname = if args.len() > 1 && !args[1].is_nil() {
+        symbol_id(&args[1])
     } else {
         None
     };
