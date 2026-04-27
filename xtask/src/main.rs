@@ -269,6 +269,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         write_ldefs_boot(&loaddefs_el, &ldefs_boot)?;
     }
 
+    run_compile_main(options, &paths, &envs)?;
+
     run_command(
         options,
         &options.repo_root,
@@ -281,8 +283,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         ],
         &envs,
     )?;
-
-    run_compile_main(options, &paths, &envs)?;
 
     Ok(())
 }
@@ -692,7 +692,7 @@ fn run_compile_main(
     println!("  INFO  byte-compiling {} .el files", sources.len());
     for source in &sources {
         let args = compile_main_args_for_source(options.native_comp, source);
-        run_command(options, &options.repo_root, &paths.final_bin, &args, envs)?;
+        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
     }
 
     Ok(())
@@ -1080,8 +1080,8 @@ Build the GNU-shaped Neomacs runtime pipeline:
   2. neomacs-temacs --temacs=pbootstrap
   3. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
   4. bootstrap-neomacs generates loaddefs / ldefs-boot
-  5. neomacs-temacs --temacs=pdump
-  6. neomacs byte-compiles the GNU compile-main Lisp set into .elc files
+  5. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
+  6. neomacs-temacs --temacs=pdump
 
 Options:
   --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs
