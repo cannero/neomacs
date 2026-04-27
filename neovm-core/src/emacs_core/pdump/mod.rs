@@ -15,6 +15,7 @@
 //! ```
 
 pub mod convert;
+pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub mod runtime;
@@ -86,7 +87,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v37: Mapped heap object/slot spans move out of RuntimeState bincode. File
 //   load rebuilds them from the dumped object list and the fixed heap-image
 //   layout algorithm instead of deserializing five span vectors.
-const FORMAT_VERSION: u32 = 37;
+// v38: DumpTaggedHeap.objects moves out of RuntimeState bincode and into a
+//   fixed-layout HeapObjects mmap section with explicit heap/value tags.
+const FORMAT_VERSION: u32 = 38;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -188,22 +191,30 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let mut state = dump_evaluator(eval);
     let symbol_table_payload = symbol_table_image::symbol_table_section_bytes(&state.symbol_table)?;
     let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
+    let heap_objects_payload =
+        heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
     let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
     state.symbol_table.names.clear();
     state.symbol_table.symbols.clear();
+    state.tagged_heap.objects.clear();
     mapped_heap::clear_heap_metadata(&mut state.tagged_heap);
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        2 + usize::from(!heap_payload.bytes.is_empty())
+        3 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
         kind: DumpSectionKind::SymbolTable,
         flags: 0,
         bytes: &symbol_table_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::HeapObjects,
+        flags: 0,
+        bytes: &heap_objects_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
@@ -248,6 +259,11 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::SymbolTable)
         .ok_or_else(|| DumpError::ImageFormatError("missing symbol-table section".into()))?;
     symbol_table_image::load_symbol_table_section(symbol_table_payload)?;
+    let heap_objects_payload = image
+        .section(DumpSectionKind::HeapObjects)
+        .ok_or_else(|| DumpError::ImageFormatError("missing heap-objects section".into()))?;
+    state.tagged_heap.objects =
+        heap_objects_image::load_heap_objects_section(heap_objects_payload)?;
     mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image

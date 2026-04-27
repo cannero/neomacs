@@ -54,6 +54,15 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
             .is_some(),
         "file pdumps must carry the symbol interner in a raw mmap section"
     );
+    let heap_objects = image
+        .section(super::mmap_image::DumpSectionKind::HeapObjects)
+        .expect("heap-objects section");
+    let heap_objects =
+        super::heap_objects_image::load_heap_objects_section(heap_objects).expect("heap objects");
+    assert!(
+        !heap_objects.is_empty(),
+        "file pdumps must carry dump-local heap objects in a raw mmap section"
+    );
     let runtime_state = image
         .section(super::mmap_image::DumpSectionKind::RuntimeState)
         .expect("runtime-state section");
@@ -62,6 +71,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         state.symbol_table.names.is_empty() && state.symbol_table.symbols.is_empty(),
         "symbol interner metadata should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        state.tagged_heap.objects.is_empty(),
+        "heap object descriptors should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()
