@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use super::{DumpError, fingerprint_bytes, hex_string};
 
 const MMAP_MAGIC: [u8; 16] = *b"NEOMMAPDUMP\0\0\0\0\0";
-const MMAP_FORMAT_VERSION: u32 = 1;
+const MMAP_FORMAT_VERSION: u32 = 2;
 const SECTION_ALIGN: u64 = 8;
 
 #[repr(u32)]
@@ -63,6 +63,7 @@ pub(crate) struct ImageRelocation {
     pub location_offset: u64,
     pub target_section: DumpSectionKind,
     pub target_offset: u64,
+    pub addend: u64,
 }
 
 #[repr(C)]
@@ -99,6 +100,7 @@ struct DumpImageRelocation {
     target_section: u32,
     location_offset: u64,
     target_offset: u64,
+    addend: u64,
 }
 
 const HEADER_SIZE: usize = std::mem::size_of::<DumpImageHeader>();
@@ -160,7 +162,15 @@ impl LoadedMmapImage {
                 checked_end(location_start, std::mem::size_of::<usize>(), location.end)?;
             let target_start =
                 checked_end(target.start, relocation.target_offset as usize, target.end)?;
-            let target_ptr = self.mmap.as_mut_ptr() as usize + target_start;
+            let addend = usize::try_from(relocation.addend).map_err(|_| {
+                DumpError::ImageFormatError("relocation addend overflows usize".into())
+            })?;
+            let target_ptr = (self.mmap.as_mut_ptr() as usize)
+                .checked_add(target_start)
+                .and_then(|ptr| ptr.checked_add(addend))
+                .ok_or_else(|| {
+                    DumpError::ImageFormatError("relocation target pointer overflow".into())
+                })?;
 
             self.mmap[location_start..location_end].copy_from_slice(&target_ptr.to_ne_bytes());
         }
@@ -263,6 +273,7 @@ pub(crate) fn relocation_section_bytes(relocations: &[ImageRelocation]) -> Vec<u
             target_section: relocation.target_section as u32,
             location_offset: relocation.location_offset,
             target_offset: relocation.target_offset,
+            addend: relocation.addend,
         };
         bytes.extend_from_slice(bytemuck::bytes_of(&raw));
     }
@@ -525,6 +536,7 @@ mod tests {
             location_offset: 0,
             target_section: DumpSectionKind::Metadata,
             target_offset: 2,
+            addend: 0,
         }]);
 
         write_image(
@@ -565,6 +577,52 @@ mod tests {
     }
 
     #[test]
+    fn relocations_can_patch_tagged_pointer_addends() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        let pointer_bytes = vec![0u8; std::mem::size_of::<usize>()];
+        let relocations = relocation_section_bytes(&[ImageRelocation {
+            location_section: DumpSectionKind::HeapImage,
+            location_offset: 0,
+            target_section: DumpSectionKind::Metadata,
+            target_offset: 0,
+            addend: 0b011,
+        }]);
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 0,
+                    bytes: &pointer_bytes,
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Metadata,
+                    flags: 0,
+                    bytes: b"target",
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Relocations,
+                    flags: 0,
+                    bytes: &relocations,
+                },
+            ],
+        )
+        .unwrap();
+
+        let mut image = load_image(&path).unwrap();
+        image.apply_relocations().unwrap();
+
+        let heap = image.section(DumpSectionKind::HeapImage).unwrap();
+        let patched =
+            usize::from_ne_bytes(heap[..std::mem::size_of::<usize>()].try_into().unwrap());
+        let metadata = image.section(DumpSectionKind::Metadata).unwrap();
+        let expected = metadata.as_ptr() as usize + 0b011;
+        assert_eq!(patched, expected);
+    }
+
+    #[test]
     fn rejects_malformed_relocation_section() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("image.pdump");
@@ -602,6 +660,7 @@ mod tests {
             location_offset: 1,
             target_section: DumpSectionKind::Metadata,
             target_offset: 0,
+            addend: 0,
         }]);
 
         write_image(

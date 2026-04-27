@@ -502,6 +502,37 @@ impl LoadDecoder {
         id: TaggedHeapRef,
         slots: &[Value],
     ) -> Result<Option<LispValueVec>, DumpError> {
+        let Some(ptr) = self.mapped_slots_ptr_for_object(id, slots.len())? else {
+            return Ok(None);
+        };
+        if !slots.is_empty() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(slots.as_ptr(), ptr, slots.len());
+            }
+        }
+        Ok(Some(unsafe {
+            LispValueVec::mapped(ptr.cast_const(), slots.len())
+        }))
+    }
+
+    fn mapped_slots_for_object_without_copy(
+        &self,
+        id: TaggedHeapRef,
+        expected_len: usize,
+    ) -> Result<Option<LispValueVec>, DumpError> {
+        let Some(ptr) = self.mapped_slots_ptr_for_object(id, expected_len)? else {
+            return Ok(None);
+        };
+        Ok(Some(unsafe {
+            LispValueVec::mapped(ptr.cast_const(), expected_len)
+        }))
+    }
+
+    fn mapped_slots_ptr_for_object(
+        &self,
+        id: TaggedHeapRef,
+        expected_len: usize,
+    ) -> Result<Option<*mut TaggedValue>, DumpError> {
         let Some(span) = self
             .state
             .mapped_slots
@@ -516,15 +547,7 @@ impl LoadDecoder {
                 "dump reserves mapped vector slots but image has no heap section".into(),
             )
         })?;
-        let ptr = mapped_heap.slots_mut(span, slots.len())?;
-        if !slots.is_empty() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(slots.as_ptr(), ptr, slots.len());
-            }
-        }
-        Ok(Some(unsafe {
-            LispValueVec::mapped(ptr.cast_const(), slots.len())
-        }))
+        mapped_heap.slots_mut(span, expected_len).map(Some)
     }
 
     fn mapped_cons_cell_for_object(
@@ -658,6 +681,66 @@ impl LoadDecoder {
         }
     }
 
+    fn mapped_raw_word_available(&self, value: &DumpValue) -> bool {
+        match value {
+            DumpValue::Nil | DumpValue::True | DumpValue::Int(_) | DumpValue::Unbound => true,
+            DumpValue::Cons(id) => self
+                .state
+                .mapped_cons
+                .get(id.index as usize)
+                .is_some_and(|span| span.is_some()),
+            DumpValue::Float(id) => self
+                .state
+                .mapped_floats
+                .get(id.index as usize)
+                .is_some_and(|span| span.is_some()),
+            DumpValue::Str(id) => self
+                .state
+                .mapped_strings
+                .get(id.index as usize)
+                .is_some_and(|span| span.is_some()),
+            DumpValue::Vector(id)
+            | DumpValue::Record(id)
+            | DumpValue::Lambda(id)
+            | DumpValue::Macro(id)
+            | DumpValue::Marker(id)
+            | DumpValue::Overlay(id) => self
+                .state
+                .mapped_veclikes
+                .get(id.index as usize)
+                .is_some_and(|span| span.is_some()),
+            DumpValue::Symbol(_)
+            | DumpValue::Subr(_)
+            | DumpValue::HashTable(_)
+            | DumpValue::ByteCode(_)
+            | DumpValue::Buffer(_)
+            | DumpValue::Window(_)
+            | DumpValue::Frame(_)
+            | DumpValue::Timer(_)
+            | DumpValue::Bignum(_) => false,
+        }
+    }
+
+    fn mapped_raw_words_available(&self, values: &[DumpValue]) -> bool {
+        values
+            .iter()
+            .all(|value| self.mapped_raw_word_available(value))
+    }
+
+    fn mapped_cons_has_raw_words(
+        &self,
+        id: TaggedHeapRef,
+        car: &DumpValue,
+        cdr: &DumpValue,
+    ) -> bool {
+        self.state
+            .mapped_cons
+            .get(id.index as usize)
+            .is_some_and(|span| span.is_some())
+            && self.mapped_raw_word_available(car)
+            && self.mapped_raw_word_available(cdr)
+    }
+
     fn allocate_tagged_placeholder(&mut self, id: TaggedHeapRef) -> Result<Value, DumpError> {
         if let Some(value) = self.state.values[id.index as usize] {
             return Ok(value);
@@ -665,11 +748,7 @@ impl LoadDecoder {
         let value = match &self.state.objects[id.index as usize] {
             DumpHeapObject::Cons { .. } => {
                 if let Some(cell) = self.mapped_cons_cell_for_object(id)? {
-                    unsafe {
-                        (*cell).set_car(Value::NIL);
-                        (*cell).set_cdr(Value::NIL);
-                        Value::from_cons_ptr(cell)
-                    }
+                    unsafe { Value::from_cons_ptr(cell) }
                 } else {
                     Value::cons(Value::NIL, Value::NIL)
                 }
@@ -725,13 +804,7 @@ impl LoadDecoder {
             DumpHeapObject::Float(value) => {
                 if let Some(ptr) = self.mapped_float_obj_for_object(id)? {
                     unsafe {
-                        std::ptr::write(
-                            ptr,
-                            FloatObj {
-                                header: GcHeader::new(HeapObjectKind::Float),
-                                value: *value,
-                            },
-                        );
+                        debug_assert!(matches!((*ptr).header.kind, HeapObjectKind::Float));
                         Value::from_float_ptr(ptr)
                     }
                 } else {
@@ -897,15 +970,24 @@ impl LoadDecoder {
         self.state.populated[id.index as usize] = true;
         match self.state.objects[id.index as usize].clone() {
             DumpHeapObject::Cons { car, cdr } => {
-                value.set_car(self.load_value(&car));
-                value.set_cdr(self.load_value(&cdr));
+                if !self.mapped_cons_has_raw_words(id, &car, &cdr) {
+                    value.set_car(self.load_value(&car));
+                    value.set_cdr(self.load_value(&cdr));
+                }
             }
             DumpHeapObject::Vector(items) => {
-                let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
-                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                if self.mapped_raw_words_available(&items)
+                    && let Some(storage) =
+                        self.mapped_slots_for_object_without_copy(id, items.len())?
+                {
                     let _ = Self::install_mapped_vector_slots(value, storage);
                 } else {
-                    let _ = value.replace_vector_data(slots);
+                    let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
+                    if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                        let _ = Self::install_mapped_vector_slots(value, storage);
+                    } else {
+                        let _ = value.replace_vector_data(slots);
+                    }
                 }
             }
             DumpHeapObject::HashTable(ht) => {
@@ -951,11 +1033,18 @@ impl LoadDecoder {
             }
             DumpHeapObject::Float(_) => {}
             DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-                let slots: Vec<_> = slots.iter().map(|slot| self.load_value(slot)).collect();
-                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                if self.mapped_raw_words_available(&slots)
+                    && let Some(storage) =
+                        self.mapped_slots_for_object_without_copy(id, slots.len())?
+                {
                     let _ = Self::install_mapped_closure_slots(value, storage);
                 } else {
-                    let _ = value.replace_closure_slots(slots);
+                    let slots: Vec<_> = slots.iter().map(|slot| self.load_value(slot)).collect();
+                    if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                        let _ = Self::install_mapped_closure_slots(value, storage);
+                    } else {
+                        let _ = value.replace_closure_slots(slots);
+                    }
                 }
             }
             DumpHeapObject::ByteCode(bc) => {
@@ -967,11 +1056,18 @@ impl LoadDecoder {
                     .transpose()?;
             }
             DumpHeapObject::Record(items) => {
-                let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
-                if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                if self.mapped_raw_words_available(&items)
+                    && let Some(storage) =
+                        self.mapped_slots_for_object_without_copy(id, items.len())?
+                {
                     let _ = Self::install_mapped_record_slots(value, storage);
                 } else {
-                    let _ = value.replace_record_data(slots);
+                    let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
+                    if let Some(storage) = self.mapped_slots_for_object(id, &slots)? {
+                        let _ = Self::install_mapped_record_slots(value, storage);
+                    } else {
+                        let _ = value.replace_record_data(slots);
+                    }
                 }
             }
             DumpHeapObject::Marker(marker) => {
@@ -1189,6 +1285,85 @@ mod tests {
             cursor = cursor.cons_cdr();
         }
         assert!(cursor.is_nil());
+    }
+
+    #[test]
+    fn mapped_cons_raw_words_are_loader_source_of_truth_when_no_remap_needed() {
+        crate::test_utils::init_test_tracing();
+        let mut runtime_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+        crate::tagged::gc::set_tagged_heap(&mut runtime_heap);
+
+        let heap = DumpTaggedHeap {
+            objects: vec![DumpHeapObject::Cons {
+                car: DumpValue::Int(1),
+                cdr: DumpValue::Int(2),
+            }],
+            mapped_cons: vec![Some(DumpConsSpan { offset: 0 })],
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+        let mut bytes = vec![0u8; std::mem::size_of::<ConsCell>()];
+        write_raw_word(&mut bytes, 0, Value::fixnum(99).bits());
+        write_raw_word(
+            &mut bytes,
+            std::mem::size_of::<TaggedValue>(),
+            Value::fixnum(100).bits(),
+        );
+
+        let mapped = MappedHeapView::from_mut_slice(&mut bytes);
+        let mut decoder = LoadDecoder::new_with_mapped_heap(&heap, Some(mapped));
+        decoder.preload_tagged_heap().unwrap();
+
+        let value = decoder.load_value(&DumpValue::Cons(DumpHeapRef { index: 0 }));
+        assert_eq!(value.cons_car(), Value::fixnum(99));
+        assert_eq!(value.cons_cdr(), Value::fixnum(100));
+    }
+
+    #[test]
+    fn mapped_vector_raw_slots_are_loader_source_of_truth_when_no_remap_needed() {
+        crate::test_utils::init_test_tracing();
+        let mut runtime_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+        crate::tagged::gc::set_tagged_heap(&mut runtime_heap);
+
+        let slot_offset = std::mem::size_of::<VectorObj>();
+        let heap = DumpTaggedHeap {
+            objects: vec![DumpHeapObject::Vector(vec![
+                DumpValue::Int(1),
+                DumpValue::Int(2),
+            ])],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: vec![Some(DumpVecLikeSpan {
+                offset: 0,
+                len: std::mem::size_of::<VectorObj>() as u64,
+            })],
+            mapped_slots: vec![Some(DumpSlotSpan {
+                offset: slot_offset as u64,
+                len: 2,
+            })],
+        };
+        let mut bytes = vec![0u8; slot_offset + 2 * std::mem::size_of::<TaggedValue>()];
+        write_raw_word(&mut bytes, slot_offset, Value::fixnum(77).bits());
+        write_raw_word(
+            &mut bytes,
+            slot_offset + std::mem::size_of::<TaggedValue>(),
+            Value::fixnum(88).bits(),
+        );
+
+        let mapped = MappedHeapView::from_mut_slice(&mut bytes);
+        let mut decoder = LoadDecoder::new_with_mapped_heap(&heap, Some(mapped));
+        decoder.preload_tagged_heap().unwrap();
+
+        let value = decoder.load_value(&DumpValue::Vector(DumpHeapRef { index: 0 }));
+        let slots = value.as_vector_data().unwrap();
+        assert_eq!(slots.as_slice(), &[Value::fixnum(77), Value::fixnum(88)]);
+    }
+
+    fn write_raw_word(bytes: &mut [u8], offset: usize, word: usize) {
+        bytes[offset..offset + std::mem::size_of::<usize>()].copy_from_slice(&word.to_ne_bytes());
     }
 }
 

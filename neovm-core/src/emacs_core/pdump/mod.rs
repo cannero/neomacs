@@ -76,7 +76,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v34: Marker and overlay vectorlike object headers load from the mmap heap
 //   image and use the same external mapped-object mark bits as other dumped
 //   vectorlike objects.
-const FORMAT_VERSION: u32 = 34;
+// v35: mmap relocations carry a tagged-value addend, and dump writes raw cons,
+//   float, and vector slot payload contents into the heap image instead of
+//   reserving empty arenas for load-time reconstruction.
+const FORMAT_VERSION: u32 = 35;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -169,21 +172,32 @@ pub struct ActiveRuntimeSnapshot {
 pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let mut state = dump_evaluator(eval);
     let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
+    let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
-    let mut sections = Vec::with_capacity(if heap_payload.is_empty() { 1 } else { 2 });
+    let mut sections = Vec::with_capacity(
+        1 + usize::from(!heap_payload.bytes.is_empty())
+            + usize::from(!relocation_payload.is_empty()),
+    );
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
         flags: 0,
         bytes: &payload,
     });
-    if !heap_payload.is_empty() {
+    if !heap_payload.bytes.is_empty() {
         sections.push(ImageSection {
             kind: DumpSectionKind::HeapImage,
             flags: 0,
-            bytes: &heap_payload,
+            bytes: &heap_payload.bytes,
+        });
+    }
+    if !relocation_payload.is_empty() {
+        sections.push(ImageSection {
+            kind: DumpSectionKind::Relocations,
+            flags: 0,
+            bytes: &relocation_payload,
         });
     }
 
