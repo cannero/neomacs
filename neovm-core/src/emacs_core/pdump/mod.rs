@@ -18,6 +18,7 @@ pub mod convert;
 pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
+pub(crate) mod obarray_image;
 pub mod runtime;
 pub(crate) mod symbol_table_image;
 pub mod types;
@@ -89,7 +90,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   layout algorithm instead of deserializing five span vectors.
 // v38: DumpTaggedHeap.objects moves out of RuntimeState bincode and into a
 //   fixed-layout HeapObjects mmap section with explicit heap/value tags.
-const FORMAT_VERSION: u32 = 38;
+// v39: Obarray symbol state moves out of RuntimeState bincode and into a
+//   fixed-layout Obarray mmap section.
+const FORMAT_VERSION: u32 = 39;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -193,17 +196,22 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
     let heap_objects_payload =
         heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
+    let obarray_payload = obarray_image::obarray_section_bytes(&state.obarray)?;
     let relocation_payload = mmap_image::relocation_section_bytes(&heap_payload.relocations);
 
     state.symbol_table.names.clear();
     state.symbol_table.symbols.clear();
     state.tagged_heap.objects.clear();
+    state.obarray.symbols.clear();
+    state.obarray.global_members.clear();
+    state.obarray.function_unbound.clear();
+    state.obarray.function_epoch = 0;
     mapped_heap::clear_heap_metadata(&mut state.tagged_heap);
     let payload =
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        3 + usize::from(!heap_payload.bytes.is_empty())
+        4 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -215,6 +223,11 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         kind: DumpSectionKind::HeapObjects,
         flags: 0,
         bytes: &heap_objects_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::Obarray,
+        flags: 0,
+        bytes: &obarray_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::RuntimeState,
@@ -264,6 +277,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .ok_or_else(|| DumpError::ImageFormatError("missing heap-objects section".into()))?;
     state.tagged_heap.objects =
         heap_objects_image::load_heap_objects_section(heap_objects_payload)?;
+    let obarray_payload = image
+        .section(DumpSectionKind::Obarray)
+        .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
+    state.obarray = obarray_image::load_obarray_section(obarray_payload)?;
     mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image

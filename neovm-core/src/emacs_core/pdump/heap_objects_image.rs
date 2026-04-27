@@ -255,7 +255,7 @@ const VALUE_TIMER: u8 = 19;
 const VALUE_BIGNUM: u8 = 20;
 const VALUE_UNBOUND: u8 = 21;
 
-fn write_value(out: &mut Vec<u8>, value: &DumpValue) -> Result<(), DumpError> {
+pub(crate) fn write_value(out: &mut Vec<u8>, value: &DumpValue) -> Result<(), DumpError> {
     match value {
         DumpValue::Nil => write_u8(out, VALUE_NIL),
         DumpValue::True => write_u8(out, VALUE_TRUE),
@@ -873,11 +873,11 @@ fn write_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), DumpError> {
     Ok(())
 }
 
-fn write_bool(out: &mut Vec<u8>, value: bool) {
+pub(crate) fn write_bool(out: &mut Vec<u8>, value: bool) {
     write_u8(out, u8::from(value));
 }
 
-fn write_u8(out: &mut Vec<u8>, value: u8) {
+pub(crate) fn write_u8(out: &mut Vec<u8>, value: u8) {
     out.push(value);
 }
 
@@ -885,11 +885,11 @@ fn write_u16(out: &mut Vec<u8>, value: u16) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
-fn write_u32(out: &mut Vec<u8>, value: u32) {
+pub(crate) fn write_u32(out: &mut Vec<u8>, value: u32) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
-fn write_u64(out: &mut Vec<u8>, value: u64) {
+pub(crate) fn write_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
@@ -901,21 +901,21 @@ fn write_f64(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
-struct Cursor<'a> {
+pub(crate) struct Cursor<'a> {
     section: &'a [u8],
     offset: usize,
 }
 
 impl<'a> Cursor<'a> {
-    fn new(section: &'a [u8]) -> Self {
+    pub(crate) fn new(section: &'a [u8]) -> Self {
         Self { section, offset: 0 }
     }
 
-    fn is_empty(&self) -> bool {
+    pub(crate) fn is_empty(&self) -> bool {
         self.offset == self.section.len()
     }
 
-    fn remaining(&self) -> usize {
+    pub(crate) fn remaining(&self) -> usize {
         self.section.len() - self.offset
     }
 
@@ -972,7 +972,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn read_value(&mut self) -> Result<DumpValue, DumpError> {
+    pub(crate) fn read_value(&mut self) -> Result<DumpValue, DumpError> {
         match self.read_u8("dump value tag")? {
             VALUE_NIL => Ok(DumpValue::Nil),
             VALUE_TRUE => Ok(DumpValue::True),
@@ -1408,7 +1408,7 @@ impl<'a> Cursor<'a> {
             .map_err(|_| DumpError::ImageFormatError(format!("{what} overflows usize")))
     }
 
-    fn read_bool(&mut self, what: &str) -> Result<bool, DumpError> {
+    pub(crate) fn read_bool(&mut self, what: &str) -> Result<bool, DumpError> {
         match self.read_u8(what)? {
             0 => Ok(false),
             1 => Ok(true),
@@ -1418,7 +1418,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    fn read_u8(&mut self, what: &str) -> Result<u8, DumpError> {
+    pub(crate) fn read_u8(&mut self, what: &str) -> Result<u8, DumpError> {
         Ok(self.read_exact(1, what)?[0])
     }
 
@@ -1427,12 +1427,12 @@ impl<'a> Cursor<'a> {
         Ok(u16::from_ne_bytes([bytes[0], bytes[1]]))
     }
 
-    fn read_u32(&mut self, what: &str) -> Result<u32, DumpError> {
+    pub(crate) fn read_u32(&mut self, what: &str) -> Result<u32, DumpError> {
         let bytes = self.read_exact(4, what)?;
         Ok(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
     }
 
-    fn read_u64(&mut self, what: &str) -> Result<u64, DumpError> {
+    pub(crate) fn read_u64(&mut self, what: &str) -> Result<u64, DumpError> {
         let bytes = self.read_exact(8, what)?;
         Ok(u64::from_ne_bytes([
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],

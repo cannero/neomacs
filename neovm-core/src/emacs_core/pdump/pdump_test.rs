@@ -63,6 +63,14 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !heap_objects.is_empty(),
         "file pdumps must carry dump-local heap objects in a raw mmap section"
     );
+    let obarray = image
+        .section(super::mmap_image::DumpSectionKind::Obarray)
+        .expect("obarray section");
+    let obarray = super::obarray_image::load_obarray_section(obarray).expect("obarray");
+    assert!(
+        !obarray.symbols.is_empty(),
+        "file pdumps must carry obarray symbol state in a raw mmap section"
+    );
     let runtime_state = image
         .section(super::mmap_image::DumpSectionKind::RuntimeState)
         .expect("runtime-state section");
@@ -75,6 +83,13 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         state.tagged_heap.objects.is_empty(),
         "heap object descriptors should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        state.obarray.symbols.is_empty()
+            && state.obarray.global_members.is_empty()
+            && state.obarray.function_unbound.is_empty()
+            && state.obarray.function_epoch == 0,
+        "obarray symbol state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()

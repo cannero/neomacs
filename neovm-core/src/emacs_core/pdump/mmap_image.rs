@@ -33,6 +33,7 @@ pub(crate) enum DumpSectionKind {
     RuntimeState = 7,
     SymbolTable = 8,
     HeapObjects = 9,
+    Obarray = 10,
 }
 
 impl DumpSectionKind {
@@ -47,6 +48,7 @@ impl DumpSectionKind {
             7 => Ok(Self::RuntimeState),
             8 => Ok(Self::SymbolTable),
             9 => Ok(Self::HeapObjects),
+            10 => Ok(Self::Obarray),
             other => Err(DumpError::ImageFormatError(format!(
                 "unknown section kind {other}"
             ))),
