@@ -1048,12 +1048,7 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
                 .map(|run| run.value)
                 .unwrap_or(Value::NIL),
         };
-        match runs.last_mut() {
-            Some(last) if last.value == value && start == last.end.saturating_add(1) => {
-                last.end = end;
-            }
-            _ => runs.push(EffectiveRun { start, end, value }),
-        }
+        runs.push(EffectiveRun { start, end, value });
     }
 
     if runs.is_empty() {
