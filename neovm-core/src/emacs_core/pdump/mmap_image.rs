@@ -37,6 +37,7 @@ pub(crate) enum DumpSectionKind {
     Autoloads = 11,
     CharsetRegistry = 12,
     CodingSystems = 13,
+    FaceTable = 14,
 }
 
 impl DumpSectionKind {
@@ -55,6 +56,7 @@ impl DumpSectionKind {
             11 => Ok(Self::Autoloads),
             12 => Ok(Self::CharsetRegistry),
             13 => Ok(Self::CodingSystems),
+            14 => Ok(Self::FaceTable),
             other => Err(DumpError::ImageFormatError(format!(
                 "unknown section kind {other}"
             ))),

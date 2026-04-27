@@ -90,6 +90,14 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !coding_system_payload.is_empty(),
         "file pdumps must carry coding system state in a raw mmap section"
     );
+    let face_payload = image
+        .section(super::mmap_image::DumpSectionKind::FaceTable)
+        .expect("face-table section");
+    let _faces = super::face_image::load_face_table_section(face_payload).expect("face table");
+    assert!(
+        !face_payload.is_empty(),
+        "file pdumps must carry Lisp face state in a raw mmap section"
+    );
     let roots_payload = image
         .section(super::mmap_image::DumpSectionKind::Roots)
         .expect("roots section");
@@ -149,6 +157,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         super::coding_system_image::coding_system_manager_is_empty(&state.coding_systems),
         "coding system state should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        super::face_image::face_table_is_empty(&state.face_table),
+        "Lisp face state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()
