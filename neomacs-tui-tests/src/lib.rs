@@ -98,10 +98,14 @@ impl TuiSession {
 
     /// Spawn GNU Emacs in TUI mode.
     pub fn gnu_emacs(extra_args: &str) -> Self {
+        // Keep the GNU oracle focused on TUI behavior.  On NixOS the async
+        // native compiler can fail after startup and pop *Warnings*, which
+        // pollutes the rendered screen unrelated to the command under test.
+        let quiet_native_comp = "--eval=(progn(set'native-comp-jit-compilation())(set'native-comp-async-report-warnings-errors'silent)(push'(native-compiler)warning-suppress-types)(mapc'kill-process(process-list)))";
         let cmd = if extra_args.is_empty() {
-            "emacs -nw -Q".to_string()
+            format!("emacs -nw -Q -no-comp-spawn {quiet_native_comp}")
         } else {
-            format!("emacs -nw -Q {extra_args}")
+            format!("emacs -nw -Q -no-comp-spawn {quiet_native_comp} {extra_args}")
         };
         Self::spawn(&cmd, "GNU")
     }
