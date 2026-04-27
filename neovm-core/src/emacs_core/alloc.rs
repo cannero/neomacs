@@ -9,7 +9,7 @@ use crate::emacs_core::value::{Value, list_to_vec, next_float_id};
 
 /// Register bootstrap variables owned by the allocation / GC subsystem.
 pub fn register_bootstrap_vars(obarray: &mut Obarray) {
-    obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(800_000));
+    obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(8_000_000));
     obarray.set_symbol_value("gc-cons-percentage", Value::make_float(0.1));
     obarray.set_symbol_value("garbage-collection-messages", Value::NIL);
     obarray.set_symbol_value("post-gc-hook", Value::NIL);

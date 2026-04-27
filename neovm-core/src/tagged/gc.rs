@@ -624,7 +624,7 @@ impl TaggedHeap {
             all_objects: std::ptr::null_mut(),
             non_cons_object_addrs: FxHashSet::default(),
             allocated_count: 0,
-            gc_threshold: 100_000 * size_of::<usize>(),
+            gc_threshold: 1_000_000 * size_of::<usize>(),
             gc_threshold_overridden: false,
             bytes_since_gc: 0,
             live_bytes: 0,

@@ -58,7 +58,7 @@ const STACK_GROWTH_PROBE_INTERVAL: usize = 16;
 const NAMED_CALL_CACHE_CAPACITY: usize = 4096;
 const LEXENV_ASSQ_CACHE_CAPACITY: usize = 16;
 const LEXENV_SPECIAL_CACHE_CAPACITY: usize = 16;
-const GC_DEFAULT_THRESHOLD_BYTES: usize = 100_000 * std::mem::size_of::<usize>();
+const GC_DEFAULT_THRESHOLD_BYTES: usize = 1_000_000 * std::mem::size_of::<usize>();
 const GC_THRESHOLD_FLOOR_BYTES: usize = GC_DEFAULT_THRESHOLD_BYTES / 10;
 const GC_HI_THRESHOLD_BYTES: usize = (i64::MAX as usize) / 2;
 const GC_PERCENT_SCALE: u64 = 1_000_000;
@@ -3005,7 +3005,7 @@ impl Context {
         obarray.set_symbol_value("double-click-fuzz", Value::fixnum(3));
         obarray.set_symbol_value("double-click-time", Value::fixnum(500));
         obarray.set_symbol_value("echo-keystrokes", Value::fixnum(1));
-        obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(800000));
+        obarray.set_symbol_value("gc-cons-threshold", Value::fixnum(8_000_000));
         obarray.set_symbol_value("help-char", Value::fixnum(8));
         obarray.set_symbol_value("hourglass-delay", Value::fixnum(1));
         obarray.set_symbol_value("hscroll-margin", Value::fixnum(5));
