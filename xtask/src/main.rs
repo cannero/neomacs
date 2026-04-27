@@ -690,9 +690,19 @@ fn run_compile_main(
 
     print_synthetic_step("compile Lisp bytecode (GNU compile-main)");
     println!("  INFO  byte-compiling {} .el files", sources.len());
+    let mut errors = Vec::new();
     for source in &sources {
         let args = compile_main_args_for_source(options.native_comp, source);
-        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
+        if let Err(e) = run_command(options, &options.repo_root, &paths.bootstrap, &args, envs) {
+            eprintln!("  WARN  byte-compile failed: {} ({})", source.display(), e);
+            errors.push(source.display().to_string());
+        }
+    }
+    if !errors.is_empty() {
+        eprintln!("  WARN  {} files failed to byte-compile:", errors.len());
+        for e in &errors {
+            eprintln!("    - {}", e);
+        }
     }
 
     Ok(())
