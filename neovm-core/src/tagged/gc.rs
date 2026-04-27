@@ -790,12 +790,8 @@ impl TaggedHeap {
         }
         debug_assert_eq!(header as usize % std::mem::align_of::<VecLikeHeader>(), 0);
         let index = self.mapped_veclike_objects.len();
-        debug_assert!(
-            self.mapped_veclike_index_by_addr
-                .insert(header as usize, index)
-                .is_none(),
-            "mapped vectorlike object registered twice"
-        );
+        let prev = self.mapped_veclike_index_by_addr.insert(header as usize, index);
+        debug_assert!(prev.is_none(), "mapped vectorlike object registered twice");
         self.mapped_veclike_objects
             .push(MappedVecLikeObject::new(header, byte_len));
         self.allocated_count = self.allocated_count.saturating_add(1);
@@ -817,12 +813,8 @@ impl TaggedHeap {
         }
         debug_assert_eq!(ptr as usize % std::mem::align_of::<StringObj>(), 0);
         let index = self.mapped_string_objects.len();
-        debug_assert!(
-            self.mapped_string_index_by_addr
-                .insert(ptr as usize, index)
-                .is_none(),
-            "mapped string object registered twice"
-        );
+        let prev = self.mapped_string_index_by_addr.insert(ptr as usize, index);
+        debug_assert!(prev.is_none(), "mapped string object registered twice");
         self.mapped_string_objects
             .push(MappedStringObject::new(ptr, byte_len));
         self.allocated_count = self.allocated_count.saturating_add(1);
@@ -1341,10 +1333,8 @@ impl TaggedHeap {
     fn link_object(&mut self, header: &mut GcHeader) {
         header.next = self.all_objects;
         let ptr = header as *mut GcHeader;
-        debug_assert!(
-            self.non_cons_object_addrs.insert(ptr as usize),
-            "non-cons object linked twice"
-        );
+        let inserted = self.non_cons_object_addrs.insert(ptr as usize);
+        debug_assert!(inserted, "non-cons object linked twice");
         self.all_objects = ptr;
     }
 
@@ -1353,10 +1343,8 @@ impl TaggedHeap {
         unsafe {
             (*header).gc.next = self.all_objects;
             let gc_header = &mut (*header).gc as *mut GcHeader;
-            debug_assert!(
-                self.non_cons_object_addrs.insert(gc_header as usize),
-                "veclike object linked twice"
-            );
+            let inserted = self.non_cons_object_addrs.insert(gc_header as usize);
+            debug_assert!(inserted, "veclike object linked twice");
             self.all_objects = gc_header;
         }
     }
