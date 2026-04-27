@@ -15,6 +15,7 @@
 //! ```
 
 pub(crate) mod autoloads_image;
+pub(crate) mod charset_image;
 pub mod convert;
 pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
@@ -98,7 +99,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   fixed-layout Roots mmap section.
 // v41: Autoload manager state moves out of RuntimeState bincode and into a
 //   fixed-layout Autoloads mmap section.
-const FORMAT_VERSION: u32 = 41;
+// v42: Charset registry state moves out of RuntimeState bincode and into the
+//   fixed-layout CharsetRegistry mmap section.
+const FORMAT_VERSION: u32 = 42;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -203,6 +206,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let heap_objects_payload =
         heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
     let obarray_payload = obarray_image::obarray_section_bytes(&state.obarray)?;
+    let charset_payload = charset_image::charset_section_bytes(&state.charset_registry)?;
     let autoloads_payload = autoloads_image::autoloads_section_bytes(&state.autoloads)?;
     let roots_payload = roots_image::roots_section_bytes(&roots_image::DumpRootState {
         dynamic: state.dynamic.clone(),
@@ -223,6 +227,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     state.obarray.global_members.clear();
     state.obarray.function_unbound.clear();
     state.obarray.function_epoch = 0;
+    state.charset_registry = charset_image::empty_charset_registry();
     state.dynamic.clear();
     state.lexenv = types::DumpValue::Nil;
     state.features.clear();
@@ -237,7 +242,7 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         bincode::serialize(&state).map_err(|e| DumpError::SerializationError(e.to_string()))?;
 
     let mut sections = Vec::with_capacity(
-        6 + usize::from(!heap_payload.bytes.is_empty())
+        7 + usize::from(!heap_payload.bytes.is_empty())
             + usize::from(!relocation_payload.is_empty()),
     );
     sections.push(ImageSection {
@@ -254,6 +259,11 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         kind: DumpSectionKind::Obarray,
         flags: 0,
         bytes: &obarray_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::CharsetRegistry,
+        flags: 0,
+        bytes: &charset_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::Roots,
@@ -317,6 +327,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::Obarray)
         .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
     state.obarray = obarray_image::load_obarray_section(obarray_payload)?;
+    let charset_payload = image
+        .section(DumpSectionKind::CharsetRegistry)
+        .ok_or_else(|| DumpError::ImageFormatError("missing charset-registry section".into()))?;
+    state.charset_registry = charset_image::load_charset_section(charset_payload)?;
     let roots_payload = image
         .section(DumpSectionKind::Roots)
         .ok_or_else(|| DumpError::ImageFormatError("missing roots section".into()))?;

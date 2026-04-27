@@ -71,6 +71,15 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !obarray.symbols.is_empty(),
         "file pdumps must carry obarray symbol state in a raw mmap section"
     );
+    let charset_payload = image
+        .section(super::mmap_image::DumpSectionKind::CharsetRegistry)
+        .expect("charset-registry section");
+    let _charset =
+        super::charset_image::load_charset_section(charset_payload).expect("charset registry");
+    assert!(
+        !charset_payload.is_empty(),
+        "file pdumps must carry charset registry state in a raw mmap section"
+    );
     let roots_payload = image
         .section(super::mmap_image::DumpSectionKind::Roots)
         .expect("roots section");
@@ -122,6 +131,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         super::autoloads_image::autoloads_is_empty(&state.autoloads),
         "autoload manager state should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        super::charset_image::charset_registry_is_empty(&state.charset_registry),
+        "charset registry state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()
