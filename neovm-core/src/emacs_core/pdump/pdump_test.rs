@@ -80,6 +80,16 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
         !charset_payload.is_empty(),
         "file pdumps must carry charset registry state in a raw mmap section"
     );
+    let coding_system_payload = image
+        .section(super::mmap_image::DumpSectionKind::CodingSystems)
+        .expect("coding-systems section");
+    let _coding_systems =
+        super::coding_system_image::load_coding_system_section(coding_system_payload)
+            .expect("coding systems");
+    assert!(
+        !coding_system_payload.is_empty(),
+        "file pdumps must carry coding system state in a raw mmap section"
+    );
     let roots_payload = image
         .section(super::mmap_image::DumpSectionKind::Roots)
         .expect("roots section");
@@ -135,6 +145,10 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
     assert!(
         super::charset_image::charset_registry_is_empty(&state.charset_registry),
         "charset registry state should no longer be serialized in RuntimeState"
+    );
+    assert!(
+        super::coding_system_image::coding_system_manager_is_empty(&state.coding_systems),
+        "coding system state should no longer be serialized in RuntimeState"
     );
     assert!(
         state.tagged_heap.mapped_cons.is_empty()
