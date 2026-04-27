@@ -319,6 +319,44 @@ fn map_char_table_coalesces_ranges_after_single_override() {
 }
 
 #[test]
+fn map_char_table_latest_nil_entry_falls_back_to_parent_run() {
+    crate::test_utils::init_test_tracing();
+    let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_range(vec![
+        parent,
+        Value::cons(Value::fixnum('A' as i64), Value::fixnum('Z' as i64)),
+        Value::symbol("parent"),
+    ])
+    .unwrap();
+
+    let child = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_parent(vec![child, parent]).unwrap();
+    builtin_set_char_table_range(vec![
+        child,
+        Value::cons(Value::fixnum('A' as i64), Value::fixnum('Z' as i64)),
+        Value::symbol("child"),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![child, Value::fixnum('M' as i64), Value::NIL]).unwrap();
+
+    let entries = ct_resolved_entries(&child);
+    assert_eq!(
+        entries,
+        vec![
+            (
+                Value::cons(Value::fixnum('A' as i64), Value::fixnum('L' as i64)),
+                Value::symbol("child"),
+            ),
+            (Value::fixnum('M' as i64), Value::symbol("parent")),
+            (
+                Value::cons(Value::fixnum('N' as i64), Value::fixnum('Z' as i64)),
+                Value::symbol("child"),
+            ),
+        ]
+    );
+}
+
+#[test]
 fn map_char_table_shared_range_survives_callback_gc() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();

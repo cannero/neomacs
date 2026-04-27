@@ -20,6 +20,7 @@ use super::error::{EvalResult, Flow, signal};
 use super::eval::{Context, push_scratch_gc_root, restore_scratch_gc_roots, save_scratch_gc_roots};
 use super::intern::resolve_sym;
 use super::value::*;
+use std::collections::{BTreeMap, BTreeSet};
 
 // ---------------------------------------------------------------------------
 // Tag constants
@@ -883,42 +884,6 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
     raws
 }
 
-fn ct_local_value_at(raws: &[RawEntry], ch: i64) -> Option<Value> {
-    let mut value = None;
-    for raw in raws {
-        if ch >= raw.start && ch <= raw.end {
-            value = Some(raw.value);
-        }
-    }
-    value
-}
-
-fn ct_effective_value_at(
-    raws: &[RawEntry],
-    default: Value,
-    parent_runs: &[EffectiveRun],
-    ch: i64,
-) -> Value {
-    if let Some(local) = ct_local_value_at(raws, ch) {
-        if !local.is_nil() {
-            return local;
-        }
-    }
-    if !default.is_nil() {
-        return default;
-    }
-    effective_runs_value_at(parent_runs, ch).unwrap_or(Value::NIL)
-}
-
-fn effective_runs_value_at(entries: &[EffectiveRun], ch: i64) -> Option<Value> {
-    for run in entries {
-        if ch >= run.start && ch <= run.end {
-            return Some(run.value);
-        }
-    }
-    None
-}
-
 fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
     if !table.is_vector() {
         return vec![EffectiveRun {
@@ -931,6 +896,7 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
     let raws = ct_collect_raw_entries(&vec);
     let default = vec[CT_DEFAULT];
     let parent = vec[CT_PARENT];
+    let domain_end = MAX_CHAR.saturating_add(1);
     let parent_runs = if is_char_table(&parent) {
         ct_effective_runs(&parent)
     } else {
@@ -941,29 +907,58 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
         }]
     };
 
-    let mut boundaries = std::collections::BTreeSet::new();
+    let mut boundaries = BTreeSet::new();
+    let mut starts: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
+    let mut ends: BTreeMap<i64, Vec<usize>> = BTreeMap::new();
     boundaries.insert(0);
-    boundaries.insert(MAX_CHAR.saturating_add(1));
-    for raw in &raws {
+    boundaries.insert(domain_end);
+    for (idx, raw) in raws.iter().enumerate() {
+        let end_exclusive = raw.end.saturating_add(1).min(domain_end);
         boundaries.insert(raw.start);
-        boundaries.insert(raw.end.saturating_add(1).min(MAX_CHAR.saturating_add(1)));
+        boundaries.insert(end_exclusive);
+        starts.entry(raw.start).or_default().push(idx);
+        ends.entry(end_exclusive).or_default().push(idx);
     }
     for run in &parent_runs {
         boundaries.insert(run.start);
-        boundaries.insert(run.end.saturating_add(1).min(MAX_CHAR.saturating_add(1)));
+        boundaries.insert(run.end.saturating_add(1).min(domain_end));
     }
 
     let boundary_vec = boundaries.into_iter().collect::<Vec<_>>();
     let mut runs: Vec<EffectiveRun> = Vec::new();
+    let mut active_raws = BTreeSet::new();
+    let mut parent_idx = 0usize;
 
     for window in boundary_vec.windows(2) {
         let start = window[0];
         let end_exclusive = window[1];
+        if let Some(indices) = ends.get(&start) {
+            for idx in indices {
+                active_raws.remove(idx);
+            }
+        }
+        if let Some(indices) = starts.get(&start) {
+            for idx in indices {
+                active_raws.insert(*idx);
+            }
+        }
         if start > MAX_CHAR || end_exclusive <= start {
             continue;
         }
         let end = end_exclusive.saturating_sub(1).min(MAX_CHAR);
-        let value = ct_effective_value_at(&raws, default, &parent_runs, start);
+        while parent_idx + 1 < parent_runs.len() && start > parent_runs[parent_idx].end {
+            parent_idx += 1;
+        }
+        let local = active_raws.iter().next_back().map(|idx| raws[*idx].value);
+        let value = match local {
+            Some(local) if !local.is_nil() => local,
+            _ if !default.is_nil() => default,
+            _ => parent_runs
+                .get(parent_idx)
+                .filter(|run| start >= run.start && start <= run.end)
+                .map(|run| run.value)
+                .unwrap_or(Value::NIL),
+        };
         match runs.last_mut() {
             Some(last) if last.value == value && start == last.end.saturating_add(1) => {
                 last.end = end;
