@@ -184,6 +184,47 @@ fn modify_category_entry_honors_optional_table_argument() {
 }
 
 #[test]
+fn modify_category_entry_range_preserves_existing_subranges() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = fresh_eval();
+    let table = builtin_make_category_table(vec![]).unwrap();
+    for (category, doc) in [('!', "bang"), ('#', "hash"), ('?', "question")] {
+        builtin_define_category(
+            &mut eval,
+            vec![Value::char(category), Value::string(doc), table],
+        )
+        .unwrap();
+    }
+
+    builtin_modify_category_entry(&mut eval, vec![Value::char('A'), Value::char('!'), table])
+        .unwrap();
+    builtin_modify_category_entry(&mut eval, vec![Value::char('B'), Value::char('?'), table])
+        .unwrap();
+    builtin_modify_category_entry(
+        &mut eval,
+        vec![
+            Value::cons(Value::fixnum('A' as i64), Value::fixnum('B' as i64)),
+            Value::char('#'),
+            table,
+        ],
+    )
+    .unwrap();
+
+    let a_set =
+        super::super::chartable::builtin_char_table_range(vec![table, Value::char('A')]).unwrap();
+    let b_set =
+        super::super::chartable::builtin_char_table_range(vec![table, Value::char('B')]).unwrap();
+    assert_eq!(
+        builtin_category_set_mnemonics(vec![a_set]).unwrap(),
+        Value::string("!#")
+    );
+    assert_eq!(
+        builtin_category_set_mnemonics(vec![b_set]).unwrap(),
+        Value::string("#?")
+    );
+}
+
+#[test]
 fn define_category_preserves_raw_unibyte_docstring() {
     crate::test_utils::init_test_tracing();
     let mut eval = fresh_eval();

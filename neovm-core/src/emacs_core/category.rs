@@ -519,7 +519,8 @@ pub(crate) fn builtin_modify_category_entry(
 
     let mut cursor = start;
     while cursor <= end {
-        let (existing, _from, to) = super::chartable::char_table_ref_and_range(&table, cursor)?;
+        let (existing, _from, to) =
+            super::chartable::char_table_ref_and_atomic_range(&table, cursor)?;
         let has_category = category_set_contains(&existing, category)?;
         if has_category == reset {
             let updated = clone_vector_value(&existing)?;

@@ -701,10 +701,99 @@ fn ct_lookup_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow
     Ok((Value::NIL, 0, MAX_CHAR))
 }
 
+fn key_span(key: Value) -> Option<(i64, i64)> {
+    match key.kind() {
+        ValueKind::Fixnum(ch) => Some((ch, ch)),
+        ValueKind::Cons => {
+            let start = key.cons_car().as_fixnum()?;
+            let end = key.cons_cdr().as_fixnum()?;
+            Some((start, end))
+        }
+        _ => None,
+    }
+}
+
+fn refine_atomic_boundary(start: i64, end: i64, ch: i64, lo: &mut i64, hi: &mut i64) {
+    let domain_end = MAX_CHAR.saturating_add(1);
+    let start = start.clamp(0, domain_end);
+    let end_exclusive = end.saturating_add(1).clamp(0, domain_end);
+    for boundary in [start, end_exclusive] {
+        if boundary <= ch {
+            *lo = (*lo).max(boundary);
+        } else {
+            *hi = (*hi).min(boundary);
+        }
+    }
+}
+
+fn ct_lookup_atomic_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow> {
+    if !is_char_table(table) {
+        return Err(wrong_type("char-table-p", table));
+    }
+    if !(0..=MAX_CHAR).contains(&ch) {
+        return Ok((Value::NIL, 0, MAX_CHAR));
+    }
+
+    let vec = table.as_vector_data().unwrap();
+    let start = ct_data_start(vec);
+    let mut lo = 0;
+    let mut hi = MAX_CHAR.saturating_add(1);
+    let mut found_local = false;
+    let mut local_value = Value::NIL;
+
+    let mut i = vec.len();
+    while i >= start + 2 {
+        i -= 2;
+        if let Some((entry_start, entry_end)) = key_span(vec[i]) {
+            refine_atomic_boundary(entry_start, entry_end, ch, &mut lo, &mut hi);
+            if !found_local && ch >= entry_start && ch <= entry_end {
+                found_local = true;
+                local_value = vec[i + 1];
+            }
+        }
+    }
+
+    let atomic_end = hi.saturating_sub(1).min(MAX_CHAR);
+    if found_local && !local_value.is_nil() {
+        return Ok((local_value, lo, atomic_end));
+    }
+
+    let default = vec[CT_DEFAULT];
+    if !default.is_nil() {
+        return Ok((default, lo, atomic_end));
+    }
+
+    let parent = vec[CT_PARENT];
+    if is_char_table(&parent) {
+        let (parent_value, parent_start, parent_end) = ct_lookup_atomic_range(&parent, ch)?;
+        return Ok((
+            parent_value,
+            lo.max(parent_start),
+            atomic_end.min(parent_end),
+        ));
+    }
+
+    Ok((Value::NIL, lo, atomic_end))
+}
+
 /// GNU `char-table-ref-and-range`-style helper used by subsystems that need
 /// the effective value together with the maximal contiguous run covering `ch`.
 pub(crate) fn char_table_ref_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow> {
     ct_lookup_and_range(table, ch)
+}
+
+/// Return the effective value and a contiguous range around `ch` where no local
+/// char-table assignment boundary occurs.
+///
+/// This range may be smaller than GNU's maximal `char-table-ref-and-range`
+/// result, but every character in it has the same effective value.  It is for
+/// bulk mutators that only need a correct split point and would otherwise pay to
+/// rebuild the full effective run list for each cursor step.
+pub(crate) fn char_table_ref_and_atomic_range(
+    table: &Value,
+    ch: i64,
+) -> Result<(Value, i64, i64), Flow> {
+    ct_lookup_atomic_range(table, ch)
 }
 
 /// `(char-table-parent CHAR-TABLE)` -- return the parent table (or nil).
