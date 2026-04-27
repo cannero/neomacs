@@ -271,6 +271,11 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
 
     run_compile_main(options, &paths, &envs)?;
 
+    // Remove compile-main .elc files before the final pdump so loadup.el
+    // loads raw .el files.  Compile-main .elc files contain ByteCode objects
+    // that may call cl-generic methods not yet defined during early loadup.
+    remove_compile_main_elc(options, &paths)?;
+
     run_command(
         options,
         &options.repo_root,
@@ -433,6 +438,51 @@ fn remove_lisp_bytecode_without_source(
         }
     }
     println!("  INFO  removed {removed} stale compile-main .elc files");
+    Ok(())
+}
+
+/// Remove compile-main .elc files before the final pdump phase.
+///
+/// The final neomacs pdump runs loadup.el, which must load raw .el files.
+/// Compile-main .elc files contain ByteCode objects that may call cl-generic
+/// methods (e.g. `function-documentation`) not yet defined during early loadup.
+fn remove_compile_main_elc(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    let compile_first: Vec<String> =
+        parse_compile_first_sources(&paths.makefile_in, &paths.lisp_root, options.native_comp)?
+            .into_iter()
+            .map(|p| {
+                p.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .replace(".el", ".elc")
+            })
+            .collect();
+
+    fn remove_elc_recursive(dir: &Path, keep: &[String], removed: &mut usize, kept: &mut usize, dry_run: bool) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    remove_elc_recursive(&path, keep, removed, kept, dry_run);
+                } else if path.extension().is_some_and(|ext| ext == "elc") {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    if keep.iter().any(|k| k == &name) {
+                        *kept += 1;
+                    } else {
+                        if !dry_run {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                        *removed += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    let mut removed = 0usize;
+    let mut kept = 0usize;
+    remove_elc_recursive(&paths.lisp_root, &compile_first, &mut removed, &mut kept, options.dry_run);
+    println!("  INFO  removed {removed} compile-main .elc files, kept {kept} COMPILE_FIRST .elc files");
     Ok(())
 }
 
