@@ -60,7 +60,7 @@ jobs:
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.93.1"
+          toolchain-file: rust-toolchain.toml
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
