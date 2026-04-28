@@ -269,12 +269,12 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         write_ldefs_boot(&loaddefs_el, &ldefs_boot)?;
     }
 
-    run_compile_main(options, &paths, &envs)?;
+    // run_compile_main(options, &paths, &envs)?;
 
-    // Remove compile-main .elc files before the final pdump so loadup.el
-    // loads raw .el files.  Compile-main .elc files contain ByteCode objects
-    // that may call cl-generic methods not yet defined during early loadup.
-    remove_compile_main_elc(options, &paths)?;
+    // // Remove compile-main .elc files before the final pdump so loadup.el
+    // // loads raw .el files.  Compile-main .elc files contain ByteCode objects
+    // // that may call cl-generic methods not yet defined during early loadup.
+    // remove_compile_main_elc(options, &paths)?;
 
     run_command(
         options,
