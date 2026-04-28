@@ -451,7 +451,9 @@ pub(crate) fn storage_logical_byte_to_storage_byte(s: &str, logical_byte_pos: us
 
 fn push_octal_escape(out: &mut Vec<u8>, byte: u8) {
     out.push(b'\\');
-    out.extend_from_slice(format!("{:03o}", byte).as_bytes());
+    out.push(b'0' + ((byte >> 6) & 7));
+    out.push(b'0' + ((byte >> 3) & 7));
+    out.push(b'0' + (byte & 7));
 }
 
 fn push_escaped_literal_byte(out: &mut Vec<u8>, byte: u8) {
