@@ -790,7 +790,9 @@ impl TaggedHeap {
         }
         debug_assert_eq!(header as usize % std::mem::align_of::<VecLikeHeader>(), 0);
         let index = self.mapped_veclike_objects.len();
-        let prev = self.mapped_veclike_index_by_addr.insert(header as usize, index);
+        let prev = self
+            .mapped_veclike_index_by_addr
+            .insert(header as usize, index);
         debug_assert!(prev.is_none(), "mapped vectorlike object registered twice");
         self.mapped_veclike_objects
             .push(MappedVecLikeObject::new(header, byte_len));
@@ -1469,7 +1471,9 @@ impl TaggedHeap {
             self.live_bytes,
             if bytes_before > 0 {
                 (self.live_bytes as f64 - bytes_before as f64) / bytes_before as f64 * 100.0
-            } else { 0.0 },
+            } else {
+                0.0
+            },
             self.cons_live_count,
             self.gc_threshold,
         );

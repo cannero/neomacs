@@ -177,25 +177,16 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
         }
         DumpHeapObject::Overlay(overlay) => {
             object_value_codec::write_u8(out, EXTRA_OVERLAY);
-            object_value_codec::write_heap_object(
-                out,
-                &DumpHeapObject::Overlay(overlay.clone()),
-            )?;
+            object_value_codec::write_heap_object(out, &DumpHeapObject::Overlay(overlay.clone()))?;
         }
         DumpHeapObject::Marker(marker) => {
             object_value_codec::write_u8(out, EXTRA_MARKER);
-            object_value_codec::write_heap_object(
-                out,
-                &DumpHeapObject::Marker(marker.clone()),
-            )?;
+            object_value_codec::write_heap_object(out, &DumpHeapObject::Marker(marker.clone()))?;
         }
         // Category C: full descriptor (no HeapImage bytes).
         DumpHeapObject::HashTable(table) => {
             object_value_codec::write_u8(out, EXTRA_HASH_TABLE);
-            object_value_codec::write_heap_object(
-                out,
-                &DumpHeapObject::HashTable(table.clone()),
-            )?;
+            object_value_codec::write_heap_object(out, &DumpHeapObject::HashTable(table.clone()))?;
         }
         DumpHeapObject::ByteCode(function) => {
             object_value_codec::write_u8(out, EXTRA_BYTE_CODE);

@@ -1371,7 +1371,12 @@ fn streaming_readevalloop(
 
         if tracing::enabled!(tracing::Level::DEBUG) {
             let preview: String = content[form_start..next_pos].chars().take(160).collect();
-            tracing::debug!("{} FORM[{}/streaming]: {}", file_name, form_idx, preview.replace('\n', " "));
+            tracing::debug!(
+                "{} FORM[{}/streaming]: {}",
+                file_name,
+                form_idx,
+                preview.replace('\n', " ")
+            );
         }
 
         // Root the form value so it survives any GC triggered during
@@ -1478,7 +1483,12 @@ fn streaming_readevalloop_lisp_source(
                 .chars()
                 .take(160)
                 .collect();
-            tracing::debug!("{} FORM[{}]: {}", file_name, form_idx, preview.replace('\n', " "));
+            tracing::debug!(
+                "{} FORM[{}]: {}",
+                file_name,
+                form_idx,
+                preview.replace('\n', " ")
+            );
         }
 
         let eval_roots = eval.save_specpdl_roots();
