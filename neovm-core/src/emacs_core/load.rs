@@ -997,7 +997,7 @@ fn lexical_binding_from_cookie(
             let roots = eval.save_specpdl_roots();
             eval.push_specpdl_root(hook);
             eval.push_specpdl_root(from);
-            let result = eval.apply(hook, vec![from]).map_err(map_flow);
+            let result = eval.apply1(hook, from).map_err(map_flow);
             eval.restore_specpdl_roots(roots);
             result.map(|value| value.is_truthy())
         }
@@ -1099,9 +1099,7 @@ pub(crate) fn eager_expand_toplevel_forms(
     // Its failures are handled here and its frames are not part of the
     // user-facing loaded form surface, so avoid paying full backtrace
     // bookkeeping on every eager expansion call.
-    let val = eval
-        .apply(macroexpand_fn, vec![form_value, Value::NIL])
-        .ok();
+    let val = eval.apply2(macroexpand_fn, form_value, Value::NIL).ok();
     eval.restore_specpdl_roots(step1_roots);
     eval.note_eager_macro_perf_step1(step1_start.elapsed());
     let val = match val {
@@ -1154,7 +1152,7 @@ pub(crate) fn eager_expand_toplevel_forms(
     eval.push_specpdl_root(original_form);
     let t3 = std::time::Instant::now();
     // Call internal-macroexpand-for-load(val, t) — full-p=t means deep expand
-    let expanded = match eval.apply(macroexpand_fn, vec![val, Value::T]) {
+    let expanded = match eval.apply2(macroexpand_fn, val, Value::T) {
         Ok(v) => v,
         Err(e) => {
             // Full expansion failed; use the one-level-expanded form.
@@ -1547,7 +1545,7 @@ fn streaming_readevalloop_eager_expand_eval(
 
     // Step 1: one-level expand (full_p = nil)
     let step1_start = std::time::Instant::now();
-    let expanded = match eval.apply(macroexpand, vec![form, Value::NIL]) {
+    let expanded = match eval.apply2(macroexpand, form, Value::NIL) {
         Ok(v) => v,
         Err(_) => {
             // Expansion failed (cycle detection, missing macro, etc.).
@@ -1597,7 +1595,7 @@ fn streaming_readevalloop_eager_expand_eval_inner(
 
     // Step 3: full expand (full_p = t), then eval
     let step3_start = std::time::Instant::now();
-    let fully_expanded = match eval.apply(macroexpand, vec![expanded, Value::T]) {
+    let fully_expanded = match eval.apply2(macroexpand, expanded, Value::T) {
         Ok(v) => v,
         Err(_) => {
             // Full expansion failed; use the one-level-expanded form.
@@ -1999,7 +1997,7 @@ fn run_after_load_evaluation(eval: &mut super::eval::Context, path_lisp: &LispSt
     if is_fboundp {
         let abs_path = Value::heap_string(path_lisp.clone());
         eval.push_specpdl_root(abs_path);
-        if let Err(e) = eval.apply(Value::symbol(dale_id), vec![abs_path]) {
+        if let Err(e) = eval.apply1(Value::symbol(dale_id), abs_path) {
             let err_msg = match &e {
                 super::error::Flow::Signal(sig) => {
                     let sym = super::intern::resolve_sym(sig.symbol);

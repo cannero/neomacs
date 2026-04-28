@@ -903,6 +903,41 @@ fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
     );
 }
 
+#[test]
+fn vm_primitive_bytecode_ops_ignore_later_function_cell_overrides() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_bootstrap_eval_str(
+            r#"(progn
+                 (require 'bytecomp)
+                 (let* ((f-list (byte-compile (lambda () (list 1 2 3))))
+                        (f-concat (byte-compile (lambda () (concat "a" "b"))))
+                        (f-nth (byte-compile (lambda () (nth 0 '(a b)))))
+                        (f-memq (byte-compile (lambda () (memq 'a '(a b)))))
+                        (orig-list (symbol-function 'list))
+                        (orig-concat (symbol-function 'concat))
+                        (orig-nth (symbol-function 'nth))
+                        (orig-memq (symbol-function 'memq)))
+                   (unwind-protect
+                       (progn
+                         (fset 'list (lambda (&rest _) 'override))
+                         (fset 'concat (lambda (&rest _) 'override))
+                         (fset 'nth (lambda (&rest _) 'override))
+                         (fset 'memq (lambda (&rest _) 'override))
+                         (funcall orig-list
+                                  (funcall f-list)
+                                  (funcall f-concat)
+                                  (funcall f-nth)
+                                  (funcall f-memq)))
+                     (fset 'list orig-list)
+                     (fset 'concat orig-concat)
+                     (fset 'nth orig-nth)
+                     (fset 'memq orig-memq))))"#
+        ),
+        "OK ((1 2 3) \"ab\" a (a b))"
+    );
+}
+
 fn execute_manual_vm<T>(
     mut func: ByteCodeFunction,
     init: impl FnOnce(&mut ByteCodeFunction, &mut crate::buffer::BufferManager) -> T,

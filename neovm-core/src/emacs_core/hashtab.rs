@@ -728,7 +728,7 @@ pub(crate) fn builtin_maphash(eval: &mut super::eval::Context, args: Vec<Value>)
     }
     let result = (|| -> EvalResult {
         for (key, val) in entries {
-            eval.apply(func, vec![key, val])?;
+            eval.apply2(func, key, val)?;
         }
         Ok(Value::NIL)
     })();
@@ -749,7 +749,7 @@ pub(crate) fn builtin_mapatoms(eval: &mut super::eval::Context, args: Vec<Value>
     }
     let result = (|| -> EvalResult {
         for sym in symbols {
-            eval.apply(func, vec![sym])?;
+            eval.apply1(func, sym)?;
         }
         Ok(Value::NIL)
     })();

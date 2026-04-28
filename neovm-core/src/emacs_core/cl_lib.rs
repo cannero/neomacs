@@ -755,7 +755,7 @@ pub(crate) fn builtin_seq_position(
     let result = (|| {
         for (idx, element) in elements.into_iter().enumerate() {
             let matches = if let Some(test) = &test_fn {
-                eval.apply(*test, vec![element, target])?.is_truthy()
+                eval.apply2(*test, element, target)?.is_truthy()
             } else {
                 seq_default_match(&element, &target)
             };
@@ -857,7 +857,7 @@ pub(crate) fn builtin_cl_find_if(eval: &mut super::eval::Context, args: Vec<Valu
     }
     let result = (|| {
         for element in elements {
-            let matched = eval.apply(pred, vec![element])?;
+            let matched = eval.apply1(pred, element)?;
             if matched.is_truthy() {
                 return Ok(element);
             }
@@ -996,7 +996,7 @@ pub(crate) fn builtin_cl_remove_if(
     let result = (|| {
         let mut out = Vec::new();
         for element in elements {
-            let matched = eval.apply(pred, vec![element])?;
+            let matched = eval.apply1(pred, element)?;
             if !matched.is_truthy() {
                 out.push(element);
             }
@@ -1024,7 +1024,7 @@ pub(crate) fn builtin_cl_remove_if_not(
     let result = (|| {
         let mut out = Vec::new();
         for element in elements {
-            let matched = eval.apply(pred, vec![element])?;
+            let matched = eval.apply1(pred, element)?;
             if matched.is_truthy() {
                 out.push(element);
             }
@@ -1115,7 +1115,7 @@ pub(crate) fn builtin_seq_contains_p(
     let result = (|| {
         for element in elements {
             let matches = if let Some(test) = &test_fn {
-                eval.apply(*test, vec![element, target])?.is_truthy()
+                eval.apply2(*test, element, target)?.is_truthy()
             } else {
                 seq_default_match(&element, &target)
             };
@@ -1171,7 +1171,7 @@ pub(crate) fn builtin_seq_do(eval: &mut super::eval::Context, args: Vec<Value>) 
     }
     let result = (|| {
         for e in elems {
-            eval.apply(func, vec![e])?;
+            eval.apply1(func, e)?;
         }
         Ok(Value::NIL)
     })();
@@ -1192,7 +1192,7 @@ pub(crate) fn builtin_seq_count(eval: &mut super::eval::Context, args: Vec<Value
     let result = (|| {
         let mut count = 0i64;
         for e in elems {
-            let r = eval.apply(pred, vec![e])?;
+            let r = eval.apply1(pred, e)?;
             if r.is_truthy() {
                 count += 1;
             }
@@ -1217,7 +1217,7 @@ pub(crate) fn builtin_seq_reduce(eval: &mut super::eval::Context, args: Vec<Valu
     }
     let result = (|| {
         for e in elems {
-            acc = eval.apply(func, vec![acc, e])?;
+            acc = eval.apply2(func, acc, e)?;
             eval.push_specpdl_root(acc);
         }
         Ok(acc)
@@ -1238,7 +1238,7 @@ pub(crate) fn builtin_seq_some(eval: &mut super::eval::Context, args: Vec<Value>
     }
     let result = (|| {
         for e in elems {
-            let r = eval.apply(pred, vec![e])?;
+            let r = eval.apply1(pred, e)?;
             if r.is_truthy() {
                 return Ok(r);
             }
@@ -1261,7 +1261,7 @@ pub(crate) fn builtin_seq_every_p(eval: &mut super::eval::Context, args: Vec<Val
     }
     let result = (|| {
         for e in elems {
-            let r = eval.apply(pred, vec![e])?;
+            let r = eval.apply1(pred, e)?;
             if r.is_nil() {
                 return Ok(Value::NIL);
             }
@@ -1288,7 +1288,7 @@ pub(crate) fn builtin_seq_sort(eval: &mut super::eval::Context, args: Vec<Value>
         for i in 1..items.len() {
             let mut j = i;
             while j > 0 {
-                let r = eval.apply(pred, vec![items[j], items[j - 1]])?;
+                let r = eval.apply2(pred, items[j], items[j - 1])?;
                 if r.is_truthy() {
                     items.swap(j, j - 1);
                     j -= 1;

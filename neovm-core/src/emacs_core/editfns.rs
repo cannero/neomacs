@@ -866,6 +866,14 @@ pub(crate) fn builtin_following_char(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("following-char", &args, 0)?;
+    following_char_value(ctx)
+}
+
+pub(crate) fn builtin_following_char_0(ctx: &mut crate::emacs_core::eval::Context) -> EvalResult {
+    following_char_value(ctx)
+}
+
+fn following_char_value(ctx: &crate::emacs_core::eval::Context) -> EvalResult {
     match ctx.buffers.current_buffer() {
         Some(buf) => match (buf.pt_byte < buf.zv_byte)
             .then(|| buf.char_code_after(buf.pt_byte))

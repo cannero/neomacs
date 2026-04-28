@@ -4627,6 +4627,17 @@ fn comparisons() {
     assert_eq!(eval_one("(<= 3 3)"), "OK t");
     assert_eq!(eval_one("(>= 5 3)"), "OK t");
     assert_eq!(eval_one("(/= 1 2)"), "OK t");
+    assert_eq!(
+        eval_one("(list (= 3) (< 3) (> 3) (<= 3) (>= 3))"),
+        "OK (t t t t t)"
+    );
+    assert_eq!(
+        eval_one(
+            "(list (condition-case err (/= 1) (error (car err)))
+                   (condition-case err (/= 1 2 3) (error (car err))))"
+        ),
+        "OK (wrong-number-of-arguments wrong-number-of-arguments)"
+    );
 }
 
 #[test]
@@ -5403,6 +5414,17 @@ fn setq_alias_triggers_single_watcher_callback_on_resolved_target() {
 }
 
 #[test]
+fn setq_keyword_self_assignment_matches_gnu() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(condition-case err
+             (setq :vm-setq-keyword :vm-setq-keyword)
+           (error err))",
+    );
+    assert_eq!(results[0], "OK :vm-setq-keyword");
+}
+
+#[test]
 fn buffer_local_value_follows_alias_and_keyword_semantics() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
@@ -5600,6 +5622,45 @@ fn special_form_type_payloads_match_oracle_edges() {
 fn mapcar_works() {
     crate::test_utils::init_test_tracing();
     assert_eq!(eval_one("(mapcar #'1+ '(1 2 3))"), "OK (2 3 4)");
+}
+
+#[test]
+fn mapcar_list_mutation_matches_gnu_prefix_result() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(let ((x (list 1 2 3)))
+               (mapcar (lambda (a)
+                         (if (= a 1) (setcdr x nil))
+                         a)
+                       x))"
+        ),
+        "OK (1)"
+    );
+    assert_eq!(
+        eval_one(
+            "(let ((x (list 1 2 3)))
+               (mapcar (lambda (a)
+                         (if (= a 1) (setcdr x 9))
+                         a)
+                       x))"
+        ),
+        "OK (1)"
+    );
+}
+
+#[test]
+fn mapcar_dotted_list_validates_before_callback_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(let ((called nil))
+               (condition-case err
+                   (mapcar (lambda (x) (setq called t) x) '(1 . 2))
+                 (error (list (car err) (nth 1 err) (nth 2 err) called))))"
+        ),
+        "OK (wrong-type-argument listp 2 nil)"
+    );
 }
 
 #[test]

@@ -275,7 +275,11 @@ fn autoload_type_of(value: &Value) -> Option<super::autoload::AutoloadType> {
 
 pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("functionp", &args, 1)?;
-    let is_function = if let Some(symbol) = match args[0].kind() {
+    builtin_functionp_1(eval, args[0])
+}
+
+pub(crate) fn builtin_functionp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let is_function = if let Some(symbol) = match arg.kind() {
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
         ValueKind::Symbol(id) => Some(id),
@@ -293,12 +297,12 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
             false
         }
     } else {
-        match args[0].kind() {
+        match arg.kind() {
             ValueKind::Veclike(VecLikeType::Lambda)
             | ValueKind::Subr(_)
             | ValueKind::Veclike(VecLikeType::Subr)
-            | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&args[0]),
-            ValueKind::Cons => !is_macro_marker_list(&args[0]) && is_lambda_form_list(&args[0]),
+            | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&arg),
+            ValueKind::Cons => !is_macro_marker_list(&arg) && is_lambda_form_list(&arg),
             _ => false,
         }
     };
@@ -498,14 +502,32 @@ pub(crate) fn builtin_symbol_with_pos_p(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool_val(args[0].is_symbol_with_pos()))
 }
 
+pub(crate) fn builtin_symbol_with_pos_p_1(
+    _eval: &mut super::eval::Context,
+    arg: Value,
+) -> EvalResult {
+    Ok(Value::bool_val(arg.is_symbol_with_pos()))
+}
+
 pub(crate) fn builtin_symbol_with_pos_pos(args: Vec<Value>) -> EvalResult {
     expect_args("symbol-with-pos-pos", &args, 1)?;
-    if let Some(pos) = args[0].as_symbol_with_pos_pos() {
+    builtin_symbol_with_pos_pos_1_value(args[0])
+}
+
+pub(crate) fn builtin_symbol_with_pos_pos_1(
+    _eval: &mut super::eval::Context,
+    arg: Value,
+) -> EvalResult {
+    builtin_symbol_with_pos_pos_1_value(arg)
+}
+
+fn builtin_symbol_with_pos_pos_1_value(arg: Value) -> EvalResult {
+    if let Some(pos) = arg.as_symbol_with_pos_pos() {
         Ok(Value::fixnum(pos))
     } else {
         Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbol-with-pos-p"), args[0]],
+            vec![Value::symbol("symbol-with-pos-p"), arg],
         ))
     }
 }

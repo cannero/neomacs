@@ -464,6 +464,10 @@ pub type SubrFnMany = fn(
     &mut crate::emacs_core::eval::Context,
     Vec<super::value::TaggedValue>,
 ) -> crate::emacs_core::error::EvalResult;
+pub type SubrFnManySlice = fn(
+    &mut crate::emacs_core::eval::Context,
+    &[super::value::TaggedValue],
+) -> crate::emacs_core::error::EvalResult;
 pub type SubrFn0 =
     fn(&mut crate::emacs_core::eval::Context) -> crate::emacs_core::error::EvalResult;
 pub type SubrFn1 = fn(
@@ -485,6 +489,7 @@ pub type SubrFn3 = fn(
 #[derive(Clone, Copy)]
 pub enum SubrFn {
     Many(SubrFnMany),
+    ManySlice(SubrFnManySlice),
     A0(SubrFn0),
     A1(SubrFn1),
     A2(SubrFn2),

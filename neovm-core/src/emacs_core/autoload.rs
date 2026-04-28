@@ -9,6 +9,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::error::{EvalResult, Flow, signal};
 use super::intern::{intern, resolve_sym};
@@ -21,6 +22,19 @@ use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 
 type ObsoleteInfo = (LispString, LispString);
+const UNSET_AUTOLOAD_SYMBOL_ID: u32 = u32::MAX;
+static AUTOLOAD_SYMBOL_ID: AtomicU32 = AtomicU32::new(UNSET_AUTOLOAD_SYMBOL_ID);
+
+#[inline]
+fn autoload_symbol_id() -> SymId {
+    let cached = AUTOLOAD_SYMBOL_ID.load(Ordering::Relaxed);
+    if cached != UNSET_AUTOLOAD_SYMBOL_ID {
+        return SymId(cached);
+    }
+    let id = intern("autoload");
+    AUTOLOAD_SYMBOL_ID.store(id.0, Ordering::Relaxed);
+    id
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct AfterLoadKey(LispString);
@@ -337,14 +351,11 @@ fn autoload_string_to_runtime_string(text: &LispString) -> String {
 
 /// Check whether a value is an autoload form (autoload FILE ...).
 pub(crate) fn is_autoload_value(val: &Value) -> bool {
-    if let Some(items) = list_to_vec(val) {
-        if let Some(first) = items.first() {
-            if let Some(name) = first.as_symbol_name() {
-                return name == "autoload";
-            }
-        }
-    }
-    false
+    val.is_cons()
+        && val
+            .cons_car()
+            .as_symbol_id()
+            .is_some_and(|id| id == autoload_symbol_id())
 }
 
 /// `(autoload-do-load FUNDEF &optional FUNNAME MACRO-ONLY)` — trigger autoload.
@@ -507,6 +518,29 @@ pub(crate) fn builtin_autoload_do_load(
                 // explicit user request to load a file.
                 eval.load_file_internal_with_flags(&path, false, true)?;
                 finish_autoload_do_load_in_state(&eval.obarray, funname, original_fundef.as_ref())
+            })();
+            eval.restore_specpdl_roots(roots);
+            result
+        }
+    }
+}
+
+pub(crate) fn builtin_autoload_do_load_3(
+    eval: &mut super::eval::Context,
+    fundef: Value,
+    funname: Value,
+    macro_only: Value,
+) -> EvalResult {
+    let args = [fundef, funname, macro_only];
+    match plan_autoload_do_load_in_state(&eval.obarray, &args)? {
+        AutoloadDoLoadPlan::Return(value) => Ok(value),
+        AutoloadDoLoadPlan::Load { file, funname } => {
+            let roots = eval.save_specpdl_roots();
+            eval.push_specpdl_root(fundef);
+            let result = (|| -> EvalResult {
+                let path = resolve_autoload_load_path(&eval.obarray, &file)?;
+                eval.load_file_internal_with_flags(&path, false, true)?;
+                finish_autoload_do_load_in_state(&eval.obarray, funname, Some(&fundef))
             })();
             eval.restore_specpdl_roots(roots);
             result

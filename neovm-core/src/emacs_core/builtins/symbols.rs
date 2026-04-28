@@ -246,7 +246,14 @@ pub(crate) fn builtin_special_variable_p(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("special-variable-p", &args, 1)?;
-    let symbol = expect_symbol_id(&args[0])?;
+    builtin_special_variable_p_1(eval, args[0])
+}
+
+pub(crate) fn builtin_special_variable_p_1(
+    eval: &mut super::eval::Context,
+    arg: Value,
+) -> EvalResult {
+    let symbol = expect_symbol_id(&arg)?;
     // Match GNU eval.c Fspecial_variable_p: this is a direct declared-special
     // bit test on the symbol itself, not an alias walk and not a constant
     // check.  Canonical keywords become special when materialized in the
@@ -434,7 +441,11 @@ pub(crate) fn builtin_indirect_variable(
 
 pub(crate) fn builtin_fboundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fboundp", &args, 1)?;
-    let symbol = expect_symbol_id(&args[0])?;
+    builtin_fboundp_1(eval, args[0])
+}
+
+pub(crate) fn builtin_fboundp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let symbol = expect_symbol_id(&arg)?;
     Ok(Value::bool_val(
         symbol_function_cell_in_obarray(eval.obarray(), symbol)
             .is_some_and(|function| !function.is_nil()),
@@ -474,11 +485,18 @@ pub(crate) fn builtin_symbol_function(
     symbol_function_impl(eval.obarray(), args)
 }
 
+pub(crate) fn builtin_symbol_function_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    symbol_function_impl_1(eval.obarray(), arg)
+}
+
 /// Obarray-only implementation shared by `builtin_symbol_function` and doc.rs.
 pub(crate) fn symbol_function_impl(obarray: &Obarray, args: Vec<Value>) -> EvalResult {
     expect_args("symbol-function", &args, 1)?;
-    let symbol = expect_symbol_id(&args[0])?;
-    let name = resolve_sym(symbol);
+    symbol_function_impl_1(obarray, args[0])
+}
+
+pub(crate) fn symbol_function_impl_1(obarray: &Obarray, arg: Value) -> EvalResult {
+    let symbol = expect_symbol_id(&arg)?;
     if obarray.is_function_unbound_id(symbol) {
         return Ok(Value::NIL);
     }
@@ -575,17 +593,24 @@ pub(crate) fn builtin_set_2(
 
 pub(crate) fn builtin_fset(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("fset", &args, 2)?;
-    let symbol = expect_symbol_id(&args[0])?;
-    if symbol == intern("nil") && !args[1].is_nil() {
+    builtin_fset_2(eval, args[0], args[1])
+}
+
+pub(crate) fn builtin_fset_2(
+    eval: &mut super::eval::Context,
+    symbol_value: Value,
+    def: Value,
+) -> EvalResult {
+    let symbol = expect_symbol_id(&symbol_value)?;
+    if symbol == intern("nil") && !def.is_nil() {
         return Err(signal("setting-constant", vec![Value::symbol("nil")]));
     }
-    let def = args[1];
     let would_cycle = {
         let obarray = eval.obarray_mut();
         would_create_function_alias_cycle_in_obarray(obarray, symbol, &def)
     };
     if would_cycle {
-        return Err(signal("cyclic-function-indirection", vec![args[0]]));
+        return Err(signal("cyclic-function-indirection", vec![symbol_value]));
     }
     eval.note_macro_expansion_mutation();
     eval.obarray_mut().set_symbol_function_id(symbol, def);
@@ -2269,6 +2294,10 @@ pub(crate) fn builtin_record(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_recordp(args: Vec<Value>) -> EvalResult {
     expect_args("recordp", &args, 1)?;
     Ok(Value::bool_val(args[0].is_record()))
+}
+
+pub(crate) fn builtin_recordp_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_record()))
 }
 
 pub(crate) fn builtin_query_font(args: Vec<Value>) -> EvalResult {

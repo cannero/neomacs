@@ -190,6 +190,7 @@ pub fn init_standard_errors(obarray: &mut Obarray) {
         "Invalid coding system",
         &["error"],
     );
+    register_simple(obarray, "circular-list", "List contains a loop", &["error"]);
     register_simple(
         obarray,
         "cyclic-function-indirection",

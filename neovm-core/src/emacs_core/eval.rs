@@ -375,6 +375,7 @@ pub(crate) struct PendingSafeFuncall {
 }
 
 pub(crate) type LispArgVec = SmallVec<[Value; 8]>;
+type LetBindingVec = SmallVec<[(SymId, Value); 8]>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct GnuTimerTimestamp {
@@ -864,6 +865,11 @@ fn value_from_symbol_id(sym_id: SymId) -> Value {
 fn hidden_internal_interpreter_environment_symbol() -> SymId {
     static HIDDEN_SYMBOL: OnceLock<SymId> = OnceLock::new();
     *HIDDEN_SYMBOL.get_or_init(|| intern_uninterned("internal-interpreter-environment"))
+}
+
+fn default_directory_symbol() -> SymId {
+    static SYMBOL: OnceLock<SymId> = OnceLock::new();
+    *SYMBOL.get_or_init(|| intern("default-directory"))
 }
 
 fn lexical_binding_symbol() -> SymId {
@@ -2082,15 +2088,20 @@ fn begin_macro_expansion_scope_in_state(
     let dynvars_root_index = specpdl.len();
     specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
     let mut dynvars = old_dynvars;
-    // GNU eval.c only extends `macroexp--dynvars` from bare symbols in
-    // Vinternal_interpreter_environment; dynamic specpdl bindings are not
-    // part of this macro-expansion state.
-    for sym in lexenv_bare_symbols(lexenv) {
-        dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-        match specpdl.get_mut(dynvars_root_index) {
-            Some(SpecBinding::GcRoot { value }) => *value = dynvars,
-            other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
+    // GNU eval.c walks Vinternal_interpreter_environment directly and only
+    // extends `macroexp--dynvars` for bare symbols. Dynamic specpdl bindings
+    // are not part of this macro-expansion state.
+    let mut cursor = lexenv;
+    while cursor.is_cons() {
+        let entry = cursor.cons_car();
+        if let Some(sym) = entry.as_symbol_id() {
+            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+            match specpdl.get_mut(dynvars_root_index) {
+                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
+            }
         }
+        cursor = cursor.cons_cdr();
     }
     obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
     set_runtime_binding(
@@ -7038,7 +7049,9 @@ impl Context {
         //
         // Per-arg roots are popped once `set_backtrace_args_evalled`
         // transfers ownership to the outer frame's args slot.
-        let mut args = Vec::new();
+        // GNU uses SAFE_ALLOCA_LISP for evaluated arguments here. Keep the
+        // common arities inline instead of allocating a heap Vec per call.
+        let mut args = LispArgVec::new();
         self.push_specpdl_root(func);
         let args_roots_base = self.specpdl.len();
         let mut cursor = original_args;
@@ -7053,6 +7066,22 @@ impl Context {
         self.unbind_to(args_roots_base);
 
         self.maybe_gc_and_quit()?;
+
+        if let Some(sym_id) = func.as_subr_id()
+            && let Some(entry) = lookup_global_subr_entry(sym_id)
+            && entry.dispatch_kind != SubrDispatchKind::SpecialForm
+        {
+            return self.maybe_grow_eval_stack(|ctx| {
+                if entry.dispatch_kind == SubrDispatchKind::ContextCallable {
+                    return ctx.apply_evaluator_callable_by_id(sym_id, args);
+                }
+                ctx.dispatch_subr_entry_internal(entry, args, original_fun)
+                    .unwrap_or_else(|| {
+                        Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
+                    })
+            });
+        }
+
         self.maybe_grow_eval_stack(|ctx| ctx.funcall_general_untraced(func, args))
     }
 
@@ -7767,8 +7796,8 @@ impl Context {
 
         let varlist = tail.cons_car();
         let body = tail.cons_cdr();
-        let mut lexical_bindings: Vec<(SymId, Value)> = Vec::new();
-        let mut dynamic_sym_ids: Vec<(SymId, Value)> = Vec::new();
+        let mut lexical_bindings = LetBindingVec::new();
+        let mut dynamic_sym_ids = LetBindingVec::new();
         let use_lexical = self.lexical_binding();
         let mut constant_binding_error: Option<String> = None;
         let specpdl_root_scope = self.save_specpdl_roots();
@@ -8044,31 +8073,35 @@ impl Context {
                     vec![Value::symbol("symbolp"), symbol],
                 ));
             };
-            let name = resolve_sym(sym_id);
             let value = self.eval_sub(value_form)?;
-            let resolved = super::builtins::resolve_variable_alias_name(self, name)?;
-            let resolved_id = intern(&resolved);
+            let resolved_id = super::builtins::resolve_variable_alias_id(self, sym_id)?;
             if self.obarray.is_constant_id(resolved_id)
                 && !self.has_local_binding_by_id(sym_id)
                 && (resolved_id == sym_id || !self.has_local_binding_by_id(resolved_id))
             {
-                return Err(signal("setting-constant", vec![Value::symbol(name)]));
+                if let Some(result) = super::builtins::constant_set_outcome_in_obarray(
+                    self.obarray(),
+                    resolved_id,
+                    value_from_symbol_id(sym_id),
+                    value,
+                ) {
+                    return result;
+                }
             }
             // Debug probe for multibyte assignments to default-directory.
             // Kept at debug level so it doesn't pollute normal error
             // output (Doom always fires this with pure-ASCII paths that
             // happen to carry the multibyte flag from string decoding).
-            if name == "default-directory" && value.is_string() && value.string_is_multibyte() {
+            if sym_id == default_directory_symbol()
+                && value.is_string()
+                && value.string_is_multibyte()
+            {
                 tracing::debug!(
                     "SETQ default-directory to MULTIBYTE string: {:?}",
                     runtime_string_value(value),
                 );
             }
-            if resolved != name {
-                self.assign_with_watchers(&resolved, value, "set")?;
-            } else {
-                self.assign_with_watchers_by_id(sym_id, value, "set")?;
-            }
+            self.assign_with_watchers_by_id(resolved_id, value, "set")?;
             last = value;
         }
         if !cursor.is_nil() {
@@ -9445,11 +9478,23 @@ impl Context {
         if self.specpdl.len() <= scope.saved_len {
             return;
         }
-        let mut tail: Vec<SpecBinding> = self.specpdl.drain(scope.saved_len..).collect();
-        self.specpdl.extend(
-            tail.drain(..)
-                .filter(|binding| !matches!(binding, SpecBinding::GcRoot { .. })),
-        );
+        if self.specpdl[scope.saved_len..]
+            .iter()
+            .all(|binding| matches!(binding, SpecBinding::GcRoot { .. }))
+        {
+            self.specpdl.truncate(scope.saved_len);
+            return;
+        }
+
+        // GNU's specpdl is unwound in place by moving the stack pointer.
+        // Keep Neomacs' extra GC-root entries just as cheap: remove root-only
+        // sentinels from the active suffix without allocating a temporary tail.
+        let mut index = 0usize;
+        self.specpdl.retain(|binding| {
+            let keep = index < scope.saved_len || !matches!(binding, SpecBinding::GcRoot { .. });
+            index += 1;
+            keep
+        });
     }
     pub(crate) fn push_vm_root_frame(&mut self) {
         self.vm_root_frames.push(VmRootFrame::new());
@@ -9559,6 +9604,26 @@ impl Context {
         A: Into<LispArgVec>,
     {
         self.apply_internal(function, args.into(), true)
+    }
+
+    #[inline]
+    pub(crate) fn apply0(&mut self, function: Value) -> EvalResult {
+        self.apply(function, LispArgVec::new())
+    }
+
+    #[inline]
+    pub(crate) fn apply1(&mut self, function: Value, arg0: Value) -> EvalResult {
+        let mut args = LispArgVec::new();
+        args.push(arg0);
+        self.apply(function, args)
+    }
+
+    #[inline]
+    pub(crate) fn apply2(&mut self, function: Value, arg0: Value, arg1: Value) -> EvalResult {
+        let mut args = LispArgVec::new();
+        args.push(arg0);
+        args.push(arg1);
+        self.apply(function, args)
     }
 
     pub(crate) fn apply_untraced<A>(&mut self, function: Value, args: A) -> EvalResult
@@ -9876,6 +9941,7 @@ impl Context {
         }
         Some(match func {
             crate::tagged::header::SubrFn::Many(func) => func(self, args.into_vec()),
+            crate::tagged::header::SubrFn::ManySlice(func) => func(self, &args),
             crate::tagged::header::SubrFn::A0(func) => func(self),
             crate::tagged::header::SubrFn::A1(func) => {
                 func(self, args.first().copied().unwrap_or(Value::NIL))
@@ -11428,6 +11494,21 @@ impl Context {
         );
     }
 
+    pub fn defsubr_slice(
+        &mut self,
+        name: &str,
+        func: fn(&mut Context, &[Value]) -> EvalResult,
+        min_args: u16,
+        max_args: Option<u16>,
+    ) {
+        self.defsubr_with_entry(
+            name,
+            crate::tagged::header::SubrFn::ManySlice(func),
+            min_args,
+            max_args,
+        );
+    }
+
     pub fn defsubr_0(&mut self, name: &str, func: fn(&mut Context) -> EvalResult) {
         self.defsubr_with_entry(name, crate::tagged::header::SubrFn::A0(func), 0, Some(0));
     }
@@ -11981,9 +12062,9 @@ fn format_startup_value(value: Option<&Value>) -> String {
         .unwrap_or_else(|| "<unbound>".to_string())
 }
 
-/// Convert a Value cons list to a Vec<Value> (for eval_sub arg passing).
-fn value_list_to_values(list: &Value) -> Vec<Value> {
-    let mut result = Vec::new();
+/// Convert a Value cons list to the evaluator's inline argument buffer.
+fn value_list_to_values(list: &Value) -> LispArgVec {
+    let mut result = LispArgVec::new();
     let mut cursor = *list;
     while cursor.is_cons() {
         result.push(cursor.cons_car());

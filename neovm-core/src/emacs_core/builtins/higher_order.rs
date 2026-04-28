@@ -1,5 +1,26 @@
 use super::*;
+use crate::emacs_core::eval::LispArgVec;
+use crate::emacs_core::value::list_length;
+use smallvec::SmallVec;
+
+type MapResultVec = SmallVec<[Value; 8]>;
+
+#[inline]
+fn apply0(eval: &mut super::eval::Context, func: Value) -> EvalResult {
+    eval.apply(func, crate::emacs_core::eval::LispArgVec::new())
+}
+
+#[inline]
+fn apply1(eval: &mut super::eval::Context, func: Value, arg: Value) -> EvalResult {
+    let mut args = crate::emacs_core::eval::LispArgVec::new();
+    args.push(arg);
+    eval.apply(func, args)
+}
 pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_apply_slice(eval, &args)
+}
+
+pub(crate) fn builtin_apply_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
     // GNU eval.c Fapply: with one argument, the argument itself is the spread
     // list.  Its first element is the function and the remaining elements are
     // the arguments.
@@ -11,70 +32,66 @@ pub(crate) fn builtin_apply(eval: &mut super::eval::Context, args: Vec<Value>) -
     }
 
     let last = args[args.len() - 1];
-    let mut spread_args = Vec::new();
+    let mut call_args = LispArgVec::new();
 
-    // Last argument must be a list, which gets spread.  In the one-argument
-    // case, that list supplies both the function and its arguments.
-    //
-    // GNU Emacs Fapply iterates with CHECK_LIST_END / FOR_EACH_TAIL_SAFE
-    // and pushes each car onto the call args. There is no per-element
-    // pointer validation: a spread list element is a Lisp_Object and is
-    // trusted to be whatever its tag says it is. NeoMacs previously had
-    // a debug-only `unsafe` raw-pointer deref + unconditional `panic!`
-    // that crashed the entire process on any value whose pointer
-    // happened to look corrupt — running this code in the production
-    // hot path was a serious hazard, since *any* GC misstep or tagged-
-    // value bug elsewhere would manifest as a process abort instead of
-    // a Lisp signal we could catch and report. Match GNU and just
-    // collect the elements; trust the tag and the GC.
-    match last.kind() {
-        ValueKind::Nil => {}
-        ValueKind::Cons => {
-            let mut cursor = last;
-            loop {
-                match cursor.kind() {
-                    ValueKind::Nil => break,
-                    ValueKind::Cons => {
-                        let pair_car = cursor.cons_car();
-                        let pair_cdr = cursor.cons_cdr();
-                        spread_args.push(pair_car);
-                        cursor = pair_cdr;
-                    }
-                    _ => {
-                        return Err(signal(
-                            "wrong-type-argument",
-                            vec![Value::symbol("listp"), cursor],
-                        ));
-                    }
+    if args.len() == 1 {
+        let mut cursor = last;
+        let func = match cursor.kind() {
+            ValueKind::Nil => args[0],
+            ValueKind::Cons => {
+                let func = cursor.cons_car();
+                cursor = cursor.cons_cdr();
+                func
+            }
+            _ => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("listp"), last],
+                ));
+            }
+        };
+        while cursor.is_cons() {
+            call_args.push(cursor.cons_car());
+            cursor = cursor.cons_cdr();
+        }
+        if !cursor.is_nil() {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("listp"), cursor],
+            ));
+        }
+        eval.apply(func, call_args)
+    } else {
+        call_args.extend_from_slice(&args[1..args.len() - 1]);
+        let mut cursor = last;
+        loop {
+            match cursor.kind() {
+                ValueKind::Nil => break,
+                ValueKind::Cons => {
+                    call_args.push(cursor.cons_car());
+                    cursor = cursor.cons_cdr();
+                }
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("listp"), cursor],
+                    ));
                 }
             }
         }
-        _ => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("listp"), last],
-            ));
-        }
+        eval.apply(args[0], call_args)
     }
-
-    let (func, call_args) = if args.len() == 1 {
-        match spread_args.split_first() {
-            Some((func, rest)) => (*func, rest.to_vec()),
-            None => (args[0], Vec::new()),
-        }
-    } else {
-        let mut call_args = args[1..args.len() - 1].to_vec();
-        call_args.extend(spread_args);
-        (args[0], call_args)
-    };
-
-    eval.apply(func, call_args)
 }
 
 pub(crate) fn builtin_funcall(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    expect_min_args("funcall", &args, 1)?;
+    builtin_funcall_slice(eval, &args)
+}
+
+pub(crate) fn builtin_funcall_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    expect_min_args("funcall", args, 1)?;
     let func = args[0];
-    let call_args = args[1..].to_vec();
+    let mut call_args = LispArgVec::new();
+    call_args.extend_from_slice(&args[1..]);
     eval.apply(func, call_args)
 }
 
@@ -82,9 +99,17 @@ pub(crate) fn builtin_funcall_interactively(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("funcall-interactively", &args, 1)?;
+    builtin_funcall_interactively_slice(eval, &args)
+}
+
+pub(crate) fn builtin_funcall_interactively_slice(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("funcall-interactively", args, 1)?;
     let func = args[0];
-    let call_args = args[1..].to_vec();
+    let mut call_args = LispArgVec::new();
+    call_args.extend_from_slice(&args[1..]);
     eval.interactive.push_interactive_call(true);
     let result = eval.apply(func, call_args);
     eval.interactive.pop_interactive_call();
@@ -98,7 +123,7 @@ pub(crate) fn builtin_funcall_with_delayed_message(
     expect_args("funcall-with-delayed-message", &args, 3)?;
     let _delay = expect_number(&args[0])?;
     let _message = expect_string(&args[1])?;
-    eval.apply(args[2], vec![])
+    apply0(eval, args[2])
 }
 
 // ===========================================================================
@@ -172,42 +197,61 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
             vec![Value::symbol("mapcar"), Value::fixnum(args.len() as i64)],
         ));
     }
-    let func = args[0];
-    let seq = args[1];
+    builtin_mapcar_2(eval, args[0], args[1])
+}
+
+pub(crate) fn builtin_mapcar_2(
+    eval: &mut super::eval::Context,
+    func: Value,
+    seq: Value,
+) -> EvalResult {
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(func);
     eval.push_specpdl_root(seq);
-    let mut results = Vec::new();
-    // Root cursor at each step for precise GC safety (see builtin_mapc).
-    let map_result: Result<(), Flow> = if seq.is_cons() || seq.is_nil() {
-        let mut cursor = seq;
-        loop {
-            match cursor.kind() {
-                ValueKind::Nil => break Ok(()),
-                ValueKind::Cons => {
-                    let pair_car = cursor.cons_car();
-                    let pair_cdr = cursor.cons_cdr();
-                    let item = pair_car;
-                    cursor = pair_cdr;
-                    eval.push_specpdl_root(cursor);
-                    let val = match eval.apply(func, vec![item]) {
-                        Ok(v) => v,
-                        Err(e) => break Err(e),
-                    };
-                    eval.push_specpdl_root(val);
-                    results.push(val);
+    let mut results = MapResultVec::new();
+    // GNU fns.c Fmapcar computes SEQUENCE length before calling FUNCTION, then
+    // reads each cons cdr after the callback.  If FUNCTION shortens the list,
+    // mapcar returns the mapped prefix instead of following stale cdrs.
+    let map_result: Result<(), Flow> = if seq.is_nil() {
+        Ok(())
+    } else if seq.is_cons() {
+        let len = match list_length(&seq) {
+            Some(len) => len,
+            None => {
+                let mut cursor = seq;
+                while cursor.is_cons() {
+                    cursor = cursor.cons_cdr();
                 }
-                tail => {
-                    break Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), cursor],
-                    ));
-                }
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("listp"), cursor],
+                ));
             }
+        };
+        results = MapResultVec::with_capacity(len);
+        let mut cursor = seq;
+        let mut result = Ok(());
+        for _ in 0..len {
+            if !cursor.is_cons() {
+                break;
+            }
+            eval.push_specpdl_root(cursor);
+            let item = cursor.cons_car();
+            let val = match apply1(eval, func, item) {
+                Ok(v) => v,
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
+            };
+            eval.push_specpdl_root(val);
+            results.push(val);
+            cursor = cursor.cons_cdr();
         }
+        result
     } else {
         for_each_sequence_element(&seq, |item| {
-            let val = eval.apply(func, vec![item])?;
+            let val = apply1(eval, func, item)?;
             eval.push_specpdl_root(val);
             results.push(val);
             Ok(())
@@ -215,7 +259,7 @@ pub(crate) fn builtin_mapcar(eval: &mut super::eval::Context, args: Vec<Value>) 
     };
     eval.restore_specpdl_roots(roots);
     map_result?;
-    Ok(Value::list(results))
+    Ok(Value::list_from_slice(&results))
 }
 
 pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -225,8 +269,14 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
             vec![Value::symbol("mapc"), Value::fixnum(args.len() as i64)],
         ));
     }
-    let func = args[0];
-    let seq = args[1];
+    builtin_mapc_2(eval, args[0], args[1])
+}
+
+pub(crate) fn builtin_mapc_2(
+    eval: &mut super::eval::Context,
+    func: Value,
+    seq: Value,
+) -> EvalResult {
     let roots = eval.save_specpdl_roots();
     eval.push_specpdl_root(func);
     eval.push_specpdl_root(seq);
@@ -245,7 +295,7 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
                     cursor = pair_cdr;
                     // Root the remaining tail before calling the function.
                     eval.push_specpdl_root(cursor);
-                    if let Err(e) = eval.apply(func, vec![item]) {
+                    if let Err(e) = apply1(eval, func, item) {
                         break Err(e);
                     }
                 }
@@ -259,7 +309,7 @@ pub(crate) fn builtin_mapc(eval: &mut super::eval::Context, args: Vec<Value>) ->
         }
     } else {
         for_each_sequence_element(&seq, |item| {
-            eval.apply(func, vec![item])?;
+            apply1(eval, func, item)?;
             Ok(())
         })
     };
@@ -281,7 +331,7 @@ pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value
     eval.push_specpdl_root(sequence);
     eval.push_specpdl_root(separator);
     let mapconcat_result = for_each_sequence_element(&sequence, |item| {
-        let val = eval.apply(func, vec![item])?;
+        let val = apply1(eval, func, item)?;
         eval.push_specpdl_root(val);
         parts.push(val);
         Ok(())
@@ -317,7 +367,7 @@ pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) 
     eval.push_specpdl_root(func);
     eval.push_specpdl_root(sequence);
     let mapcan_result = for_each_sequence_element(&sequence, |item| {
-        let val = eval.apply(func, vec![item])?;
+        let val = apply1(eval, func, item)?;
         eval.push_specpdl_root(val);
         mapped.push(val);
         Ok(())

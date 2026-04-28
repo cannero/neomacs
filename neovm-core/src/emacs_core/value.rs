@@ -2053,23 +2053,6 @@ pub fn lexenv_declares_special(lexenv: Value, sym_id: SymId) -> bool {
     }
 }
 
-/// Collect bare-symbol entries from the lexical environment.
-pub fn lexenv_bare_symbols(lexenv: Value) -> Vec<SymId> {
-    let mut cursor = lexenv;
-    let mut symbols = Vec::new();
-    loop {
-        if cursor.is_cons() {
-            let car = cursor.cons_car();
-            if let Some(s) = car.as_symbol_id() {
-                symbols.push(s);
-            }
-            cursor = cursor.cons_cdr();
-        } else {
-            return symbols;
-        }
-    }
-}
-
 /// Mutate a binding in place: set cdr of the `(sym . val)` cons cell.
 pub fn lexenv_set(cell: Value, value: Value) {
     cell.set_cdr(value);

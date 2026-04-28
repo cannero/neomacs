@@ -2578,6 +2578,10 @@ pub(crate) fn builtin_command_error_default_function(args: Vec<Value>) -> EvalRe
 
 pub(crate) fn builtin_point(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("point", &args, 0)?;
+    builtin_point_0(eval)
+}
+
+pub(crate) fn builtin_point_0(eval: &mut super::eval::Context) -> EvalResult {
     let buf = eval
         .buffers
         .current_buffer()
@@ -2587,6 +2591,10 @@ pub(crate) fn builtin_point(eval: &mut super::eval::Context, args: Vec<Value>) -
 
 pub(crate) fn builtin_point_min(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("point-min", &args, 0)?;
+    builtin_point_min_0(eval)
+}
+
+pub(crate) fn builtin_point_min_0(eval: &mut super::eval::Context) -> EvalResult {
     let buf = eval
         .buffers
         .current_buffer()
@@ -2596,6 +2604,10 @@ pub(crate) fn builtin_point_min(eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_point_max(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("point-max", &args, 0)?;
+    builtin_point_max_0(eval)
+}
+
+pub(crate) fn builtin_point_max_0(eval: &mut super::eval::Context) -> EvalResult {
     let buf = eval
         .buffers
         .current_buffer()
@@ -2605,7 +2617,11 @@ pub(crate) fn builtin_point_max(eval: &mut super::eval::Context, args: Vec<Value
 
 pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("goto-char", &args, 1)?;
-    let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
+    builtin_goto_char_1(eval, args[0])
+}
+
+pub(crate) fn builtin_goto_char_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let pos = expect_integer_or_marker_in_buffers(&eval.buffers, &arg)?;
     let current_id = eval
         .buffers
         .current_buffer_id()
@@ -2623,7 +2639,7 @@ pub(crate) fn builtin_goto_char(eval: &mut super::eval::Context, args: Vec<Value
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     // Run point motion hooks
     super::navigation::check_point_motion_hooks(eval, old_byte, adjusted)?;
-    Ok(args[0])
+    Ok(arg)
 }
 
 struct InsertPiece {

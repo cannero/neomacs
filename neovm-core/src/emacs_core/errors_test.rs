@@ -1140,6 +1140,7 @@ fn obarray_all_standard_errors_have_message() {
         "wrong-number-of-arguments",
         "wrong-type-argument",
         "cl-assertion-failed",
+        "circular-list",
         "json-error",
         "json-parse-error",
         "json-serialize-error",

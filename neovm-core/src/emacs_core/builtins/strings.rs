@@ -10,15 +10,39 @@ use crate::emacs_core::value::{
 
 pub(crate) fn builtin_string_equal(args: Vec<Value>) -> EvalResult {
     expect_args("string-equal", &args, 2)?;
-    let a = expect_string_comparison_operand(&args[0])?;
-    let b = expect_string_comparison_operand(&args[1])?;
+    builtin_string_equal_values(args[0], args[1])
+}
+
+pub(crate) fn builtin_string_equal_2(
+    _eval: &mut super::eval::Context,
+    a_value: Value,
+    b_value: Value,
+) -> EvalResult {
+    builtin_string_equal_values(a_value, b_value)
+}
+
+fn builtin_string_equal_values(a_value: Value, b_value: Value) -> EvalResult {
+    let a = expect_string_comparison_operand(&a_value)?;
+    let b = expect_string_comparison_operand(&b_value)?;
     Ok(Value::bool_val(a == b))
 }
 
 pub(crate) fn builtin_string_lessp(args: Vec<Value>) -> EvalResult {
     expect_args("string-lessp", &args, 2)?;
-    let a = expect_string_comparison_operand(&args[0])?;
-    let b = expect_string_comparison_operand(&args[1])?;
+    builtin_string_lessp_values(args[0], args[1])
+}
+
+pub(crate) fn builtin_string_lessp_2(
+    _eval: &mut super::eval::Context,
+    a_value: Value,
+    b_value: Value,
+) -> EvalResult {
+    builtin_string_lessp_values(a_value, b_value)
+}
+
+fn builtin_string_lessp_values(a_value: Value, b_value: Value) -> EvalResult {
+    let a = expect_string_comparison_operand(&a_value)?;
+    let b = expect_string_comparison_operand(&b_value)?;
     Ok(Value::bool_val(a < b))
 }
 
@@ -207,9 +231,13 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
 mod tests;
 
 pub(crate) fn builtin_substring(args: Vec<Value>) -> EvalResult {
+    builtin_substring_slice(&args)
+}
+
+pub(crate) fn builtin_substring_slice(args: &[Value]) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::Substring,
-        || substring_impl("substring", &args, true),
+        || substring_impl("substring", args, true),
     )
 }
 
@@ -221,6 +249,10 @@ pub(crate) fn builtin_substring_no_properties(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
+    builtin_concat_slice(&args)
+}
+
+pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Concat, || {
         use crate::emacs_core::emacs_char;
 
@@ -257,7 +289,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
             if !has_text_props {
                 let mut combined = Vec::new();
                 let mut multibyte = false;
-                for arg in &args {
+                for arg in args {
                     if let Some(string) = arg.as_lisp_string() {
                         combined.extend_from_slice(string.as_bytes());
                         multibyte |= string.is_multibyte();
@@ -280,7 +312,7 @@ pub(crate) fn builtin_concat(args: Vec<Value>) -> EvalResult {
         // Track string sources with their byte offsets for property preservation
         let mut string_sources: Vec<(Value, usize)> = Vec::new();
 
-        for arg in &args {
+        for arg in args {
             match arg.kind() {
                 ValueKind::String => {
                     let offset = result.len();
@@ -716,7 +748,13 @@ pub(crate) fn builtin_ngettext(args: Vec<Value>) -> EvalResult {
 pub(crate) fn builtin_format(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     // With specbind, dynamic let-bindings are written directly to the obarray,
     // so print_options_from_state correctly resolves print-* variables.
-    builtin_format_wrapper_strict(eval, args)
+    builtin_format_slice(eval, &args)
+}
+
+pub(crate) fn builtin_format_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    // With specbind, dynamic let-bindings are written directly to the obarray,
+    // so print_options_from_state correctly resolves print-* variables.
+    builtin_format_wrapper_strict_slice(eval, args)
 }
 
 fn format_percent_s_in_state(ctx: &crate::emacs_core::eval::Context, value: &Value) -> String {
@@ -1249,9 +1287,16 @@ pub(crate) fn builtin_format_wrapper_strict(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_format_wrapper_strict_slice(ctx, &args)
+}
+
+pub(crate) fn builtin_format_wrapper_strict_slice(
+    ctx: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Format, || {
-        expect_min_args("format", &args, 1)?;
-        let (s, spans) = do_format(&args, &|v| format_percent_s_in_state(ctx, v), &|v| {
+        expect_min_args("format", args, 1)?;
+        let (s, spans) = do_format(args, &|v| format_percent_s_in_state(ctx, v), &|v| {
             super::error::print_value_in_state(ctx, v)
         })?;
         let multibyte = args.iter().any(|value| value.string_is_multibyte())
@@ -1337,8 +1382,15 @@ pub(crate) fn builtin_format_message(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("format-message", &args, 1)?;
-    let formatted = builtin_format_wrapper_strict(ctx, args)?;
+    builtin_format_message_slice(ctx, &args)
+}
+
+pub(crate) fn builtin_format_message_slice(
+    ctx: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("format-message", args, 1)?;
+    let formatted = builtin_format_wrapper_strict_slice(ctx, args)?;
     match formatted.kind() {
         ValueKind::String => {
             let string = formatted.as_lisp_string().expect("string");
@@ -1425,6 +1477,10 @@ pub(crate) fn builtin_make_string(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
+    builtin_string_slice(&args)
+}
+
+pub(crate) fn builtin_string_slice(args: &[Value]) -> EvalResult {
     use crate::emacs_core::emacs_char;
     let mut result = Vec::new();
     for arg in args {
@@ -1437,7 +1493,7 @@ pub(crate) fn builtin_string(args: Vec<Value>) -> EvalResult {
             _other => {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("characterp"), arg],
+                    vec![Value::symbol("characterp"), *arg],
                 ));
             }
         }

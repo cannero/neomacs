@@ -342,14 +342,22 @@ pub(crate) fn builtin_subrp(args: Vec<Value>) -> EvalResult {
 /// `(bare-symbol SYMBOL-OR-SYMBOL-WITH-POS)` -> symbol.
 pub(crate) fn builtin_bare_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("bare-symbol", &args, 1)?;
-    if symbol_like_name(&args[0]).is_some() {
-        Ok(args[0])
-    } else if args[0].is_symbol_with_pos() {
-        Ok(args[0].as_symbol_with_pos_sym().unwrap())
+    bare_symbol_value(args[0])
+}
+
+pub(crate) fn builtin_bare_symbol_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    bare_symbol_value(arg)
+}
+
+fn bare_symbol_value(arg: Value) -> EvalResult {
+    if symbol_like_name(&arg).is_some() {
+        Ok(arg)
+    } else if arg.is_symbol_with_pos() {
+        Ok(arg.as_symbol_with_pos_sym().unwrap())
     } else {
         Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("symbolp"), args[0]],
+            vec![Value::symbol("symbolp"), arg],
         ))
     }
 }
@@ -433,6 +441,10 @@ pub(crate) fn builtin_closurep(args: Vec<Value>) -> EvalResult {
     Ok(Value::bool_val(
         args[0].is_lambda() || args[0].is_bytecode(),
     ))
+}
+
+pub(crate) fn builtin_closurep_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    Ok(Value::bool_val(arg.is_lambda() || arg.is_bytecode()))
 }
 
 /// `(natnump OBJ)` -> t if natural number (>= 0).

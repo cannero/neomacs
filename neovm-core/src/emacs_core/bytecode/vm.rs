@@ -2,6 +2,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use smallvec::SmallVec;
+
 use super::chunk::ByteCodeFunction;
 use super::opcode::Op;
 use crate::buffer::BufferManager;
@@ -25,6 +27,9 @@ enum Handler {
     /// stored in `Context.condition_stack`.
     Condition,
 }
+
+type HandlerStack = SmallVec<[Handler; 4]>;
+type BindStack = SmallVec<[usize; 8]>;
 
 use crate::emacs_core::eval::SpecBinding;
 
@@ -282,9 +287,9 @@ impl<'a> Vm<'a> {
             fun: func_value,
         });
         let mut pc: usize = 0;
-        let mut handlers: Vec<Handler> = Vec::new();
+        let mut handlers = HandlerStack::new();
         let specpdl_base = self.ctx.specpdl.len();
-        let mut bind_stack: Vec<usize> = Vec::new();
+        let mut bind_stack = BindStack::new();
 
         // Unified calling convention: push args onto the stack.
         // Both NeoVM-compiled and GNU-compiled bytecode use StackRef(n)
@@ -470,8 +475,8 @@ impl<'a> Vm<'a> {
         func: &ByteCodeFunction,
         frame_base: usize,
         pc: &mut usize,
-        handlers: &mut Vec<Handler>,
-        bind_stack: &mut Vec<usize>,
+        handlers: &mut HandlerStack,
+        bind_stack: &mut BindStack,
     ) -> EvalResult {
         let ops = &func.ops;
         let constants = &func.constants;
@@ -643,15 +648,21 @@ impl<'a> Vm<'a> {
                 Op::Call(n) => {
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: LispArgVec = stk!().drain(args_start..).collect();
-                    let func_val = stk!().pop().unwrap_or(Value::NIL);
+                    let stack_after_call = args_start.saturating_sub(1);
+                    let func_val = if args_start > 0 {
+                        stk!()[args_start - 1]
+                    } else {
+                        Value::NIL
+                    };
+                    // GNU bytecode.c:Bcall passes a pointer into the VM stack
+                    // (`call_args = &TOP + 1`) and overwrites the function slot
+                    // with the result after the call.  Keep operands in bc_buf
+                    // while the call runs so they remain roots, but copy the
+                    // slice for the current Rust call API.
+                    let args: LispArgVec = stk!()[args_start..].iter().copied().collect();
                     let writeback_names = self.writeback_mutating_callable_names(&func_val);
                     let writeback_args = writeback_names.as_ref().map(|_| args.clone());
-                    let result =
-                        vm_try!(
-                            self.with_frame_call_roots(func, func_val, args, |vm, args| vm
-                                .call_function(func_val, args),)
-                        );
+                    let result = vm_try!(self.call_function(func_val, args));
                     if let (Some((called_name, alias_target)), Some(writeback_args)) =
                         (writeback_names.as_ref(), writeback_args.as_ref())
                     {
@@ -668,6 +679,7 @@ impl<'a> Vm<'a> {
                         );
                         self.ctx.restore_vm_roots(root_scope);
                     }
+                    stk!().truncate(stack_after_call);
                     stk_push!(result);
                     // Mirrors GNU `bytecode.c:781`: poll quit after every
                     // Bcall so a `C-g` that arrived while the callee was
@@ -677,18 +689,20 @@ impl<'a> Vm<'a> {
                 Op::Apply(n) => {
                     let n = *n as usize;
                     if n == 0 {
-                        let func_val = stk!().pop().unwrap_or(Value::NIL);
-                        let result = vm_try!(self.with_frame_call_roots(
-                            func,
-                            func_val,
-                            vec![],
-                            |vm, args| vm.call_function(func_val, args),
-                        ));
+                        let stack_after_call = stk!().len().saturating_sub(1);
+                        let func_val = stk!().last().copied().unwrap_or(Value::NIL);
+                        let result = vm_try!(self.call_function(func_val, LispArgVec::new()));
+                        stk!().truncate(stack_after_call);
                         stk_push!(result);
                     } else {
                         let args_start = stk!().len().saturating_sub(n);
-                        let mut args: Vec<Value> = stk!().drain(args_start..).collect();
-                        let func_val = stk!().pop().unwrap_or(Value::NIL);
+                        let stack_after_call = args_start.saturating_sub(1);
+                        let func_val = if args_start > 0 {
+                            stk!()[args_start - 1]
+                        } else {
+                            Value::NIL
+                        };
+                        let mut args: Vec<Value> = stk!()[args_start..].to_vec();
                         // Spread last argument
                         if let Some(last) = args.pop() {
                             let spread = list_to_vec(&last).unwrap_or_default();
@@ -718,6 +732,7 @@ impl<'a> Vm<'a> {
                             );
                             self.ctx.restore_vm_roots(root_scope);
                         }
+                        stk!().truncate(stack_after_call);
                         stk_push!(result);
                     }
                     // Match `Op::Call`'s post-call quit poll.
@@ -1233,176 +1248,92 @@ impl<'a> Vm<'a> {
                 Op::List(n) => {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
-                    let items: Vec<Value> = stk!().drain(start..).collect();
-                    let result = if let Some(result) =
-                        vm_try!(self.maybe_call_named_function_cell(func, "list", items.clone(),))
-                    {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "list", items,))
-                    };
+                    // GNU bytecode.c:BlistN keeps operands on the bytecode
+                    // stack and calls Flist(n, &TOP).  Keep the same stack
+                    // rooting discipline here and build from the live slice.
+                    let result = Value::list_from_slice(&stk!()[start..]);
+                    stk!().truncate(start);
                     stk_push!(result);
                 }
                 Op::Length => {
-                    let val = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "length",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "length", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let val = stk!()[len - 1];
+                    stk!()[len - 1] = vm_try!(builtins::builtin_length_1(&mut *self.ctx, val));
                 }
                 Op::Nth => {
-                    let list = stk!().pop().unwrap_or(Value::NIL);
-                    let n = stk!().pop().unwrap_or(Value::fixnum(0));
-                    let call_args = vec![n, list];
-                    let result = if let Some(result) =
-                        vm_try!(
-                            self.maybe_call_named_function_cell(func, "nth", call_args.clone(),)
-                        ) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nth", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let n = stk!()[len - 2];
+                    let list = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_nth_2(&mut *self.ctx, n, list));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Nthcdr => {
-                    let list = stk!().pop().unwrap_or(Value::NIL);
-                    let n = stk!().pop().unwrap_or(Value::fixnum(0));
-                    let call_args = vec![n, list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "nthcdr",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nthcdr", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let n = stk!()[len - 2];
+                    let list = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_nthcdr_2(&mut *self.ctx, n, list));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Elt => {
-                    let idx = stk!().pop().unwrap_or(Value::NIL);
-                    let seq = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![seq, idx];
-                    let result = if let Some(result) =
-                        vm_try!(
-                            self.maybe_call_named_function_cell(func, "elt", call_args.clone(),)
-                        ) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "elt", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let seq = stk!()[len - 2];
+                    let idx = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_elt_2(&mut *self.ctx, seq, idx));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Setcar => {
-                    let newcar = stk!().pop().unwrap_or(Value::NIL);
-                    let cell = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![cell, newcar];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "setcar",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "setcar", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let cell = stk!()[len - 2];
+                    let newcar = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_setcar_2(&mut *self.ctx, cell, newcar));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Setcdr => {
-                    let newcdr = stk!().pop().unwrap_or(Value::NIL);
-                    let cell = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![cell, newcdr];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "setcdr",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "setcdr", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let cell = stk!()[len - 2];
+                    let newcdr = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_setcdr_2(&mut *self.ctx, cell, newcdr));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Nconc => {
-                    let b = stk!().pop().unwrap_or(Value::NIL);
-                    let a = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![a, b];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "nconc",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nconc", call_args,))
-                    };
+                    let start = stk!().len().saturating_sub(2);
+                    let result = vm_try!(builtins::builtin_nconc_slice_values(&stk!()[start..]));
+                    stk!().truncate(start);
                     stk_push!(result);
                 }
                 Op::Nreverse => {
-                    let list = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "nreverse",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "nreverse", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let value = stk!()[len - 1];
+                    stk!()[len - 1] = vm_try!(builtins::builtin_nreverse_1(&mut *self.ctx, value));
                 }
                 Op::Member => {
-                    let list = stk!().pop().unwrap_or(Value::NIL);
-                    let elt = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![elt, list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "member",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "member", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let elt = stk!()[len - 2];
+                    let list = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_member_2(&mut *self.ctx, elt, list));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Memq => {
-                    let list = stk!().pop().unwrap_or(Value::NIL);
-                    let elt = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![elt, list];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "memq",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "memq", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let elt = stk!()[len - 2];
+                    let list = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_memq_2(&mut *self.ctx, elt, list));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Assq => {
-                    let alist = stk!().pop().unwrap_or(Value::NIL);
-                    let key = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![key, alist];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "assq",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "assq", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let key = stk!()[len - 2];
+                    let alist = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_assq_2(&mut *self.ctx, key, alist));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
 
                 // -- Type predicates --
@@ -1469,101 +1400,55 @@ impl<'a> Vm<'a> {
                     stk!().pop();
                 }
                 Op::Equal => {
-                    let b = stk!().pop().unwrap_or(Value::NIL);
-                    let a = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![a, b];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "equal",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "equal", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let a = stk!()[len - 2];
+                    let b = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_equal_2(&mut *self.ctx, a, b));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
 
                 // -- String operations --
                 Op::Concat(n) => {
                     let n = *n as usize;
                     let start = stk!().len().saturating_sub(n);
-                    let parts: Vec<Value> = stk!().drain(start..).collect();
-                    let result = if let Some(result) =
-                        vm_try!(self.maybe_call_named_function_cell(func, "concat", parts.clone(),))
-                    {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "concat", parts,))
-                    };
+                    // GNU bytecode.c:BconcatN passes the stack slice directly
+                    // to Fconcat instead of materializing an argument vector.
+                    let result = vm_try!(builtins::builtin_concat_slice(&stk!()[start..]));
+                    stk!().truncate(start);
                     stk_push!(result);
                 }
                 Op::Substring => {
-                    let to = stk!().pop().unwrap_or(Value::NIL);
-                    let from = stk!().pop().unwrap_or(Value::fixnum(0));
-                    let array = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![array, from, to];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "substring",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "substring", call_args,))
-                    };
+                    let start = stk!().len().saturating_sub(3);
+                    let result = vm_try!(builtins::builtin_substring_slice(&stk!()[start..]));
+                    stk!().truncate(start);
                     stk_push!(result);
                 }
                 Op::StringEqual => {
-                    let b = stk!().pop().unwrap_or(Value::NIL);
-                    let a = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![a, b];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "string=",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "string=", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let a = stk!()[len - 2];
+                    let b = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_string_equal_2(&mut *self.ctx, a, b));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::StringLessp => {
-                    let b = stk!().pop().unwrap_or(Value::NIL);
-                    let a = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![a, b];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "string-lessp",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func,
-                            "string-lessp",
-                            call_args,
-                        ))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let a = stk!()[len - 2];
+                    let b = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_string_lessp_2(&mut *self.ctx, a, b));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
 
                 // -- Vector operations --
                 Op::Aref => {
-                    let idx_val = stk!().pop().unwrap_or(Value::fixnum(0));
-                    let vec_val = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![vec_val, idx_val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "aref",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(builtins::builtin_aref(call_args))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let array = stk!()[len - 2];
+                    let index = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_aref_2(&mut *self.ctx, array, index));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Aset => {
                     let val = stk!().pop().unwrap_or(Value::NIL);
@@ -1591,97 +1476,48 @@ impl<'a> Vm<'a> {
 
                 // -- Symbol operations --
                 Op::SymbolValue => {
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "symbol-value",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func,
-                            "symbol-value",
-                            call_args,
-                        ))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let sym = stk!()[len - 1];
+                    stk!()[len - 1] =
+                        vm_try!(builtins::builtin_symbol_value_1(&mut *self.ctx, sym));
                 }
                 Op::SymbolFunction => {
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "symbol-function",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(
-                            func,
-                            "symbol-function",
-                            call_args,
-                        ))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let sym = stk!()[len - 1];
+                    stk!()[len - 1] =
+                        vm_try!(builtins::builtin_symbol_function_1(&mut *self.ctx, sym));
                 }
                 Op::Set => {
-                    let val = stk!().pop().unwrap_or(Value::NIL);
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym, val];
-                    let result = if let Some(result) =
-                        vm_try!(
-                            self.maybe_call_named_function_cell(func, "set", call_args.clone(),)
-                        ) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "set", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let sym = stk!()[len - 2];
+                    let val = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_set_2(&mut *self.ctx, sym, val));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Fset => {
-                    let val = stk!().pop().unwrap_or(Value::NIL);
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym, val];
-                    let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
-                        func,
-                        "fset",
-                        call_args.clone(),
-                    )) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "fset", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let sym = stk!()[len - 2];
+                    let val = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_fset_2(&mut *self.ctx, sym, val));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Get => {
-                    let prop = stk!().pop().unwrap_or(Value::NIL);
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym, prop];
-                    let result = if let Some(result) =
-                        vm_try!(
-                            self.maybe_call_named_function_cell(func, "get", call_args.clone(),)
-                        ) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "get", call_args,))
-                    };
-                    stk_push!(result);
+                    let len = stk!().len();
+                    let sym = stk!()[len - 2];
+                    let prop = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_get_2(&mut *self.ctx, sym, prop));
+                    stk!()[len - 2] = result;
+                    stk!().pop();
                 }
                 Op::Put => {
-                    let val = stk!().pop().unwrap_or(Value::NIL);
-                    let prop = stk!().pop().unwrap_or(Value::NIL);
-                    let sym = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![sym, prop, val];
-                    let result = if let Some(result) =
-                        vm_try!(
-                            self.maybe_call_named_function_cell(func, "put", call_args.clone(),)
-                        ) {
-                        result
-                    } else {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, "put", call_args,))
-                    };
+                    let len = stk!().len();
+                    let sym = stk!()[len - 3];
+                    let prop = stk!()[len - 2];
+                    let val = stk!()[len - 1];
+                    let result = vm_try!(builtins::builtin_put_3(&mut *self.ctx, sym, prop, val));
+                    stk!().truncate(len - 3);
                     stk_push!(result);
                 }
 
@@ -1786,7 +1622,7 @@ impl<'a> Vm<'a> {
                     let name = resolve_sym(name_id);
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: Vec<Value> = stk!().drain(args_start..).collect();
+                    let args: Vec<Value> = stk!()[args_start..].to_vec();
                     let writeback_args = Self::mutates_first_arg_name(name).then(|| args.clone());
                     let result = if self.named_builtin_fast_path_allowed_id(name_id) {
                         vm_try!(self.dispatch_vm_builtin_with_frame(func, name, args,))
@@ -1812,6 +1648,7 @@ impl<'a> Vm<'a> {
                         );
                         self.ctx.restore_vm_roots(root_scope);
                     }
+                    stk!().truncate(args_start);
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
                 }
@@ -1822,7 +1659,7 @@ impl<'a> Vm<'a> {
                     let name = crate::emacs_core::intern::resolve_sym(*sym).to_owned();
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: Vec<Value> = stk!().drain(args_start..).collect();
+                    let args: Vec<Value> = stk!()[args_start..].to_vec();
                     let writeback_args = Self::mutates_first_arg_name(&name).then(|| args.clone());
                     // GNU-parity: opcodes 0140-0177 (decode.rs:295-303)
                     // dispatch *directly* to their C implementations
@@ -1850,6 +1687,7 @@ impl<'a> Vm<'a> {
                         );
                         self.ctx.restore_vm_roots(root_scope);
                     }
+                    stk!().truncate(args_start);
                     stk_push!(result);
                     vm_try!(self.ctx.maybe_quit());
                 }
@@ -2441,6 +2279,21 @@ impl<'a> Vm<'a> {
         self.call_function(function, args.iter().copied().collect::<LispArgVec>())
     }
 
+    #[inline]
+    fn call_function1(&mut self, function: Value, arg: Value) -> EvalResult {
+        let mut args = LispArgVec::new();
+        args.push(arg);
+        self.call_function(function, args)
+    }
+
+    #[inline]
+    fn call_function2(&mut self, function: Value, arg0: Value, arg1: Value) -> EvalResult {
+        let mut args = LispArgVec::new();
+        args.push(arg0);
+        args.push(arg1);
+        self.call_function(function, args)
+    }
+
     fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {
         crate::emacs_core::hook_runtime::run_named_hooks(self, args)
     }
@@ -2749,7 +2602,7 @@ impl<'a> Vm<'a> {
                 |item| {
                     let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
-                        vm.call_function(func, vec![item])
+                        vm.call_function1(func, item)
                     })?;
                     vm.push_dynamic_vm_root(value);
                     results.push(value);
@@ -2776,7 +2629,7 @@ impl<'a> Vm<'a> {
                 |item| {
                     let result = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
-                        vm.call_function(func, vec![item])
+                        vm.call_function1(func, item)
                     });
                     result?;
                     Ok(())
@@ -2799,7 +2652,7 @@ impl<'a> Vm<'a> {
                 |item| {
                     let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
-                        vm.call_function(func, vec![item])
+                        vm.call_function1(func, item)
                     })?;
                     vm.push_dynamic_vm_root(value);
                     mapped.push(value);
@@ -2829,7 +2682,7 @@ impl<'a> Vm<'a> {
                 |item| {
                     let value = vm.with_vm_root_scope(|vm| {
                         vm.push_dynamic_vm_root(item);
-                        vm.call_function(func, vec![item])
+                        vm.call_function1(func, item)
                     })?;
                     vm.push_dynamic_vm_root(value);
                     parts.push(value);
@@ -3637,9 +3490,9 @@ impl<'a> Vm<'a> {
             fun: Value::NIL,
         });
         let mut pc: usize = 0;
-        let mut handlers: Vec<Handler> = Vec::new();
+        let mut handlers = HandlerStack::new();
         let specpdl_base = self.ctx.specpdl.len();
-        let mut bind_stack: Vec<usize> = Vec::new();
+        let mut bind_stack = BindStack::new();
         let result = self.run_loop(func, frame_base, &mut pc, &mut handlers, &mut bind_stack);
         self.cleanup_bytecode_frame(result, condition_stack_base, specpdl_base, frame_base)
     }
@@ -3648,8 +3501,8 @@ impl<'a> Vm<'a> {
         &mut self,
         _func: &ByteCodeFunction,
         pc: &mut usize,
-        handlers: &mut Vec<Handler>,
-        bind_stack: &mut Vec<usize>,
+        handlers: &mut HandlerStack,
+        bind_stack: &mut BindStack,
         flow: Flow,
     ) -> Result<(), Flow> {
         match flow {
@@ -3901,7 +3754,7 @@ impl<'a> Vm<'a> {
                                     vm.push_dynamic_vm_root(pair_car);
                                     vm.push_dynamic_vm_root(pair_cdr);
                                     vm.push_dynamic_vm_root(entry_key);
-                                    vm.call_function(test_fn, vec![entry_key, key])
+                                    vm.call_function2(test_fn, entry_key, key)
                                         .map(|value| value.is_truthy())
                                 });
                                 let matches = matches?;
@@ -3945,7 +3798,7 @@ impl<'a> Vm<'a> {
                                 vm.push_dynamic_vm_root(cursor);
                                 vm.push_dynamic_vm_root(entry_key);
                                 vm.push_dynamic_vm_root(pair_cdr);
-                                vm.call_function(predicate, vec![entry_key, prop])
+                                vm.call_function2(predicate, entry_key, prop)
                                     .map(|value| value.is_truthy())
                             });
                             let matches = matches?;
@@ -4016,7 +3869,7 @@ impl<'a> Vm<'a> {
                 vm.push_dynamic_vm_root(sym);
             }
             for sym in symbols {
-                vm.call_function(func, vec![sym])?;
+                vm.call_function1(func, sym)?;
             }
             Ok(Value::NIL)
         })
@@ -4031,7 +3884,7 @@ impl<'a> Vm<'a> {
                 vm.push_dynamic_vm_root(*value);
             }
             for (key, value) in entries {
-                vm.call_function(func, vec![key, value])?;
+                vm.call_function2(func, key, value)?;
             }
             Ok(Value::NIL)
         })
@@ -4628,7 +4481,7 @@ fn condition_frame_resume(frame: ConditionFrame) -> ResumeTarget {
 }
 
 fn unwind_handlers_to_selected_resume(
-    handlers: &mut Vec<Handler>,
+    handlers: &mut HandlerStack,
     condition_stack: &mut Vec<ConditionFrame>,
     selected_resume: Option<&ResumeTarget>,
 ) -> Option<ResumeTarget> {

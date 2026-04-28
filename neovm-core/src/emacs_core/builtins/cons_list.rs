@@ -1,5 +1,5 @@
 use super::*;
-use crate::emacs_core::value::{ValueKind, VecLikeType};
+use crate::emacs_core::value::{ValueKind, VecLikeType, eq_value};
 
 // ===========================================================================
 // Cons / List operations
@@ -435,6 +435,10 @@ pub(crate) fn builtin_list(args: Vec<Value>) -> EvalResult {
     Ok(Value::list(args))
 }
 
+pub(crate) fn builtin_list_slice(_eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    Ok(Value::list_from_slice(args))
+}
+
 pub(crate) fn builtin_length(args: Vec<Value>) -> EvalResult {
     expect_args("length", &args, 1)?;
     builtin_length_value(args[0])
@@ -694,6 +698,14 @@ fn builtin_nthcdr_values(n_value: Value, list: Value) -> EvalResult {
 }
 
 pub(crate) fn builtin_append(args: Vec<Value>) -> EvalResult {
+    builtin_append_slice_impl(&args)
+}
+
+pub(crate) fn builtin_append_slice(_eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    builtin_append_slice_impl(args)
+}
+
+fn builtin_append_slice_impl(args: &[Value]) -> EvalResult {
     fn extend_from_proper_list(out: &mut Vec<Value>, list: &Value) -> Result<(), Flow> {
         let mut cursor = *list;
         loop {
@@ -850,83 +862,74 @@ pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_nreverse(args: Vec<Value>) -> EvalResult {
-    fn dotted_list_prefix(list: &Value) -> Option<Value> {
-        let mut cursor = *list;
-        let mut prefix = Vec::new();
-        loop {
-            match cursor.kind() {
-                ValueKind::Cons => {
-                    let pair_car = cursor.cons_car();
-                    let pair_cdr = cursor.cons_cdr();
-                    prefix.push(pair_car);
-                    cursor = pair_cdr;
-                }
-                ValueKind::Nil => return None,
-                _ => return Some(Value::list(prefix)),
-            }
-        }
-    }
-
     expect_args("nreverse", &args, 1)?;
-    match args[0].kind() {
+    nreverse_value(args[0])
+}
+
+pub(crate) fn builtin_nreverse_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    nreverse_value(arg)
+}
+
+fn nreverse_value(arg: Value) -> EvalResult {
+    match arg.kind() {
         ValueKind::Nil => Ok(Value::NIL),
         ValueKind::Cons => {
-            // Match Emacs list semantics: reject dotted lists with proper-prefix payload.
-            if let Some(prefix) = dotted_list_prefix(&args[0]) {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("listp"), prefix],
-                ));
-            }
-
             let mut prev = Value::NIL;
-            let mut current = args[0];
+            let mut current = arg;
             loop {
                 match current.kind() {
                     ValueKind::Nil => return Ok(prev),
                     ValueKind::Cons => {
                         let next = current.cons_cdr();
+                        if eq_value(&next, &arg) {
+                            return Err(signal("circular-list", vec![arg]));
+                        }
                         current.set_cdr(prev);
                         prev = current;
                         current = next;
                     }
-                    _ => unreachable!("proper-list check should reject dotted tails"),
+                    _ => {
+                        return Err(signal(
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), arg],
+                        ));
+                    }
                 }
             }
         }
         ValueKind::Veclike(VecLikeType::Vector) => {
-            if super::chartable::is_char_table(&args[0]) {
+            if super::chartable::is_char_table(&arg) {
                 return Err(signal(
                     "wrong-type-argument",
-                    vec![Value::symbol("arrayp"), args[0]],
+                    vec![Value::symbol("arrayp"), arg],
                 ));
             }
-            if super::chartable::is_bool_vector(&args[0]) {
+            if super::chartable::is_bool_vector(&arg) {
                 let logical_len =
-                    super::chartable::bool_vector_length(&args[0]).unwrap_or_default() as usize;
+                    super::chartable::bool_vector_length(&arg).unwrap_or_default() as usize;
                 let bits_end = 2 + logical_len;
-                let mut data = args[0]
+                let mut data = arg
                     .as_vector_data()
                     .map(|items| items.to_vec())
                     .unwrap_or_default();
                 if data.len() >= bits_end {
                     data[2..bits_end].reverse();
                 }
-                let _ = args[0].replace_vector_data(data);
-                return Ok(args[0]);
+                let _ = arg.replace_vector_data(data);
+                return Ok(arg);
             }
-            let mut data = args[0]
+            let mut data = arg
                 .as_vector_data()
                 .map(|items| items.to_vec())
                 .unwrap_or_default();
             data.reverse();
-            let _ = args[0].replace_vector_data(data);
-            Ok(args[0])
+            let _ = arg.replace_vector_data(data);
+            Ok(arg)
         }
-        ValueKind::String => builtin_reverse(args),
+        ValueKind::String => builtin_reverse(vec![arg]),
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("arrayp"), args[0]],
+            vec![Value::symbol("arrayp"), arg],
         )),
     }
 }
@@ -1045,8 +1048,18 @@ pub(crate) fn builtin_memql_with_ctx(
 
 fn builtin_memql_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("memql", &args, 2)?;
-    let target = &args[0];
-    let list = args[1];
+    builtin_memql_values(args[0], args[1], symbols_with_pos_enabled)
+}
+
+pub(crate) fn builtin_memql_2(
+    eval: &mut super::eval::Context,
+    target: Value,
+    list: Value,
+) -> EvalResult {
+    builtin_memql_values(target, list, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_memql_values(target: Value, list: Value, symbols_with_pos_enabled: bool) -> EvalResult {
     let mut cursor = list;
     loop {
         match cursor.kind() {
@@ -1054,7 +1067,7 @@ fn builtin_memql_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) 
             ValueKind::Cons => {
                 let pair_car = cursor.cons_car();
                 let pair_cdr = cursor.cons_cdr();
-                if eql_value_swp(target, &pair_car, symbols_with_pos_enabled) {
+                if eql_value_swp(&target, &pair_car, symbols_with_pos_enabled) {
                     return Ok(cursor);
                 }
                 cursor = pair_cdr;
@@ -1092,7 +1105,7 @@ pub(crate) fn builtin_assoc(eval: &mut super::eval::Context, args: Vec<Value>) -
                         if let ValueKind::Cons = pair_car.kind() {
                             let entry_key = pair_car.cons_car();
                             let matches = if let Some(test_fn) = &test_fn {
-                                match eval.apply(*test_fn, vec![entry_key, *key]) {
+                                match eval.apply2(*test_fn, entry_key, *key) {
                                     Ok(v) => v.is_truthy(),
                                     Err(e) => {
                                         break Err(e);
@@ -1453,7 +1466,34 @@ pub(crate) fn builtin_elt(args: Vec<Value>) -> EvalResult {
     }
 }
 
+pub(crate) fn builtin_elt_2(
+    eval: &mut super::eval::Context,
+    sequence: Value,
+    n: Value,
+) -> EvalResult {
+    match sequence.kind() {
+        ValueKind::Cons | ValueKind::Nil | ValueKind::Veclike(VecLikeType::Lambda) => {
+            builtin_nth_2(eval, n, sequence)
+        }
+        ValueKind::Veclike(VecLikeType::Vector)
+        | ValueKind::Veclike(VecLikeType::Record)
+        | ValueKind::String => builtin_aref_2(eval, sequence, n),
+        _ => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("sequencep"), sequence],
+        )),
+    }
+}
+
 pub(crate) fn builtin_nconc(args: Vec<Value>) -> EvalResult {
+    builtin_nconc_slice_values(&args)
+}
+
+pub(crate) fn builtin_nconc_slice(_eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    builtin_nconc_slice_values(args)
+}
+
+pub(crate) fn builtin_nconc_slice_values(args: &[Value]) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::NIL);
     }

@@ -221,9 +221,19 @@ pub(crate) fn builtin_rassq_with_ctx(
 
 fn builtin_rassq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) -> EvalResult {
     expect_args("rassq", &args, 2)?;
-    let key = &args[0];
-    let alist = &args[1];
-    let mut cursor = *alist;
+    builtin_rassq_values(args[0], args[1], symbols_with_pos_enabled)
+}
+
+pub(crate) fn builtin_rassq_2(
+    eval: &mut super::eval::Context,
+    key: Value,
+    alist: Value,
+) -> EvalResult {
+    builtin_rassq_values(key, alist, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_rassq_values(key: Value, alist: Value, symbols_with_pos_enabled: bool) -> EvalResult {
+    let mut cursor = alist;
     loop {
         match cursor.kind() {
             ValueKind::Nil => return Ok(Value::NIL),
@@ -232,7 +242,7 @@ fn builtin_rassq_with_symbols(args: Vec<Value>, symbols_with_pos_enabled: bool) 
                 let pair_cdr = cursor.cons_cdr();
                 if pair_car.is_cons() {
                     let inner_pair_cdr = pair_car.cons_cdr();
-                    if eq_value_swp(&inner_pair_cdr, key, symbols_with_pos_enabled) {
+                    if eq_value_swp(&inner_pair_cdr, &key, symbols_with_pos_enabled) {
                         return Ok(pair_car);
                     }
                 }

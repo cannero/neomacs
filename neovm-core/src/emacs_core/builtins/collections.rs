@@ -15,6 +15,10 @@ pub(crate) fn builtin_vector(args: Vec<Value>) -> EvalResult {
     Ok(Value::vector(args))
 }
 
+pub(crate) fn builtin_vector_slice(_eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    Ok(Value::vector(args.to_vec()))
+}
+
 pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
     expect_args("aref", &args, 2)?;
     builtin_aref_values(args[0], args[1])
@@ -242,6 +246,10 @@ pub(crate) fn builtin_aset(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
+    builtin_vconcat_slice(&args)
+}
+
+pub(crate) fn builtin_vconcat_slice(args: &[Value]) -> EvalResult {
     fn extend_from_proper_list(out: &mut Vec<Value>, list: &Value) -> Result<(), Flow> {
         let mut cursor = *list;
         loop {
@@ -264,7 +272,7 @@ pub(crate) fn builtin_vconcat(args: Vec<Value>) -> EvalResult {
     }
 
     let mut result = Vec::new();
-    for arg in &args {
+    for arg in args {
         match arg.kind() {
             ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
                 result.extend(arg.as_vector_data().unwrap().clone().into_iter())
@@ -784,7 +792,7 @@ pub(crate) fn builtin_plist_get_with_ctx(
                 if !pair_cdr.is_cons() {
                     break Ok(Value::NIL);
                 }
-                match eval.apply(predicate, vec![pair_car, prop]) {
+                match eval.apply2(predicate, pair_car, prop) {
                     Ok(value) if value.is_truthy() => break Ok(pair_cdr.cons_car()),
                     Ok(_) => {
                         cursor = pair_cdr.cons_cdr();
@@ -875,7 +883,7 @@ pub(crate) fn builtin_plist_put_with_ctx(
                     ));
                 }
 
-                match eval.apply(predicate, vec![entry_key, key]) {
+                match eval.apply2(predicate, entry_key, key) {
                     Ok(value) if value.is_truthy() => {
                         entry_rest.set_car(new_val);
                         break Ok(plist);
@@ -1002,7 +1010,7 @@ pub(crate) fn builtin_plist_member(
                 let entry_rest = cursor.cons_cdr();
 
                 let matches = if let Some(predicate) = &predicate {
-                    match eval.apply(*predicate, vec![entry_key, prop]) {
+                    match eval.apply2(*predicate, entry_key, prop) {
                         Ok(v) => v.is_truthy(),
                         Err(e) => {
                             break Err(e);

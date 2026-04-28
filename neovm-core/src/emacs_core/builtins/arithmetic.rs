@@ -486,17 +486,25 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
 /// Promotes to bignum on `MOST_NEGATIVE_FIXNUM - 1`.
 pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
     expect_args("1-", &args, 1)?;
-    match args[0].kind() {
+    sub1_value(args[0])
+}
+
+pub(crate) fn builtin_sub1_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    sub1_value(arg)
+}
+
+fn sub1_value(arg: Value) -> EvalResult {
+    match arg.kind() {
         ValueKind::Fixnum(n) => match n.checked_sub(1) {
             Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
             None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
         },
-        ValueKind::Float => Ok(Value::make_float(args[0].xfloat() - 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => Ok(Value::make_integer(
-            args[0].as_bignum().unwrap().clone() - 1,
-        )),
-        _ if args[0].is_marker() => {
-            let n = super::marker::marker_position_as_int(&args[0])?;
+        ValueKind::Float => Ok(Value::make_float(arg.xfloat() - 1.0)),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(arg.as_bignum().unwrap().clone() - 1))
+        }
+        _ if arg.is_marker() => {
+            let n = super::marker::marker_position_as_int(&arg)?;
             match n.checked_sub(1) {
                 Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
                 None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
@@ -504,7 +512,7 @@ pub(crate) fn builtin_sub1(args: Vec<Value>) -> EvalResult {
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), args[0]],
+            vec![Value::symbol("number-or-marker-p"), arg],
         )),
     }
 }
@@ -868,44 +876,98 @@ fn arithcompare_chain(
     Ok(Value::T)
 }
 
+fn arithcompare_chain_or_fast_fixnum_pair(
+    eval: &super::super::eval::Context,
+    args: &[Value],
+    op: NumCmp,
+) -> EvalResult {
+    if args.len() == 2
+        && let (ValueKind::Fixnum(left), ValueKind::Fixnum(right)) =
+            (args[0].kind(), args[1].kind())
+    {
+        return Ok(Value::bool_val(cmp_passes(left.cmp(&right), op)));
+    }
+    arithcompare_chain(eval, args, op)
+}
+
 pub(crate) fn builtin_num_eq(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("=", &args, 2)?;
+    expect_min_args("=", &args, 1)?;
     arithcompare_chain(eval, &args, NumCmp::Eq)
+}
+
+pub(crate) fn builtin_num_eq_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("=", args, 1)?;
+    arithcompare_chain(eval, args, NumCmp::Eq)
 }
 
 pub(crate) fn builtin_num_lt(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("<", &args, 2)?;
-    arithcompare_chain(eval, &args, NumCmp::Lt)
+    expect_min_args("<", &args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, &args, NumCmp::Lt)
+}
+
+pub(crate) fn builtin_num_lt_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("<", args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, args, NumCmp::Lt)
 }
 
 pub(crate) fn builtin_num_le(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args("<=", &args, 2)?;
-    arithcompare_chain(eval, &args, NumCmp::Le)
+    expect_min_args("<=", &args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, &args, NumCmp::Le)
+}
+
+pub(crate) fn builtin_num_le_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args("<=", args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, args, NumCmp::Le)
 }
 
 pub(crate) fn builtin_num_gt(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args(">", &args, 2)?;
-    arithcompare_chain(eval, &args, NumCmp::Gt)
+    expect_min_args(">", &args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, &args, NumCmp::Gt)
+}
+
+pub(crate) fn builtin_num_gt_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args(">", args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, args, NumCmp::Gt)
 }
 
 pub(crate) fn builtin_num_ge(
     eval: &mut super::super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_min_args(">=", &args, 2)?;
-    arithcompare_chain(eval, &args, NumCmp::Ge)
+    expect_min_args(">=", &args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, &args, NumCmp::Ge)
+}
+
+pub(crate) fn builtin_num_ge_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    expect_min_args(">=", args, 1)?;
+    arithcompare_chain_or_fast_fixnum_pair(eval, args, NumCmp::Ge)
 }
 
 pub(crate) fn builtin_num_ne(
@@ -914,6 +976,18 @@ pub(crate) fn builtin_num_ne(
 ) -> EvalResult {
     expect_args("/=", &args, 2)?;
     let ord = arithcompare(eval, &args[0], &args[1])?;
+    Ok(Value::bool_val(cmp_passes(ord, NumCmp::Ne)))
+}
+
+pub(crate) fn builtin_num_ne_2(
+    eval: &mut super::super::eval::Context,
+    left: Value,
+    right: Value,
+) -> EvalResult {
+    if let (ValueKind::Fixnum(left), ValueKind::Fixnum(right)) = (left.kind(), right.kind()) {
+        return Ok(Value::bool_val(left != right));
+    }
+    let ord = arithcompare(eval, &left, &right)?;
     Ok(Value::bool_val(cmp_passes(ord, NumCmp::Ne)))
 }
 

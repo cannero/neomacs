@@ -424,6 +424,22 @@ fn is_autoload_value_positive() {
 }
 
 #[test]
+fn is_autoload_value_matches_gnu_first_cell_check() {
+    crate::test_utils::init_test_tracing();
+    let dotted = Value::cons(Value::symbol("autoload"), Value::symbol("not-a-list"));
+    assert!(is_autoload_value(&dotted));
+}
+
+#[test]
+fn is_autoload_value_requires_canonical_autoload_symbol() {
+    crate::test_utils::init_test_tracing();
+    let uninterned_autoload =
+        Value::symbol(crate::emacs_core::intern::intern_uninterned("autoload"));
+    let val = Value::cons(uninterned_autoload, Value::symbol("not-a-list"));
+    assert!(!is_autoload_value(&val));
+}
+
+#[test]
 fn is_autoload_value_negative() {
     crate::test_utils::init_test_tracing();
     assert!(!is_autoload_value(&Value::NIL));

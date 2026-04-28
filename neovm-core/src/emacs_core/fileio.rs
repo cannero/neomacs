@@ -1763,12 +1763,9 @@ pub(crate) fn builtin_file_name_directory(eval: &mut Context, args: Vec<Value>) 
         return Ok(result);
     }
     expect_args("file-name-directory", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    match file_name_directory(&filename) {
-        Some(dir) => Ok(file_name_runtime_result_value(
-            &dir,
-            args[0].string_is_multibyte(),
-        )),
+    let filename = expect_lisp_string_strict(&args[0])?;
+    match lisp_file_name_directory(&filename) {
+        Some(dir) => Ok(Value::heap_string(dir)),
         None => Ok(Value::NIL),
     }
 }
@@ -1779,11 +1776,8 @@ pub(crate) fn builtin_file_name_nondirectory(eval: &mut Context, args: Vec<Value
         return Ok(result);
     }
     expect_args("file-name-nondirectory", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(file_name_runtime_result_value(
-        &file_name_nondirectory(&filename),
-        args[0].string_is_multibyte(),
-    ))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    Ok(Value::heap_string(lisp_file_name_nondirectory(&filename)))
 }
 
 /// (file-name-as-directory FILENAME) -> string
@@ -1792,11 +1786,8 @@ pub(crate) fn builtin_file_name_as_directory(eval: &mut Context, args: Vec<Value
         return Ok(result);
     }
     expect_args("file-name-as-directory", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(file_name_runtime_result_value(
-        &file_name_as_directory(&filename),
-        args[0].string_is_multibyte(),
-    ))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    Ok(Value::heap_string(lisp_file_name_as_directory(&filename)))
 }
 
 /// (directory-file-name FILENAME) -> string
@@ -1805,11 +1796,8 @@ pub(crate) fn builtin_directory_file_name(eval: &mut Context, args: Vec<Value>) 
         return Ok(result);
     }
     expect_args("directory-file-name", &args, 1)?;
-    let filename = expect_string_strict(&args[0])?;
-    Ok(file_name_runtime_result_value(
-        &directory_file_name(&filename),
-        args[0].string_is_multibyte(),
-    ))
+    let filename = expect_lisp_string_strict(&args[0])?;
+    Ok(Value::heap_string(lisp_directory_file_name(&filename)))
 }
 
 /// (file-name-concat DIRECTORY &rest COMPONENTS) -> string

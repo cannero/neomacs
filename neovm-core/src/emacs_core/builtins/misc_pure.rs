@@ -334,7 +334,15 @@ fn builtin_symbol_name_value(symbol: Value) -> EvalResult {
 
 pub(crate) fn builtin_make_symbol(args: Vec<Value>) -> EvalResult {
     expect_args("make-symbol", &args, 1)?;
-    let name = expect_lisp_string(&args[0])?;
+    make_symbol_value(args[0])
+}
+
+pub(crate) fn builtin_make_symbol_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    make_symbol_value(arg)
+}
+
+fn make_symbol_value(arg: Value) -> EvalResult {
+    let name = expect_lisp_string(&arg)?;
     Ok(Value::from_sym_id(
         crate::emacs_core::intern::intern_uninterned_lisp_string(name),
     ))

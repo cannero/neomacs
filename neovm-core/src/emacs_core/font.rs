@@ -2410,8 +2410,9 @@ fn make_lisp_face_vector_for_domain(face_name: &str, defaults_frame: bool) -> Va
 
 fn normalize_face_attribute_name(attr: &Value) -> Result<SymId, Flow> {
     let name = match attr.kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
+        ValueKind::Symbol(id) => resolve_sym(id),
+        ValueKind::Nil => "nil",
+        ValueKind::T => "t",
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2420,8 +2421,8 @@ fn normalize_face_attribute_name(attr: &Value) -> Result<SymId, Flow> {
         }
     };
 
-    if VALID_FACE_ATTRIBUTES.contains(&name.as_str()) {
-        Ok(face_attr_id(&name))
+    if VALID_FACE_ATTRIBUTES.contains(&name) {
+        Ok(face_attr_id(name))
     } else if attr.is_nil() {
         Err(signal(
             "error",
@@ -2437,8 +2438,9 @@ fn normalize_face_attribute_name(attr: &Value) -> Result<SymId, Flow> {
 
 fn normalize_set_face_attribute_name(attr: &Value) -> Result<SymId, Flow> {
     let name = match attr.kind() {
-        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
-        ValueKind::Nil | ValueKind::T => attr.as_symbol_name().unwrap_or_default().to_string(),
+        ValueKind::Symbol(id) => resolve_sym(id),
+        ValueKind::Nil => "nil",
+        ValueKind::T => "t",
         _ => {
             return Err(signal(
                 "wrong-type-argument",
@@ -2447,10 +2449,8 @@ fn normalize_set_face_attribute_name(attr: &Value) -> Result<SymId, Flow> {
         }
     };
 
-    if VALID_FACE_ATTRIBUTES.contains(&name.as_str())
-        || SET_ONLY_FACE_ATTRIBUTES.contains(&name.as_str())
-    {
-        Ok(face_attr_id(&name))
+    if VALID_FACE_ATTRIBUTES.contains(&name) || SET_ONLY_FACE_ATTRIBUTES.contains(&name) {
+        Ok(face_attr_id(name))
     } else if attr.is_nil() {
         Err(signal(
             "error",

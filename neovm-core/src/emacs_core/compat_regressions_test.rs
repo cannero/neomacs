@@ -1,5 +1,5 @@
 use crate::emacs_core::error::Flow;
-use crate::emacs_core::value::{HashTableTest, Value, next_float_id};
+use crate::emacs_core::value::{HashTableTest, Value, eq_value, next_float_id};
 
 #[test]
 fn fillarray_vector_is_in_place() {
@@ -195,6 +195,44 @@ fn nreverse_char_table_signals_arrayp() {
             assert_eq!(sig.symbol_name(), "wrong-type-argument");
             assert_eq!(sig.data[0], Value::symbol("arrayp"));
             assert_eq!(sig.data[1], table);
+        }
+        other => panic!("expected signal, got {other:?}"),
+    }
+}
+
+#[test]
+fn nreverse_dotted_list_mutates_before_listp_signal_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let tail = Value::cons(Value::fixnum(2), Value::fixnum(3));
+    let list = Value::cons(Value::fixnum(1), tail);
+
+    let err = crate::emacs_core::builtins::builtin_nreverse(vec![list]).unwrap_err();
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(sig.data[0], Value::symbol("listp"));
+            assert!(eq_value(&sig.data[1], &list));
+            assert_eq!(list.cons_car(), Value::fixnum(1));
+            assert!(list.cons_cdr().is_nil());
+        }
+        other => panic!("expected signal, got {other:?}"),
+    }
+}
+
+#[test]
+fn nreverse_circular_list_signals_circular_list_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let list = Value::cons(Value::fixnum(1), Value::NIL);
+    let tail = Value::cons(Value::fixnum(2), list);
+    list.set_cdr(tail);
+
+    let err = crate::emacs_core::builtins::builtin_nreverse(vec![list]).unwrap_err();
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "circular-list");
+            assert!(eq_value(&sig.data[0], &list));
+            assert_eq!(list.cons_car(), Value::fixnum(1));
+            assert!(list.cons_cdr().is_nil());
         }
         other => panic!("expected signal, got {other:?}"),
     }

@@ -576,6 +576,14 @@ pub(crate) fn builtin_eval(eval: &mut super::eval::Context, args: Vec<Value>) ->
     eval.eval_value_with_lexical_arg(args[0], args.get(1).copied())
 }
 
+pub(crate) fn builtin_eval_2(
+    eval: &mut super::eval::Context,
+    form: Value,
+    lexical: Value,
+) -> EvalResult {
+    eval.eval_value_with_lexical_arg(form, Some(lexical))
+}
+
 // Misc builtins
 // ===========================================================================
 
