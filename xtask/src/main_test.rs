@@ -186,6 +186,21 @@ fn compile_main_sources_follow_gnu_no_byte_compile_filter() {
 }
 
 #[test]
+fn compile_main_failure_summary_reports_failed_file_count() {
+    assert_eq!(
+        compile_main_failure_summary(&["/repo/lisp/simple.el".to_string()]),
+        "compile-main failed to byte-compile 1 file"
+    );
+    assert_eq!(
+        compile_main_failure_summary(&[
+            "/repo/lisp/simple.el".to_string(),
+            "/repo/lisp/calendar/calendar.el".to_string(),
+        ]),
+        "compile-main failed to byte-compile 2 files"
+    );
+}
+
+#[test]
 fn gnu_no_byte_compile_marker_matches_makefile_grep_shape() {
     assert!(gnu_no_byte_compile_marker_line(
         ";;; file.el -*- no-byte-compile: t -*-"

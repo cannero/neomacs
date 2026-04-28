@@ -863,13 +863,22 @@ fn run_compile_main(
     }
 
     if !errors.is_empty() {
-        eprintln!("  WARN  {} files failed to byte-compile:", errors.len());
+        eprintln!("  ERROR  {} files failed to byte-compile:", errors.len());
         for e in &errors {
             eprintln!("    - {}", e);
         }
+        return Err(compile_main_failure_summary(&errors).into());
     }
 
     Ok(())
+}
+
+fn compile_main_failure_summary(errors: &[String]) -> String {
+    format!(
+        "compile-main failed to byte-compile {} file{}",
+        errors.len(),
+        if errors.len() == 1 { "" } else { "s" }
+    )
 }
 
 fn compile_main_jobs() -> usize {
