@@ -36,7 +36,6 @@ struct ObjectExtraHeader {
 const HEADER_SIZE: usize = std::mem::size_of::<ObjectExtraHeader>();
 
 // Variant tags — kept distinct from HEAP_* tags in object_value_codec.rs.
-const EXTRA_NONE: u8 = 100;
 const EXTRA_CONS: u8 = 112;
 const EXTRA_FLOAT: u8 = 113;
 const EXTRA_VECTOR: u8 = 114;
@@ -58,8 +57,6 @@ const EXTRA_FREE: u8 = 111;
 /// Per-object extra data needed during load.
 #[derive(Debug, Clone)]
 pub(crate) enum ObjectExtra {
-    /// No data (shouldn't appear — use specific type tags).
-    None,
     /// Category A: cons cell (data in HeapImage).
     Cons,
     /// Category A: float (data in HeapImage).
@@ -257,7 +254,6 @@ pub(crate) fn reconstruct_heap_objects(extras: &[ObjectExtra]) -> Vec<DumpHeapOb
     extras
         .iter()
         .map(|extra| match extra {
-            ObjectExtra::None => DumpHeapObject::Free,
             ObjectExtra::Cons => DumpHeapObject::Cons {
                 car: DumpValue::Nil,
                 cdr: DumpValue::Nil,
@@ -340,7 +336,6 @@ pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, Dump
 fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectExtra, DumpError> {
     let tag = cursor.read_u8("object extra tag")?;
     match tag {
-        EXTRA_NONE => Ok(ObjectExtra::None),
         EXTRA_CONS => Ok(ObjectExtra::Cons),
         EXTRA_FLOAT => Ok(ObjectExtra::Float),
         EXTRA_VECTOR => {
@@ -506,5 +501,37 @@ impl DumpHeapObject {
             DumpHeapObject::Subr { .. } => "Subr",
             DumpHeapObject::Free => "Free",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn object_extra_round_trips_category_a_and_free_descriptors() {
+        let bytes = build_object_extra(&[
+            DumpHeapObject::Cons {
+                car: DumpValue::Nil,
+                cdr: DumpValue::True,
+            },
+            DumpHeapObject::Vector(vec![DumpValue::Nil, DumpValue::True]),
+            DumpHeapObject::Free,
+        ])
+        .expect("build object extra");
+
+        let extras = load_object_extra(&bytes).expect("load object extra");
+        assert!(matches!(extras[0], ObjectExtra::Cons));
+        assert!(matches!(extras[1], ObjectExtra::Vector(2)));
+        assert!(matches!(extras[2], ObjectExtra::Free));
+    }
+
+    #[test]
+    fn object_extra_rejects_removed_none_tag() {
+        let mut bytes = build_object_extra(&[DumpHeapObject::Free]).expect("build object extra");
+        bytes[HEADER_SIZE] = 100;
+
+        let err = load_object_extra(&bytes).expect_err("removed NONE tag should be rejected");
+        assert!(matches!(err, DumpError::ImageFormatError(_)));
     }
 }
