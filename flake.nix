@@ -270,6 +270,7 @@
                 libotf
                 libxml2
                 gnutls
+                zlib
                 libjpeg
                 libtiff
                 giflib
