@@ -1878,7 +1878,7 @@ impl<'a> Vm<'a> {
                 let alias_target =
                     self.ctx
                         .obarray
-                        .symbol_function(name)
+                        .symbol_function_id(id)
                         .and_then(|bound| match bound.kind() {
                             ValueKind::Symbol(tid) => {
                                 let target = resolve_sym(tid);
