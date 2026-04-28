@@ -251,6 +251,31 @@ impl TaggedLoadState {
             markers_by_id: FxHashMap::default(),
         }
     }
+
+    fn from_tagged_heap(
+        heap: DumpTaggedHeap,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
+        let len = heap.objects.len();
+        Self {
+            objects: heap.objects,
+            mapped_cons: heap.mapped_cons,
+            mapped_floats: heap.mapped_floats,
+            mapped_strings: heap.mapped_strings,
+            mapped_veclikes: heap.mapped_veclikes,
+            mapped_slots: heap.mapped_slots,
+            value_fixups,
+            values: vec![None; len],
+            populated: vec![false; len],
+            mapped_heap,
+            buffers: HashMap::new(),
+            windows: HashMap::new(),
+            frames: HashMap::new(),
+            timers: HashMap::new(),
+            markers_by_id: FxHashMap::default(),
+        }
+    }
 }
 
 pub(crate) struct LoadDecoder {
@@ -276,6 +301,16 @@ impl LoadDecoder {
     ) -> Self {
         Self {
             state: TaggedLoadState::new(heap, mapped_heap, value_fixups),
+        }
+    }
+
+    pub(crate) fn from_tagged_heap_with_mapped_heap_and_fixups(
+        heap: DumpTaggedHeap,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
+        Self {
+            state: TaggedLoadState::from_tagged_heap(heap, mapped_heap, value_fixups),
         }
     }
 

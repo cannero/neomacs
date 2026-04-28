@@ -37,7 +37,7 @@ use std::path::Path;
 use self::convert::*;
 use self::mmap_image::{DumpSectionKind, ImageSection};
 use self::runtime::*;
-use self::types::DumpContextState;
+use self::types::{DumpContextState, DumpTaggedHeap};
 use crate::emacs_core::charset::{
     CharsetRegistrySnapshot, restore_charset_registry, snapshot_charset_registry,
 };
@@ -432,8 +432,8 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
 
 /// Load evaluator state from a pdump file.
 ///
-/// This reconstructs a full `Context` from the serialized state,
-/// setting up thread-local pointers and resetting caches.
+/// This reconstructs a full `Context` from explicit mmap sections, setting up
+/// thread-local pointers and resetting caches.
 pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let load_start = std::time::Instant::now();
     let mut image = mmap_image::load_image(path)?;
@@ -453,12 +453,14 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::ObjectExtra)
         .ok_or_else(|| DumpError::ImageFormatError("missing object-extra section".into()))?;
     let extras = object_extra::load_object_extra(object_extra_payload)?;
-    state.tagged_heap.objects = object_extra::reconstruct_heap_objects(&extras);
-    state.tagged_heap.mapped_cons = spans.mapped_cons;
-    state.tagged_heap.mapped_floats = spans.mapped_floats;
-    state.tagged_heap.mapped_strings = spans.mapped_strings;
-    state.tagged_heap.mapped_veclikes = spans.mapped_veclikes;
-    state.tagged_heap.mapped_slots = spans.mapped_slots;
+    let tagged_heap = DumpTaggedHeap {
+        objects: object_extra::reconstruct_heap_objects(&extras),
+        mapped_cons: spans.mapped_cons,
+        mapped_floats: spans.mapped_floats,
+        mapped_strings: spans.mapped_strings,
+        mapped_veclikes: spans.mapped_veclikes,
+        mapped_slots: spans.mapped_slots,
+    };
     let value_fixups = image
         .section(DumpSectionKind::ValueRelocations)
         .map(value_fixups::load_value_fixups_section)
@@ -510,7 +512,12 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section_mut(DumpSectionKind::HeapImage)
         .map(mapped_heap::MappedHeapView::from_mut_slice);
 
-    let mut eval = reconstruct_evaluator_after_symbol_table(&state, mapped_heap, &value_fixups)?;
+    let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap(
+        &state,
+        tagged_heap,
+        mapped_heap,
+        value_fixups,
+    )?;
     drop(_cleanup);
     record_loaded_dump(path, load_start.elapsed());
     mark_after_pdump_load_hook_pending(&mut eval);
@@ -600,15 +607,36 @@ fn reconstruct_evaluator_after_symbol_table(
     mapped_heap: Option<mapped_heap::MappedHeapView>,
     value_fixups: &[value_fixups::RawValueFixup],
 ) -> Result<Context, DumpError> {
-    // 2. Reconstruct the tagged heap before any heap-backed value/object loads
-    // so tagged dump references can resolve directly to live tagged objects.
-    let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
-    crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    let mut decoder = LoadDecoder::new_with_mapped_heap_and_fixups(
+    let decoder = LoadDecoder::new_with_mapped_heap_and_fixups(
         &state.tagged_heap,
         mapped_heap,
         value_fixups.to_vec(),
     );
+    reconstruct_evaluator_after_symbol_table_with_decoder(state, decoder)
+}
+
+fn reconstruct_evaluator_after_symbol_table_with_tagged_heap(
+    state: &DumpContextState,
+    tagged_heap_state: DumpTaggedHeap,
+    mapped_heap: Option<mapped_heap::MappedHeapView>,
+    value_fixups: Vec<value_fixups::RawValueFixup>,
+) -> Result<Context, DumpError> {
+    let decoder = LoadDecoder::from_tagged_heap_with_mapped_heap_and_fixups(
+        tagged_heap_state,
+        mapped_heap,
+        value_fixups,
+    );
+    reconstruct_evaluator_after_symbol_table_with_decoder(state, decoder)
+}
+
+fn reconstruct_evaluator_after_symbol_table_with_decoder(
+    state: &DumpContextState,
+    mut decoder: LoadDecoder,
+) -> Result<Context, DumpError> {
+    // 2. Reconstruct the tagged heap before any heap-backed value/object loads
+    // so tagged dump references can resolve directly to live tagged objects.
+    let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+    crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
     decoder.preload_tagged_heap()?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.
