@@ -354,6 +354,49 @@ fn loaddefs_generation_args_force_full_generation() {
     );
 }
 
+#[test]
+fn executable_fingerprint_patch_is_idempotent() {
+    let tempdir = tempdir();
+    let binary = tempdir.join("neomacs");
+    let mut contents = b"prefix".to_vec();
+    contents.extend_from_slice(FINGERPRINT_MAGIC_START);
+    contents.extend_from_slice(FINGERPRINT_PLACEHOLDER);
+    contents.extend_from_slice(FINGERPRINT_MAGIC_END);
+    contents.extend_from_slice(b"suffix");
+    fs::write(&binary, contents).unwrap();
+
+    let first = executable_family_fingerprint(&[binary.as_path()]).unwrap();
+    patch_executable_fingerprint(&binary, &first).unwrap();
+    let patched_once = fs::read(&binary).unwrap();
+
+    let second = executable_family_fingerprint(&[binary.as_path()]).unwrap();
+    assert_eq!(first, second);
+    patch_executable_fingerprint(&binary, &second).unwrap();
+    assert_eq!(patched_once, fs::read(&binary).unwrap());
+}
+
+#[test]
+fn executable_fingerprint_patches_all_records() {
+    let tempdir = tempdir();
+    let binary = tempdir.join("neomacs");
+    let mut contents = Vec::new();
+    for label in [b"one".as_slice(), b"two".as_slice()] {
+        contents.extend_from_slice(label);
+        contents.extend_from_slice(FINGERPRINT_MAGIC_START);
+        contents.extend_from_slice(FINGERPRINT_PLACEHOLDER);
+        contents.extend_from_slice(FINGERPRINT_MAGIC_END);
+    }
+    fs::write(&binary, contents).unwrap();
+
+    let fingerprint = [0xA5; 32];
+    patch_executable_fingerprint(&binary, &fingerprint).unwrap();
+    let patched = fs::read(&binary).unwrap();
+
+    for slot in executable_fingerprint_slots(&patched) {
+        assert_eq!(&patched[slot..slot + 32], &fingerprint);
+    }
+}
+
 fn tempdir() -> PathBuf {
     let dir = env::temp_dir().join(format!(
         "xtask-tests-{}-{}",

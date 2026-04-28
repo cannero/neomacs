@@ -2170,10 +2170,7 @@ fn bootstrap_cache_dir(runtime_root: &Path) -> PathBuf {
 }
 
 fn should_hash_bootstrap_source_file(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(OsStr::to_str),
-        Some("el") | Some("elc")
-    )
+    path.extension().and_then(OsStr::to_str) == Some("el")
 }
 
 fn collect_bootstrap_source_files(path: &Path, out: &mut Vec<PathBuf>) {

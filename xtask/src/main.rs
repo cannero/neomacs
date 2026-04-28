@@ -1,4 +1,5 @@
 use rayon::prelude::*;
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error;
@@ -11,6 +12,12 @@ use std::process::{Command, ExitStatus};
 
 type DynError = Box<dyn Error>;
 type Result<T> = std::result::Result<T, DynError>;
+
+const FINGERPRINT_MAGIC_START: &[u8; 16] = b"NEOMACS-FP-START";
+const FINGERPRINT_MAGIC_END: &[u8; 16] = b"NEOMACS-FP-END!!";
+const FINGERPRINT_PLACEHOLDER: &[u8; 32] = b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
+const FINGERPRINT_RECORD_LEN: usize =
+    FINGERPRINT_MAGIC_START.len() + FINGERPRINT_PLACEHOLDER.len() + FINGERPRINT_MAGIC_END.len();
 
 #[derive(Debug, Clone)]
 struct FreshBuildOptions {
@@ -163,6 +170,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
             &[],
         )?;
     }
+
+    patch_executable_fingerprints(options, &paths)?;
 
     if !options.dry_run {
         ensure_binaries_exist(&paths)?;
@@ -560,6 +569,121 @@ fn ensure_binaries_exist(paths: &PipelinePaths) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn fresh_build_fingerprint_binaries(paths: &PipelinePaths) -> [&Path; 3] {
+    [
+        paths.temacs.as_path(),
+        paths.bootstrap.as_path(),
+        paths.final_bin.as_path(),
+    ]
+}
+
+fn patch_executable_fingerprints(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    // GNU Emacs hashes and patches the just-linked temacs image, then uses
+    // that same executable image as bootstrap-emacs/emacs. Neomacs currently
+    // builds three Rust binaries for those roles, so fresh-build gives the
+    // executable family one shared patched fingerprint.
+    let binaries = fresh_build_fingerprint_binaries(paths);
+    print_synthetic_step("patch executable pdump fingerprint");
+    if options.dry_run {
+        for binary in binaries {
+            println!("  would patch: {}", binary.display());
+        }
+        return Ok(());
+    }
+
+    ensure_binaries_exist(paths)?;
+    let fingerprint = executable_family_fingerprint(&binaries)?;
+    for binary in binaries {
+        patch_executable_fingerprint(binary, &fingerprint)?;
+    }
+    println!(
+        "  INFO  patched pdump fingerprint {}",
+        uppercase_hex(&fingerprint)
+    );
+    Ok(())
+}
+
+fn executable_family_fingerprint(binaries: &[&Path]) -> Result<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"neomacs-executable-fingerprint-v1\0");
+    for binary in binaries {
+        let bytes = fs::read(binary)?;
+        let normalized = normalize_executable_fingerprint_slots(&bytes)
+            .ok_or_else(|| format!("missing pdump fingerprint record in {}", binary.display()))?;
+        hasher.update(binary.file_name().unwrap_or_default().as_encoded_bytes());
+        hasher.update([0]);
+        hasher.update(normalized);
+        hasher.update([0xff]);
+    }
+
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    Ok(out)
+}
+
+fn normalize_executable_fingerprint_slots(bytes: &[u8]) -> Option<Vec<u8>> {
+    let mut normalized = bytes.to_vec();
+    let mut found = false;
+    for slot in executable_fingerprint_slots(bytes) {
+        normalized[slot..slot + FINGERPRINT_PLACEHOLDER.len()]
+            .copy_from_slice(FINGERPRINT_PLACEHOLDER);
+        found = true;
+    }
+    found.then_some(normalized)
+}
+
+fn patch_executable_fingerprint(path: &Path, fingerprint: &[u8; 32]) -> Result<()> {
+    let mut bytes = fs::read(path)?;
+    let mut found = false;
+    for slot in executable_fingerprint_slots(&bytes) {
+        bytes[slot..slot + fingerprint.len()].copy_from_slice(fingerprint);
+        found = true;
+    }
+    if !found {
+        return Err(format!("missing pdump fingerprint record in {}", path.display()).into());
+    }
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn executable_fingerprint_slots(bytes: &[u8]) -> Vec<usize> {
+    let mut slots = Vec::new();
+    let mut start = 0usize;
+    while let Some(relative) = find_bytes(&bytes[start..], FINGERPRINT_MAGIC_START) {
+        let record_start = start + relative;
+        let slot_start = record_start + FINGERPRINT_MAGIC_START.len();
+        let record_end = record_start + FINGERPRINT_RECORD_LEN;
+        if record_end <= bytes.len()
+            && &bytes[slot_start + FINGERPRINT_PLACEHOLDER.len()..record_end]
+                == FINGERPRINT_MAGIC_END
+        {
+            slots.push(slot_start);
+            start = record_end;
+        } else {
+            start = record_start + 1;
+        }
+    }
+    slots
+}
+
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+fn uppercase_hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(&mut out, "{byte:02X}").expect("write to string");
+    }
+    out
 }
 
 fn cargo_program() -> PathBuf {

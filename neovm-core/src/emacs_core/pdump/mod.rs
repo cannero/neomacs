@@ -33,6 +33,7 @@ pub mod types;
 pub(crate) mod value_fixups;
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use self::convert::*;
 use self::mmap_image::{DumpSectionKind, ImageSection};
@@ -123,34 +124,33 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   heap-image pointer relocation.
 const FORMAT_VERSION: u32 = 47;
 
+const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
+
+#[repr(C)]
+struct ExecutableFingerprintRecord {
+    magic_start: [u8; 16],
+    fingerprint: [u8; 32],
+    magic_end: [u8; 16],
+}
+
+#[used]
+static NEOMACS_PDUMP_FINGERPRINT_RECORD: ExecutableFingerprintRecord =
+    ExecutableFingerprintRecord {
+        magic_start: *b"NEOMACS-FP-START",
+        fingerprint: FINGERPRINT_PLACEHOLDER,
+        magic_end: *b"NEOMACS-FP-END!!",
+    };
+
 pub fn fingerprint_hex() -> &'static str {
-    env!("NEOVM_PDUMP_FINGERPRINT")
+    static HEX: OnceLock<String> = OnceLock::new();
+    HEX.get_or_init(|| hex_string(&fingerprint_bytes()))
 }
 
 fn fingerprint_bytes() -> [u8; 32] {
-    let hex = fingerprint_hex().as_bytes();
-    assert_eq!(
-        hex.len(),
-        64,
-        "NEOVM_PDUMP_FINGERPRINT must be 64 hex characters"
-    );
-
-    let mut out = [0u8; 32];
-    for (idx, chunk) in hex.chunks_exact(2).enumerate() {
-        out[idx] = (decode_hex_nibble(chunk[0]) << 4) | decode_hex_nibble(chunk[1]);
-    }
-    out
-}
-
-fn decode_hex_nibble(byte: u8) -> u8 {
-    match byte {
-        b'0'..=b'9' => byte - b'0',
-        b'a'..=b'f' => byte - b'a' + 10,
-        b'A'..=b'F' => byte - b'A' + 10,
-        _ => panic!(
-            "invalid NEOVM_PDUMP_FINGERPRINT hex digit: {}",
-            byte as char
-        ),
+    unsafe {
+        std::ptr::read_volatile(std::ptr::addr_of!(
+            NEOMACS_PDUMP_FINGERPRINT_RECORD.fingerprint
+        ))
     }
 }
 
