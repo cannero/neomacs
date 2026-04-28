@@ -8938,7 +8938,7 @@ fn vm_compiled_this_single_command_keys_uses_live_eval_key_context() {
 }
 
 #[test]
-fn vm_compiled_require_respects_recursive_require_guard() {
+fn vm_compiled_require_does_not_treat_recursive_stack_as_provided() {
     crate::test_utils::init_test_tracing();
     let dir = tempfile::tempdir().expect("tempdir");
     let fixture = dir.path().join("vm-bytecode-rec.el");
@@ -8962,12 +8962,12 @@ fn vm_compiled_require_respects_recursive_require_guard() {
            (require 'vm-bytecode-rec)
            vm-bytecode-required-ran)",
         )
-        .expect("require should observe recursive guard");
+        .expect("require should load until the feature is provided");
 
     assert_eq!(
         result,
-        Value::NIL,
-        "compiled require should return immediately without loading the file again"
+        Value::T,
+        "compiled require should not treat require_stack membership as provide"
     );
 }
 

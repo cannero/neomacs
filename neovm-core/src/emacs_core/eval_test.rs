@@ -6972,11 +6972,8 @@ fn provide_preserves_features_variable_entries() {
 }
 
 #[test]
-fn require_recursive_cycle_returns_immediately() {
+fn require_recursive_cycle_with_early_provide_loads_until_feature_is_provided() {
     crate::test_utils::init_test_tracing();
-    // Official Emacs treats recursive require as a no-op, returning
-    // the feature symbol immediately rather than signaling an error.
-    // This supports circular dependencies like dired ↔ dired-aux.
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -6985,6 +6982,50 @@ fn require_recursive_cycle_returns_immediately() {
         .expect("clock before epoch")
         .as_nanos();
     let dir = std::env::temp_dir().join(format!("neovm-require-recursive-{unique}"));
+    fs::create_dir_all(&dir).expect("create fixture dir");
+    fs::write(
+        dir.join("vm-rec-a.el"),
+        "(provide 'vm-rec-a)\n(require 'vm-rec-b)\n(setq vm-rec-a-saw-b vm-rec-b-value)\n",
+    )
+    .expect("write vm-rec-a");
+    fs::write(
+        dir.join("vm-rec-b.el"),
+        "(require 'vm-rec-a)\n(setq vm-rec-b-value 42)\n(provide 'vm-rec-b)\n",
+    )
+    .expect("write vm-rec-b");
+
+    let escaped = dir
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let script = format!(
+        "(progn (setq load-path (cons \"{}\" load-path)) 'ok)\n\
+         (require 'vm-rec-b)\n\
+         (featurep 'vm-rec-a)\n\
+         (featurep 'vm-rec-b)\n\
+         vm-rec-a-saw-b",
+        escaped
+    );
+    let results = eval_all(&script);
+    assert_eq!(results[1], "OK vm-rec-b");
+    assert_eq!(results[2], "OK t");
+    assert_eq!(results[3], "OK t");
+    assert_eq!(results[4], "OK 42");
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn require_recursive_cycle_without_provide_hits_gnu_nesting_guard() {
+    crate::test_utils::init_test_tracing();
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let unique = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("clock before epoch")
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("neovm-require-recursive-error-{unique}"));
     fs::create_dir_all(&dir).expect("create fixture dir");
     fs::write(
         dir.join("vm-rec-a.el"),
@@ -7001,18 +7042,16 @@ fn require_recursive_cycle_returns_immediately() {
         .to_string_lossy()
         .replace('\\', "\\\\")
         .replace('"', "\\\"");
-    let script = format!(
-        "(progn (setq load-path (cons \"{}\" load-path)) 'ok)\n\
-         (require 'vm-rec-a)\n\
-         (featurep 'vm-rec-a)\n\
-         (featurep 'vm-rec-b)",
+    let result = eval_one(&format!(
+        "(progn
+           (setq load-path (cons \"{}\" load-path))
+           (require 'vm-rec-a))",
         escaped
+    ));
+    assert_eq!(
+        result,
+        "ERR (error (\"Recursive `require' for feature `vm-rec-a'\"))"
     );
-    let results = eval_all(&script);
-    // Recursive require returns immediately; both features get provided
-    assert_eq!(results[1], "OK vm-rec-a");
-    assert_eq!(results[2], "OK t");
-    assert_eq!(results[3], "OK t");
 
     let _ = fs::remove_dir_all(&dir);
 }

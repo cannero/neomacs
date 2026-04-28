@@ -1670,13 +1670,20 @@ pub(crate) fn plan_require_in_state(
         return Ok(RequirePlan::Return(Value::symbol(&name)));
     }
 
-    // Preserve current NeoVM recursive-require semantics in this bridge-slice.
-    if require_stack.contains(&sym_id) {
-        tracing::debug!(
-            "Recursive require for feature '{}', returning immediately",
-            name
-        );
-        return Ok(RequirePlan::Return(Value::symbol(&name)));
+    // GNU Emacs fns.c:Frequire tracks recursive requires in
+    // require_nesting_list, but it does not treat an in-progress require as a
+    // provided feature.  Recursive require is legitimate up to GNU's guard.
+    let nesting = require_stack
+        .iter()
+        .filter(|stacked_sym_id| **stacked_sym_id == sym_id)
+        .count();
+    if nesting > 3 {
+        return Err(signal(
+            "error",
+            vec![Value::string(format!(
+                "Recursive `require' for feature `{name}'"
+            ))],
+        ));
     }
 
     let filename = match filename {
