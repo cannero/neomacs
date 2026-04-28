@@ -12,6 +12,7 @@ use super::types::{
     DumpByteData, DumpConsSpan, DumpContextState, DumpFloatSpan, DumpHeapObject, DumpSlotSpan,
     DumpStringSpan, DumpTaggedHeap, DumpValue, DumpVecLikeSpan,
 };
+use super::value_fixups::RawValueFixup;
 use crate::tagged::header::{
     ConsCell, FloatObj, GcHeader, HeapObjectKind, LambdaObj, MacroObj, MarkerObj, OverlayObj,
     RecordObj, StringObj, VectorObj,
@@ -29,6 +30,7 @@ const TAG_FLOAT: u64 = 0b111;
 pub(crate) struct MappedHeapPayload {
     pub bytes: Vec<u8>,
     pub relocations: Vec<ImageRelocation>,
+    pub value_fixups: Vec<RawValueFixup>,
 }
 
 #[repr(C)]
@@ -259,6 +261,41 @@ impl MappedHeapView {
             },
             "string",
         )
+    }
+
+    pub(crate) fn write_value_word(self, offset: u64, value: TaggedValue) -> Result<(), DumpError> {
+        if !self.writable {
+            return Err(DumpError::ImageFormatError(
+                "mapped heap view is not writable".to_string(),
+            ));
+        }
+        let start = usize::try_from(offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped value fixup offset overflows usize".into())
+        })?;
+        let end = start
+            .checked_add(std::mem::size_of::<TaggedValue>())
+            .ok_or_else(|| {
+                DumpError::ImageFormatError("mapped value fixup range overflow".into())
+            })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped value fixup {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<TaggedValue>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped value fixup offset {start} is not {}-byte aligned",
+                std::mem::align_of::<TaggedValue>()
+            )));
+        }
+        unsafe {
+            self.ptr
+                .add(start)
+                .cast::<usize>()
+                .write_unaligned(value.bits());
+        }
+        Ok(())
     }
 }
 
@@ -561,6 +598,7 @@ impl HeapLayoutCursor {
 struct MappedHeapBuilder {
     bytes: Vec<u8>,
     relocations: Vec<ImageRelocation>,
+    value_fixups: Vec<RawValueFixup>,
 }
 
 impl MappedHeapBuilder {
@@ -586,6 +624,7 @@ impl MappedHeapBuilder {
         MappedHeapPayload {
             bytes: self.bytes,
             relocations: self.relocations,
+            value_fixups: self.value_fixups,
         }
     }
 
@@ -717,6 +756,12 @@ impl MappedHeapBuilder {
 
     fn write_dump_value_word(&mut self, offset: usize, value: &DumpValue, heap: &DumpTaggedHeap) {
         let Some(word) = self.dump_value_word(offset as u64, value, heap) else {
+            self.value_fixups.push(RawValueFixup {
+                location_offset: offset as u64,
+                value: value.clone(),
+            });
+            let word = TaggedValue::NIL.bits();
+            self.write_bytes(offset, &word.to_ne_bytes());
             return;
         };
         self.write_bytes(offset, &word.to_ne_bytes());
@@ -1039,6 +1084,47 @@ mod tests {
             TaggedValue::fixnum(11).bits()
         );
         assert_eq!(read_usize(&heap.bytes, second), TaggedValue::T.bits());
+    }
+
+    #[test]
+    fn emits_value_fixups_for_raw_slots_that_need_runtime_remap() {
+        let mut tagged_heap = DumpTaggedHeap {
+            objects: vec![DumpHeapObject::Vector(vec![
+                crate::emacs_core::pdump::types::DumpValue::Symbol(
+                    crate::emacs_core::pdump::types::DumpSymId(42),
+                ),
+                crate::emacs_core::pdump::types::DumpValue::Subr(
+                    crate::emacs_core::pdump::types::DumpNameId(7),
+                ),
+            ])],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: Vec::new(),
+            mapped_slots: Vec::new(),
+        };
+
+        let heap = extract_tagged_heap_payloads(&mut tagged_heap);
+        let slots = tagged_heap.mapped_slots[0].expect("mapped slots");
+
+        assert_eq!(heap.value_fixups.len(), 2);
+        assert_eq!(heap.value_fixups[0].location_offset, slots.offset);
+        assert!(matches!(
+            heap.value_fixups[0].value,
+            crate::emacs_core::pdump::types::DumpValue::Symbol(_)
+        ));
+        assert_eq!(
+            heap.value_fixups[1].location_offset,
+            slots.offset + std::mem::size_of::<TaggedValue>() as u64
+        );
+        assert!(matches!(
+            heap.value_fixups[1].value,
+            crate::emacs_core::pdump::types::DumpValue::Subr(_)
+        ));
+        assert_eq!(
+            read_usize(&heap.bytes, slots.offset as usize),
+            TaggedValue::NIL.bits()
+        );
     }
 
     #[test]

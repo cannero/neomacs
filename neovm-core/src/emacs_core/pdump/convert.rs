@@ -9,6 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::DumpError;
 use super::mapped_heap::MappedHeapView;
 use super::types::*;
+use super::value_fixups::RawValueFixup;
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
@@ -206,6 +207,7 @@ pub(crate) struct TaggedLoadState {
     mapped_strings: Vec<Option<DumpStringSpan>>,
     mapped_veclikes: Vec<Option<DumpVecLikeSpan>>,
     mapped_slots: Vec<Option<DumpSlotSpan>>,
+    value_fixups: Vec<RawValueFixup>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
     mapped_heap: Option<MappedHeapView>,
@@ -225,7 +227,11 @@ pub(crate) struct TaggedLoadState {
 }
 
 impl TaggedLoadState {
-    fn new(heap: &DumpTaggedHeap, mapped_heap: Option<MappedHeapView>) -> Self {
+    fn new(
+        heap: &DumpTaggedHeap,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
@@ -234,6 +240,7 @@ impl TaggedLoadState {
             mapped_strings: heap.mapped_strings.clone(),
             mapped_veclikes: heap.mapped_veclikes.clone(),
             mapped_slots: heap.mapped_slots.clone(),
+            value_fixups,
             values: vec![None; len],
             populated: vec![false; len],
             mapped_heap,
@@ -259,8 +266,16 @@ impl LoadDecoder {
         heap: &DumpTaggedHeap,
         mapped_heap: Option<MappedHeapView>,
     ) -> Self {
+        Self::new_with_mapped_heap_and_fixups(heap, mapped_heap, Vec::new())
+    }
+
+    pub(crate) fn new_with_mapped_heap_and_fixups(
+        heap: &DumpTaggedHeap,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
         Self {
-            state: TaggedLoadState::new(heap, mapped_heap),
+            state: TaggedLoadState::new(heap, mapped_heap, value_fixups),
         }
     }
 
@@ -274,10 +289,26 @@ impl LoadDecoder {
                 index: index as u32,
             })?;
         }
+        self.apply_mapped_value_fixups()?;
         for index in 0..self.state.objects.len() {
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
+        }
+        Ok(())
+    }
+
+    fn apply_mapped_value_fixups(&mut self) -> Result<(), DumpError> {
+        if self.state.value_fixups.is_empty() {
+            return Ok(());
+        }
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError("value fixups require a writable mapped heap image".into())
+        })?;
+        let fixups = self.state.value_fixups.clone();
+        for fixup in fixups {
+            let value = self.load_value(&fixup.value);
+            mapped_heap.write_value_word(fixup.location_offset, value)?;
         }
         Ok(())
     }
@@ -730,15 +761,16 @@ impl LoadDecoder {
     fn mapped_cons_has_raw_words(
         &self,
         id: TaggedHeapRef,
-        car: &DumpValue,
-        cdr: &DumpValue,
+        _car: &DumpValue,
+        _cdr: &DumpValue,
     ) -> bool {
+        // If a mapped cons span exists, the HeapImage bytes are the
+        // source of truth (set by relocation).  The placeholder car/cdr
+        // DumpValue is irrelevant for Category A objects.
         self.state
             .mapped_cons
             .get(id.index as usize)
             .is_some_and(|span| span.is_some())
-            && self.mapped_raw_word_available(car)
-            && self.mapped_raw_word_available(cdr)
     }
 
     fn allocate_tagged_placeholder(&mut self, id: TaggedHeapRef) -> Result<Value, DumpError> {
@@ -978,10 +1010,7 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Vector(items) => {
-                if self.mapped_raw_words_available(&items)
-                    && let Some(storage) =
-                        self.mapped_slots_for_object_without_copy(id, items.len())?
-                {
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, items.len())? {
                     let _ = Self::install_mapped_vector_slots(value, storage);
                 } else {
                     let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
@@ -1035,10 +1064,7 @@ impl LoadDecoder {
             }
             DumpHeapObject::Float(_) => {}
             DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-                if self.mapped_raw_words_available(&slots)
-                    && let Some(storage) =
-                        self.mapped_slots_for_object_without_copy(id, slots.len())?
-                {
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, slots.len())? {
                     let _ = Self::install_mapped_closure_slots(value, storage);
                 } else {
                     let slots: Vec<_> = slots.iter().map(|slot| self.load_value(slot)).collect();
@@ -1058,10 +1084,7 @@ impl LoadDecoder {
                     .transpose()?;
             }
             DumpHeapObject::Record(items) => {
-                if self.mapped_raw_words_available(&items)
-                    && let Some(storage) =
-                        self.mapped_slots_for_object_without_copy(id, items.len())?
-                {
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, items.len())? {
                     let _ = Self::install_mapped_record_slots(value, storage);
                 } else {
                     let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();

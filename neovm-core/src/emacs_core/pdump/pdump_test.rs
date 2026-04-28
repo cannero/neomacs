@@ -53,14 +53,19 @@ fn file_pdump_stores_symbol_table_in_raw_mmap_section() {
             .is_some(),
         "file pdumps must carry the symbol interner in a raw mmap section"
     );
-    let heap_objects = image
-        .section(super::mmap_image::DumpSectionKind::HeapObjects)
-        .expect("heap-objects section");
-    let heap_objects =
-        super::heap_objects_image::load_heap_objects_section(heap_objects).expect("heap objects");
     assert!(
-        !heap_objects.is_empty(),
-        "file pdumps must carry dump-local heap objects in a raw mmap section"
+        image
+            .section(super::mmap_image::DumpSectionKind::ObjectStarts)
+            .is_some(),
+        "file pdumps must carry mapped heap object starts in a raw mmap section"
+    );
+    let object_extra = image
+        .section(super::mmap_image::DumpSectionKind::ObjectExtra)
+        .expect("object-extra section");
+    let object_extra = super::object_extra::load_object_extra(object_extra).expect("object extra");
+    assert!(
+        !object_extra.is_empty(),
+        "file pdumps must carry compact non-HeapImage object metadata"
     );
     let obarray = image
         .section(super::mmap_image::DumpSectionKind::Obarray)
@@ -212,15 +217,15 @@ fn file_pdump_loads_string_text_props_from_mmap_object() {
     let dump_path = dir.path().join("mapped-string-props.pdump");
     dump_to_file(&eval, &dump_path).expect("dump should succeed");
     let image = super::mmap_image::load_image(&dump_path).expect("load raw mmap image");
-    let heap_objects_payload = image
-        .section(super::mmap_image::DumpSectionKind::HeapObjects)
-        .expect("heap-objects section");
-    let heap_objects = super::heap_objects_image::load_heap_objects_section(heap_objects_payload)
-        .expect("heap objects");
+    let object_extra_payload = image
+        .section(super::mmap_image::DumpSectionKind::ObjectExtra)
+        .expect("object-extra section");
+    let object_extra =
+        super::object_extra::load_object_extra(object_extra_payload).expect("object extra");
     assert!(
-        heap_objects.iter().any(|object| matches!(
+        object_extra.iter().any(|object| matches!(
             object,
-            super::types::DumpHeapObject::Str { text_props, .. } if !text_props.is_empty()
+            super::object_extra::ObjectExtra::String { text_props, .. } if !text_props.is_empty()
         )),
         "dump should contain string text properties"
     );

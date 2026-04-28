@@ -23,11 +23,14 @@ pub(crate) mod heap_objects_image;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub(crate) mod obarray_image;
+pub(crate) mod object_extra;
+pub(crate) mod object_starts;
 pub(crate) mod roots_image;
 pub mod runtime;
 pub(crate) mod runtime_managers_image;
 pub(crate) mod symbol_table_image;
 pub mod types;
+pub(crate) mod value_fixups;
 
 use std::path::Path;
 
@@ -94,7 +97,7 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v37: Mapped heap object/slot spans move out of RuntimeState bincode. File
 //   load rebuilds them from the dumped object list and the fixed heap-image
 //   layout algorithm instead of deserializing five span vectors.
-// v38: DumpTaggedHeap.objects moves out of RuntimeState bincode and into a
+// v38: DumpTaggedHeap.objects moved out of RuntimeState bincode and into a
 //   fixed-layout HeapObjects mmap section with explicit heap/value tags.
 // v39: Obarray symbol state moves out of RuntimeState bincode and into a
 //   fixed-layout Obarray mmap section.
@@ -113,7 +116,11 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v46: The remaining runtime managers move out of RuntimeState bincode and
 //   into the fixed-layout RuntimeManagers mmap section. File pdumps no longer
 //   write or read RuntimeState.
-const FORMAT_VERSION: u32 = 46;
+// v47: The monolithic HeapObjects section is removed. HeapImage keeps raw
+//   object bytes, ObjectStarts records exact mapped object starts/types, and
+//   ValueRelocations patches mapped value words whose value cannot be a plain
+//   heap-image pointer relocation.
+const FORMAT_VERSION: u32 = 47;
 
 pub fn fingerprint_hex() -> &'static str {
     env!("NEOVM_PDUMP_FINGERPRINT")
@@ -312,8 +319,10 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
     let mut state = dump_evaluator(eval);
     let symbol_table_payload = symbol_table_image::symbol_table_section_bytes(&state.symbol_table)?;
     let heap_payload = mapped_heap::extract_mapped_heap_payloads(&mut state);
-    let heap_objects_payload =
-        heap_objects_image::heap_objects_section_bytes(&state.tagged_heap.objects)?;
+    let object_starts_payload = object_starts::build_object_starts(&state.tagged_heap)?;
+    let object_extra_payload = object_extra::build_object_extra(&state.tagged_heap.objects)?;
+    let value_fixups_payload =
+        value_fixups::value_fixups_section_bytes(&heap_payload.value_fixups)?;
     let obarray_payload = obarray_image::obarray_section_bytes(&state.obarray)?;
     let charset_payload = charset_image::charset_section_bytes(&state.charset_registry)?;
     let coding_system_payload =
@@ -346,9 +355,14 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
         bytes: &symbol_table_payload,
     });
     sections.push(ImageSection {
-        kind: DumpSectionKind::HeapObjects,
+        kind: DumpSectionKind::ObjectStarts,
         flags: 0,
-        bytes: &heap_objects_payload,
+        bytes: &object_starts_payload,
+    });
+    sections.push(ImageSection {
+        kind: DumpSectionKind::ObjectExtra,
+        flags: 0,
+        bytes: &object_extra_payload,
     });
     sections.push(ImageSection {
         kind: DumpSectionKind::Obarray,
@@ -404,6 +418,13 @@ pub fn dump_to_file(eval: &Context, path: &Path) -> Result<(), DumpError> {
             bytes: &relocation_payload,
         });
     }
+    if !value_fixups_payload.is_empty() {
+        sections.push(ImageSection {
+            kind: DumpSectionKind::ValueRelocations,
+            flags: 0,
+            bytes: &value_fixups_payload,
+        });
+    }
 
     mmap_image::write_image(path, &sections)
 }
@@ -423,11 +444,25 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::SymbolTable)
         .ok_or_else(|| DumpError::ImageFormatError("missing symbol-table section".into()))?;
     symbol_table_image::load_symbol_table_section(symbol_table_payload)?;
-    let heap_objects_payload = image
-        .section(DumpSectionKind::HeapObjects)
-        .ok_or_else(|| DumpError::ImageFormatError("missing heap-objects section".into()))?;
-    state.tagged_heap.objects =
-        heap_objects_image::load_heap_objects_section(heap_objects_payload)?;
+    let object_starts_payload = image
+        .section(DumpSectionKind::ObjectStarts)
+        .ok_or_else(|| DumpError::ImageFormatError("missing object-starts section".into()))?;
+    let spans = object_starts::load_object_starts(object_starts_payload)?;
+    let object_extra_payload = image
+        .section(DumpSectionKind::ObjectExtra)
+        .ok_or_else(|| DumpError::ImageFormatError("missing object-extra section".into()))?;
+    let extras = object_extra::load_object_extra(object_extra_payload)?;
+    state.tagged_heap.objects = object_extra::reconstruct_heap_objects(&extras);
+    state.tagged_heap.mapped_cons = spans.mapped_cons;
+    state.tagged_heap.mapped_floats = spans.mapped_floats;
+    state.tagged_heap.mapped_strings = spans.mapped_strings;
+    state.tagged_heap.mapped_veclikes = spans.mapped_veclikes;
+    state.tagged_heap.mapped_slots = spans.mapped_slots;
+    let value_fixups = image
+        .section(DumpSectionKind::ValueRelocations)
+        .map(value_fixups::load_value_fixups_section)
+        .transpose()?
+        .unwrap_or_default();
     let obarray_payload = image
         .section(DumpSectionKind::Obarray)
         .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
@@ -469,13 +504,12 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .ok_or_else(|| DumpError::ImageFormatError("missing runtime-managers section".into()))?;
     runtime_managers_image::load_runtime_managers_section(runtime_managers_payload)?
         .install_into(&mut state);
-    mapped_heap::rebuild_heap_metadata(&mut state.tagged_heap)?;
 
     let mapped_heap = image
         .section_mut(DumpSectionKind::HeapImage)
         .map(mapped_heap::MappedHeapView::from_mut_slice);
 
-    let mut eval = reconstruct_evaluator_after_symbol_table(&state, mapped_heap)?;
+    let mut eval = reconstruct_evaluator_after_symbol_table(&state, mapped_heap, &value_fixups)?;
     drop(_cleanup);
     record_loaded_dump(path, load_start.elapsed());
     mark_after_pdump_load_hook_pending(&mut eval);
@@ -555,7 +589,7 @@ fn reconstruct_evaluator(
     // to dump-local `DumpSymId`s are loaded.
     let _cleanup = RestoreCleanup;
     load_symbol_table(&state.symbol_table)?;
-    let eval = reconstruct_evaluator_after_symbol_table(state, mapped_heap)?;
+    let eval = reconstruct_evaluator_after_symbol_table(state, mapped_heap, &[])?;
     drop(_cleanup);
     Ok(eval)
 }
@@ -563,12 +597,17 @@ fn reconstruct_evaluator(
 fn reconstruct_evaluator_after_symbol_table(
     state: &DumpContextState,
     mapped_heap: Option<mapped_heap::MappedHeapView>,
+    value_fixups: &[value_fixups::RawValueFixup],
 ) -> Result<Context, DumpError> {
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads
     // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    let mut decoder = LoadDecoder::new_with_mapped_heap(&state.tagged_heap, mapped_heap);
+    let mut decoder = LoadDecoder::new_with_mapped_heap_and_fixups(
+        &state.tagged_heap,
+        mapped_heap,
+        value_fixups.to_vec(),
+    );
     decoder.preload_tagged_heap()?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.

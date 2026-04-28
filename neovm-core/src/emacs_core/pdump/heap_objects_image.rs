@@ -1,11 +1,8 @@
-//! Fixed-layout pdump section for heap object descriptors.
+//! Internal pdump object/value codec.
 //!
-//! The raw heap bytes live in the HeapImage section.  This companion section
-//! keeps the dump-local object graph out of RuntimeState bincode so file pdumps
-//! can load heap identity from mmap-owned sections instead of one monolithic
-//! Rust serialization blob.
-
-use bytemuck::{Pod, Zeroable};
+//! The old monolithic `HeapObjects` image section has been removed.  This file
+//! remains as the shared codec for compact metadata sections that need to encode
+//! individual `DumpValue`s or Category B/C object descriptors.
 
 use super::DumpError;
 use super::types::{
@@ -14,101 +11,6 @@ use super::types::{
     DumpLispString, DumpMarker, DumpNameId, DumpOp, DumpOverlay, DumpStringTextPropertyRun,
     DumpSymId, DumpValue,
 };
-
-const HEAP_OBJECTS_MAGIC: [u8; 16] = *b"NEOHEAPOBJECTS\0\0";
-const HEAP_OBJECTS_FORMAT_VERSION: u32 = 1;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct HeapObjectsHeader {
-    magic: [u8; 16],
-    version: u32,
-    header_size: u32,
-    object_count: u64,
-    payload_offset: u64,
-    payload_len: u64,
-}
-
-const HEADER_SIZE: usize = std::mem::size_of::<HeapObjectsHeader>();
-
-pub(crate) fn heap_objects_section_bytes(objects: &[DumpHeapObject]) -> Result<Vec<u8>, DumpError> {
-    let object_count = u64::try_from(objects.len()).map_err(|_| {
-        DumpError::SerializationError("pdump heap object count overflows u64".into())
-    })?;
-    let mut bytes = vec![0; HEADER_SIZE];
-    for object in objects {
-        write_heap_object(&mut bytes, object)?;
-    }
-    let payload_len = bytes.len() - HEADER_SIZE;
-    let header = HeapObjectsHeader {
-        magic: HEAP_OBJECTS_MAGIC,
-        version: HEAP_OBJECTS_FORMAT_VERSION,
-        header_size: HEADER_SIZE as u32,
-        object_count,
-        payload_offset: HEADER_SIZE as u64,
-        payload_len: payload_len as u64,
-    };
-    bytes[..HEADER_SIZE].copy_from_slice(bytemuck::bytes_of(&header));
-    Ok(bytes)
-}
-
-pub(crate) fn load_heap_objects_section(section: &[u8]) -> Result<Vec<DumpHeapObject>, DumpError> {
-    let header = read_header(section)?;
-    let payload_offset = usize::try_from(header.payload_offset).map_err(|_| {
-        DumpError::ImageFormatError("heap object payload offset overflows usize".into())
-    })?;
-    let payload_len = usize::try_from(header.payload_len).map_err(|_| {
-        DumpError::ImageFormatError("heap object payload length overflows usize".into())
-    })?;
-    let end = payload_offset
-        .checked_add(payload_len)
-        .ok_or_else(|| DumpError::ImageFormatError("heap object payload range overflows".into()))?;
-    if payload_offset < HEADER_SIZE || end > section.len() {
-        return Err(DumpError::ImageFormatError(
-            "heap object payload range is outside section".into(),
-        ));
-    }
-
-    let object_count = usize::try_from(header.object_count)
-        .map_err(|_| DumpError::ImageFormatError("heap object count overflows usize".into()))?;
-    let mut cursor = Cursor::new(&section[payload_offset..end]);
-    let mut objects = Vec::with_capacity(object_count);
-    for index in 0..object_count {
-        objects.push(cursor.read_heap_object(index)?);
-    }
-    if !cursor.is_empty() {
-        return Err(DumpError::ImageFormatError(format!(
-            "heap object section has {} trailing payload bytes",
-            cursor.remaining()
-        )));
-    }
-    Ok(objects)
-}
-
-fn read_header(section: &[u8]) -> Result<HeapObjectsHeader, DumpError> {
-    if section.len() < HEADER_SIZE {
-        return Err(DumpError::ImageFormatError(format!(
-            "heap object section shorter than header: {} < {HEADER_SIZE}",
-            section.len()
-        )));
-    }
-    let header = *bytemuck::from_bytes::<HeapObjectsHeader>(&section[..HEADER_SIZE]);
-    if header.magic != HEAP_OBJECTS_MAGIC {
-        return Err(DumpError::ImageFormatError(
-            "heap object section has bad magic".into(),
-        ));
-    }
-    if header.version != HEAP_OBJECTS_FORMAT_VERSION {
-        return Err(DumpError::UnsupportedVersion(header.version));
-    }
-    if header.header_size != HEADER_SIZE as u32 {
-        return Err(DumpError::ImageFormatError(format!(
-            "heap object header size {} does not match runtime header size {HEADER_SIZE}",
-            header.header_size
-        )));
-    }
-    Ok(header)
-}
 
 const HEAP_CONS: u8 = 0;
 const HEAP_VECTOR: u8 = 1;
@@ -212,6 +114,15 @@ fn write_heap_object(out: &mut Vec<u8>, object: &DumpHeapObject) -> Result<(), D
         DumpHeapObject::Free => write_u8(out, HEAP_FREE),
     }
     Ok(())
+}
+
+/// Public wrapper for `write_heap_object`, used by `object_extra.rs`
+/// to serialize Category B/C objects without duplicating format logic.
+pub(crate) fn write_heap_object_pub(
+    out: &mut Vec<u8>,
+    object: &DumpHeapObject,
+) -> Result<(), DumpError> {
+    write_heap_object(out, object)
 }
 
 const BYTE_OWNED: u8 = 0;
@@ -892,7 +803,7 @@ pub(crate) fn write_u8(out: &mut Vec<u8>, value: u8) {
     out.push(value);
 }
 
-fn write_u16(out: &mut Vec<u8>, value: u16) {
+pub(crate) fn write_u16(out: &mut Vec<u8>, value: u16) {
     out.extend_from_slice(&value.to_ne_bytes());
 }
 
@@ -922,6 +833,10 @@ impl<'a> Cursor<'a> {
         Self { section, offset: 0 }
     }
 
+    pub(crate) fn new_at(section: &'a [u8], offset: usize) -> Self {
+        Self { section, offset }
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.offset == self.section.len()
     }
@@ -930,8 +845,12 @@ impl<'a> Cursor<'a> {
         self.section.len() - self.offset
     }
 
-    fn read_heap_object(&mut self, index: usize) -> Result<DumpHeapObject, DumpError> {
+    pub(crate) fn read_heap_object_pub(&mut self) -> Result<DumpHeapObject, DumpError> {
         let tag = self.read_u8("heap object tag")?;
+        self.read_heap_object_from_tag(tag)
+    }
+
+    fn read_heap_object_from_tag(&mut self, tag: u8) -> Result<DumpHeapObject, DumpError> {
         match tag {
             HEAP_CONS => Ok(DumpHeapObject::Cons {
                 car: self.read_value()?,
@@ -965,7 +884,7 @@ impl<'a> Cursor<'a> {
             }),
             HEAP_FREE => Ok(DumpHeapObject::Free),
             other => Err(DumpError::ImageFormatError(format!(
-                "unknown heap object tag {other} at object {index}"
+                "unknown heap object tag {other}"
             ))),
         }
     }
@@ -1135,6 +1054,12 @@ impl<'a> Cursor<'a> {
             entries.push((self.read_hash_key()?, self.read_value()?));
         }
         Ok(entries)
+    }
+
+    pub(crate) fn read_text_property_runs_pub(
+        &mut self,
+    ) -> Result<Vec<DumpStringTextPropertyRun>, DumpError> {
+        self.read_text_property_runs()
     }
 
     fn read_text_property_runs(&mut self) -> Result<Vec<DumpStringTextPropertyRun>, DumpError> {
@@ -1368,6 +1293,10 @@ impl<'a> Cursor<'a> {
         }
     }
 
+    pub(crate) fn read_opt_u16_pub(&mut self) -> Result<Option<u16>, DumpError> {
+        self.read_opt_u16()
+    }
+
     fn read_opt_u16(&mut self) -> Result<Option<u16>, DumpError> {
         if self.read_bool("u16 present")? {
             Ok(Some(self.read_u16("u16 option")?))
@@ -1408,6 +1337,10 @@ impl<'a> Cursor<'a> {
     pub(crate) fn read_bytes(&mut self) -> Result<Vec<u8>, DumpError> {
         let len = self.read_len("byte payload length")?;
         Ok(self.read_exact(len, "byte payload")?.to_vec())
+    }
+
+    pub(crate) fn read_bytes_fixed(&mut self, len: usize) -> Result<Vec<u8>, DumpError> {
+        Ok(self.read_exact(len, "fixed byte payload")?.to_vec())
     }
 
     fn read_opt_bytes(&mut self) -> Result<Option<Vec<u8>>, DumpError> {
@@ -1482,7 +1415,7 @@ impl<'a> Cursor<'a> {
             .ok_or_else(|| DumpError::ImageFormatError(format!("{what} read range overflows")))?;
         if end > self.section.len() {
             return Err(DumpError::ImageFormatError(format!(
-                "{what} extends past heap object section payload"
+                "{what} extends past object codec payload"
             )));
         }
         let start = self.offset;
@@ -1496,7 +1429,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn heap_objects_section_round_trips_representative_objects() {
+    fn heap_object_codec_round_trips_representative_objects() {
         let objects = vec![
             DumpHeapObject::Str {
                 data: DumpByteData::mapped(24, 3),
@@ -1579,17 +1512,27 @@ mod tests {
             },
         ];
 
-        let bytes = heap_objects_section_bytes(&objects).expect("encode heap objects");
-        let decoded = load_heap_objects_section(&bytes).expect("decode heap objects");
+        let mut bytes = Vec::new();
+        for object in &objects {
+            write_heap_object_pub(&mut bytes, object).expect("encode heap object");
+        }
+        let mut cursor = Cursor::new(&bytes);
+        let mut decoded = Vec::new();
+        for _ in 0..objects.len() {
+            decoded.push(cursor.read_heap_object_pub().expect("decode heap object"));
+        }
+        assert!(cursor.is_empty());
 
         assert_eq!(format!("{decoded:?}"), format!("{objects:?}"));
     }
 
     #[test]
-    fn heap_objects_section_rejects_bad_magic() {
-        let mut bytes = heap_objects_section_bytes(&[]).expect("encode heap objects");
-        bytes[0] ^= 1;
-        let err = load_heap_objects_section(&bytes).expect_err("bad magic should fail");
+    fn heap_object_codec_rejects_bad_tag() {
+        let bytes = [u8::MAX];
+        let mut cursor = Cursor::new(&bytes);
+        let err = cursor
+            .read_heap_object_pub()
+            .expect_err("bad object tag should fail");
         assert!(matches!(err, DumpError::ImageFormatError(_)));
     }
 }
