@@ -1008,10 +1008,12 @@ fn test_face_resolver_default() {
     let resolver = FaceResolver::new(&table, 0x00FFFFFF, 0x00000000, 14.0);
     let df = resolver.default_face();
 
-    // The standard "default" face has foreground black (0,0,0) and
-    // background white (255,255,255).
-    assert_eq!(df.fg, 0x00000000); // black
-    assert_eq!(df.bg, 0x00FFFFFF); // white
+    // The standard TTY "default" face keeps GNU's terminal-default color
+    // sentinels; the fallback pixels are still carried for non-TTY consumers.
+    assert_eq!(df.fg, 0x00FFFFFF);
+    assert_eq!(df.bg, 0x00000000);
+    assert!(df.use_default_foreground);
+    assert!(df.use_default_background);
     assert_eq!(df.font_weight, FontWeight::NORMAL.0); // 400
     assert!(!df.italic);
     assert!(!df.overstrike);

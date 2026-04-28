@@ -8662,6 +8662,18 @@ fn throw_on_input_is_special_and_dynamically_bound() {
 }
 
 #[test]
+fn post_self_insert_hook_is_special_and_dynamically_bound_like_gnu_cmds() {
+    crate::test_utils::init_test_tracing();
+    let results = eval_all(
+        "(special-variable-p 'post-self-insert-hook)
+         (let ((post-self-insert-hook nil))
+           (symbol-value 'post-self-insert-hook))",
+    );
+    assert_eq!(results[0], "OK t");
+    assert_eq!(results[1], "OK nil");
+}
+
+#[test]
 fn while_no_input_ignore_events_bootstraps_monitors_changed_like_gnu() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(

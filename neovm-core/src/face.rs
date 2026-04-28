@@ -920,8 +920,10 @@ impl FaceTable {
     fn register_standard_faces(&mut self) {
         // default face
         let mut default = Face::new("default");
-        default.foreground = Some(Color::rgb(0, 0, 0));
-        default.background = Some(Color::rgb(255, 255, 255));
+        // GNU realizes the TTY default face with FACE_TTY_DEFAULT_FG_COLOR /
+        // FACE_TTY_DEFAULT_BG_COLOR, exposed to Lisp as "unspecified-fg" /
+        // "unspecified-bg".  Keep these colors unset here so the display
+        // realization layer can preserve the terminal-default sentinel.
         default.weight = Some(FontWeight::NORMAL);
         default.slant = Some(FontSlant::Normal);
         self.define("default", default);

@@ -511,7 +511,7 @@ fn rasterize_tracks_phys_cursor_position() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(!rif.cursor_visible);
+    assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_row, 0);
     assert_eq!(rif.cursor_col, 1);
     assert_eq!(rif.cursor_shape, TerminalCursorShape::Block);
@@ -562,7 +562,7 @@ fn rasterize_prefers_phys_cursor_over_matrix_cursor_columns() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(!rif.cursor_visible);
+    assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_row, 1);
     assert_eq!(rif.cursor_col, 4);
 }
@@ -620,9 +620,13 @@ fn rasterize_ignores_matrix_cursor_columns_without_phys_cursor() {
 }
 
 #[test]
-fn rasterize_applies_phys_filled_box_visual_to_cell() {
+fn rasterize_keeps_phys_filled_box_cursor_out_of_cell_attrs() {
     let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
     state.background = Color::BLACK;
+    let mut default_face = Face::new(0);
+    default_face.use_default_foreground = true;
+    default_face.use_default_background = true;
+    state.faces.insert(0, default_face);
 
     let mut matrix = GlyphMatrix::new(5, 10);
     let mut row = GlyphRow::new(GlyphRowRole::Text);
@@ -661,13 +665,15 @@ fn rasterize_applies_phys_filled_box_visual_to_cell() {
 
     let cell = &rif.desired.cells[1];
     assert_eq!(cell.ch, 'b');
-    assert_eq!(cell.attrs.bg, Some((255, 0, 0)));
-    assert_eq!(cell.attrs.fg, Some((0, 0, 0)));
-    assert!(!rif.cursor_visible);
+    assert_eq!(cell.attrs.bg, None);
+    assert_eq!(cell.attrs.fg, None);
+    assert!(rif.cursor_visible);
+    assert_eq!(rif.cursor_row, 0);
+    assert_eq!(rif.cursor_col, 1);
 }
 
 #[test]
-fn rasterize_preserves_nonselected_hollow_cursor_visual_without_moving_terminal_cursor() {
+fn rasterize_ignores_nonselected_hollow_cursor_visual_on_tty() {
     let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
     state.background = Color::BLACK;
 
@@ -692,7 +698,7 @@ fn rasterize_preserves_nonselected_hollow_cursor_visual_without_moving_terminal_
     let row_start = rif.width();
     let cell = &rif.desired.cells[row_start + 1];
     assert_eq!(cell.ch, 'y');
-    assert!(cell.attrs.inverse);
+    assert!(!cell.attrs.inverse);
     assert!(!rif.cursor_visible);
 }
 
@@ -737,7 +743,7 @@ fn rasterize_uses_hardware_bar_shape_for_phys_bar_cursor() {
 
     assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_shape, TerminalCursorShape::Bar);
-    assert!(rif.desired.cells[0].attrs.inverse);
+    assert!(!rif.desired.cells[0].attrs.inverse);
 }
 
 /// Regression test for a bug observed after `C-x 2` in an
@@ -764,17 +770,16 @@ fn rasterize_uses_hardware_bar_shape_for_phys_bar_cursor() {
 /// per-frame-state equivalent of GNU's `FRAME_SELECTED_WINDOW`
 /// check: only the selected window contributes the frame-level
 /// `phys_cursor` used for the terminal cursor geometry/position.
-/// Non-selected windows may still mark `cursor_col` to draw a
-/// hollow cursor glyph (via `cursor-in-non-selected-windows`),
-/// but that stays a visual cue in the cell, not a hardware
-/// cursor move.
+/// Non-selected windows may still mark `cursor_col`, but on TTY
+/// frames GNU has no per-window cursor painting path; only the
+/// frame-level terminal cursor is moved.
 #[test]
 fn rasterize_terminal_cursor_comes_from_selected_window_only() {
     // Two vertically stacked 2-row windows at screen cols 0..10.
     // Top window (w1) is selected; its cursor is in row 0, col 3.
-    // Bottom window (w2) is NOT selected but still draws a
-    // hollow cursor in its row 0, col 7 (the non-selected
-    // hint). The terminal cursor MUST come from w1.
+    // Bottom window (w2) is NOT selected but still has a
+    // hollow cursor marker in its row 0, col 7. The terminal
+    // cursor MUST come from w1.
     let mut state = FrameDisplayState::new(10, 5, 8.0, 16.0);
     state.background = Color::BLACK;
 
@@ -838,8 +843,8 @@ fn rasterize_terminal_cursor_comes_from_selected_window_only() {
     rif.rasterize(&state);
 
     assert!(
-        !rif.cursor_visible,
-        "filled-box cursor should be software-drawn in TTY"
+        rif.cursor_visible,
+        "TTY filled-box cursor should use the hardware cursor"
     );
     assert_eq!(
         rif.cursor_row, 0,
@@ -921,7 +926,7 @@ fn rasterize_terminal_cursor_comes_from_selected_window_regardless_of_order() {
     let mut rif = TtyRif::new(10, 5);
     rif.rasterize(&state);
 
-    assert!(!rif.cursor_visible);
+    assert!(rif.cursor_visible);
     assert_eq!(rif.cursor_row, 2, "selected window starts at screen row 2");
     assert_eq!(rif.cursor_col, 2, "cursor col from selected window only");
 }

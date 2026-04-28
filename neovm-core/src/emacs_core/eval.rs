@@ -4061,6 +4061,13 @@ impl Context {
         obarray.set_symbol_value("kill-emacs-hook", Value::NIL);
         obarray.make_special("kill-emacs-hook");
 
+        // --- src/cmds.c: syms_of_cmds ---
+        // DEFVAR_LISP, default nil. `newline' dynamically binds this in
+        // simple.el so noninteractive newline insertion runs only its local
+        // postprocessor, matching GNU Emacs.
+        obarray.set_symbol_value("post-self-insert-hook", Value::NIL);
+        obarray.make_special("post-self-insert-hook");
+
         let mut command_loop = crate::keyboard::CommandLoop::new();
         command_loop
             .keyboard

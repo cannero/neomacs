@@ -163,13 +163,23 @@ fn default_face_does_not_seed_font_family_or_height() {
 }
 
 #[test]
+fn default_face_does_not_seed_tty_default_colors() {
+    crate::test_utils::init_test_tracing();
+    let table = FaceTable::new();
+    let default = table.get("default").expect("default face");
+    assert!(default.foreground.is_none());
+    assert!(default.background.is_none());
+}
+
+#[test]
 fn face_table_resolve_inheritance() {
     crate::test_utils::init_test_tracing();
     let table = FaceTable::new();
     let bold = table.resolve("bold");
     assert_eq!(bold.weight, Some(FontWeight::BOLD));
-    // Should inherit foreground from default
-    assert!(bold.foreground.is_some());
+    // GNU TTY default colors remain sentinel values when inherited.
+    assert!(bold.foreground.is_none());
+    assert!(bold.background.is_none());
 }
 
 #[test]

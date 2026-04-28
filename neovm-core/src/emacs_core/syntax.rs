@@ -3341,13 +3341,19 @@ fn parse_state_from_range_with_options(
     commentstop: CommentStopMode,
     honor_properties: bool,
 ) -> (Value, i64) {
-    let chars = buffer_chars_in_range(buf, buf.point_min(), buf.point_max());
-    let accessible_char_start = buf.text.emacs_byte_to_char(buf.point_min());
-    let from_idx = if from > 0 { from as usize - 1 } else { 0 }.min(chars.len());
-    let to_idx = if to > 0 { to as usize - 1 } else { 0 }.min(chars.len());
+    let point_min = buf.point_min_char();
+    let point_max = buf.point_max_char();
+    let from_char = if from > 0 { from as usize - 1 } else { 0 }.clamp(point_min, point_max);
+    let to_char = if to > 0 { to as usize - 1 } else { 0 }.clamp(point_min, point_max);
+    let chars = buffer_chars_in_range(
+        buf,
+        buf.text.char_to_emacs_byte(from_char),
+        buf.text.char_to_emacs_byte(to_char),
+    );
+    let to_idx = chars.len();
 
     let mut state = PartialParseState::from_oldstate(oldstate);
-    let mut idx = from_idx;
+    let mut idx = 0;
     let mut atom_start: Option<i64> = None;
 
     let finish_atom = |state: &mut PartialParseState, atom_start: &mut Option<i64>| {
@@ -3357,15 +3363,10 @@ fn parse_state_from_range_with_options(
     };
 
     while idx < to_idx {
-        let pos1 = (idx + 1) as i64;
+        let abs_char = from_char + idx;
+        let pos1 = (abs_char + 1) as i64;
         let ch = chars[idx];
-        let (class, flags) = syntax_class_and_flags(
-            buf,
-            table,
-            ch,
-            accessible_char_start + idx,
-            honor_properties,
-        );
+        let (class, flags) = syntax_class_and_flags(buf, table, ch, abs_char, honor_properties);
 
         if state.quoted {
             state.quoted = false;
@@ -3476,7 +3477,7 @@ fn parse_state_from_range_with_options(
                                 buf,
                                 table,
                                 chars[idx + 1],
-                                accessible_char_start + idx + 1,
+                                abs_char + 1,
                                 honor_properties,
                             );
                             if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND)
@@ -3519,7 +3520,7 @@ fn parse_state_from_range_with_options(
                             buf,
                             table,
                             chars[idx + 1],
-                            accessible_char_start + idx + 1,
+                            abs_char + 1,
                             honor_properties,
                         );
                         if next_flags.contains(SyntaxFlags::COMMENT_END_SECOND)
@@ -3573,13 +3574,8 @@ fn parse_state_from_range_with_options(
         }
 
         if flags.contains(SyntaxFlags::COMMENT_START_FIRST) && idx + 1 < to_idx {
-            let (_, next_flags) = syntax_class_and_flags(
-                buf,
-                table,
-                chars[idx + 1],
-                accessible_char_start + idx + 1,
-                honor_properties,
-            );
+            let (_, next_flags) =
+                syntax_class_and_flags(buf, table, chars[idx + 1], abs_char + 1, honor_properties);
             if next_flags.contains(SyntaxFlags::COMMENT_START_SECOND) {
                 state.in_comment = Some(ParseCommentState::Syntax {
                     depth: 1,
@@ -3681,7 +3677,7 @@ fn parse_state_from_range_with_options(
 
     finish_atom(&mut state, &mut atom_start);
 
-    (state.into_value(), idx as i64 + 1)
+    (state.into_value(), (from_char + idx) as i64 + 1)
 }
 
 fn parse_state_from_range(buf: &Buffer, table: &SyntaxTable, from: i64, to: i64) -> Value {

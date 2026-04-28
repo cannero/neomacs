@@ -333,19 +333,12 @@ impl TtyRif {
                 terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
             self.cursor_row = cursor_row.saturating_add(origin_row as u16);
             self.cursor_col = cursor_col.saturating_add(origin_col as u16);
-            match cursor.style {
-                CursorStyle::FilledBox | CursorStyle::Hollow => {
-                    self.cursor_visible = false;
-                }
-                CursorStyle::Bar(_) => {
-                    self.cursor_visible = true;
-                    self.cursor_shape = TerminalCursorShape::Bar;
-                }
-                CursorStyle::Hbar(_) => {
-                    self.cursor_visible = true;
-                    self.cursor_shape = TerminalCursorShape::Underline;
-                }
-            }
+            self.cursor_visible = true;
+            self.cursor_shape = match cursor.style {
+                CursorStyle::FilledBox | CursorStyle::Hollow => TerminalCursorShape::Block,
+                CursorStyle::Bar(_) => TerminalCursorShape::Bar,
+                CursorStyle::Hbar(_) => TerminalCursorShape::Underline,
+            };
         }
 
         for frame_row in &state.frame_chrome_rows {
@@ -383,17 +376,12 @@ impl TtyRif {
             self.rasterize_menu_bar_at(menu_bar, origin_col, origin_row, state.frame_cols);
         }
 
-        if let Some(cursor) = state.phys_cursor.as_ref() {
-            let (col, row) =
-                terminal_cursor_cell(cursor.x, cursor.y, state.char_width, state.char_height);
-            self.apply_cursor_visual(
-                origin_row + row as usize,
-                origin_col + col as usize,
-                cursor.style,
-                Some(color_to_rgb8(&cursor.color)),
-                Some(color_to_rgb8(&cursor.cursor_fg)),
-            );
-        }
+        // GNU's TTY redisplay does not paint a cursor glyph into the
+        // frame matrix.  It writes ordinary glyph cells, then
+        // `tty_set_cursor` moves the hardware cursor and
+        // `tty_update_end` shows it.  Keep cursor state separate from
+        // cell attributes so blank cells retain the terminal-default
+        // background.
     }
 
     fn draw_child_border(
@@ -657,39 +645,6 @@ impl TtyRif {
         std::mem::take(&mut self.output)
     }
 
-    fn apply_cursor_visual(
-        &mut self,
-        row: usize,
-        col: usize,
-        style: CursorStyle,
-        color: Option<(u8, u8, u8)>,
-        cursor_fg: Option<(u8, u8, u8)>,
-    ) {
-        if row >= self.desired.height || col >= self.desired.width {
-            return;
-        }
-
-        let idx = row * self.desired.width + col;
-        let cell = &mut self.desired.cells[idx];
-
-        match style {
-            CursorStyle::FilledBox => {
-                if let Some(bg) = color {
-                    cell.attrs.bg = Some(bg);
-                }
-                if let Some(fg) = cursor_fg {
-                    cell.attrs.fg = Some(fg);
-                }
-            }
-            CursorStyle::Bar(_) | CursorStyle::Hollow => {
-                cell.attrs.inverse = true;
-            }
-            CursorStyle::Hbar(_) => {
-                cell.attrs.underline = cell.attrs.underline.max(1);
-            }
-        }
-    }
-
     fn rasterize_glyph_row(
         &mut self,
         screen_col_start: usize,
@@ -761,17 +716,9 @@ impl TtyRif {
             }
         }
 
-        if let (Some(cursor_col), Some(cursor_style)) =
-            (glyph_row.cursor_col, glyph_row.cursor_type)
-        {
-            self.apply_cursor_visual(
-                screen_row,
-                screen_col_start + cursor_col as usize,
-                cursor_style,
-                None,
-                None,
-            );
-        }
+        // On TTY frames GNU has one terminal cursor, positioned after
+        // glyph output by `tty_set_cursor`; row cursor markers do not
+        // become painted cell attributes.
     }
 }
 

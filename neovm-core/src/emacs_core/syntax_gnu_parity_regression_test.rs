@@ -283,3 +283,40 @@ fn parse_partial_sexp_targetdepth_stops_after_depth_reached() {
     assert_eq!(point(&mut ctx), 4, "TARGETDEPTH stops after closing paren");
     assert_eq!(as_int(call(&mut ctx, "car", vec![state])), 0);
 }
+
+#[test]
+fn parse_partial_sexp_oldstate_matches_full_scan_from_nonzero_position() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) = ctx_with_buffer("λ (alpha \"β\") (gamma)");
+
+    let point_max = call(&mut ctx, "point-max", vec![]);
+    let full = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), point_max]);
+    let first = call(&mut ctx, "parse-partial-sexp", vec![fixnum(1), fixnum(14)]);
+    let segmented = call(
+        &mut ctx,
+        "parse-partial-sexp",
+        vec![fixnum(14), point_max, Value::NIL, Value::NIL, first],
+    );
+
+    assert!(
+        call(&mut ctx, "equal", vec![full, segmented]).is_truthy(),
+        "OLDSTATE scan from a nonzero position should match a full scan"
+    );
+}
+
+#[test]
+fn parse_partial_sexp_uses_absolute_positions_under_narrowing() {
+    crate::test_utils::init_test_tracing();
+    let (mut ctx, _) = ctx_with_buffer("xx (α) yy");
+    call(&mut ctx, "narrow-to-region", vec![fixnum(4), fixnum(7)]);
+
+    let state = call(&mut ctx, "parse-partial-sexp", vec![fixnum(4), fixnum(7)]);
+
+    assert_eq!(point(&mut ctx), 7, "scan should stop at absolute TO");
+    assert_eq!(as_int(call(&mut ctx, "car", vec![state])), 0);
+    assert_eq!(
+        as_int(call(&mut ctx, "nth", vec![fixnum(2), state])),
+        4,
+        "last complete sexp should keep its absolute buffer position"
+    );
+}
