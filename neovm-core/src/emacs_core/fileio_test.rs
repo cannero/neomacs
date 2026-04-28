@@ -3977,11 +3977,11 @@ fn builtin_write_region_handles_raw_unibyte_filename_and_visit() {
 
 #[cfg(unix)]
 #[test]
-fn builtin_write_region_backup_preserves_raw_unibyte_backup_filename() {
+fn builtin_write_region_does_not_create_backup_for_raw_unibyte_filename() {
     crate::test_utils::init_test_tracing();
     use super::super::eval::Context;
 
-    let dir = raw_temp_path(b"neovm-write-backup-\xFF");
+    let dir = raw_temp_path(b"neovm-write-region-no-backup-\xFF");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
 
@@ -4008,10 +4008,13 @@ fn builtin_write_region_backup_preserves_raw_unibyte_backup_filename() {
             Value::T,
         ],
     )
-    .expect("write-region should preserve raw backup names");
+    .expect("write-region should not run save-buffer backup logic");
 
     assert_eq!(fs::read(&out_path).unwrap(), vec![0xFF, b'A']);
-    assert_eq!(fs::read(&backup_path).unwrap(), b"old bytes");
+    assert!(
+        !backup_path.exists(),
+        "GNU write-region does not create backup files; backup-buffer is part of save-buffer"
+    );
 
     let _ = fs::remove_dir_all(&dir);
 }

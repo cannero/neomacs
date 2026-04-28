@@ -1331,16 +1331,6 @@ fn lisp_string_strip_ascii_prefix(
     })
 }
 
-fn append_ascii_suffix_lisp(
-    value: &crate::heap_types::LispString,
-    suffix: &[u8],
-) -> crate::heap_types::LispString {
-    let mut bytes = Vec::with_capacity(value.as_bytes().len() + suffix.len());
-    bytes.extend_from_slice(value.as_bytes());
-    bytes.extend_from_slice(suffix);
-    file_name_lisp_from_bytes(bytes, value.is_multibyte())
-}
-
 fn wrap_ascii_around_lisp_string(
     value: &crate::heap_types::LispString,
     prefix: &[u8],
@@ -1351,20 +1341,6 @@ fn wrap_ascii_around_lisp_string(
     bytes.extend_from_slice(value.as_bytes());
     bytes.extend_from_slice(suffix);
     file_name_lisp_from_bytes(bytes, value.is_multibyte())
-}
-
-fn lisp_string_contains_bytes(
-    haystack: &crate::heap_types::LispString,
-    needle: &crate::heap_types::LispString,
-) -> bool {
-    let needle_bytes = needle.as_bytes();
-    if needle_bytes.is_empty() {
-        return true;
-    }
-    haystack
-        .as_bytes()
-        .windows(needle_bytes.len())
-        .any(|window| window == needle_bytes)
 }
 
 fn expand_cp_target_lisp_for_eval(
@@ -2090,30 +2066,8 @@ fn path_to_cstring(path: &Path) -> Result<CString, std::ffi::NulError> {
     CString::new(path.as_os_str().as_bytes())
 }
 
-#[cfg(unix)]
-fn path_component_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
-    name.as_bytes().to_vec()
-}
-
-#[cfg(not(unix))]
-fn path_component_bytes(name: &std::ffi::OsStr) -> Vec<u8> {
-    name.to_string_lossy().into_owned().into_bytes()
-}
-
 fn file_exists_path(path: &Path) -> bool {
     path.exists()
-}
-
-fn parse_ascii_u32(bytes: &[u8]) -> Option<u32> {
-    if bytes.is_empty() || !bytes.iter().all(|byte| byte.is_ascii_digit()) {
-        return None;
-    }
-    let mut value = 0u32;
-    for byte in bytes {
-        value = value.checked_mul(10)?;
-        value = value.checked_add((byte - b'0') as u32)?;
-    }
-    Some(value)
 }
 
 fn file_readable_path(path: &Path) -> bool {
@@ -4083,155 +4037,6 @@ pub(crate) fn builtin_insert_file_contents(
     Ok(value)
 }
 
-// ===========================================================================
-// Backup file support
-// ===========================================================================
-
-/// Find the next numbered backup version for FILENAME.
-/// Scans `filename.~1~`, `filename.~2~`, ... and returns `max + 1`.
-fn next_backup_version_number_path(filename: &Path) -> u32 {
-    let parent = filename.parent().unwrap_or_else(|| Path::new("."));
-    let Some(base_name) = filename.file_name() else {
-        return 1;
-    };
-    let mut prefix = path_component_bytes(base_name);
-    prefix.extend_from_slice(b".~");
-    let mut max_ver: u32 = 0;
-    if let Ok(entries) = fs::read_dir(parent) {
-        for entry in entries.flatten() {
-            let name = path_component_bytes(entry.file_name().as_os_str());
-            if let Some(rest) = name.strip_prefix(prefix.as_slice()) {
-                if let Some(num_bytes) = rest.strip_suffix(b"~") {
-                    if let Some(n) = parse_ascii_u32(num_bytes) {
-                        max_ver = max_ver.max(n);
-                    }
-                }
-            }
-        }
-    }
-    max_ver + 1
-}
-
-/// Compute the backup file name for FILENAME, respecting `backup-directory-alist`
-/// and `version-control`.
-fn compute_backup_file_name_lisp(
-    obarray: &Obarray,
-    filename: &crate::heap_types::LispString,
-) -> crate::heap_types::LispString {
-    // Check backup-directory-alist for redirection
-    let backup_dir = lookup_backup_directory_lisp(obarray, filename);
-    let backup_base = match backup_dir {
-        Some(dir) => {
-            let base = lisp_file_name_nondirectory(filename);
-            concat_file_name_lisp(&lisp_file_name_as_directory(&dir), &base)
-        }
-        None => filename.clone(),
-    };
-
-    let use_numbered = match obarray.symbol_value("version-control") {
-        Some(v) if v.is_symbol_named("never") => false,
-        Some(v) if v.is_nil() => {
-            // nil => use numbered if the file already has numbered backups
-            next_backup_version_number_path(&lisp_file_name_to_path_buf(&backup_base)) > 1
-        }
-        Some(v) if v.is_truthy() => true,
-        _ => false,
-    };
-
-    if use_numbered {
-        let ver = next_backup_version_number_path(&lisp_file_name_to_path_buf(&backup_base));
-        append_ascii_suffix_lisp(&backup_base, format!(".~{ver}~").as_bytes())
-    } else {
-        append_ascii_suffix_lisp(&backup_base, b"~")
-    }
-}
-
-/// Look up FILENAME in `backup-directory-alist`.  Each entry is
-/// `(REGEXP . DIRECTORY)`.  Returns `Some(directory)` for the first match,
-/// or `None` if no entry matches.
-fn lookup_backup_directory_lisp(
-    obarray: &Obarray,
-    filename: &crate::heap_types::LispString,
-) -> Option<crate::heap_types::LispString> {
-    let alist_val = obarray.symbol_value("backup-directory-alist")?;
-    let entries = list_to_vec(alist_val)?;
-    let file_dir = lisp_file_name_directory(filename)?;
-    for entry in &entries {
-        if entry.is_cons() {
-            let car = entry.cons_car();
-            let cdr = entry.cons_cdr();
-            let Some(pattern) = car.as_lisp_string() else {
-                continue;
-            };
-            let Some(dir) = cdr.as_lisp_string() else {
-                continue;
-            };
-            // Simple substring match (GNU uses regex, but for now substring is
-            // a pragmatic approximation that covers the common `"."` catch-all).
-            if pattern.as_bytes() == b"." || lisp_string_contains_bytes(filename, pattern) {
-                // Ensure the backup directory exists
-                let dir_path = expand_file_name_lisp(dir, Some(&file_dir));
-                let _ = fs::create_dir_all(lisp_file_name_to_path_buf(&dir_path));
-                return Some(dir_path);
-            }
-        }
-    }
-    None
-}
-
-/// Create a backup of FILENAME before saving, if appropriate.
-///
-/// Checks `make-backup-files`, `backup-inhibited`, and the buffer's
-/// `buffer-backed-up` flag.  On success (or when backup is skipped),
-/// sets `buffer-backed-up` to `t`.
-fn backup_file_before_save(
-    obarray: &Obarray,
-    buffers: &mut crate::buffer::BufferManager,
-    buffer_id: crate::buffer::BufferId,
-    filename: &crate::heap_types::LispString,
-) {
-    // 1. Check make-backup-files (default t)
-    if let Some(v) = obarray.symbol_value("make-backup-files") {
-        if v.is_nil() {
-            return;
-        }
-    }
-
-    // 2. Check backup-inhibited
-    if let Some(v) = obarray.symbol_value("backup-inhibited") {
-        if v.is_truthy() {
-            return;
-        }
-    }
-
-    // 3. Check buffer-backed-up flag — skip if already backed up
-    if let Some(buf) = buffers.get(buffer_id) {
-        if let Some(v) = buf.get_buffer_local("buffer-backed-up") {
-            if v.is_truthy() {
-                return;
-            }
-        }
-    }
-
-    // 4. Only backup if the file already exists on disk
-    let source_path = lisp_file_name_to_path_buf(filename);
-    if !file_exists_path(&source_path) {
-        return;
-    }
-
-    // 5. Compute backup name and copy
-    let backup_name = compute_backup_file_name_lisp(obarray, filename);
-    let backup_path = lisp_file_name_to_path_buf(&backup_name);
-    if fs::copy(&source_path, &backup_path).is_ok() {
-        // 6. Set buffer-backed-up to t so we don't back up again until next change
-        if let Some(buf) = buffers.get_mut(buffer_id) {
-            buf.set_buffer_local("buffer-backed-up", Value::T);
-        }
-    }
-}
-
-// (write-region body now lives inline in builtin_write_region below.)
-
 /// Resolve the coding system to use for writing.
 ///
 /// Priority:
@@ -4349,12 +4154,6 @@ pub(crate) fn builtin_write_region(
                 )],
             ));
         }
-    }
-
-    // --- Backup before save ---
-    // Only for truncate mode (not append/seek) when visiting the file.
-    if matches!(append_mode, FileWriteMode::Truncate) {
-        backup_file_before_save(&eval.obarray, &mut eval.buffers, current_id, &resolved);
     }
 
     let content = write_region_content_in_state(&eval.buffers, current_id, &args[0], args.get(1))?;
