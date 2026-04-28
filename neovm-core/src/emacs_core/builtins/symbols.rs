@@ -446,10 +446,17 @@ pub(crate) fn builtin_symbol_value(
     args: Vec<Value>,
 ) -> EvalResult {
     expect_args("symbol-value", &args, 1)?;
-    let symbol = expect_symbol_id(&args[0])?;
+    builtin_symbol_value_1(eval, args[0])
+}
+
+pub(crate) fn builtin_symbol_value_1(
+    eval: &mut super::eval::Context,
+    symbol_value: Value,
+) -> EvalResult {
+    let symbol = expect_symbol_id(&symbol_value)?;
     match eval.visible_runtime_variable_value_by_id(symbol)? {
         Some(value) => Ok(value),
-        None => Err(signal("void-variable", vec![args[0]])),
+        None => Err(signal("void-variable", vec![symbol_value])),
     }
 }
 
@@ -537,10 +544,18 @@ fn dispatch_symbol_func_arity_override_in_obarray(
 
 pub(crate) fn builtin_set(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("set", &args, 2)?;
-    let symbol = expect_symbol_id(&args[0])?;
+    builtin_set_2(eval, args[0], args[1])
+}
+
+pub(crate) fn builtin_set_2(
+    eval: &mut super::eval::Context,
+    symbol_value: Value,
+    value: Value,
+) -> EvalResult {
+    let symbol = expect_symbol_id(&symbol_value)?;
     let resolved = resolve_variable_alias_id(eval, symbol)?;
-    let value = args[1];
-    if let Some(result) = constant_set_outcome_in_obarray(eval.obarray(), resolved, args[0], value)
+    if let Some(result) =
+        constant_set_outcome_in_obarray(eval.obarray(), resolved, symbol_value, value)
     {
         return result;
     }
@@ -689,12 +704,19 @@ pub(crate) fn builtin_fmakunbound(eval: &mut super::eval::Context, args: Vec<Val
 
 pub(crate) fn builtin_get(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_args("get", &args, 2)?;
+    builtin_get_2(eval, args[0], args[1])
+}
+
+pub(crate) fn builtin_get_2(
+    eval: &mut super::eval::Context,
+    symbol_value: Value,
+    prop: Value,
+) -> EvalResult {
     let symbols_with_pos_enabled = eval.symbols_with_pos_enabled;
-    let sym = expect_symbol_id_checked(&args[0], symbols_with_pos_enabled)?;
-    let prop = args[1];
+    let sym = expect_symbol_id_checked(&symbol_value, symbols_with_pos_enabled)?;
 
     let overrides = eval.visible_variable_value_or_nil_by_id(overriding_plist_environment_symbol());
-    if let Some(plist) = assq_cdr_swp(&args[0], overrides, symbols_with_pos_enabled)
+    if let Some(plist) = assq_cdr_swp(&symbol_value, overrides, symbols_with_pos_enabled)
         && let Some(propval) =
             crate::emacs_core::plist::plist_get_swp(plist, &prop, symbols_with_pos_enabled)
         && !propval.is_nil()
@@ -717,19 +739,43 @@ pub(crate) fn builtin_put(
     put_in_obarray(&mut ctx.obarray, args, ctx.symbols_with_pos_enabled)
 }
 
+pub(crate) fn builtin_put_3(
+    ctx: &mut crate::emacs_core::eval::Context,
+    symbol_value: Value,
+    prop: Value,
+    value: Value,
+) -> EvalResult {
+    ctx.note_macro_expansion_mutation();
+    put_in_obarray_values(
+        &mut ctx.obarray,
+        symbol_value,
+        prop,
+        value,
+        ctx.symbols_with_pos_enabled,
+    )
+}
+
 pub(crate) fn put_in_obarray(
     obarray: &mut Obarray,
     args: Vec<Value>,
     symbols_with_pos_enabled: bool,
 ) -> EvalResult {
     expect_args("put", &args, 3)?;
-    let sym = expect_symbol_id_checked(&args[0], symbols_with_pos_enabled)?;
-    let prop = args[1];
-    let value = args[2];
+    put_in_obarray_values(obarray, args[0], args[1], args[2], symbols_with_pos_enabled)
+}
+
+pub(crate) fn put_in_obarray_values(
+    obarray: &mut Obarray,
+    symbol_value: Value,
+    prop: Value,
+    value: Value,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
+    let sym = expect_symbol_id_checked(&symbol_value, symbols_with_pos_enabled)?;
 
     let saved = save_scratch_gc_roots();
-    push_scratch_gc_root(args[0]);
-    push_scratch_gc_root(args[1]);
+    push_scratch_gc_root(symbol_value);
+    push_scratch_gc_root(prop);
     push_scratch_gc_root(value);
     let plist = obarray.symbol_plist_id(sym);
     let result =

@@ -10,7 +10,7 @@ use crate::emacs_core::builtins;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
-use crate::emacs_core::eval::{ConditionFrame, Context, ResumeTarget};
+use crate::emacs_core::eval::{ConditionFrame, Context, LispArgVec, ResumeTarget};
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 // storage_char_len and storage_substring no longer needed here — using emacs_char + LispString
@@ -155,30 +155,36 @@ impl<'a> Vm<'a> {
         })
     }
 
-    fn with_frame_arg_roots<T>(
+    fn with_frame_arg_roots<A, T>(
         &mut self,
         func: &ByteCodeFunction,
-        args: Vec<Value>,
-        f: impl FnOnce(&mut Self, Vec<Value>) -> T,
-    ) -> T {
+        args: A,
+        f: impl FnOnce(&mut Self, A) -> T,
+    ) -> T
+    where
+        A: AsRef<[Value]>,
+    {
         self.with_frame_roots(func, &[], |vm| {
-            for value in args.iter().copied() {
+            for value in args.as_ref().iter().copied() {
                 vm.ctx.push_vm_frame_root(value);
             }
             f(vm, args)
         })
     }
 
-    fn with_frame_call_roots<T>(
+    fn with_frame_call_roots<A, T>(
         &mut self,
         func: &ByteCodeFunction,
         function: Value,
-        args: Vec<Value>,
-        f: impl FnOnce(&mut Self, Vec<Value>) -> T,
-    ) -> T {
+        args: A,
+        f: impl FnOnce(&mut Self, A) -> T,
+    ) -> T
+    where
+        A: AsRef<[Value]>,
+    {
         self.with_frame_roots(func, &[], |vm| {
             vm.ctx.push_vm_frame_root(function);
-            for value in args.iter().copied() {
+            for value in args.as_ref().iter().copied() {
                 vm.ctx.push_vm_frame_root(value);
             }
             f(vm, args)
@@ -230,9 +236,10 @@ impl<'a> Vm<'a> {
     pub(crate) fn execute_with_func_value(
         &mut self,
         func: &ByteCodeFunction,
-        args: Vec<Value>,
+        args: impl Into<LispArgVec>,
         func_value: Value,
     ) -> EvalResult {
+        let args = args.into();
         self.ctx.depth += 1;
         if self.ctx.depth > self.ctx.max_depth {
             let overflow_depth = self.ctx.depth as i64;
@@ -265,7 +272,7 @@ impl<'a> Vm<'a> {
     fn run_frame(
         &mut self,
         func: &ByteCodeFunction,
-        args: Vec<Value>,
+        args: LispArgVec,
         func_value: Value,
     ) -> EvalResult {
         let condition_stack_base = self.ctx.condition_stack_len();
@@ -339,7 +346,7 @@ impl<'a> Vm<'a> {
         // If &rest, collect remaining args into a list
         if has_rest {
             let rest_list = if nargs > nonrest {
-                Value::list(args[nonrest..].to_vec())
+                Value::list_from_slice(&args[nonrest..])
             } else {
                 Value::NIL
             };
@@ -420,7 +427,7 @@ impl<'a> Vm<'a> {
             }
             if let Some(rest_name) = func.params.rest {
                 let rest_list = if arg_idx < nargs {
-                    Value::list(args[arg_idx..].to_vec())
+                    Value::list_from_slice(&args[arg_idx..])
                 } else {
                     Value::NIL
                 };
@@ -636,7 +643,7 @@ impl<'a> Vm<'a> {
                 Op::Call(n) => {
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: Vec<Value> = stk!().drain(args_start..).collect();
+                    let args: LispArgVec = stk!().drain(args_start..).collect();
                     let func_val = stk!().pop().unwrap_or(Value::NIL);
                     let writeback_names = self.writeback_mutating_callable_names(&func_val);
                     let writeback_args = writeback_names.as_ref().map(|_| args.clone());
@@ -2426,7 +2433,7 @@ impl<'a> Vm<'a> {
     }
 
     fn call_function_with_roots(&mut self, function: Value, args: &[Value]) -> EvalResult {
-        self.call_function(function, args.to_vec())
+        self.call_function(function, args.iter().copied().collect::<LispArgVec>())
     }
 
     fn builtin_run_hooks_shared(&mut self, args: &[Value]) -> EvalResult {
@@ -3597,7 +3604,8 @@ impl<'a> Vm<'a> {
         Value::NIL
     }
 
-    fn call_function(&mut self, func_val: Value, args: Vec<Value>) -> EvalResult {
+    fn call_function(&mut self, func_val: Value, args: impl Into<LispArgVec>) -> EvalResult {
+        let args = args.into();
         let bt_count = self.ctx.specpdl.len();
         self.ctx.push_backtrace_frame(func_val, &args);
         let result = match func_val.kind() {

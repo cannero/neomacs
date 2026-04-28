@@ -17,17 +17,29 @@ pub(crate) fn builtin_vector(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
     expect_args("aref", &args, 2)?;
-    let idx_fixnum = expect_fixnum(&args[1])?;
-    match args[0].kind() {
-        ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&args[0]) => {
-            let ch = expect_char_table_index(&args[1])?;
-            super::chartable::builtin_char_table_range(vec![args[0], Value::fixnum(ch)])
+    builtin_aref_values(args[0], args[1])
+}
+
+pub(crate) fn builtin_aref_2(
+    _eval: &mut super::eval::Context,
+    array: Value,
+    index: Value,
+) -> EvalResult {
+    builtin_aref_values(array, index)
+}
+
+fn builtin_aref_values(array: Value, index: Value) -> EvalResult {
+    let idx_fixnum = expect_fixnum(&index)?;
+    match array.kind() {
+        ValueKind::Veclike(VecLikeType::Vector) if super::chartable::is_char_table(&array) => {
+            let ch = expect_char_table_index(&index)?;
+            super::chartable::ct_lookup(&array, ch)
         }
         ValueKind::Veclike(VecLikeType::Vector) | ValueKind::Veclike(VecLikeType::Record) => {
             let idx = idx_fixnum as usize;
-            let items = args[0]
+            let items = array
                 .as_vector_data()
-                .or_else(|| args[0].as_record_data())
+                .or_else(|| array.as_record_data())
                 .unwrap();
             let is_bool_vector =
                 items.len() >= 2 && items[0].as_symbol_name() == Some("--bool-vector--");
@@ -37,17 +49,17 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
                     _ => {
                         return Err(signal(
                             "wrong-type-argument",
-                            vec![Value::symbol("bool-vector-p"), args[0]],
+                            vec![Value::symbol("bool-vector-p"), array],
                         ));
                     }
                 };
                 if idx >= len {
-                    return Err(signal("args-out-of-range", vec![args[0], args[1]]));
+                    return Err(signal("args-out-of-range", vec![array, index]));
                 }
                 let bit = items
                     .get(idx + 2)
                     .copied()
-                    .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))?;
+                    .ok_or_else(|| signal("args-out-of-range", vec![array, index]))?;
                 let truthy = match bit.kind() {
                     ValueKind::Fixnum(n) => n != 0,
                     ValueKind::Nil => false,
@@ -58,36 +70,36 @@ pub(crate) fn builtin_aref(args: Vec<Value>) -> EvalResult {
             items
                 .get(idx)
                 .copied()
-                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+                .ok_or_else(|| signal("args-out-of-range", vec![array, index]))
         }
         ValueKind::String => {
             let idx = idx_fixnum as usize;
-            let string = args[0].as_lisp_string().expect("string");
+            let string = array.as_lisp_string().expect("string");
             super::lisp_string_char_at(string, idx)
                 .map(|cp| Value::fixnum(cp as i64))
-                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+                .ok_or_else(|| signal("args-out-of-range", vec![array, index]))
         }
         // In official Emacs, closures support aref for oclosure slot access.
         // The closure vector layout is:
         //   [0]=ARGS  [1]=BODY  [2]=ENV  [3]=nil  [4]=DOCSTRING  [5]=IFORM
         ValueKind::Veclike(VecLikeType::Lambda) => {
             let idx = idx_fixnum as usize;
-            let vec = lambda_to_closure_vector(&args[0]);
+            let vec = lambda_to_closure_vector(&array);
             vec.get(idx)
                 .cloned()
-                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+                .ok_or_else(|| signal("args-out-of-range", vec![array, index]))
         }
         // ByteCode closures: [0]=ARGLIST [1]=CODE [2]=ENV/CONSTANTS [3]=DEPTH [4]=DOC
         ValueKind::Veclike(VecLikeType::ByteCode) => {
             let idx = idx_fixnum as usize;
-            let vec = bytecode_to_closure_vector(&args[0]);
+            let vec = bytecode_to_closure_vector(&array);
             vec.get(idx)
                 .cloned()
-                .ok_or_else(|| signal("args-out-of-range", vec![args[0], args[1]]))
+                .ok_or_else(|| signal("args-out-of-range", vec![array, index]))
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("arrayp"), args[0]],
+            vec![Value::symbol("arrayp"), array],
         )),
     }
 }
@@ -545,16 +557,34 @@ pub(crate) fn builtin_gethash_with_symbols(
     symbols_with_pos_enabled: bool,
 ) -> EvalResult {
     expect_min_args("gethash", &args, 2)?;
-    let default = if args.len() > 2 { args[2] } else { Value::NIL };
-    match args[1].kind() {
+    let default = args.get(2).copied().unwrap_or(Value::NIL);
+    builtin_gethash_values(args[0], args[1], default, symbols_with_pos_enabled)
+}
+
+pub(crate) fn builtin_gethash_3(
+    eval: &mut super::eval::Context,
+    key_value: Value,
+    table: Value,
+    default: Value,
+) -> EvalResult {
+    builtin_gethash_values(key_value, table, default, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_gethash_values(
+    key_value: Value,
+    table: Value,
+    default: Value,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
+    match table.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let ht = args[1].as_hash_table().unwrap();
-            let key = args[0].to_hash_key_swp(&ht.test, symbols_with_pos_enabled);
+            let ht = table.as_hash_table().unwrap();
+            let key = key_value.to_hash_key_swp(&ht.test, symbols_with_pos_enabled);
             Ok(ht.data.get(&key).cloned().unwrap_or(default))
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("hash-table-p"), args[1]],
+            vec![Value::symbol("hash-table-p"), table],
         )),
     }
 }
@@ -568,24 +598,42 @@ pub(crate) fn builtin_puthash_with_symbols(
     symbols_with_pos_enabled: bool,
 ) -> EvalResult {
     expect_args("puthash", &args, 3)?;
-    match args[2].kind() {
+    builtin_puthash_values(args[0], args[1], args[2], symbols_with_pos_enabled)
+}
+
+pub(crate) fn builtin_puthash_3(
+    eval: &mut super::eval::Context,
+    key_value: Value,
+    value: Value,
+    table: Value,
+) -> EvalResult {
+    builtin_puthash_values(key_value, value, table, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_puthash_values(
+    key_value: Value,
+    value: Value,
+    table: Value,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
+    match table.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let test = args[2].as_hash_table().unwrap().test.clone();
-            let key = args[0].to_hash_key_swp(&test, symbols_with_pos_enabled);
-            let _ = args[2].with_hash_table_mut(|ht| {
+            let test = table.as_hash_table().unwrap().test.clone();
+            let key = key_value.to_hash_key_swp(&test, symbols_with_pos_enabled);
+            let _ = table.with_hash_table_mut(|ht| {
                 let inserting_new_key = !ht.data.contains_key(&key);
                 maybe_resize_hash_table_for_insert(ht, inserting_new_key);
-                ht.data.insert(key.clone(), args[1]);
+                ht.data.insert(key.clone(), value);
                 if inserting_new_key {
-                    ht.key_snapshots.insert(key.clone(), args[0]);
+                    ht.key_snapshots.insert(key.clone(), key_value);
                     ht.insertion_order.push(key);
                 }
             });
-            Ok(args[1])
+            Ok(value)
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("hash-table-p"), args[2]],
+            vec![Value::symbol("hash-table-p"), table],
         )),
     }
 }
@@ -599,11 +647,27 @@ pub(crate) fn builtin_remhash_with_symbols(
     symbols_with_pos_enabled: bool,
 ) -> EvalResult {
     expect_args("remhash", &args, 2)?;
-    match args[1].kind() {
+    builtin_remhash_values(args[0], args[1], symbols_with_pos_enabled)
+}
+
+pub(crate) fn builtin_remhash_2(
+    eval: &mut super::eval::Context,
+    key_value: Value,
+    table: Value,
+) -> EvalResult {
+    builtin_remhash_values(key_value, table, eval.symbols_with_pos_enabled)
+}
+
+fn builtin_remhash_values(
+    key_value: Value,
+    table: Value,
+    symbols_with_pos_enabled: bool,
+) -> EvalResult {
+    match table.kind() {
         ValueKind::Veclike(VecLikeType::HashTable) => {
-            let test = args[1].as_hash_table().unwrap().test.clone();
-            let key = args[0].to_hash_key_swp(&test, symbols_with_pos_enabled);
-            let _ = args[1].with_hash_table_mut(|ht| {
+            let test = table.as_hash_table().unwrap().test.clone();
+            let key = key_value.to_hash_key_swp(&test, symbols_with_pos_enabled);
+            let _ = table.with_hash_table_mut(|ht| {
                 ht.data.remove(&key);
                 ht.key_snapshots.remove(&key);
                 ht.insertion_order.retain(|k| k != &key);
@@ -612,7 +676,7 @@ pub(crate) fn builtin_remhash_with_symbols(
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("hash-table-p"), args[1]],
+            vec![Value::symbol("hash-table-p"), table],
         )),
     }
 }

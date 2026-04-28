@@ -475,6 +475,12 @@ pub type SubrFn2 = fn(
     super::value::TaggedValue,
     super::value::TaggedValue,
 ) -> crate::emacs_core::error::EvalResult;
+pub type SubrFn3 = fn(
+    &mut crate::emacs_core::eval::Context,
+    super::value::TaggedValue,
+    super::value::TaggedValue,
+    super::value::TaggedValue,
+) -> crate::emacs_core::error::EvalResult;
 
 #[derive(Clone, Copy)]
 pub enum SubrFn {
@@ -482,6 +488,7 @@ pub enum SubrFn {
     A0(SubrFn0),
     A1(SubrFn1),
     A2(SubrFn2),
+    A3(SubrFn3),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

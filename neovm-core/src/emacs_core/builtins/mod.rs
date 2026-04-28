@@ -1005,9 +1005,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx,
         BuiltinRegistration::requires_eval_state("handler-bind-1", builtin_handler_bind_1, 1, None),
     );
-    ctx.defsubr("symbol-value", builtin_symbol_value, 1, Some(1));
+    ctx.defsubr_1("symbol-value", builtin_symbol_value_1, 1);
     ctx.defsubr("symbol-function", builtin_symbol_function, 1, Some(1));
-    ctx.defsubr("set", builtin_set, 2, Some(2));
+    ctx.defsubr_2("set", builtin_set_2, 2);
     ctx.defsubr("fset", builtin_fset, 2, Some(2));
     ctx.defsubr("makunbound", builtin_makunbound, 1, Some(1));
     ctx.defsubr("fmakunbound", builtin_fmakunbound, 1, Some(1));
@@ -1015,8 +1015,8 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx,
         BuiltinRegistration::requires_eval_state("macroexpand", builtin_macroexpand, 1, Some(2)),
     );
-    ctx.defsubr("get", builtin_get, 2, Some(2));
-    ctx.defsubr("put", builtin_put, 3, Some(3));
+    ctx.defsubr_2("get", builtin_get_2, 2);
+    ctx.defsubr_3("put", builtin_put_3, 3);
     register_builtin(
         ctx,
         BuiltinRegistration::requires_eval_state("setplist", builtin_setplist, 2, Some(2)),
@@ -4207,7 +4207,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(3),
     );
     ctx.defsubr("delete", builtin_delete_with_ctx, 2, Some(2));
-    ctx.defsubr("delq", builtin_delq_with_ctx, 2, Some(2));
+    ctx.defsubr_2("delq", builtin_delq_2, 2);
     ctx.defsubr("elt", |_ctx, args| builtin_elt(args), 2, Some(2));
     ctx.defsubr("memql", builtin_memql_with_ctx, 2, Some(2));
     ctx.defsubr("nconc", |_ctx, args| builtin_nconc(args), 0, None);
@@ -7496,27 +7496,27 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
 
     // -- Equality --
     ctx.defsubr_2("eq", builtin_eq_2, 2);
-    ctx.defsubr("eql", builtin_eql_with_ctx, 2, Some(2));
-    ctx.defsubr("equal", builtin_equal_with_ctx, 2, Some(2));
+    ctx.defsubr_2("eql", builtin_eql_2, 2);
+    ctx.defsubr_2("equal", builtin_equal_2, 2);
 
     // -- Cons / List --
-    ctx.defsubr("cons", |_ctx, args| builtin_cons(args), 2, Some(2));
+    ctx.defsubr_2("cons", builtin_cons_2, 2);
     ctx.defsubr_1("car", builtin_car_1, 1);
     ctx.defsubr_1("cdr", builtin_cdr_1, 1);
     ctx.defsubr_1("car-safe", builtin_car_safe_1, 1);
     ctx.defsubr_1("cdr-safe", builtin_cdr_safe_1, 1);
-    ctx.defsubr("setcar", |_ctx, args| builtin_setcar(args), 2, Some(2));
-    ctx.defsubr("setcdr", |_ctx, args| builtin_setcdr(args), 2, Some(2));
+    ctx.defsubr_2("setcar", builtin_setcar_2, 2);
+    ctx.defsubr_2("setcdr", builtin_setcdr_2, 2);
     ctx.defsubr("list", |_ctx, args| builtin_list(args), 0, None);
-    ctx.defsubr("length", |_ctx, args| builtin_length(args), 1, Some(1));
-    ctx.defsubr("nth", |_ctx, args| builtin_nth(args), 2, Some(2));
-    ctx.defsubr("nthcdr", |_ctx, args| builtin_nthcdr(args), 2, Some(2));
+    ctx.defsubr_1("length", builtin_length_1, 1);
+    ctx.defsubr_2("nth", builtin_nth_2, 2);
+    ctx.defsubr_2("nthcdr", builtin_nthcdr_2, 2);
     ctx.defsubr("append", |_ctx, args| builtin_append(args), 0, None);
     ctx.defsubr("reverse", |_ctx, args| builtin_reverse(args), 1, Some(1));
     ctx.defsubr("nreverse", |_ctx, args| builtin_nreverse(args), 1, Some(1));
-    ctx.defsubr("member", builtin_member_with_ctx, 2, Some(2));
-    ctx.defsubr("memq", builtin_memq_with_ctx, 2, Some(2));
-    ctx.defsubr("assq", builtin_assq_with_ctx, 2, Some(2));
+    ctx.defsubr_2("member", builtin_member_2, 2);
+    ctx.defsubr_2("memq", builtin_memq_2, 2);
+    ctx.defsubr_2("assq", builtin_assq_2, 2);
     ctx.defsubr(
         "copy-sequence",
         |_ctx, args| builtin_copy_sequence(args),
@@ -7705,7 +7705,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         Some(2),
     );
     ctx.defsubr("vector", |_ctx, args| builtin_vector(args), 0, None);
-    ctx.defsubr("aref", |_ctx, args| builtin_aref(args), 2, Some(2));
+    ctx.defsubr_2("aref", builtin_aref_2, 2);
     ctx.defsubr("aset", |_ctx, args| builtin_aset(args), 3, Some(3));
     ctx.defsubr("vconcat", |_ctx, args| builtin_vconcat(args), 0, None);
 
@@ -7716,24 +7716,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         None,
     );
-    ctx.defsubr(
-        "gethash",
-        |ctx, args| builtin_gethash_with_symbols(args, ctx.symbols_with_pos_enabled),
-        2,
-        Some(3),
-    );
-    ctx.defsubr(
-        "puthash",
-        |ctx, args| builtin_puthash_with_symbols(args, ctx.symbols_with_pos_enabled),
-        3,
-        Some(3),
-    );
-    ctx.defsubr(
-        "remhash",
-        |ctx, args| builtin_remhash_with_symbols(args, ctx.symbols_with_pos_enabled),
-        2,
-        Some(2),
-    );
+    ctx.defsubr_3("gethash", builtin_gethash_3, 2);
+    ctx.defsubr_3("puthash", builtin_puthash_3, 3);
+    ctx.defsubr_2("remhash", builtin_remhash_2, 2);
     ctx.defsubr("clrhash", |_ctx, args| builtin_clrhash(args), 1, Some(1));
     ctx.defsubr(
         "hash-table-count",
@@ -7798,12 +7783,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
 
     // -- Symbol --
-    ctx.defsubr(
-        "symbol-name",
-        |_ctx, args| builtin_symbol_name(args),
-        1,
-        Some(1),
-    );
+    ctx.defsubr_1("symbol-name", builtin_symbol_name_1, 1);
     ctx.defsubr(
         "make-symbol",
         |_ctx, args| builtin_make_symbol(args),

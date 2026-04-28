@@ -5610,7 +5610,7 @@ impl Context {
 
     pub(crate) fn flush_pending_safe_funcalls(&mut self) {
         while let Some(funcall) = self.pending_safe_funcalls.pop() {
-            let _ = self.apply(funcall.function, funcall.args.into_iter().collect());
+            let _ = self.apply(funcall.function, funcall.args);
         }
     }
 
@@ -6931,7 +6931,7 @@ impl Context {
             let bt_count = self.specpdl.len();
             self.push_backtrace_frame(original_fun, &arg_values);
             let expanded =
-                self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values));
+                self.with_macro_expansion_scope(|eval| eval.apply_lambda(func, arg_values.into()));
             let expanded = self.unbind_to_with_result(bt_count, expanded);
             let expanded = expanded?;
             let expanded_root_count = self.specpdl.len();
@@ -7314,7 +7314,7 @@ impl Context {
     fn apply_symbol_callable(
         &mut self,
         sym_id: SymId,
-        args: Vec<Value>,
+        args: LispArgVec,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
@@ -7367,7 +7367,7 @@ impl Context {
     fn apply_symbol_callable_untraced(
         &mut self,
         sym_id: SymId,
-        args: Vec<Value>,
+        args: LispArgVec,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         if super::builtins::is_canonical_symbol_id(sym_id) {
@@ -9535,7 +9535,7 @@ impl Context {
     fn apply_internal(
         &mut self,
         function: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         record_backtrace: bool,
     ) -> EvalResult {
         let bt_count = self.specpdl.len();
@@ -9554,12 +9554,18 @@ impl Context {
     }
 
     /// Apply a function value to evaluated arguments.
-    pub(crate) fn apply(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.apply_internal(function, args, true)
+    pub(crate) fn apply<A>(&mut self, function: Value, args: A) -> EvalResult
+    where
+        A: Into<LispArgVec>,
+    {
+        self.apply_internal(function, args.into(), true)
     }
 
-    pub(crate) fn apply_untraced(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
-        self.apply_internal(function, args, false)
+    pub(crate) fn apply_untraced<A>(&mut self, function: Value, args: A) -> EvalResult
+    where
+        A: Into<LispArgVec>,
+    {
+        self.apply_internal(function, args.into(), false)
     }
 
     /// Apply FUNC to ARGS, but record FRAME_FUNCTION (not FUNC) in the
@@ -9575,8 +9581,9 @@ impl Context {
         &mut self,
         frame_function: Value,
         func: Value,
-        args: Vec<Value>,
+        args: impl Into<LispArgVec>,
     ) -> EvalResult {
+        let args = args.into();
         let bt_count = self.specpdl.len();
         self.push_backtrace_frame(frame_function, &args);
         let result = self.maybe_gc_and_quit().and_then(|_| {
@@ -9589,7 +9596,11 @@ impl Context {
     /// Unified function dispatch — matches GNU Emacs's funcall_general.
     /// Called by both the tree-walking interpreter (via apply) and the
     /// bytecode VM (via Vm::call_function).
-    pub(crate) fn funcall_general(&mut self, function: Value, args: Vec<Value>) -> EvalResult {
+    pub(crate) fn funcall_general<A>(&mut self, function: Value, args: A) -> EvalResult
+    where
+        A: Into<LispArgVec>,
+    {
+        let args = args.into();
         let bt_count = self.specpdl.len();
         self.push_backtrace_frame(function, &args);
         let result = self.funcall_general_untraced(function, args);
@@ -9600,8 +9611,9 @@ impl Context {
     pub(crate) fn funcall_general_untraced(
         &mut self,
         function: Value,
-        args: Vec<Value>,
+        args: impl Into<LispArgVec>,
     ) -> EvalResult {
+        let args = args.into();
         match function.kind() {
             ValueKind::Veclike(VecLikeType::ByteCode) => {
                 // get_bytecode_data returns a reference into the GC-managed
@@ -9814,7 +9826,7 @@ impl Context {
     fn dispatch_subr_value_internal(
         &mut self,
         function: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         wrong_arity_callee: Value,
     ) -> Option<EvalResult> {
         let sym_id = function.as_subr_id()?;
@@ -9825,7 +9837,7 @@ impl Context {
     fn dispatch_subr_entry_internal(
         &mut self,
         entry: SubrEntry,
-        args: Vec<Value>,
+        args: LispArgVec,
         wrong_arity_callee: Value,
     ) -> Option<EvalResult> {
         let func = entry.function?;
@@ -9863,7 +9875,7 @@ impl Context {
             }
         }
         Some(match func {
-            crate::tagged::header::SubrFn::Many(func) => func(self, args),
+            crate::tagged::header::SubrFn::Many(func) => func(self, args.into_vec()),
             crate::tagged::header::SubrFn::A0(func) => func(self),
             crate::tagged::header::SubrFn::A1(func) => {
                 func(self, args.first().copied().unwrap_or(Value::NIL))
@@ -9873,6 +9885,12 @@ impl Context {
                 args.first().copied().unwrap_or(Value::NIL),
                 args.get(1).copied().unwrap_or(Value::NIL),
             ),
+            crate::tagged::header::SubrFn::A3(func) => func(
+                self,
+                args.first().copied().unwrap_or(Value::NIL),
+                args.get(1).copied().unwrap_or(Value::NIL),
+                args.get(2).copied().unwrap_or(Value::NIL),
+            ),
         })
     }
 
@@ -9880,7 +9898,7 @@ impl Context {
     fn apply_subr_object(
         &mut self,
         function: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         _rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         let Some(sym_id) = function.as_subr_id() else {
@@ -9897,7 +9915,7 @@ impl Context {
         &mut self,
         sym_id: SymId,
         function: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         entry: SubrEntry,
     ) -> EvalResult {
         if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
@@ -9997,7 +10015,7 @@ impl Context {
     fn apply_named_callable_by_id(
         &mut self,
         sym_id: SymId,
-        args: Vec<Value>,
+        args: LispArgVec,
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
@@ -10017,7 +10035,7 @@ impl Context {
     fn apply_named_callable(
         &mut self,
         name: &str,
-        args: Vec<Value>,
+        args: LispArgVec,
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
@@ -10032,7 +10050,7 @@ impl Context {
     fn apply_named_callable_by_id_core(
         &mut self,
         sym_id: SymId,
-        args: Vec<Value>,
+        args: LispArgVec,
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
@@ -10076,7 +10094,7 @@ impl Context {
     fn apply_named_callable_core(
         &mut self,
         name: &str,
-        args: Vec<Value>,
+        args: LispArgVec,
         invalid_fn: Value,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
@@ -10123,7 +10141,7 @@ impl Context {
         &mut self,
         name: &str,
         autoload_form: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         self.apply_named_autoload_callable_by_id(
@@ -10138,7 +10156,7 @@ impl Context {
         &mut self,
         sym_id: SymId,
         autoload_form: Value,
-        args: Vec<Value>,
+        args: LispArgVec,
         rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
         // Startup wrappers often expose autoload-shaped function cells for names
@@ -10176,7 +10194,7 @@ impl Context {
     fn apply_evaluator_callable(
         &mut self,
         name: &str,
-        args: Vec<Value>,
+        args: LispArgVec,
         wrong_arity_callee: Value,
     ) -> EvalResult {
         match name {
@@ -10199,7 +10217,7 @@ impl Context {
         }
     }
 
-    fn apply_evaluator_callable_by_id(&mut self, sym_id: SymId, args: Vec<Value>) -> EvalResult {
+    fn apply_evaluator_callable_by_id(&mut self, sym_id: SymId, args: LispArgVec) -> EvalResult {
         if sym_id == throw_symbol() {
             if args.len() != 2 {
                 return Err(signal(
@@ -10222,7 +10240,7 @@ impl Context {
         }
     }
 
-    fn apply_lambda(&mut self, func_value: Value, args: Vec<Value>) -> EvalResult {
+    fn apply_lambda(&mut self, func_value: Value, args: LispArgVec) -> EvalResult {
         let Some(params) = func_value.closure_params() else {
             return Err(signal("invalid-function", vec![func_value]));
         };
@@ -11442,6 +11460,20 @@ impl Context {
         );
     }
 
+    pub fn defsubr_3(
+        &mut self,
+        name: &str,
+        func: fn(&mut Context, Value, Value, Value) -> EvalResult,
+        min_args: u16,
+    ) {
+        self.defsubr_with_entry(
+            name,
+            crate::tagged::header::SubrFn::A3(func),
+            min_args,
+            Some(3),
+        );
+    }
+
     fn defsubr_with_entry(
         &mut self,
         name: &str,
@@ -11493,7 +11525,7 @@ impl Context {
     pub fn dispatch_subr_value(&mut self, function: Value, args: Vec<Value>) -> Option<EvalResult> {
         let sym_id = function.as_subr_id()?;
         let wrong_arity_callee = Value::symbol(resolve_sym(sym_id));
-        self.dispatch_subr_value_internal(function, args, wrong_arity_callee)
+        self.dispatch_subr_value_internal(function, args.into(), wrong_arity_callee)
     }
 
     /// Resolve a symbol identity to its canonical subr object and call it.
