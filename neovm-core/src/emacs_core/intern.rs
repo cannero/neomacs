@@ -36,6 +36,7 @@ pub const UNBOUND_SYM_ID: SymId = SymId(2);
 pub struct StringInterner {
     strings: Vec<&'static LispString>,
     map: FxHashMap<&'static LispString, NameId>,
+    utf8_map: FxHashMap<&'static str, NameId>,
 }
 
 impl Default for StringInterner {
@@ -57,6 +58,7 @@ impl StringInterner {
         Self {
             strings: Vec::new(),
             map: FxHashMap::default(),
+            utf8_map: FxHashMap::default(),
         }
     }
 
@@ -70,6 +72,9 @@ impl StringInterner {
 
     /// Intern a symbol-name atom, returning its unique id.
     pub fn intern(&mut self, s: &str) -> NameId {
+        if let Some(&idx) = self.utf8_map.get(s) {
+            return idx;
+        }
         let atom = Self::name_atom_from_str(s);
         self.intern_lisp_string(&atom)
     }
@@ -84,11 +89,17 @@ impl StringInterner {
         let leaked = Box::leak(Box::new(normalized.into_owned())) as &'static LispString;
         self.strings.push(leaked);
         self.map.insert(leaked, idx);
+        if let Some(text) = leaked.as_utf8_str() {
+            self.utf8_map.insert(text, idx);
+        }
         idx
     }
 
     /// Look up a symbol-name atom without interning it.
     pub fn lookup(&self, s: &str) -> Option<NameId> {
+        if let Some(&idx) = self.utf8_map.get(s) {
+            return Some(idx);
+        }
         let atom = Self::name_atom_from_str(s);
         self.lookup_lisp_string(&atom)
     }

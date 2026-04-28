@@ -11,7 +11,7 @@ use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
 use crate::emacs_core::eval::{ConditionFrame, Context, LispArgVec, ResumeTarget};
-use crate::emacs_core::intern::{SymId, intern, intern_uninterned, resolve_sym};
+use crate::emacs_core::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 // storage_char_len and storage_substring no longer needed here — using emacs_char + LispString
 use crate::emacs_core::value::*;
@@ -1782,15 +1782,16 @@ impl<'a> Vm<'a> {
 
                 // -- Builtin escape hatch --
                 Op::CallBuiltin(name_idx, n) => {
-                    let name = sym_name(constants, *name_idx);
+                    let name_id = sym_id_at(constants, *name_idx);
+                    let name = resolve_sym(name_id);
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
                     let args: Vec<Value> = stk!().drain(args_start..).collect();
-                    let writeback_args = Self::mutates_first_arg_name(&name).then(|| args.clone());
-                    let result = if self.named_builtin_fast_path_allowed(&name) {
-                        vm_try!(self.dispatch_vm_builtin_with_frame(func, &name, args,))
+                    let writeback_args = Self::mutates_first_arg_name(name).then(|| args.clone());
+                    let result = if self.named_builtin_fast_path_allowed_id(name_id) {
+                        vm_try!(self.dispatch_vm_builtin_with_frame(func, name, args,))
                     } else {
-                        let func_val = Value::symbol(&name);
+                        let func_val = Value::from_sym_id(name_id);
                         vm_try!(
                             self.with_frame_call_roots(func, func_val, args, |vm, args| {
                                 vm.call_function(func_val, args)
@@ -1804,7 +1805,7 @@ impl<'a> Vm<'a> {
                             self.push_dynamic_vm_root(value);
                         }
                         self.maybe_writeback_mutating_first_arg(
-                            &name,
+                            name,
                             None,
                             writeback_args,
                             &result,
@@ -1904,16 +1905,19 @@ impl<'a> Vm<'a> {
         }
     }
 
-    fn named_builtin_fast_path_allowed(&self, name: &str) -> bool {
+    fn builtin_name_id(name: &str) -> SymId {
+        lookup_interned(name).unwrap_or_else(|| intern(name))
+    }
+
+    fn named_builtin_fast_path_allowed_id(&self, id: SymId) -> bool {
         if crate::emacs_core::eval::compiler_function_overrides_active_in_obarray(&self.ctx.obarray)
         {
             return false;
         }
-        match self.ctx.obarray.symbol_function(name) {
+        match self.ctx.obarray.symbol_function_id(id) {
             Some(val) => match val.kind() {
                 ValueKind::Subr(_) | ValueKind::Veclike(VecLikeType::Subr) => {
-                    let id = val.as_subr_id().unwrap();
-                    resolve_sym(id) == name
+                    val.as_subr_id() == Some(id)
                 }
                 ValueKind::Nil => true,
                 _ => false,
@@ -1928,11 +1932,12 @@ impl<'a> Vm<'a> {
         name: &str,
         args: Vec<Value>,
     ) -> Result<Option<Value>, Flow> {
-        if self.named_builtin_fast_path_allowed(name) {
+        let id = Self::builtin_name_id(name);
+        if self.named_builtin_fast_path_allowed_id(id) {
             return Ok(None);
         }
 
-        let func_val = Value::symbol(name);
+        let func_val = Value::from_sym_id(id);
         self.with_frame_call_roots(func, func_val, args, |vm, args| {
             vm.call_function(func_val, args)
         })
@@ -3802,7 +3807,7 @@ impl<'a> Vm<'a> {
         // This matches GNU Emacs where the bytecode VM delegates to
         // funcall_general for everything except bytecoded closures.
         self.ctx
-            .funcall_general(Value::subr_from_sym_id(intern(name)), args)
+            .funcall_general(Value::subr_from_sym_id(Self::builtin_name_id(name)), args)
     }
 
     fn with_default_directory_binding<T>(
@@ -4682,20 +4687,6 @@ fn resolve_switch_target(func: &ByteCodeFunction, raw_addr: i64) -> Result<usize
     } else {
         Ok(raw_addr)
     }
-}
-
-fn sym_name(constants: &[Value], idx: u16) -> String {
-    constants
-        .get(idx as usize)
-        .and_then(|v| {
-            // Transparently unwrap symbol-with-pos → bare symbol name.
-            v.as_symbol_name().or_else(|| {
-                v.as_symbol_with_pos_sym()
-                    .and_then(|sym| sym.as_symbol_name())
-            })
-        })
-        .unwrap_or("nil")
-        .to_string()
 }
 
 /// Extract a `SymId` from a bytecode constants vector entry without

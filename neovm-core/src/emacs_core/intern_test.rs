@@ -91,6 +91,18 @@ fn name_interner_canonicalizes_ascii_multibyte_names_to_unibyte_atoms() {
 }
 
 #[test]
+fn name_interner_lookup_reuses_ascii_multibyte_canonical_atom() {
+    crate::test_utils::init_test_tracing();
+    let mut interner = StringInterner::new();
+    let multibyte = crate::heap_types::LispString::from_utf8("symbol-name");
+
+    let id = interner.intern_lisp_string(&multibyte);
+
+    assert_eq!(interner.lookup("symbol-name"), Some(id));
+    assert_eq!(interner.intern("symbol-name"), id);
+}
+
+#[test]
 fn symid_copy_eq_hash() {
     crate::test_utils::init_test_tracing();
     let mut registry = SymbolRegistry::new();
