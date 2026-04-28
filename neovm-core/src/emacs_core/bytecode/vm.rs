@@ -4445,12 +4445,23 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
 }
 
 impl crate::emacs_core::builtins::higher_order::SortRuntime for Vm<'_> {
-    fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
+    fn call_sort_function1(&mut self, function: Value, arg: Value) -> Result<Value, Flow> {
         self.with_vm_root_scope(|vm| {
-            for arg in args.iter().copied() {
-                vm.push_dynamic_vm_root(arg);
-            }
-            vm.call_function(function, args)
+            vm.push_dynamic_vm_root(arg);
+            vm.call_function1(function, arg)
+        })
+    }
+
+    fn call_sort_function2(
+        &mut self,
+        function: Value,
+        arg0: Value,
+        arg1: Value,
+    ) -> Result<Value, Flow> {
+        self.with_vm_root_scope(|vm| {
+            vm.push_dynamic_vm_root(arg0);
+            vm.push_dynamic_vm_root(arg1);
+            vm.call_function2(function, arg0, arg1)
         })
     }
 

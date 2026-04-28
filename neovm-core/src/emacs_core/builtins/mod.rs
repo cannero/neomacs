@@ -968,7 +968,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr_2("mapcar", builtin_mapcar_2, 2);
     ctx.defsubr_2("mapc", builtin_mapc_2, 2);
     ctx.defsubr("mapconcat", builtin_mapconcat, 2, Some(3));
-    ctx.defsubr("sort", builtin_sort, 1, None);
+    ctx.defsubr_slice("sort", builtin_sort_slice, 1, None);
     record_builtin_no_eval_policy("functionp", BuiltinNoEvalPolicy::RequiresEvalState);
     ctx.defsubr_1("functionp", builtin_functionp_1, 1);
     register_builtin(

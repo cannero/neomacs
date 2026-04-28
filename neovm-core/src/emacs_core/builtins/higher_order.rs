@@ -385,7 +385,13 @@ pub(crate) struct SortOptions {
 }
 
 pub(crate) trait SortRuntime {
-    fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow>;
+    fn call_sort_function1(&mut self, function: Value, arg: Value) -> Result<Value, Flow>;
+    fn call_sort_function2(
+        &mut self,
+        function: Value,
+        arg0: Value,
+        arg1: Value,
+    ) -> Result<Value, Flow>;
     fn root_sort_value(&mut self, value: Value);
     fn compare_sort_keys(
         &mut self,
@@ -395,7 +401,21 @@ pub(crate) trait SortRuntime {
 }
 
 impl SortRuntime for super::eval::Context {
-    fn call_sort_function(&mut self, function: Value, args: Vec<Value>) -> Result<Value, Flow> {
+    fn call_sort_function1(&mut self, function: Value, arg: Value) -> Result<Value, Flow> {
+        let mut args = LispArgVec::new();
+        args.push(arg);
+        self.apply(function, args)
+    }
+
+    fn call_sort_function2(
+        &mut self,
+        function: Value,
+        arg0: Value,
+        arg1: Value,
+    ) -> Result<Value, Flow> {
+        let mut args = LispArgVec::new();
+        args.push(arg0);
+        args.push(arg1);
         self.apply(function, args)
     }
 
@@ -487,6 +507,10 @@ pub(crate) fn parse_sort_options(args: &[Value]) -> Result<SortOptions, Flow> {
 }
 
 pub(crate) fn builtin_sort(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_sort_slice(eval, &args)
+}
+
+pub(crate) fn builtin_sort_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
     let SortOptions {
         key_fn,
         lessp_fn,
@@ -608,7 +632,7 @@ pub(crate) fn stable_sort_values_with(
 
     if !key_fn.is_nil() {
         for item in &mut items {
-            let key = runtime.call_sort_function(key_fn, vec![item.value])?;
+            let key = runtime.call_sort_function1(key_fn, item.value)?;
             runtime.root_sort_value(key);
             item.key = key;
         }
@@ -657,13 +681,13 @@ fn compare_sort_items(
     }
 
     if runtime
-        .call_sort_function(lessp_fn, vec![left.key, right.key])?
+        .call_sort_function2(lessp_fn, left.key, right.key)?
         .is_truthy()
     {
         return Ok(std::cmp::Ordering::Less);
     }
     if runtime
-        .call_sort_function(lessp_fn, vec![right.key, left.key])?
+        .call_sort_function2(lessp_fn, right.key, left.key)?
         .is_truthy()
     {
         return Ok(std::cmp::Ordering::Greater);
