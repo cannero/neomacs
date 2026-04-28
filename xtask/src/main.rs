@@ -1,4 +1,5 @@
-use std::collections::BTreeSet;
+use rayon::prelude::*;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -673,35 +674,70 @@ fn run_compile_main(
 ) -> Result<()> {
     remove_lisp_bytecode_without_source(options, paths)?;
 
-    let main_first = parse_main_first_sources(&paths.makefile_in, &paths.lisp_root)?;
-    let mut sources = Vec::new();
+    let main_first_sources = parse_main_first_sources(&paths.makefile_in, &paths.lisp_root)?;
     let mut seen = BTreeSet::new();
-    for source in main_first {
-        push_compile_main_source(source, &mut seen, &mut sources)?;
+    let mut main_first = Vec::new();
+    for source in main_first_sources {
+        push_compile_main_source(source, &mut seen, &mut main_first)?;
     }
+    let mut general = Vec::new();
     for source in compile_main_sources(&paths.lisp_root)? {
-        push_compile_main_source(source, &mut seen, &mut sources)?;
+        if seen.contains(&source) {
+            continue;
+        }
+        push_compile_main_source(source, &mut seen, &mut general)?;
     }
 
-    let sources = sources
+    let main_first = main_first
+        .into_iter()
+        .filter(|source| compile_main_needs_rebuild(source))
+        .collect::<Vec<_>>();
+    let general = general
         .into_iter()
         .filter(|source| compile_main_needs_rebuild(source))
         .collect::<Vec<_>>();
 
-    if sources.is_empty() {
+    if main_first.is_empty() && general.is_empty() {
         return Ok(());
     }
 
     print_synthetic_step("compile Lisp bytecode (GNU compile-main)");
-    println!("  INFO  byte-compiling {} .el files", sources.len());
+    println!(
+        "  INFO  byte-compiling {} .el files",
+        main_first.len() + general.len()
+    );
     let mut errors = Vec::new();
-    for source in &sources {
-        let args = compile_main_args_for_source(options.native_comp, source);
-        if let Err(e) = run_command(options, &options.repo_root, &paths.bootstrap, &args, envs) {
-            eprintln!("  WARN  byte-compile failed: {} ({})", source.display(), e);
-            errors.push(source.display().to_string());
+
+    if !main_first.is_empty() {
+        println!(
+            "  INFO  byte-compiling {} MAIN_FIRST .el files sequentially",
+            main_first.len()
+        );
+        for source in &main_first {
+            if let Err(e) = run_compile_main_source(options, paths, envs, source) {
+                eprintln!("  WARN  byte-compile failed: {} ({})", source.display(), e);
+                errors.push(source.display().to_string());
+            }
         }
     }
+
+    if !general.is_empty() {
+        let dependencies = parse_compile_main_dependencies(&paths.makefile_in, &paths.lisp_root)?;
+        let jobs = compile_main_jobs();
+        println!(
+            "  INFO  byte-compiling {} general .el files with {jobs} parallel jobs",
+            general.len()
+        );
+        errors.extend(run_compile_main_parallel(
+            options,
+            paths,
+            envs,
+            general,
+            &dependencies,
+            jobs,
+        )?);
+    }
+
     if !errors.is_empty() {
         eprintln!("  WARN  {} files failed to byte-compile:", errors.len());
         for e in &errors {
@@ -710,6 +746,85 @@ fn run_compile_main(
     }
 
     Ok(())
+}
+
+fn compile_main_jobs() -> usize {
+    std::thread::available_parallelism()
+        .map(std::num::NonZeroUsize::get)
+        .unwrap_or(1)
+        .max(1)
+}
+
+fn run_compile_main_parallel(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    sources: Vec<PathBuf>,
+    dependencies: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+    jobs: usize,
+) -> Result<Vec<String>> {
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(jobs).build()?;
+    let mut pending = sources.into_iter().collect::<BTreeSet<_>>();
+    let mut errors = Vec::new();
+
+    while !pending.is_empty() {
+        let ready = pending
+            .iter()
+            .filter(|source| {
+                dependencies
+                    .get(*source)
+                    .is_none_or(|deps| deps.iter().all(|dep| !pending.contains(dep)))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if ready.is_empty() {
+            return Err(format!(
+                "compile-main dependency cycle or missing wave among {} pending files",
+                pending.len()
+            )
+            .into());
+        }
+
+        let wave_errors = if options.dry_run {
+            ready
+                .iter()
+                .filter_map(|source| {
+                    run_compile_main_source(options, paths, envs, source)
+                        .err()
+                        .map(|err| format!("{} ({err})", source.display()))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            pool.install(|| {
+                ready
+                    .par_iter()
+                    .filter_map(|source| {
+                        run_compile_main_source(options, paths, envs, source)
+                            .err()
+                            .map(|err| format!("{} ({err})", source.display()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+
+        for source in ready {
+            pending.remove(&source);
+        }
+        errors.extend(wave_errors);
+    }
+
+    Ok(errors)
+}
+
+fn run_compile_main_source(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    source: &Path,
+) -> Result<()> {
+    let args = compile_main_args_for_source(options.native_comp, source);
+    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
 }
 
 fn push_compile_main_source(
@@ -827,6 +942,71 @@ fn source_has_no_byte_compile_marker(source: &Path) -> Result<bool> {
     Ok(contents
         .lines()
         .any(|line| gnu_no_byte_compile_marker_line(line)))
+}
+
+fn parse_compile_main_dependencies(
+    makefile_in: &Path,
+    lisp_root: &Path,
+) -> Result<BTreeMap<PathBuf, BTreeSet<PathBuf>>> {
+    let contents = fs::read_to_string(makefile_in)?;
+    Ok(parse_compile_main_dependencies_from_str(
+        &contents, lisp_root,
+    ))
+}
+
+fn parse_compile_main_dependencies_from_str(
+    contents: &str,
+    lisp_root: &Path,
+) -> BTreeMap<PathBuf, BTreeSet<PathBuf>> {
+    let mut dependencies = BTreeMap::new();
+    let mut logical = String::new();
+
+    for raw_line in contents.lines() {
+        let line = raw_line.trim_end();
+        let continuation = line.ends_with('\\');
+        let fragment = line.strip_suffix('\\').unwrap_or(line);
+        logical.push_str(fragment);
+        logical.push(' ');
+
+        if continuation {
+            continue;
+        }
+
+        if let Some((targets, deps)) = logical.split_once(':') {
+            let targets = compile_main_dependency_paths(targets, lisp_root);
+            let deps = compile_main_dependency_paths(deps, lisp_root)
+                .into_iter()
+                .collect::<BTreeSet<_>>();
+            if !targets.is_empty() && !deps.is_empty() {
+                for target in targets {
+                    dependencies
+                        .entry(target)
+                        .or_insert_with(BTreeSet::new)
+                        .extend(deps.iter().cloned());
+                }
+            }
+        }
+
+        logical.clear();
+    }
+
+    dependencies
+}
+
+fn compile_main_dependency_paths(fragment: &str, lisp_root: &Path) -> Vec<PathBuf> {
+    let normalized = fragment.replace('\\', " ");
+    normalized
+        .split_whitespace()
+        .filter_map(|token| {
+            let stripped = token.strip_prefix("$(lisp)/")?;
+            let mut path = lisp_root.join(stripped);
+            if path.extension() != Some(OsStr::new("elc")) {
+                return None;
+            }
+            path.set_extension("el");
+            Some(path)
+        })
+        .collect()
 }
 
 fn gnu_no_byte_compile_marker_line(line: &str) -> bool {

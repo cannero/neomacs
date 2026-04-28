@@ -42,6 +42,7 @@ tracing-appender = "0.2"
 # Concurrency & threading
 crossbeam-channel = "0.5"
 crossbeam-deque = "0.8"
+rayon = "1"
 
 # FFI / system
 libc = "0.2"

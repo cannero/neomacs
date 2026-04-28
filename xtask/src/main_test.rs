@@ -103,6 +103,36 @@ MAIN_FIRST = ./emacs-lisp/eieio.el ./emacs-lisp/eieio-base.el \\
 }
 
 #[test]
+fn parse_compile_main_dependencies_reads_gnu_makefile_rules() {
+    let lisp_root = PathBuf::from("/repo/lisp");
+    let contents = "\
+$(lisp)/progmodes/cc-align.elc \\
+  $(lisp)/progmodes/cc-cmds.elc: \\
+  $(lisp)/progmodes/cc-bytecomp.elc $(lisp)/progmodes/cc-defs.elc
+$(lisp)/progmodes/js.elc: $(lisp)/progmodes/cc-mode.elc $(srcdir)/ignored.elc
+not-lisp.elc: $(lisp)/ignored.elc
+";
+
+    let deps = parse_compile_main_dependencies_from_str(contents, &lisp_root);
+
+    let cc_bytecomp = lisp_root.join("progmodes/cc-bytecomp.el");
+    let cc_defs = lisp_root.join("progmodes/cc-defs.el");
+    assert_eq!(
+        deps.get(&lisp_root.join("progmodes/cc-align.el")).unwrap(),
+        &BTreeSet::from([cc_bytecomp.clone(), cc_defs.clone()])
+    );
+    assert_eq!(
+        deps.get(&lisp_root.join("progmodes/cc-cmds.el")).unwrap(),
+        &BTreeSet::from([cc_bytecomp, cc_defs])
+    );
+    assert_eq!(
+        deps.get(&lisp_root.join("progmodes/js.el")).unwrap(),
+        &BTreeSet::from([lisp_root.join("progmodes/cc-mode.el")])
+    );
+    assert!(!deps.contains_key(&lisp_root.join("ignored.el")));
+}
+
+#[test]
 fn generated_lisp_bytecode_files_collects_nested_elc_files() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
