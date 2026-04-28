@@ -19,7 +19,7 @@ pub(crate) mod charset_image;
 pub(crate) mod coding_system_image;
 pub mod convert;
 pub(crate) mod face_image;
-pub(crate) mod heap_objects_image;
+pub(crate) mod object_value_codec;
 pub(crate) mod mapped_heap;
 pub(crate) mod mmap_image;
 pub(crate) mod obarray_image;
@@ -97,8 +97,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v37: Mapped heap object/slot spans move out of RuntimeState bincode. File
 //   load rebuilds them from the dumped object list and the fixed heap-image
 //   layout algorithm instead of deserializing five span vectors.
-// v38: DumpTaggedHeap.objects moved out of RuntimeState bincode and into a
-//   fixed-layout HeapObjects mmap section with explicit heap/value tags.
+// v38: DumpTaggedHeap.objects moved out of RuntimeState bincode and into an
+//   explicit heap/value-tag section. This intermediate section was superseded
+//   by v47's ObjectStarts/ObjectExtra/ValueRelocations layout.
 // v39: Obarray symbol state moves out of RuntimeState bincode and into a
 //   fixed-layout Obarray mmap section.
 // v40: Top-level Lisp roots move out of RuntimeState bincode and into the

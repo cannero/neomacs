@@ -8,7 +8,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::DumpError;
-use super::heap_objects_image::{Cursor, write_bool, write_u32, write_u64, write_value};
+use super::object_value_codec::{Cursor, write_bool, write_u32, write_u64, write_value};
 use super::types::{
     DumpLispString, DumpOrderedSymMap, DumpRuntimeBindingValue, DumpSymId, DumpValue,
 };
@@ -203,11 +203,11 @@ fn write_runtime_binding_value(
 ) -> Result<(), DumpError> {
     match value {
         DumpRuntimeBindingValue::Bound(value) => {
-            super::heap_objects_image::write_u8(out, RUNTIME_BINDING_BOUND);
+            super::object_value_codec::write_u8(out, RUNTIME_BINDING_BOUND);
             write_value(out, value)?;
         }
         DumpRuntimeBindingValue::Void => {
-            super::heap_objects_image::write_u8(out, RUNTIME_BINDING_VOID);
+            super::object_value_codec::write_u8(out, RUNTIME_BINDING_VOID);
         }
     }
     Ok(())

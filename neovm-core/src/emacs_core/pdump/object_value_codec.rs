@@ -30,7 +30,10 @@ const HEAP_TIMER: u8 = 14;
 const HEAP_SUBR: u8 = 15;
 const HEAP_FREE: u8 = 16;
 
-fn write_heap_object(out: &mut Vec<u8>, object: &DumpHeapObject) -> Result<(), DumpError> {
+pub(crate) fn write_heap_object(
+    out: &mut Vec<u8>,
+    object: &DumpHeapObject,
+) -> Result<(), DumpError> {
     match object {
         DumpHeapObject::Cons { car, cdr } => {
             write_u8(out, HEAP_CONS);
@@ -114,15 +117,6 @@ fn write_heap_object(out: &mut Vec<u8>, object: &DumpHeapObject) -> Result<(), D
         DumpHeapObject::Free => write_u8(out, HEAP_FREE),
     }
     Ok(())
-}
-
-/// Public wrapper for `write_heap_object`, used by `object_extra.rs`
-/// to serialize Category B/C objects without duplicating format logic.
-pub(crate) fn write_heap_object_pub(
-    out: &mut Vec<u8>,
-    object: &DumpHeapObject,
-) -> Result<(), DumpError> {
-    write_heap_object(out, object)
 }
 
 const BYTE_OWNED: u8 = 0;
@@ -845,7 +839,7 @@ impl<'a> Cursor<'a> {
         self.section.len() - self.offset
     }
 
-    pub(crate) fn read_heap_object_pub(&mut self) -> Result<DumpHeapObject, DumpError> {
+    pub(crate) fn read_heap_object(&mut self) -> Result<DumpHeapObject, DumpError> {
         let tag = self.read_u8("heap object tag")?;
         self.read_heap_object_from_tag(tag)
     }
@@ -1056,13 +1050,9 @@ impl<'a> Cursor<'a> {
         Ok(entries)
     }
 
-    pub(crate) fn read_text_property_runs_pub(
+    pub(crate) fn read_text_property_runs(
         &mut self,
     ) -> Result<Vec<DumpStringTextPropertyRun>, DumpError> {
-        self.read_text_property_runs()
-    }
-
-    fn read_text_property_runs(&mut self) -> Result<Vec<DumpStringTextPropertyRun>, DumpError> {
         let len = self.read_len("string text property run count")?;
         let mut runs = Vec::with_capacity(len);
         for _ in 0..len {
@@ -1293,11 +1283,7 @@ impl<'a> Cursor<'a> {
         }
     }
 
-    pub(crate) fn read_opt_u16_pub(&mut self) -> Result<Option<u16>, DumpError> {
-        self.read_opt_u16()
-    }
-
-    fn read_opt_u16(&mut self) -> Result<Option<u16>, DumpError> {
+    pub(crate) fn read_opt_u16(&mut self) -> Result<Option<u16>, DumpError> {
         if self.read_bool("u16 present")? {
             Ok(Some(self.read_u16("u16 option")?))
         } else {
@@ -1514,12 +1500,12 @@ mod tests {
 
         let mut bytes = Vec::new();
         for object in &objects {
-            write_heap_object_pub(&mut bytes, object).expect("encode heap object");
+            write_heap_object(&mut bytes, object).expect("encode heap object");
         }
         let mut cursor = Cursor::new(&bytes);
         let mut decoded = Vec::new();
         for _ in 0..objects.len() {
-            decoded.push(cursor.read_heap_object_pub().expect("decode heap object"));
+            decoded.push(cursor.read_heap_object().expect("decode heap object"));
         }
         assert!(cursor.is_empty());
 
@@ -1531,7 +1517,7 @@ mod tests {
         let bytes = [u8::MAX];
         let mut cursor = Cursor::new(&bytes);
         let err = cursor
-            .read_heap_object_pub()
+            .read_heap_object()
             .expect_err("bad object tag should fail");
         assert!(matches!(err, DumpError::ImageFormatError(_)));
     }

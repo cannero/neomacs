@@ -9,7 +9,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::DumpError;
-use super::heap_objects_image;
+use super::object_value_codec;
 use super::types::DumpValue;
 
 const VALUE_FIXUPS_MAGIC: [u8; 16] = *b"NEOVALUEFIXUPS\0\0";
@@ -37,8 +37,8 @@ pub(crate) struct RawValueFixup {
 pub(crate) fn value_fixups_section_bytes(fixups: &[RawValueFixup]) -> Result<Vec<u8>, DumpError> {
     let mut bytes = vec![0u8; HEADER_SIZE];
     for fixup in fixups {
-        heap_objects_image::write_u64(&mut bytes, fixup.location_offset);
-        heap_objects_image::write_value(&mut bytes, &fixup.value)?;
+        object_value_codec::write_u64(&mut bytes, fixup.location_offset);
+        object_value_codec::write_value(&mut bytes, &fixup.value)?;
     }
 
     let payload_len = bytes.len() - HEADER_SIZE;
@@ -94,7 +94,7 @@ pub(crate) fn load_value_fixups_section(section: &[u8]) -> Result<Vec<RawValueFi
 
     let fixup_count = usize::try_from(header.fixup_count)
         .map_err(|_| DumpError::ImageFormatError("value-fixups count overflows usize".into()))?;
-    let mut cursor = heap_objects_image::Cursor::new(&section[payload_start..payload_end]);
+    let mut cursor = object_value_codec::Cursor::new(&section[payload_start..payload_end]);
     let mut fixups = Vec::with_capacity(fixup_count);
     for _ in 0..fixup_count {
         let location_offset = cursor.read_u64("value-fixup location offset")?;

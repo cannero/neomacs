@@ -7,7 +7,7 @@
 use bytemuck::{Pod, Zeroable};
 
 use super::DumpError;
-use super::heap_objects_image::{Cursor, write_bool, write_u8, write_u32, write_u64, write_value};
+use super::object_value_codec::{Cursor, write_bool, write_u8, write_u32, write_u64, write_value};
 use super::types::{
     DumpCharsetInfo, DumpCharsetMethod, DumpCharsetRegistry, DumpCharsetSubsetSpec, DumpSymId,
     DumpValue,

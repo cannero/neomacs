@@ -10,13 +10,13 @@
 //! timer, free) have no HeapImage representation and need a full descriptor.
 //!
 //! Serialization strategy: the extra tag byte identifies the variant, then
-//! the payload uses the same encoding as `heap_objects_image::write_heap_object`
+//! the payload uses the same encoding as `object_value_codec::write_heap_object`
 //! for complex types. On read, we delegate to `Cursor::read_heap_object` and
 //! extract the relevant fields from the returned `DumpHeapObject`.
 
 use bytemuck::{Pod, Zeroable};
 
-use super::heap_objects_image;
+use super::object_value_codec;
 use super::{DumpError, types::*};
 
 const OBJECT_EXTRA_MAGIC: [u8; 16] = *b"NEOOBJEXTRA\0\0\0\0\0";
@@ -35,7 +35,7 @@ struct ObjectExtraHeader {
 
 const HEADER_SIZE: usize = std::mem::size_of::<ObjectExtraHeader>();
 
-// Variant tags — kept distinct from HEAP_* tags in heap_objects_image.rs.
+// Variant tags — kept distinct from HEAP_* tags in object_value_codec.rs.
 const EXTRA_NONE: u8 = 100;
 const EXTRA_CONS: u8 = 112;
 const EXTRA_FLOAT: u8 = 113;
@@ -132,26 +132,26 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
     match obj {
         // Category A: just the type tag + slot count for vectorlikes.
         DumpHeapObject::Cons { .. } => {
-            heap_objects_image::write_u8(out, EXTRA_CONS);
+            object_value_codec::write_u8(out, EXTRA_CONS);
         }
         DumpHeapObject::Float(_) => {
-            heap_objects_image::write_u8(out, EXTRA_FLOAT);
+            object_value_codec::write_u8(out, EXTRA_FLOAT);
         }
         DumpHeapObject::Vector(slots) => {
-            heap_objects_image::write_u8(out, EXTRA_VECTOR);
-            heap_objects_image::write_u64(out, slots.len() as u64);
+            object_value_codec::write_u8(out, EXTRA_VECTOR);
+            object_value_codec::write_u64(out, slots.len() as u64);
         }
         DumpHeapObject::Lambda(slots) => {
-            heap_objects_image::write_u8(out, EXTRA_LAMBDA);
-            heap_objects_image::write_u64(out, slots.len() as u64);
+            object_value_codec::write_u8(out, EXTRA_LAMBDA);
+            object_value_codec::write_u64(out, slots.len() as u64);
         }
         DumpHeapObject::Macro(slots) => {
-            heap_objects_image::write_u8(out, EXTRA_MACRO);
-            heap_objects_image::write_u64(out, slots.len() as u64);
+            object_value_codec::write_u8(out, EXTRA_MACRO);
+            object_value_codec::write_u64(out, slots.len() as u64);
         }
         DumpHeapObject::Record(slots) => {
-            heap_objects_image::write_u8(out, EXTRA_RECORD);
-            heap_objects_image::write_u64(out, slots.len() as u64);
+            object_value_codec::write_u8(out, EXTRA_RECORD);
+            object_value_codec::write_u64(out, slots.len() as u64);
         }
         // Category B: partial extra data.
         DumpHeapObject::Str {
@@ -160,49 +160,49 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
             size_byte,
             text_props,
         } => {
-            heap_objects_image::write_u8(out, EXTRA_STRING);
-            heap_objects_image::write_u64(out, *size as u64);
-            heap_objects_image::write_u64(out, *size_byte as u64);
+            object_value_codec::write_u8(out, EXTRA_STRING);
+            object_value_codec::write_u64(out, *size as u64);
+            object_value_codec::write_u64(out, *size_byte as u64);
             // Write byte data (Owned or Mapped)
             match data {
                 DumpByteData::Owned(bytes) => {
-                    heap_objects_image::write_u8(out, 0);
-                    heap_objects_image::write_u64(out, bytes.len() as u64);
+                    object_value_codec::write_u8(out, 0);
+                    object_value_codec::write_u64(out, bytes.len() as u64);
                     out.extend_from_slice(bytes);
                 }
                 DumpByteData::Mapped(span) => {
-                    heap_objects_image::write_u8(out, 1);
-                    heap_objects_image::write_u64(out, span.offset);
-                    heap_objects_image::write_u64(out, span.len);
+                    object_value_codec::write_u8(out, 1);
+                    object_value_codec::write_u64(out, span.offset);
+                    object_value_codec::write_u64(out, span.len);
                 }
             }
             write_text_property_runs(out, text_props)?;
         }
         DumpHeapObject::Overlay(overlay) => {
-            heap_objects_image::write_u8(out, EXTRA_OVERLAY);
-            heap_objects_image::write_heap_object_pub(
+            object_value_codec::write_u8(out, EXTRA_OVERLAY);
+            object_value_codec::write_heap_object(
                 out,
                 &DumpHeapObject::Overlay(overlay.clone()),
             )?;
         }
         DumpHeapObject::Marker(marker) => {
-            heap_objects_image::write_u8(out, EXTRA_MARKER);
-            heap_objects_image::write_heap_object_pub(
+            object_value_codec::write_u8(out, EXTRA_MARKER);
+            object_value_codec::write_heap_object(
                 out,
                 &DumpHeapObject::Marker(marker.clone()),
             )?;
         }
         // Category C: full descriptor (no HeapImage bytes).
         DumpHeapObject::HashTable(table) => {
-            heap_objects_image::write_u8(out, EXTRA_HASH_TABLE);
-            heap_objects_image::write_heap_object_pub(
+            object_value_codec::write_u8(out, EXTRA_HASH_TABLE);
+            object_value_codec::write_heap_object(
                 out,
                 &DumpHeapObject::HashTable(table.clone()),
             )?;
         }
         DumpHeapObject::ByteCode(function) => {
-            heap_objects_image::write_u8(out, EXTRA_BYTE_CODE);
-            heap_objects_image::write_heap_object_pub(
+            object_value_codec::write_u8(out, EXTRA_BYTE_CODE);
+            object_value_codec::write_heap_object(
                 out,
                 &DumpHeapObject::ByteCode(function.clone()),
             )?;
@@ -212,29 +212,29 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
             min_args,
             max_args,
         } => {
-            heap_objects_image::write_u8(out, EXTRA_SUBR);
-            heap_objects_image::write_u32(out, name.0);
-            heap_objects_image::write_u16(out, *min_args);
+            object_value_codec::write_u8(out, EXTRA_SUBR);
+            object_value_codec::write_u32(out, name.0);
+            object_value_codec::write_u16(out, *min_args);
             write_opt_u16(out, *max_args);
         }
         DumpHeapObject::Buffer(id) => {
-            heap_objects_image::write_u8(out, EXTRA_BUFFER);
-            heap_objects_image::write_u64(out, id.0);
+            object_value_codec::write_u8(out, EXTRA_BUFFER);
+            object_value_codec::write_u64(out, id.0);
         }
         DumpHeapObject::Window(id) => {
-            heap_objects_image::write_u8(out, EXTRA_WINDOW);
-            heap_objects_image::write_u64(out, *id);
+            object_value_codec::write_u8(out, EXTRA_WINDOW);
+            object_value_codec::write_u64(out, *id);
         }
         DumpHeapObject::Frame(id) => {
-            heap_objects_image::write_u8(out, EXTRA_FRAME);
-            heap_objects_image::write_u64(out, *id);
+            object_value_codec::write_u8(out, EXTRA_FRAME);
+            object_value_codec::write_u64(out, *id);
         }
         DumpHeapObject::Timer(id) => {
-            heap_objects_image::write_u8(out, EXTRA_TIMER);
-            heap_objects_image::write_u64(out, *id);
+            object_value_codec::write_u8(out, EXTRA_TIMER);
+            object_value_codec::write_u64(out, *id);
         }
         DumpHeapObject::Free => {
-            heap_objects_image::write_u8(out, EXTRA_FREE);
+            object_value_codec::write_u8(out, EXTRA_FREE);
         }
     }
     Ok(())
@@ -328,7 +328,7 @@ pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, Dump
         ));
     }
 
-    let mut cursor = heap_objects_image::Cursor::new_at(&section[payload_start..payload_end], 0);
+    let mut cursor = object_value_codec::Cursor::new_at(&section[payload_start..payload_end], 0);
     let mut extras = Vec::with_capacity(count);
     for _ in 0..count {
         let extra = read_object_extra(&mut cursor)?;
@@ -337,7 +337,7 @@ pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, Dump
     Ok(extras)
 }
 
-fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectExtra, DumpError> {
+fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectExtra, DumpError> {
     let tag = cursor.read_u8("object extra tag")?;
     match tag {
         EXTRA_NONE => Ok(ObjectExtra::None),
@@ -372,7 +372,7 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
                 let len = cursor.read_u64("string mapped len")?;
                 DumpByteData::mapped(offset, len)
             };
-            let text_props = cursor.read_text_property_runs_pub()?;
+            let text_props = cursor.read_text_property_runs()?;
             Ok(ObjectExtra::String {
                 size,
                 size_byte,
@@ -381,8 +381,8 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
             })
         }
         EXTRA_HASH_TABLE => {
-            // Skip the HEAP_HASH_TABLE tag written by write_heap_object_pub
-            let obj = cursor.read_heap_object_pub()?;
+            // Skip the HEAP_HASH_TABLE tag written by write_heap_object
+            let obj = cursor.read_heap_object()?;
             match obj {
                 DumpHeapObject::HashTable(table) => Ok(ObjectExtra::HashTable(table)),
                 other => Err(DumpError::ImageFormatError(format!(
@@ -392,7 +392,7 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
             }
         }
         EXTRA_BYTE_CODE => {
-            let obj = cursor.read_heap_object_pub()?;
+            let obj = cursor.read_heap_object()?;
             match obj {
                 DumpHeapObject::ByteCode(function) => Ok(ObjectExtra::ByteCode(function)),
                 other => Err(DumpError::ImageFormatError(format!(
@@ -404,7 +404,7 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
         EXTRA_SUBR => {
             let name = DumpNameId(cursor.read_u32("subr name id")?);
             let min_args = cursor.read_u16("subr min args")?;
-            let max_args = cursor.read_opt_u16_pub()?;
+            let max_args = cursor.read_opt_u16()?;
             Ok(ObjectExtra::Subr {
                 name,
                 min_args,
@@ -428,7 +428,7 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
             Ok(ObjectExtra::Timer(id))
         }
         EXTRA_OVERLAY => {
-            let obj = cursor.read_heap_object_pub()?;
+            let obj = cursor.read_heap_object()?;
             match obj {
                 DumpHeapObject::Overlay(overlay) => Ok(ObjectExtra::Overlay(overlay)),
                 other => Err(DumpError::ImageFormatError(format!(
@@ -438,7 +438,7 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
             }
         }
         EXTRA_MARKER => {
-            let obj = cursor.read_heap_object_pub()?;
+            let obj = cursor.read_heap_object()?;
             match obj {
                 DumpHeapObject::Marker(marker) => Ok(ObjectExtra::Marker(marker)),
                 other => Err(DumpError::ImageFormatError(format!(
@@ -461,10 +461,10 @@ fn read_object_extra(cursor: &mut heap_objects_image::Cursor) -> Result<ObjectEx
 fn write_opt_u16(out: &mut Vec<u8>, value: Option<u16>) {
     match value {
         Some(v) => {
-            heap_objects_image::write_u8(out, 1);
-            heap_objects_image::write_u16(out, v);
+            object_value_codec::write_u8(out, 1);
+            object_value_codec::write_u16(out, v);
         }
-        None => heap_objects_image::write_u8(out, 0),
+        None => object_value_codec::write_u8(out, 0),
     }
 }
 
@@ -472,11 +472,11 @@ fn write_text_property_runs(
     out: &mut Vec<u8>,
     runs: &[DumpStringTextPropertyRun],
 ) -> Result<(), DumpError> {
-    heap_objects_image::write_u64(out, runs.len() as u64);
+    object_value_codec::write_u64(out, runs.len() as u64);
     for run in runs {
-        heap_objects_image::write_u64(out, run.start as u64);
-        heap_objects_image::write_u64(out, run.end as u64);
-        heap_objects_image::write_value(out, &run.plist)?;
+        object_value_codec::write_u64(out, run.start as u64);
+        object_value_codec::write_u64(out, run.end as u64);
+        object_value_codec::write_value(out, &run.plist)?;
     }
     Ok(())
 }
