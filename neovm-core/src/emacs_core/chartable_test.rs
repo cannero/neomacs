@@ -319,6 +319,30 @@ fn map_char_table_coalesces_ranges_after_single_override() {
 }
 
 #[test]
+fn map_char_table_coalesces_adjacent_single_overrides() {
+    crate::test_utils::init_test_tracing();
+    let ct = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_range(vec![ct, Value::fixnum('A' as i64), Value::symbol("upper")])
+        .unwrap();
+    builtin_set_char_table_range(vec![ct, Value::fixnum('B' as i64), Value::symbol("upper")])
+        .unwrap();
+    builtin_set_char_table_range(vec![ct, Value::fixnum('Z' as i64), Value::symbol("last")])
+        .unwrap();
+
+    let entries = ct_resolved_entries(&ct);
+    assert_eq!(
+        entries,
+        vec![
+            (
+                Value::cons(Value::fixnum('A' as i64), Value::fixnum('B' as i64)),
+                Value::symbol("upper"),
+            ),
+            (Value::fixnum('Z' as i64), Value::symbol("last")),
+        ]
+    );
+}
+
+#[test]
 fn map_char_table_latest_nil_entry_falls_back_to_parent_run() {
     crate::test_utils::init_test_tracing();
     let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
