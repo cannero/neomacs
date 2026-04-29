@@ -20,21 +20,22 @@ default-members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["Eval Exec <execvy@gmail.com>"]
 license = "GPL-3.0-or-later"
+repository = "https://github.com/eval-exec/neomacs"
 
 [workspace.dependencies]
 # Internal crates
-neovm-core = { path = "neovm-core", version = "0.0.1", default-features = false }
-neovm-gc = { path = "neovm-gc", version = "0.0.1" }
-neovm-host-abi = { path = "neovm-host-abi", version = "0.0.1" }
-neovm-oracle-tests = { path = "neovm-oracle-tests", version = "0.0.1" }
-neomacs-display-runtime = { path = "neomacs-display-runtime", version = "0.0.1", default-features = false }
-neomacs-display-protocol = { path = "neomacs-display-protocol", version = "0.0.1", default-features = false }
-neomacs-layout-engine = { path = "neomacs-layout-engine", version = "0.0.1", default-features = false }
-neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", version = "0.0.1", default-features = false }
+neovm-core = { path = "neovm-core", version = "0.0.2", default-features = false }
+neovm-gc = { path = "neovm-gc", version = "0.0.2" }
+neovm-host-abi = { path = "neovm-host-abi", version = "0.0.2" }
+neovm-oracle-tests = { path = "neovm-oracle-tests", version = "0.0.2" }
+neomacs-display-runtime = { path = "neomacs-display-runtime", version = "0.0.2", default-features = false }
+neomacs-display-protocol = { path = "neomacs-display-protocol", version = "0.0.2", default-features = false }
+neomacs-layout-engine = { path = "neomacs-layout-engine", version = "0.0.2", default-features = false }
+neomacs-renderer-wgpu = { path = "neomacs-renderer-wgpu", version = "0.0.2", default-features = false }
 
 # Logging / tracing
 tracing = { version = "0.1", features = ["attributes"] }

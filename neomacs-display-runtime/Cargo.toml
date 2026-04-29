@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Rust runtime display engine for Neomacs"
-repository = "https://github.com/eval-exec/neomacs-1"
 
 [dependencies]
 # Text rendering - Pure Rust stack
