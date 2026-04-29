@@ -924,6 +924,7 @@ cached_symbol_id!(save_restriction_symbol, "save-restriction");
 cached_symbol_id!(interactive_symbol_id, "interactive");
 cached_symbol_id!(lambda_symbol, "lambda");
 cached_symbol_id!(closure_symbol, "closure");
+cached_symbol_id!(declare_symbol, "declare");
 cached_symbol_id!(macro_symbol, "macro");
 cached_symbol_id!(byte_code_literal_symbol, "byte-code-literal");
 cached_symbol_id!(byte_code_symbol, "byte-code");
@@ -9729,91 +9730,106 @@ impl Context {
     /// `Value::Lambda`.  This mirrors GNU Emacs's `funcall_lambda` which
     /// handles both forms.  Used by both the interpreter and the bytecode VM.
     pub(crate) fn instantiate_callable_cons_form(&mut self, function: Value) -> EvalResult {
-        let items =
-            list_to_vec(&function).ok_or_else(|| signal("invalid-function", vec![function]))?;
+        if !function.is_cons() {
+            return Err(signal("invalid-function", vec![function]));
+        }
+        if list_length(&function).is_none() {
+            return Err(signal("invalid-function", vec![function]));
+        }
+
         // Unwrap symbol-with-pos on the car so (lambda ...) / (closure ...)
         // forms with position-wrapped heads are recognized.
-        let head_val = items.first().map(|v| self.unwrap_symbol(*v));
-        let Some(head_name) = head_val.and_then(|v| v.as_symbol_name()) else {
+        let head_val = self.unwrap_symbol(function.cons_car());
+        let Some(head_id) = head_val.as_symbol_id() else {
             return Err(signal("invalid-function", vec![function]));
         };
+        let mut tail = function.cons_cdr();
 
-        let (env_value, params_value, mut body_start) = match head_name {
-            "lambda" => {
-                let Some(params_value) = items.get(1).copied() else {
-                    return Err(signal("invalid-function", vec![function]));
-                };
-                // Mirrors GNU eval_sub lambda handling: a lambda gets
-                // a lexical closure env only when
-                // Vinternal_interpreter_environment is non-nil (i.e.
-                // lexical mode is active). We use self.lexenv as the
-                // single source of truth, matching GNU.
-                let env_value = if !self.lexenv.is_nil() {
-                    self.lexenv
-                } else {
-                    Value::NIL
-                };
-                (env_value, params_value, 2)
+        let (env_value, params_value, is_lambda) = if head_id == lambda_symbol() {
+            if !tail.is_cons() {
+                return Err(signal("invalid-function", vec![function]));
             }
-            "closure" => {
-                let (Some(env_value), Some(params_value)) =
-                    (items.get(1).copied(), items.get(2).copied())
-                else {
-                    return Err(signal("invalid-function", vec![function]));
-                };
-                (env_value, params_value, 3)
+            let params_value = tail.cons_car();
+            tail = tail.cons_cdr();
+            // Mirrors GNU eval_sub lambda handling: a lambda gets
+            // a lexical closure env only when
+            // Vinternal_interpreter_environment is non-nil (i.e.
+            // lexical mode is active). We use self.lexenv as the
+            // single source of truth, matching GNU.
+            let env_value = if !self.lexenv.is_nil() {
+                self.lexenv
+            } else {
+                Value::NIL
+            };
+            (env_value, params_value, true)
+        } else if head_id == closure_symbol() {
+            if !tail.is_cons() {
+                return Err(signal("invalid-function", vec![function]));
             }
-            _ => return Err(signal("invalid-function", vec![function])),
+            let env_value = tail.cons_car();
+            tail = tail.cons_cdr();
+            if !tail.is_cons() {
+                return Err(signal("invalid-function", vec![function]));
+            }
+            let params_value = tail.cons_car();
+            tail = tail.cons_cdr();
+            (env_value, params_value, false)
+        } else {
+            return Err(signal("invalid-function", vec![function]));
         };
 
         let specpdl_root_scope = self.save_specpdl_roots();
         self.push_specpdl_root(function);
 
-        let docstring_value = if items.get(body_start).is_some_and(|v| v.is_string())
-            && items.get(body_start + 1).is_some()
-        {
-            let value = items[body_start];
-            body_start += 1;
-            value
+        let docstring_value = if tail.is_cons() {
+            let value = tail.cons_car();
+            let rest = tail.cons_cdr();
+            if value.is_string() && !rest.is_nil() {
+                tail = rest;
+                value
+            } else {
+                Value::NIL
+            }
         } else {
             Value::NIL
         };
 
         let mut doc_form_value = Value::NIL;
-        if let Some(item) = items.get(body_start).copied()
-            && let Some(doc_form) = self.eval_dynamic_documentation_value(item)?
-        {
-            doc_form_value = doc_form;
-            body_start += 1;
-        }
-
-        while let Some(item) = items.get(body_start) {
-            let Some(declare) = list_to_vec(item) else {
-                break;
-            };
-            if declare
-                .first()
-                .and_then(|v| v.as_symbol_name())
-                .is_some_and(|name| name == "declare")
-            {
-                body_start += 1;
-            } else {
-                break;
+        if tail.is_cons() {
+            let item = tail.cons_car();
+            if let Some(doc_form) = self.eval_dynamic_documentation_value(item)? {
+                doc_form_value = doc_form;
+                tail = tail.cons_cdr();
             }
         }
 
-        let mut iform_value = Value::NIL;
-        if items.get(body_start).is_some_and(|value| {
-            value.is_cons() && value.cons_car().as_symbol_name() == Some("interactive")
-        }) {
-            iform_value = items[body_start];
-            body_start += 1;
+        while tail.is_cons() {
+            let item = tail.cons_car();
+            if !item.is_cons()
+                || item.cons_car().as_symbol_id() != Some(declare_symbol())
+                || list_length(&item).is_none()
+            {
+                break;
+            }
+            tail = tail.cons_cdr();
         }
 
-        let body_value = if body_start >= items.len() {
+        let iform_value = if tail.is_cons() {
+            let item = tail.cons_car();
+            if item.is_cons() && item.cons_car().as_symbol_id() == Some(interactive_symbol_id()) {
+                tail = tail.cons_cdr();
+                item
+            } else {
+                Value::NIL
+            }
+        } else {
+            Value::NIL
+        };
+
+        let body_value = if tail.is_nil() {
             Value::list(vec![Value::NIL])
         } else {
-            Value::list(items[body_start..].to_vec())
+            tail
         };
         let closure_doc_value = if !doc_form_value.is_nil() {
             doc_form_value
@@ -9827,7 +9843,7 @@ impl Context {
         self.push_specpdl_root(closure_doc_value);
         self.push_specpdl_root(iform_value);
 
-        let result = if head_name == "lambda" {
+        let result = if is_lambda {
             self.make_interpreted_closure_with_value_runtime_hook(
                 function,
                 params_value,

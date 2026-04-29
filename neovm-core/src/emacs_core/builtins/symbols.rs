@@ -4717,7 +4717,7 @@ pub(crate) fn make_interpreted_closure_from_parts(
     let iform = interactive.copied().unwrap_or(Value::NIL);
 
     parse_lambda_params_from_value(params_value)?;
-    if !body_value.is_nil() && list_to_vec(body_value).is_none() {
+    if !body_value.is_nil() && list_length(body_value).is_none() {
         return Err(signal(
             "wrong-type-argument",
             vec![Value::symbol("listp"), *body_value],
