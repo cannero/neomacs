@@ -133,6 +133,65 @@ not-lisp.elc: $(lisp)/ignored.elc
 }
 
 #[test]
+fn compile_main_dependency_waves_follow_gnu_cc_mode_rules() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let lisp_root = repo_root.join("lisp");
+    let contents = fs::read_to_string(lisp_root.join("Makefile.in")).unwrap();
+    let deps = parse_compile_main_dependencies_from_str(&contents, &lisp_root);
+    let source = |rel: &str| lisp_root.join(rel);
+    let sources = vec![
+        source("progmodes/cc-bytecomp.el"),
+        source("progmodes/cc-defs.el"),
+        source("progmodes/cc-vars.el"),
+        source("progmodes/cc-langs.el"),
+        source("progmodes/cc-engine.el"),
+        source("progmodes/cc-align.el"),
+        source("progmodes/cc-cmds.el"),
+        source("progmodes/cc-menus.el"),
+        source("progmodes/cc-styles.el"),
+        source("progmodes/cc-mode.el"),
+        source("progmodes/js.el"),
+    ];
+
+    let waves = compile_main_dependency_waves(sources, &deps).unwrap();
+    let wave_index = |path: PathBuf| {
+        waves
+            .iter()
+            .position(|wave| wave.contains(&path))
+            .unwrap_or_else(|| panic!("{} missing from dependency waves", path.display()))
+    };
+
+    let cc_bytecomp = wave_index(source("progmodes/cc-bytecomp.el"));
+    let cc_defs = wave_index(source("progmodes/cc-defs.el"));
+    let cc_vars = wave_index(source("progmodes/cc-vars.el"));
+    let cc_langs = wave_index(source("progmodes/cc-langs.el"));
+    let cc_engine = wave_index(source("progmodes/cc-engine.el"));
+    let cc_align = wave_index(source("progmodes/cc-align.el"));
+    let cc_cmds = wave_index(source("progmodes/cc-cmds.el"));
+    let cc_menus = wave_index(source("progmodes/cc-menus.el"));
+    let cc_styles = wave_index(source("progmodes/cc-styles.el"));
+    let cc_mode = wave_index(source("progmodes/cc-mode.el"));
+    let js = wave_index(source("progmodes/js.el"));
+
+    assert!(cc_bytecomp < cc_defs);
+    assert!(cc_defs < cc_vars);
+    assert!(cc_vars < cc_langs);
+    assert!(cc_langs < cc_engine);
+    assert!(cc_engine < cc_align);
+    assert!(cc_engine < cc_cmds);
+    assert!(cc_align < cc_styles);
+    for prerequisite in [
+        cc_vars, cc_langs, cc_engine, cc_align, cc_cmds, cc_menus, cc_styles,
+    ] {
+        assert!(prerequisite < cc_mode);
+    }
+    assert!(cc_mode < js);
+}
+
+#[test]
 fn generated_lisp_bytecode_files_collects_nested_elc_files() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");

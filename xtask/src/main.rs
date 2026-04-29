@@ -1782,8 +1782,42 @@ fn run_compile_main_parallel(
     jobs: usize,
 ) -> Result<Vec<String>> {
     let pool = rayon::ThreadPoolBuilder::new().num_threads(jobs).build()?;
-    let mut pending = sources.into_iter().collect::<BTreeSet<_>>();
+    let waves = compile_main_dependency_waves(sources, dependencies)?;
     let mut errors = Vec::new();
+
+    for wave in waves {
+        let wave_errors = if options.dry_run {
+            wave.iter()
+                .filter_map(|source| {
+                    run_compile_main_source(options, paths, envs, source)
+                        .err()
+                        .map(|err| format!("{} ({err})", source.display()))
+                })
+                .collect::<Vec<_>>()
+        } else {
+            pool.install(|| {
+                wave.par_iter()
+                    .filter_map(|source| {
+                        run_compile_main_source(options, paths, envs, source)
+                            .err()
+                            .map(|err| format!("{} ({err})", source.display()))
+                    })
+                    .collect::<Vec<_>>()
+            })
+        };
+
+        errors.extend(wave_errors);
+    }
+
+    Ok(errors)
+}
+
+fn compile_main_dependency_waves(
+    sources: Vec<PathBuf>,
+    dependencies: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+) -> Result<Vec<Vec<PathBuf>>> {
+    let mut pending = sources.into_iter().collect::<BTreeSet<_>>();
+    let mut waves = Vec::new();
 
     while !pending.is_empty() {
         let ready = pending
@@ -1804,35 +1838,13 @@ fn run_compile_main_parallel(
             .into());
         }
 
-        let wave_errors = if options.dry_run {
-            ready
-                .iter()
-                .filter_map(|source| {
-                    run_compile_main_source(options, paths, envs, source)
-                        .err()
-                        .map(|err| format!("{} ({err})", source.display()))
-                })
-                .collect::<Vec<_>>()
-        } else {
-            pool.install(|| {
-                ready
-                    .par_iter()
-                    .filter_map(|source| {
-                        run_compile_main_source(options, paths, envs, source)
-                            .err()
-                            .map(|err| format!("{} ({err})", source.display()))
-                    })
-                    .collect::<Vec<_>>()
-            })
-        };
-
-        for source in ready {
-            pending.remove(&source);
+        for source in &ready {
+            pending.remove(source);
         }
-        errors.extend(wave_errors);
+        waves.push(ready);
     }
 
-    Ok(errors)
+    Ok(waves)
 }
 
 fn run_compile_main_source(
