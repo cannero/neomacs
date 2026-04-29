@@ -260,10 +260,7 @@ pub(crate) fn compiler_function_override_in_obarray(
     sym_id: SymId,
 ) -> Option<Value> {
     let overrides_sym = internal_compiler_function_overrides_sym();
-    let mut cursor = obarray
-        .symbol_value_id(overrides_sym)
-        .copied()
-        .unwrap_or(Value::NIL);
+    let mut cursor = obarray.symbol_value_id_or_nil(overrides_sym);
     while cursor.is_cons() {
         let entry = cursor.cons_car();
         cursor = cursor.cons_cdr();
@@ -276,11 +273,7 @@ pub(crate) fn compiler_function_override_in_obarray(
 
 pub(crate) fn compiler_function_overrides_active_in_obarray(obarray: &Obarray) -> bool {
     let overrides_sym = internal_compiler_function_overrides_sym();
-    obarray
-        .symbol_value_id(overrides_sym)
-        .copied()
-        .unwrap_or(Value::NIL)
-        .is_cons()
+    obarray.symbol_value_id_or_nil(overrides_sym).is_cons()
 }
 
 #[derive(Clone, Debug)]
@@ -4127,19 +4120,13 @@ impl Context {
             .keyboard
             .set_terminal_translation_maps(input_decode_map, local_function_key_map);
         let noninteractive = obarray
-            .symbol_value_id(core_eval_symbols.noninteractive_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.noninteractive_symbol)
             .is_truthy();
         let symbols_with_pos_enabled = obarray
-            .symbol_value_id(core_eval_symbols.symbols_with_pos_enabled_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.symbols_with_pos_enabled_symbol)
             .is_truthy();
         let print_symbols_bare = obarray
-            .symbol_value_id(core_eval_symbols.print_symbols_bare_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
 
         let mut ev = Self {
@@ -4278,19 +4265,13 @@ impl Context {
         let mut tagged_heap = tagged_heap;
         crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
         let noninteractive = obarray
-            .symbol_value_id(core_eval_symbols.noninteractive_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.noninteractive_symbol)
             .is_truthy();
         let symbols_with_pos_enabled = obarray
-            .symbol_value_id(core_eval_symbols.symbols_with_pos_enabled_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.symbols_with_pos_enabled_symbol)
             .is_truthy();
         let print_symbols_bare = obarray
-            .symbol_value_id(core_eval_symbols.print_symbols_bare_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
 
         let mut ev = Self {
@@ -4591,17 +4572,13 @@ impl Context {
             .unwrap_or(GC_DEFAULT_THRESHOLD_BYTES);
         self.gc_runtime_settings_cache.gc_cons_percentage_scaled = self
             .obarray
-            .symbol_value_id(gc_cons_percentage_symbol())
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(gc_cons_percentage_symbol())
             .as_number_f64()
             .filter(|float| float.is_finite() && *float > 0.0)
             .map(|float| ((float * GC_PERCENT_SCALE as f64).ceil() as u64).clamp(1, u64::MAX));
         self.gc_runtime_settings_cache.memory_full = !self
             .obarray
-            .symbol_value_id(memory_full_symbol())
-            .copied()
-            .unwrap_or(Value::NIL)
+            .symbol_value_id_or_nil(memory_full_symbol())
             .is_nil();
     }
 
@@ -6002,19 +5979,13 @@ impl Context {
     /// Mirrors `process_quit_flag` in GNU `eval.c`: clear `quit-flag`, then
     /// honor `throw-on-input`, `kill-emacs`, or signal `quit`.
     fn process_quit_flag(&mut self) -> Result<(), Flow> {
-        let flag = self
-            .obarray
-            .symbol_value_id(self.quit_flag_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+        let flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
         self.obarray
             .set_symbol_value_id(self.quit_flag_symbol, Value::NIL);
 
         let throw_on_input = self
             .obarray
-            .symbol_value_id(self.throw_on_input_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.throw_on_input_symbol);
 
         if flag
             .as_symbol_id()
@@ -6053,33 +6024,28 @@ impl Context {
         // `Context::quit_requested` for the design rationale.
         if self
             .quit_requested
-            .swap(false, std::sync::atomic::Ordering::Relaxed)
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && self
+                .quit_requested
+                .swap(false, std::sync::atomic::Ordering::Relaxed)
         {
             if self
                 .obarray
-                .symbol_value_id(self.quit_flag_symbol)
-                .copied()
-                .unwrap_or(Value::NIL)
+                .symbol_value_id_or_nil(self.quit_flag_symbol)
                 .is_nil()
             {
                 self.obarray
                     .set_symbol_value_id(self.quit_flag_symbol, Value::T);
             }
         }
-        let quit_flag = self
-            .obarray
-            .symbol_value_id(self.quit_flag_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+        let quit_flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
         if quit_flag.is_nil() {
             return Ok(());
         }
 
         let inhibit_quit = self
             .obarray
-            .symbol_value_id(self.inhibit_quit_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.inhibit_quit_symbol);
         if inhibit_quit.is_truthy() {
             return Ok(());
         }
@@ -6087,13 +6053,12 @@ impl Context {
         self.process_quit_flag()
     }
 
+    #[inline(always)]
     pub(crate) fn quit_flag_value(&self) -> Value {
-        self.obarray
-            .symbol_value_id(self.quit_flag_symbol)
-            .copied()
-            .unwrap_or(Value::NIL)
+        self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol)
     }
 
+    #[inline(always)]
     pub(crate) fn set_quit_flag_value(&mut self, value: Value) {
         self.obarray
             .set_symbol_value_id(self.quit_flag_symbol, value);
@@ -6131,9 +6096,7 @@ impl Context {
 
         let throw_on_input = self
             .obarray
-            .symbol_value_id(self.throw_on_input_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.throw_on_input_symbol);
         if equal_value(&quit_flag, &throw_on_input, 0) {
             return;
         }
@@ -6206,18 +6169,12 @@ impl Context {
 
         let throw_on_input = self
             .obarray
-            .symbol_value_id(self.throw_on_input_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.throw_on_input_symbol);
         if throw_on_input.is_nil() {
             return Ok(());
         }
 
-        let quit_flag = self
-            .obarray
-            .symbol_value_id(self.quit_flag_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+        let quit_flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
         if !quit_flag.is_nil() {
             return Ok(());
         }
@@ -6255,18 +6212,14 @@ impl Context {
     ) -> Result<bool, Flow> {
         let throw_on_input = self
             .obarray
-            .symbol_value_id(self.throw_on_input_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.throw_on_input_symbol);
         if throw_on_input.is_nil() {
             return Ok(false);
         }
 
         let inhibit_quit = self
             .obarray
-            .symbol_value_id(self.inhibit_quit_symbol)
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(self.inhibit_quit_symbol);
         if inhibit_quit.is_truthy() {
             return Ok(false);
         }
@@ -10608,14 +10561,10 @@ impl Context {
 
         let current_macroexpand_env = self
             .obarray()
-            .symbol_value_id(macroexpand_all_environment_symbol())
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(macroexpand_all_environment_symbol());
         let current_dynvars = self
             .obarray()
-            .symbol_value_id(macroexp_dynvars_symbol())
-            .copied()
-            .unwrap_or(Value::NIL);
+            .symbol_value_id_or_nil(macroexp_dynvars_symbol());
 
         let explicit_environment_key = environment.map(semantic_fingerprint).unwrap_or(0);
         let current_macroexpand_env_key = value_identity_key(current_macroexpand_env);
@@ -11310,7 +11259,7 @@ impl Context {
         }
         // If cleanup forms didn't set their own quit, reinstate the
         // pending state. Matches `eval.c:3927-3928`.
-        if self.quit_flag_value().is_nil() && !quitf.is_nil() {
+        if !quitf.is_nil() && self.quit_flag_value().is_nil() {
             self.set_quit_flag_value(quitf);
         }
     }

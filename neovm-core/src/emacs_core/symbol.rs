@@ -109,7 +109,7 @@ impl SymbolFlags {
     const INTERNED_MASK: u8 = 0b0011_0000;
     const DECLARED_SPECIAL_BIT: u8 = 0b0100_0000;
 
-    #[inline]
+    #[inline(always)]
     pub fn redirect(self) -> SymbolRedirect {
         // Safety: SymbolRedirect is `#[repr(u8)]` with values 0..=3 and the
         // mask restricts to 2 bits.
@@ -512,16 +512,19 @@ impl Obarray {
         is_canonical_id(id)
     }
 
+    #[inline(always)]
     fn slot_index(id: SymId) -> usize {
         id.0 as usize
     }
 
+    #[inline(always)]
     fn slot(&self, id: SymId) -> Option<&LispSymbol> {
         self.symbols
             .get(Self::slot_index(id))
             .and_then(Option::as_ref)
     }
 
+    #[inline(always)]
     fn slot_mut(&mut self, id: SymId) -> Option<&mut LispSymbol> {
         self.symbols
             .get_mut(Self::slot_index(id))
@@ -722,6 +725,54 @@ impl Obarray {
     ///
     /// Phase F: reads from the redirect union (`val`) rather than the
     /// legacy `value` enum field.
+    #[inline(always)]
+    pub fn symbol_value_id_copied(&self, id: SymId) -> Option<Value> {
+        let mut current = id;
+        for _ in 0..50 {
+            let sym = match self.symbols.get(Self::slot_index(current)) {
+                Some(Some(sym)) => sym,
+                _ => return None,
+            };
+            match sym.flags.redirect() {
+                SymbolRedirect::Plainval => {
+                    // Safety: redirect=Plainval guarantees val.plain is
+                    // the live value field. UNBOUND sentinel = unbound.
+                    let v = unsafe { sym.val.plain };
+                    if v == Value::UNBOUND {
+                        return None;
+                    }
+                    return Some(v);
+                }
+                SymbolRedirect::Varalias => {
+                    current = unsafe { sym.val.alias };
+                }
+                SymbolRedirect::Localized => {
+                    let value = self.blv(current)?.defcell.cons_cdr();
+                    if value == Value::UNBOUND {
+                        return None;
+                    }
+                    return Some(value);
+                }
+                SymbolRedirect::Forwarded => return None,
+            }
+        }
+        None // alias cycle
+    }
+
+    /// Get a symbol's value by identity, returning nil when unbound.
+    ///
+    /// This is the copied-value equivalent of the common
+    /// `symbol_value_id(...).copied().unwrap_or(Value::NIL)` pattern.
+    /// GNU's `find_symbol_value` returns a `Lisp_Object` directly; keeping
+    /// hot evaluator reads in this shape avoids an extra borrowed Option path.
+    #[inline(always)]
+    pub fn symbol_value_id_or_nil(&self, id: SymId) -> Value {
+        match self.symbol_value_id_copied(id) {
+            Some(value) => value,
+            None => Value::NIL,
+        }
+    }
+
     pub fn symbol_value_id(&self, id: SymId) -> Option<&Value> {
         let mut current = id;
         for _ in 0..50 {

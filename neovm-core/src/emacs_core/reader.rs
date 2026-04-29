@@ -174,10 +174,7 @@ fn add_to_minibuffer_history_variable(
     }
 
     let new_value = Value::heap_string(value.clone());
-    let current = obarray
-        .symbol_value_id(history_name)
-        .copied()
-        .unwrap_or(Value::NIL);
+    let current = obarray.symbol_value_id_or_nil(history_name);
     let mut history_items = if current.is_nil() {
         Vec::new()
     } else if let Some(items) = list_to_vec(&current) {

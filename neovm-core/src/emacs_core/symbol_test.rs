@@ -21,6 +21,27 @@ fn symbol_value_cell() {
 }
 
 #[test]
+fn symbol_value_id_or_nil_matches_value_cell_reads() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+
+    let plain = intern("symbol-value-id-or-nil-plain");
+    ob.set_symbol_value_id(plain, Value::fixnum(42));
+    assert_eq!(ob.symbol_value_id_or_nil(plain), Value::fixnum(42));
+
+    let alias = intern("symbol-value-id-or-nil-alias");
+    ob.make_alias(alias, plain);
+    assert_eq!(ob.symbol_value_id_or_nil(alias), Value::fixnum(42));
+
+    let localized = intern("symbol-value-id-or-nil-localized");
+    ob.make_symbol_localized(localized, Value::fixnum(7));
+    assert_eq!(ob.symbol_value_id_or_nil(localized), Value::fixnum(7));
+
+    let missing = intern("symbol-value-id-or-nil-missing");
+    assert_eq!(ob.symbol_value_id_or_nil(missing), Value::NIL);
+}
+
+#[test]
 fn symbol_function_cell() {
     crate::test_utils::init_test_tracing();
     let mut ob = Obarray::new();
