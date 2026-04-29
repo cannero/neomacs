@@ -1519,7 +1519,25 @@ fn uppercase_hex(bytes: &[u8]) -> String {
 }
 
 fn cargo_program() -> PathBuf {
-    PathBuf::from("cargo")
+    let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    resolve_program_on_path("cargo", env::var_os("PATH").as_deref(), &cwd)
+        .unwrap_or_else(|| PathBuf::from("cargo"))
+}
+
+fn resolve_program_on_path(program: &str, path: Option<&OsStr>, cwd: &Path) -> Option<PathBuf> {
+    let path = path?;
+    for dir in env::split_paths(path) {
+        let dir = if dir.is_absolute() {
+            dir
+        } else {
+            cwd.join(dir)
+        };
+        let candidate = dir.join(program);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn run_command(

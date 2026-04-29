@@ -923,7 +923,23 @@ fn executable_fingerprint_patches_all_records() {
 
 #[test]
 fn cargo_program_uses_path_lookup() {
-    assert_eq!(cargo_program(), PathBuf::from("cargo"));
+    let cargo = cargo_program();
+    assert!(cargo.is_absolute(), "{}", cargo.display());
+    assert_eq!(cargo.file_name().unwrap(), "cargo");
+}
+
+#[test]
+fn resolve_program_on_path_returns_absolute_path_from_path() {
+    let tempdir = tempdir();
+    let bin = tempdir.join("bin");
+    fs::create_dir_all(&bin).unwrap();
+    let cargo = bin.join("cargo");
+    fs::write(&cargo, "").unwrap();
+
+    assert_eq!(
+        resolve_program_on_path("cargo", Some(bin.as_os_str()), Path::new("/unused")).unwrap(),
+        cargo
+    );
 }
 
 fn tempdir() -> PathBuf {
