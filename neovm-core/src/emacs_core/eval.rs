@@ -6991,31 +6991,43 @@ impl Context {
         // the dispatch falls through to the normal apply path,
         // which signals with `fun` itself -- also matching GNU
         // funcall_lambda and funcall_subr.
-        if let Some(sym_id) = func.as_subr_id()
-            && let Some(entry) = lookup_global_subr_entry(sym_id)
-            && entry.dispatch_kind != SubrDispatchKind::SpecialForm
-        {
-            let numargs = match list_length(&original_args) {
-                Some(n) => n,
-                None => {
-                    return Err(signal(
-                        "wrong-type-argument",
-                        vec![Value::symbol("listp"), original_args],
-                    ));
+        // GNU keeps the resolved XSUBR in `fun` across argument
+        // evaluation and calls it directly. Preserve the SubrEntry we
+        // resolved for the direct eval_sub arity check instead of
+        // looking it up again after evaluating args.
+        let direct_subr_entry = if let Some(sym_id) = func.as_subr_id() {
+            if let Some(entry) = lookup_global_subr_entry(sym_id) {
+                if entry.dispatch_kind != SubrDispatchKind::SpecialForm {
+                    let numargs = match list_length(&original_args) {
+                        Some(n) => n,
+                        None => {
+                            return Err(signal(
+                                "wrong-type-argument",
+                                vec![Value::symbol("listp"), original_args],
+                            ));
+                        }
+                    };
+                    let min = entry.min_args as usize;
+                    let max_ok = match entry.max_args {
+                        Some(m) => numargs <= m as usize,
+                        None => true, // &rest / MANY
+                    };
+                    if numargs < min || !max_ok {
+                        return Err(signal(
+                            "wrong-number-of-arguments",
+                            vec![original_fun, Value::fixnum(numargs as i64)],
+                        ));
+                    }
+                    Some((sym_id, entry))
+                } else {
+                    None
                 }
-            };
-            let min = entry.min_args as usize;
-            let max_ok = match entry.max_args {
-                Some(m) => numargs <= m as usize,
-                None => true, // &rest / MANY
-            };
-            if numargs < min || !max_ok {
-                return Err(signal(
-                    "wrong-number-of-arguments",
-                    vec![original_fun, Value::fixnum(numargs as i64)],
-                ));
+            } else {
+                None
             }
-        }
+        } else {
+            None
+        };
 
         // GNU eval.c:2716-2726: when `fun` is not a subr, closure,
         // bytecode, or cons-shaped lambda/autoload/macro, signal
@@ -7078,15 +7090,12 @@ impl Context {
 
         self.maybe_gc_and_quit()?;
 
-        if let Some(sym_id) = func.as_subr_id()
-            && let Some(entry) = lookup_global_subr_entry(sym_id)
-            && entry.dispatch_kind != SubrDispatchKind::SpecialForm
-        {
+        if let Some((sym_id, entry)) = direct_subr_entry {
             return self.maybe_grow_eval_stack(|ctx| {
                 if entry.dispatch_kind == SubrDispatchKind::ContextCallable {
                     return ctx.apply_evaluator_callable_by_id(sym_id, args);
                 }
-                ctx.dispatch_subr_entry_internal(entry, args, original_fun)
+                ctx.dispatch_subr_entry_unchecked(entry, args)
                     .unwrap_or_else(|| {
                         Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
                     })
@@ -9932,24 +9941,6 @@ impl Context {
         wrong_arity_callee: Value,
     ) -> Option<EvalResult> {
         let func = entry.function?;
-        let name = resolve_name(entry.name_id);
-        if name == "cdr" && args.len() == 1 && args[0].is_t() {
-            tracing::error!("(cdr t) called! Lisp backtrace:");
-            for (i, bt_entry) in self
-                .specpdl
-                .iter()
-                .rev()
-                .filter_map(|e| match e {
-                    SpecBinding::Backtrace { function, .. } => Some(function),
-                    _ => None,
-                })
-                .take(10)
-                .enumerate()
-            {
-                let func_name = super::print::print_value(bt_entry);
-                tracing::error!("  bt[{}]: {}", i, func_name);
-            }
-        }
         let nargs = args.len();
         if (nargs as u16) < entry.min_args {
             return Some(Err(signal(
@@ -9965,7 +9956,26 @@ impl Context {
                 )));
             }
         }
-        Some(match func {
+        Some(self.dispatch_subr_func_unchecked(func, args))
+    }
+
+    #[inline]
+    fn dispatch_subr_entry_unchecked(
+        &mut self,
+        entry: SubrEntry,
+        args: LispArgVec,
+    ) -> Option<EvalResult> {
+        let func = entry.function?;
+        Some(self.dispatch_subr_func_unchecked(func, args))
+    }
+
+    #[inline]
+    fn dispatch_subr_func_unchecked(
+        &mut self,
+        func: crate::tagged::header::SubrFn,
+        args: LispArgVec,
+    ) -> EvalResult {
+        match func {
             crate::tagged::header::SubrFn::Many(func) => func(self, args.into_vec()),
             crate::tagged::header::SubrFn::ManySlice(func) => func(self, &args),
             crate::tagged::header::SubrFn::A0(func) => func(self),
@@ -9983,7 +9993,7 @@ impl Context {
                 args.get(1).copied().unwrap_or(Value::NIL),
                 args.get(2).copied().unwrap_or(Value::NIL),
             ),
-        })
+        }
     }
 
     #[inline]
