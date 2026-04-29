@@ -79,6 +79,18 @@ fn new_manager_has_standard_systems() {
     assert!(m.is_known("iso-latin-9-unix"));
     assert!(m.is_known("iso-8859-15"));
     assert!(m.is_known("latin-9"));
+    assert!(m.is_known("chinese-big5"));
+    assert!(m.is_known("chinese-big5-unix"));
+    assert!(m.is_known("big5"));
+    assert!(m.is_known("cp950"));
+    assert!(m.is_known("chinese-iso-8bit"));
+    assert!(m.is_known("chinese-iso-8bit-unix"));
+    assert!(m.is_known("cn-gb-2312"));
+    assert!(m.is_known("gb2312"));
+    assert!(m.is_known_or_derived("big5-unix"));
+    assert!(m.is_known_or_derived("cp950-dos"));
+    assert!(m.is_known_or_derived("cn-gb-2312-unix"));
+    assert!(m.is_known_or_derived("gb2312-dos"));
 }
 
 #[test]
@@ -90,6 +102,10 @@ fn aliases_resolve() {
     assert!(m.is_known("iso-8859-15")); // alias for latin-9
     assert!(m.is_known("us-ascii")); // alias for ascii
     assert!(m.is_known("mule-utf-8")); // alias for utf-8
+    assert!(m.is_known("cn-gb-2312")); // alias for chinese-iso-8bit
+    assert!(m.is_known("gb2312")); // alias for chinese-iso-8bit
+    assert!(m.is_known("big5")); // alias for chinese-big5
+    assert!(m.is_known("cp950")); // alias for chinese-big5
     assert_eq!(
         m.resolve("iso-8859-1").map(resolve_sym),
         Some("iso-latin-1")
@@ -103,6 +119,59 @@ fn aliases_resolve() {
         Some("iso-latin-9")
     );
     assert_eq!(m.resolve("ascii").map(resolve_sym), Some("us-ascii"));
+    assert_eq!(
+        m.resolve("cn-gb-2312").map(resolve_sym),
+        Some("chinese-iso-8bit")
+    );
+    assert_eq!(
+        m.resolve("gb2312").map(resolve_sym),
+        Some("chinese-iso-8bit")
+    );
+    assert_eq!(m.resolve("big5").map(resolve_sym), Some("chinese-big5"));
+    assert_eq!(m.resolve("cp950").map(resolve_sym), Some("chinese-big5"));
+}
+
+#[test]
+fn coding_defvar_lisp_variables_are_special_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    assert_eq!(
+        crate::emacs_core::format_eval_result(&eval.eval_str(
+            "(list (special-variable-p 'coding-system-for-read)
+                   (let ((coding-system-for-read 'chinese-big5-unix))
+                     (symbol-value 'coding-system-for-read))
+                   (special-variable-p 'coding-system-for-write)
+                   (special-variable-p 'last-coding-system-used))"
+        )),
+        "OK (t chinese-big5-unix t t)"
+    );
+}
+
+#[test]
+fn canonical_name_for_detected_eol_matches_gnu_alias_resolution() {
+    crate::test_utils::init_test_tracing();
+    let m = mgr();
+
+    assert_eq!(
+        m.canonical_name_for_detected_eol("cn-gb-2312", "-dos")
+            .as_deref(),
+        Some("chinese-iso-8bit-dos")
+    );
+    assert_eq!(
+        m.canonical_name_for_detected_eol("big5", "-mac").as_deref(),
+        Some("chinese-big5-mac")
+    );
+    assert_eq!(
+        m.canonical_name_for_detected_eol("no-conversion", "-dos")
+            .as_deref(),
+        Some("no-conversion")
+    );
+    assert_eq!(
+        m.canonical_name_for_detected_eol("cn-gb-2312-unix", "-dos")
+            .as_deref(),
+        Some("chinese-iso-8bit-unix")
+    );
 }
 
 #[test]

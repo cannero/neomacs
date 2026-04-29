@@ -1,6 +1,6 @@
 use super::*;
 use crate::emacs_core::error::Flow;
-use crate::emacs_core::value::get_string_text_properties_for_value;
+use crate::emacs_core::value::{Value, get_string_text_properties_for_value};
 
 #[test]
 fn ascii_width() {
@@ -522,6 +522,91 @@ fn encoding_latin1() {
     assert_eq!(bytes.len(), 4); // é maps to 0xe9
     let decoded = decode_bytes(&[0x63, 0x61, 0x66, 0xe9], "latin-1");
     assert_eq!(decoded, "café");
+}
+
+#[test]
+fn encoding_big5_decodes_generated_leim_dictionary_bytes_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(decode_bytes(&[0xa4, 0x40], "big5"), "\u{4e00}");
+    assert_eq!(decode_bytes(&[0xa4, 0x40], "chinese-big5-unix"), "\u{4e00}");
+    assert_eq!(decode_bytes(&[0xa4, 0x40], "cp950"), "\u{4e00}");
+    assert_eq!(
+        decode_bytes(&[0xa4, 0x40, b'\r', b'\n'], "big5-dos"),
+        "一\n"
+    );
+    assert_eq!(encode_string("一", "big5"), vec![0xa4, 0x40]);
+    assert_eq!(encode_string("一", "chinese-big5-unix"), vec![0xa4, 0x40]);
+}
+
+#[test]
+fn encoding_gb2312_decodes_generated_leim_dictionary_bytes_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(decode_bytes(&[0xd2, 0xbb], "cn-gb-2312"), "一");
+    assert_eq!(decode_bytes(&[0xd2, 0xbb], "chinese-iso-8bit-unix"), "一");
+    assert_eq!(
+        decode_bytes(&[0xd2, 0xbb, b'\r', b'\n'], "gb2312-dos"),
+        "一\n"
+    );
+    assert_eq!(encode_string("一", "cn-gb-2312"), vec![0xd2, 0xbb]);
+    assert_eq!(
+        encode_string("一", "chinese-iso-8bit-unix"),
+        vec![0xd2, 0xbb]
+    );
+}
+
+#[test]
+fn decode_coding_string_big5_marks_charset_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let decoded = builtin_decode_coding_string(vec![
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+            0xa4, 0x40,
+        ])),
+        Value::symbol("chinese-big5-unix"),
+    ])
+    .expect("decode-coding-string chinese-big5-unix should succeed");
+
+    assert_eq!(
+        decoded.as_lisp_string().and_then(|s| s.as_utf8_str()),
+        Some("一")
+    );
+    let props = get_string_text_properties_for_value(decoded)
+        .expect("decoded Big5 string should be propertized");
+    assert_eq!(props.len(), 1);
+    assert_eq!(props[0].start, 0);
+    assert_eq!(props[0].end, 1);
+    assert_eq!(
+        props[0].plist,
+        Value::list(vec![Value::symbol("charset"), Value::symbol("big5")])
+    );
+}
+
+#[test]
+fn decode_coding_string_gb2312_marks_charset_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let decoded = builtin_decode_coding_string(vec![
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+            0xd2, 0xbb,
+        ])),
+        Value::symbol("cn-gb-2312-unix"),
+    ])
+    .expect("decode-coding-string cn-gb-2312-unix should succeed");
+
+    assert_eq!(
+        decoded.as_lisp_string().and_then(|s| s.as_utf8_str()),
+        Some("一")
+    );
+    let props = get_string_text_properties_for_value(decoded)
+        .expect("decoded GB2312 string should be propertized");
+    assert_eq!(props.len(), 1);
+    assert_eq!(props[0].start, 0);
+    assert_eq!(props[0].end, 1);
+    assert_eq!(
+        props[0].plist,
+        Value::list(vec![
+            Value::symbol("charset"),
+            Value::symbol("chinese-gb2312"),
+        ])
+    );
 }
 
 #[test]

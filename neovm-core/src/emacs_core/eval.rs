@@ -2758,6 +2758,18 @@ impl Context {
         obarray.make_special("process-environment");
         obarray.set_symbol_value("initial-environment", Value::NIL);
         obarray.make_special("initial-environment");
+        for (name, program) in [
+            ("ctags-program-name", "ctags"),
+            ("etags-program-name", "etags"),
+            ("hexl-program-name", "hexl"),
+            ("emacsclient-program-name", "emacsclient"),
+            ("movemail-program-name", "movemail"),
+            ("ebrowse-program-name", "ebrowse"),
+            ("rcs2log-program-name", "rcs2log"),
+        ] {
+            obarray.set_symbol_value(name, Value::unibyte_string(program));
+            obarray.make_special(name);
+        }
         obarray.set_symbol_value("path-separator", Value::string(":"));
         obarray.set_symbol_value("shared-game-score-directory", Value::NIL);
         obarray.set_symbol_value("system-messages-locale", Value::NIL);
@@ -3229,8 +3241,6 @@ impl Context {
             "exec-suffixes",
             Value::list(vec![Value::unibyte_string("")]),
         );
-        // GNU callproc.c: `movemail-program-name` defaults to "movemail".
-        obarray.set_symbol_value("movemail-program-name", Value::unibyte_string("movemail"));
         obarray.set_symbol_value("buffer-read-only", Value::NIL);
         obarray.set_symbol_value("left-margin-width", Value::NIL);
         obarray.set_symbol_value("right-margin-width", Value::NIL);

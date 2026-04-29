@@ -532,6 +532,39 @@ impl CodingSystemManager {
             '-',
             EolType::Undecided,
         ));
+        for (name, eol) in [
+            ("chinese-iso-8bit", EolType::Undecided),
+            ("chinese-iso-8bit-unix", EolType::Unix),
+            ("chinese-iso-8bit-dos", EolType::Dos),
+            ("chinese-iso-8bit-mac", EolType::Mac),
+        ] {
+            let mut info = CodingSystemInfo::new(name, "iso-2022", 'c', eol);
+            info.ascii_compatible_p = true;
+            info.charset_list = vec![intern("ascii"), intern("chinese-gb2312")];
+            mgr.register(info);
+        }
+        for (name, eol) in [
+            ("chinese-big5", EolType::Undecided),
+            ("chinese-big5-unix", EolType::Unix),
+            ("chinese-big5-dos", EolType::Dos),
+            ("chinese-big5-mac", EolType::Mac),
+        ] {
+            let mut info = CodingSystemInfo::new(name, "big5", 'B', eol);
+            info.ascii_compatible_p = true;
+            info.charset_list = vec![intern("ascii"), intern("big5")];
+            mgr.register(info);
+        }
+        for (name, eol) in [
+            ("chinese-big5-hkscs", EolType::Undecided),
+            ("chinese-big5-hkscs-unix", EolType::Unix),
+            ("chinese-big5-hkscs-dos", EolType::Dos),
+            ("chinese-big5-hkscs-mac", EolType::Mac),
+        ] {
+            let mut info = CodingSystemInfo::new(name, "charset", 'B', eol);
+            info.ascii_compatible_p = true;
+            info.charset_list = vec![intern("ascii"), intern("big5-hkscs")];
+            mgr.register(info);
+        }
 
         // Common aliases
         mgr.add_alias("mule-utf-8", "utf-8");
@@ -545,6 +578,16 @@ impl CodingSystemManager {
         mgr.add_alias("latin-0", "iso-latin-9");
         mgr.add_alias("ascii", "us-ascii");
         mgr.add_alias("iso-safe", "us-ascii");
+        mgr.add_alias("cn-gb-2312", "chinese-iso-8bit");
+        mgr.add_alias("euc-china", "chinese-iso-8bit");
+        mgr.add_alias("euc-cn", "chinese-iso-8bit");
+        mgr.add_alias("cn-gb", "chinese-iso-8bit");
+        mgr.add_alias("gb2312", "chinese-iso-8bit");
+        mgr.add_alias("big5", "chinese-big5");
+        mgr.add_alias("cn-big5", "chinese-big5");
+        mgr.add_alias("cp950", "chinese-big5");
+        mgr.add_alias("big5-hkscs", "chinese-big5-hkscs");
+        mgr.add_alias("cn-big5-hkscs", "chinese-big5-hkscs");
 
         // Default priority list
         mgr.priority = vec![
@@ -596,6 +639,38 @@ impl CodingSystemManager {
     /// Check if a name is a known coding system (or alias).
     pub fn is_known(&self, name: &str) -> bool {
         self.resolve(name).is_some()
+    }
+
+    /// Check if a name is a known coding system, alias, or derived EOL variant.
+    pub fn is_known_or_derived(&self, name: &str) -> bool {
+        is_known_or_derived_coding_system(self, name)
+    }
+
+    /// Return the canonical runtime name for a coding system or alias.
+    pub(crate) fn canonical_runtime_name(&self, name: &str) -> Option<String> {
+        canonical_runtime_name(self, name)
+    }
+
+    /// Return the canonical coding system with EOL detected from file bytes.
+    pub(crate) fn canonical_name_for_detected_eol(
+        &self,
+        name: &str,
+        eol_suffix: &str,
+    ) -> Option<String> {
+        let normalized = normalize_coding_name_for_lookup(name);
+        if EolType::from_suffix(normalized).is_some() {
+            return canonical_runtime_name(self, normalized);
+        }
+
+        let eol = match eol_suffix {
+            "-unix" => 0,
+            "-dos" => 1,
+            "-mac" => 2,
+            _ => return canonical_runtime_name(self, normalized),
+        };
+        let canonical_base = self.resolve(normalized)?;
+        derive_coding_for_eol(resolve_sym(canonical_base), eol)
+            .or_else(|| canonical_runtime_name(self, normalized))
     }
 
     /// Add an alias mapping.
@@ -883,9 +958,10 @@ fn coding_category_for_base(base: &str) -> &'static str {
     match base {
         "utf-8" | "utf-8-emacs" | "utf-8-auto" | "emacs-internal" => "coding-category-utf-8",
         "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-5" | "iso-8859-9" | "iso-latin-5"
-        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii" => {
-            "coding-category-charset"
-        }
+        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii"
+        | "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit"
+        | "big5" | "cn-big5" | "cp950" | "chinese-big5" | "big5-hkscs" | "cn-big5-hkscs"
+        | "chinese-big5-hkscs" => "coding-category-charset",
         "raw-text" | "binary" | "no-conversion" => "coding-category-raw-text",
         "undecided" | "prefer-utf-8" => "coding-category-undecided",
         _ => "coding-category-undecided",
@@ -906,6 +982,15 @@ fn coding_docstring_for_base(base: &str) -> Option<&'static str> {
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
             Some("ISO 2022 based 8-bit encoding for Latin-9 (MIME:ISO-8859-15).")
         }
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            Some("ISO 2022 based EUC encoding for Chinese GB2312 (MIME:GB2312).")
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => {
+            Some("BIG5 8-bit encoding for Chinese (MIME:Big5)")
+        }
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => {
+            Some("BIG5-HKSCS 8-bit encoding for Chinese, Hong Kong supplement (MIME:Big5-HKSCS)")
+        }
         "ascii" | "us-ascii" => Some("ASCII encoding."),
         "no-conversion" | "binary" | "raw-text" => Some("Do no conversion."),
         "undecided" => Some("Automatic conversion on decode."),
@@ -923,6 +1008,18 @@ fn coding_charset_list_for_base(base: &str) -> Option<Vec<Value>> {
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => {
             Some(vec![Value::symbol("iso-8859-15")])
         }
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            Some(vec![
+                Value::symbol("ascii"),
+                Value::symbol("chinese-gb2312"),
+            ])
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => {
+            Some(vec![Value::symbol("ascii"), Value::symbol("big5")])
+        }
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => {
+            Some(vec![Value::symbol("ascii"), Value::symbol("big5-hkscs")])
+        }
         "ascii" | "us-ascii" => Some(vec![Value::symbol("ascii")]),
         _ => None,
     }
@@ -934,6 +1031,11 @@ fn coding_mime_charset_for_base(base: &str) -> Option<&'static str> {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some("iso-8859-1"),
         "latin-5" | "iso-8859-9" | "iso-latin-5" => Some("iso-8859-9"),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some("iso-8859-15"),
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            Some("gb2312")
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => Some("big5"),
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => Some("big5-hkscs"),
         "ascii" | "us-ascii" => Some("us-ascii"),
         _ => None,
     }
@@ -1939,6 +2041,19 @@ fn allows_derived_eol_variant(base: &str) -> bool {
             | "iso-latin-9"
             | "ascii"
             | "us-ascii"
+            | "cn-gb-2312"
+            | "euc-china"
+            | "euc-cn"
+            | "cn-gb"
+            | "gb2312"
+            | "chinese-iso-8bit"
+            | "big5"
+            | "cn-big5"
+            | "cp950"
+            | "chinese-big5"
+            | "big5-hkscs"
+            | "cn-big5-hkscs"
+            | "chinese-big5-hkscs"
             | "raw-text"
             | "undecided"
             | "utf-8-auto"
@@ -1956,6 +2071,11 @@ fn display_base_name(base: &str) -> &str {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            "chinese-iso-8bit"
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => "chinese-big5",
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => "chinese-big5-hkscs",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -1968,9 +2088,12 @@ fn coding_type_for_base(base: &str) -> Option<&'static str> {
     match base {
         "utf-8" | "mule-utf-8" | "utf-8-auto" | "emacs-internal" | "utf-8-emacs" => Some("utf-8"),
         "latin-1" | "iso-8859-1" | "iso-latin-1" | "latin-5" | "iso-8859-9" | "iso-latin-5"
-        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii" => {
-            Some("charset")
+        | "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" | "ascii" | "us-ascii"
+        | "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => Some("charset"),
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            Some("iso-2022")
         }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => Some("big5"),
         "raw-text" | "binary" | "no-conversion" => Some("raw-text"),
         "undecided" | "prefer-utf-8" => Some("undecided"),
         _ => None,
@@ -1985,6 +2108,11 @@ fn default_mnemonic_for_base(base: &str) -> Option<i64> {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => Some('1' as i64),
         "latin-5" | "iso-8859-9" | "iso-latin-5" => Some('9' as i64),
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => Some('0' as i64),
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            Some('c' as i64)
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" | "big5-hkscs" | "cn-big5-hkscs"
+        | "chinese-big5-hkscs" => Some('B' as i64),
         "ascii" | "us-ascii" | "undecided" | "prefer-utf-8" => Some('-' as i64),
         "raw-text" => Some('t' as i64),
         "binary" | "no-conversion" => Some('=' as i64),
@@ -1997,6 +2125,11 @@ fn properties_bucket_base(base: &str) -> &str {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            "chinese-iso-8bit"
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => "chinese-big5",
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => "chinese-big5-hkscs",
         "ascii" | "us-ascii" => "us-ascii",
         "binary" | "no-conversion" | "nil" => "no-conversion",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -2010,6 +2143,11 @@ fn eol_vector_base(base: &str) -> &str {
         "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            "chinese-iso-8bit"
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => "chinese-big5",
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => "chinese-big5-hkscs",
         "ascii" | "us-ascii" => "us-ascii",
         "mule-utf-8" => "utf-8",
         "emacs-internal" | "utf-8-emacs" => "utf-8-emacs",
@@ -2031,6 +2169,13 @@ fn derive_coding_for_eol(base: &str, eol: i64) -> Option<String> {
             format!("iso-latin-9{suffix}")
         }
         "ascii" | "us-ascii" => format!("us-ascii{suffix}"),
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            format!("chinese-iso-8bit{suffix}")
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => format!("chinese-big5{suffix}"),
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => {
+            format!("chinese-big5-hkscs{suffix}")
+        }
         "mule-utf-8" | "utf-8" => format!("utf-8{suffix}"),
         "utf-8-auto" => format!("utf-8-auto{suffix}"),
         "prefer-utf-8" => format!("prefer-utf-8{suffix}"),
@@ -2269,50 +2414,60 @@ pub(crate) fn builtin_find_coding_systems_region_internal(
 /// Initialize coding-system-related variables that official Emacs sets
 /// in C code (coding.c syms_of_coding).
 pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray) {
+    fn defvar_lisp(obarray: &mut crate::emacs_core::symbol::Obarray, name: &str, value: Value) {
+        obarray.set_symbol_value(name, value);
+        obarray.make_special(name);
+    }
+
     // latin-extra-code-table: 256-element nil vector (coding.c:12065).
-    obarray.set_symbol_value(
+    defvar_lisp(
+        obarray,
         "latin-extra-code-table",
         Value::vector(vec![Value::NIL; 256]),
     );
 
     // coding.c:11927 — DEFVAR_LISP (Vcoding_system_list)
-    obarray.set_symbol_value("coding-system-list", Value::NIL);
+    defvar_lisp(obarray, "coding-system-list", Value::NIL);
     // coding.c:11930 — DEFVAR_LISP (Vcoding_system_alist)
-    obarray.set_symbol_value("coding-system-alist", Value::NIL);
+    defvar_lisp(obarray, "coding-system-alist", Value::NIL);
     // coding.c:11935 — DEFVAR_LISP (Vcoding_category_list)
-    obarray.set_symbol_value("coding-category-list", Value::NIL);
+    defvar_lisp(obarray, "coding-category-list", Value::NIL);
     // coding.c:11941 — DEFVAR_LISP (Vcoding_system_for_read)
-    obarray.set_symbol_value("coding-system-for-read", Value::NIL);
+    defvar_lisp(obarray, "coding-system-for-read", Value::NIL);
     // coding.c:11949 — DEFVAR_LISP (Vcoding_system_for_write)
-    obarray.set_symbol_value("coding-system-for-write", Value::NIL);
+    defvar_lisp(obarray, "coding-system-for-write", Value::NIL);
+    // coding.c:11956 — DEFVAR_LISP (Vlast_coding_system_used).
+    obarray.make_special("last-coding-system-used");
     // coding.c:11959 — DEFVAR_LISP (Vlast_code_conversion_error)
-    obarray.set_symbol_value("last-code-conversion-error", Value::NIL);
+    defvar_lisp(obarray, "last-code-conversion-error", Value::NIL);
     // coding.c:11999 — DEFVAR_LISP (Vlocale_coding_system)
-    obarray.set_symbol_value("locale-coding-system", Value::NIL);
+    defvar_lisp(obarray, "locale-coding-system", Value::NIL);
     // coding.c:12014 — DEFVAR_LISP (Veol_mnemonic_unix)
-    obarray.set_symbol_value("eol-mnemonic-unix", Value::string(":"));
+    defvar_lisp(obarray, "eol-mnemonic-unix", Value::string(":"));
     // coding.c:12019 — DEFVAR_LISP (Veol_mnemonic_dos)
-    obarray.set_symbol_value("eol-mnemonic-dos", Value::string("\\"));
+    defvar_lisp(obarray, "eol-mnemonic-dos", Value::string("\\"));
     // coding.c:12024 — DEFVAR_LISP (Veol_mnemonic_mac)
-    obarray.set_symbol_value("eol-mnemonic-mac", Value::string("/"));
+    defvar_lisp(obarray, "eol-mnemonic-mac", Value::string("/"));
     // coding.c:12029 — DEFVAR_LISP (Veol_mnemonic_undecided)
-    obarray.set_symbol_value("eol-mnemonic-undecided", Value::string(":"));
+    defvar_lisp(obarray, "eol-mnemonic-undecided", Value::string(":"));
     // coding.c:12036 — DEFVAR_LISP (Venable_character_translation)
-    obarray.set_symbol_value("enable-character-translation", Value::T);
+    defvar_lisp(obarray, "enable-character-translation", Value::T);
     // coding.c:12046 — DEFVAR_LISP (Vstandard_translation_table_for_decode)
-    obarray.set_symbol_value("standard-translation-table-for-decode", Value::NIL);
+    defvar_lisp(obarray, "standard-translation-table-for-decode", Value::NIL);
     // coding.c:12050 — DEFVAR_LISP (Vstandard_translation_table_for_encode)
-    obarray.set_symbol_value("standard-translation-table-for-encode", Value::NIL);
+    defvar_lisp(obarray, "standard-translation-table-for-encode", Value::NIL);
     // coding.c:12054 — DEFVAR_LISP (Vcharset_revision_table)
-    obarray.set_symbol_value("charset-revision-table", Value::NIL);
+    defvar_lisp(obarray, "charset-revision-table", Value::NIL);
     // coding.c:12072 — DEFVAR_LISP (Vselect_safe_coding_system_function)
-    obarray.set_symbol_value("select-safe-coding-system-function", Value::NIL);
+    defvar_lisp(obarray, "select-safe-coding-system-function", Value::NIL);
     // coding.c:12085 — DEFVAR_LISP (Vtranslation_table_for_input)
-    obarray.set_symbol_value("translation-table-for-input", Value::NIL);
+    defvar_lisp(obarray, "translation-table-for-input", Value::NIL);
     // coding.c:11993 — DEFVAR_LISP (Vnetwork_coding_system_alist)
-    obarray.set_symbol_value("network-coding-system-alist", Value::NIL);
+    defvar_lisp(obarray, "network-coding-system-alist", Value::NIL);
     // coding.c:11996 — DEFVAR_LISP (Vprocess_coding_system_alist)
-    obarray.set_symbol_value("process-coding-system-alist", Value::NIL);
+    defvar_lisp(obarray, "process-coding-system-alist", Value::NIL);
+    // coding.c:12008 — DEFVAR_LISP (Vfile_coding_system_alist)
+    defvar_lisp(obarray, "file-coding-system-alist", Value::NIL);
 }
 
 /// `(set-buffer-file-coding-system CODING-SYSTEM &optional FORCE NOMODIFY)` --

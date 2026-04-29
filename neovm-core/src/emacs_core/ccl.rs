@@ -28,19 +28,13 @@ fn is_valid_ccl_program(program: &Value) -> bool {
         return false;
     }
 
-    let [first, second, third] = [&program[0], &program[1], &program[2]];
-
-    let first = first.as_int();
-    if first.is_none() || first.is_some_and(|n| n < 0) {
+    if !program.iter().all(is_integer) {
         return false;
     }
 
-    let second = second.as_int();
-    if second.is_none() || second.is_some_and(|n| !(0..=3).contains(&n)) {
-        return false;
-    }
-
-    is_integer(third)
+    let buf_magnification = program[0].as_int().unwrap();
+    let eof_ic = program[1].as_int().unwrap();
+    buf_magnification >= 0 && (0..=program.len() as i64).contains(&eof_ic)
 }
 
 #[derive(Default)]

@@ -5173,7 +5173,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "make-char",
-        |_ctx, args| builtin_make_char(args),
+        |_ctx, args| charset::builtin_make_char(args),
         1,
         Some(5),
     );
@@ -7859,13 +7859,21 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "encode-coding-string",
-        |_ctx, args| crate::encoding::builtin_encode_coding_string(args),
+        |ctx, args| {
+            crate::encoding::builtin_encode_coding_string_with_known(args, |name| {
+                ctx.coding_systems.is_known_or_derived(name)
+            })
+        },
         2,
         Some(4),
     );
     ctx.defsubr(
         "decode-coding-string",
-        |_ctx, args| crate::encoding::builtin_decode_coding_string(args),
+        |ctx, args| {
+            crate::encoding::builtin_decode_coding_string_with_known(args, |name| {
+                ctx.coding_systems.is_known_or_derived(name)
+            })
+        },
         2,
         Some(4),
     );
@@ -8075,7 +8083,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "merge-face-attribute",
-        |_ctx, args| super::font::builtin_merge_face_attribute(args),
+        super::font::builtin_merge_face_attribute_with_eval,
         3,
         Some(3),
     );

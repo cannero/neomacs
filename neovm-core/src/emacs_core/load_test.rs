@@ -351,6 +351,30 @@ fn raw_context_does_not_seed_gnu_string_helper_cells() {
 }
 
 #[test]
+fn raw_context_seeds_gnu_callproc_program_name_variables() {
+    crate::test_utils::init_test_tracing();
+    let eval = Context::new();
+
+    for (name, expected) in [
+        ("ctags-program-name", "ctags"),
+        ("etags-program-name", "etags"),
+        ("hexl-program-name", "hexl"),
+        ("emacsclient-program-name", "emacsclient"),
+        ("movemail-program-name", "movemail"),
+        ("ebrowse-program-name", "ebrowse"),
+        ("rcs2log-program-name", "rcs2log"),
+    ] {
+        let value = eval
+            .obarray
+            .symbol_value(name)
+            .copied()
+            .unwrap_or_else(|| panic!("{name} should be preloaded like GNU callproc.c"));
+        assert_eq!(value.as_runtime_string_owned().as_deref(), Some(expected));
+        assert!(eval.obarray.is_special(name), "{name} should be special");
+    }
+}
+
+#[test]
 fn gnu_bootstrap_files_define_string_helpers_without_rust_shims() {
     crate::test_utils::init_test_tracing();
     let eval = crate::test_utils::eval_with_ldefs_boot_autoloads(&[

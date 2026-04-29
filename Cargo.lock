@@ -2216,6 +2216,7 @@ dependencies = [
  "bytemuck",
  "crossbeam-channel",
  "dns-lookup",
+ "encoding_rs",
  "gmp-mpfr-sys",
  "hostname",
  "libc",

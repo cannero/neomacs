@@ -2678,6 +2678,41 @@ fn normalize_face_attr_for_set(
     attr: SymId,
     value: Value,
 ) -> Result<(SymId, Value), Flow> {
+    normalize_face_attr_for_set_with_eval(None, face_name, attr, value)
+}
+
+fn merge_face_height_value(
+    eval: Option<&mut super::eval::Context>,
+    from: Value,
+    to: Value,
+    invalid: Value,
+) -> Value {
+    match from.kind() {
+        ValueKind::Fixnum(_) => from,
+        ValueKind::Float => match to.kind() {
+            ValueKind::Fixnum(height) => Value::fixnum((from.xfloat() * height as f64) as i64),
+            ValueKind::Float => Value::make_float(from.xfloat() * to.xfloat()),
+            _ if is_reset_like_face_attr_value(&to) => from,
+            _ => invalid,
+        },
+        _ => {
+            let Some(eval) = eval else {
+                return invalid;
+            };
+            match eval.funcall_general(from, vec![to]) {
+                Ok(result) if !to.is_fixnum() || result.is_fixnum() => result,
+                Ok(_) | Err(_) => invalid,
+            }
+        }
+    }
+}
+
+fn normalize_face_attr_for_set_with_eval(
+    eval: Option<&mut super::eval::Context>,
+    face_name: &str,
+    attr: SymId,
+    value: Value,
+) -> Result<(SymId, Value), Flow> {
     let attr_name = resolve_sym(attr);
     let normalized = match attr_name {
         ":foreground" | ":background" | ":distant-foreground" if value.is_nil() => {
@@ -2733,15 +2768,23 @@ fn normalize_face_attr_for_set(
                         ValueKind::Fixnum(n) if n > 0 => {}
                         ValueKind::Float if normalized.xfloat() > 0.0 => {}
                         _ => {
-                            return Err(signal(
-                                "error",
-                                vec![
-                                    Value::string(
-                                        "Face height does not produce a positive integer",
-                                    ),
-                                    normalized,
-                                ],
-                            ));
+                            let test = merge_face_height_value(
+                                eval,
+                                normalized,
+                                Value::fixnum(10),
+                                Value::NIL,
+                            );
+                            if !test.as_int().is_some_and(|n| n > 0) {
+                                return Err(signal(
+                                    "error",
+                                    vec![
+                                        Value::string(
+                                            "Face height does not produce a positive integer",
+                                        ),
+                                        normalized,
+                                    ],
+                                ));
+                            }
                         }
                     }
                 }
@@ -2968,44 +3011,46 @@ pub(crate) fn builtin_internal_set_lisp_face_attribute(
     let attr_name = normalize_set_face_attribute_name(&args[1])?;
     let value = args[2];
 
-    let apply_set = |defaults_frame: bool| -> Result<(), Flow> {
-        if defaults_frame {
-            if !face_exists_for_domain(&face_name, true) {
-                if face.is_nil() {
-                    return Err(signal("error", vec![Value::string("Invalid face")]));
+    {
+        let mut apply_set = |defaults_frame: bool| -> Result<(), Flow> {
+            if defaults_frame {
+                if !face_exists_for_domain(&face_name, true) {
+                    if face.is_nil() {
+                        return Err(signal("error", vec![Value::string("Invalid face")]));
+                    }
+                    return Err(signal("error", vec![Value::string("Invalid face"), *face]));
                 }
-                return Err(signal("error", vec![Value::string("Invalid face"), *face]));
+            } else if !face_exists_for_domain(&face_name, false) {
+                mark_selected_created_lisp_face(&face_name);
+                mark_created_lisp_face(&face_name);
             }
-        } else if !face_exists_for_domain(&face_name, false) {
-            mark_selected_created_lisp_face(&face_name);
-            mark_created_lisp_face(&face_name);
-        }
 
-        let (canonical_attr, canonical_value) =
-            normalize_face_attr_for_set(&face_name, attr_name, value)?;
-        set_face_override(&face_name, canonical_attr, canonical_value, defaults_frame);
-        if canonical_attr == face_attr_id(":font")
-            && !is_reset_like_face_attr_value(&canonical_value)
-        {
-            apply_derived_font_face_overrides(&face_name, &canonical_value, defaults_frame)?;
-        }
-        Ok(())
-    };
+            let (canonical_attr, canonical_value) =
+                normalize_face_attr_for_set_with_eval(Some(eval), &face_name, attr_name, value)?;
+            set_face_override(&face_name, canonical_attr, canonical_value, defaults_frame);
+            if canonical_attr == face_attr_id(":font")
+                && !is_reset_like_face_attr_value(&canonical_value)
+            {
+                apply_derived_font_face_overrides(&face_name, &canonical_value, defaults_frame)?;
+            }
+            Ok(())
+        };
 
-    match args.get(3) {
-        None => apply_set(false)?,
-        Some(v) if v.is_nil() => apply_set(false)?,
-        Some(v) if v.is_t() => apply_set(true)?,
-        Some(v) if v.as_fixnum() == Some(0) => {
-            apply_set(true)?;
-            apply_set(false)?;
-        }
-        Some(frame) if frame_device_designator_p(frame) => apply_set(false)?,
-        Some(other) => {
-            return Err(signal(
-                "wrong-type-argument",
-                vec![Value::symbol("frame-live-p"), *other],
-            ));
+        match args.get(3) {
+            None => apply_set(false)?,
+            Some(v) if v.is_nil() => apply_set(false)?,
+            Some(v) if v.is_t() => apply_set(true)?,
+            Some(v) if v.as_fixnum() == Some(0) => {
+                apply_set(true)?;
+                apply_set(false)?;
+            }
+            Some(frame) if frame_device_designator_p(frame) => apply_set(false)?,
+            Some(other) => {
+                return Err(signal(
+                    "wrong-type-argument",
+                    vec![Value::symbol("frame-live-p"), *other],
+                ));
+            }
         }
     }
 
@@ -3657,6 +3702,18 @@ pub(crate) fn builtin_face_attribute_relative_p(args: Vec<Value>) -> EvalResult 
 /// is the symbol `unspecified`, in which case return VALUE2.
 pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
     expect_args("merge-face-attribute", &args, 3)?;
+    Ok(merge_face_attribute_impl(None, &args))
+}
+
+pub(crate) fn builtin_merge_face_attribute_with_eval(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    expect_args("merge-face-attribute", &args, 3)?;
+    Ok(merge_face_attribute_impl(Some(eval), &args))
+}
+
+fn merge_face_attribute_impl(eval: Option<&mut super::eval::Context>, args: &[Value]) -> Value {
     let value1_is_relative_reset = args[1]
         .as_symbol_id()
         .or_else(|| args[1].as_keyword_id())
@@ -3667,7 +3724,7 @@ pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
             )
         });
     if value1_is_relative_reset {
-        return Ok(args[2]);
+        return args[2];
     }
 
     let height_attr = args[0]
@@ -3677,23 +3734,10 @@ pub(crate) fn builtin_merge_face_attribute(args: Vec<Value>) -> EvalResult {
             matches!(resolve_sym(id_), "height" | ":height")
         });
     if height_attr {
-        return Ok(match (args[1].kind(), args[2].kind()) {
-            (ValueKind::Fixnum(_), _) => args[1],
-            (ValueKind::Float, ValueKind::Fixnum(height)) => {
-                let scale = args[1].xfloat();
-                Value::fixnum((scale * height as f64) as i64)
-            }
-            (ValueKind::Float, ValueKind::Float) => {
-                let scale = args[1].xfloat();
-                let other_scale = args[2].xfloat();
-                Value::make_float(scale * other_scale)
-            }
-            (ValueKind::Float, _) => args[1],
-            _ => args[1],
-        });
+        return merge_face_height_value(eval, args[1], args[2], args[1]);
     }
 
-    Ok(args[1])
+    args[1]
 }
 
 /// `(face-list &optional FRAME)` -- return list of known face names.

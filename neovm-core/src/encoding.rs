@@ -7,6 +7,7 @@
 use crate::emacs_core::intern::resolve_sym;
 // encoding.rs: sentinel imports removed; using emacs_char + LispString directly
 use crate::emacs_core::value::{StringTextPropertyRun, Value, ValueKind};
+use encoding_rs::{BIG5, GBK};
 
 const MAX_CHAR_CODE: i64 = 0x3F_FFFF;
 const RAW_BYTE_SENTINEL_BASE: u32 = 0xE000;
@@ -626,6 +627,11 @@ fn coding_system_family(coding_system: &str) -> &str {
     {
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
+        "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
+            "chinese-iso-8bit"
+        }
+        "big5" | "cn-big5" | "cp950" | "chinese-big5" => "chinese-big5",
+        "big5-hkscs" | "cn-big5-hkscs" | "chinese-big5-hkscs" => "chinese-big5-hkscs",
         "emacs-internal" => "utf-8-emacs",
         family => family,
     }
@@ -987,6 +993,14 @@ pub fn encode_lisp_string(s: &crate::heap_types::LispString, coding_system: &str
         return encode_eol_bytes(s.as_bytes(), coding_system);
     }
 
+    if matches!(
+        family,
+        "chinese-iso-8bit" | "chinese-big5" | "chinese-big5-hkscs"
+    ) {
+        let text = decode_utf8_emacs_bytes(s.as_bytes());
+        return encode_string(&text, coding_system);
+    }
+
     let mut out = Vec::with_capacity(s.sbytes());
     let mut push_encoded = |code: u32| match family {
         "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => {
@@ -1041,6 +1055,14 @@ pub fn encode_string(s: &str, coding_system: &str) -> Vec<u8> {
         "utf-8" | "utf-8-unix" | "utf-8-dos" | "utf-8-mac" | "utf-8-emacs" => {
             encode_utf8_emacs_text(&eol_text)
         }
+        "chinese-big5" | "chinese-big5-hkscs" => {
+            let (encoded, _, _) = BIG5.encode(&eol_text);
+            encoded.into_owned()
+        }
+        "chinese-iso-8bit" => {
+            let (encoded, _, _) = GBK.encode(&eol_text);
+            encoded.into_owned()
+        }
         "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => eol_text
             .chars()
             .map(|c| {
@@ -1066,6 +1088,14 @@ pub fn decode_bytes(bytes: &[u8], coding_system: &str) -> String {
     let bytes = decode_eol_text(bytes, coding_system);
     match coding_system_family(coding_system) {
         "utf-8" | "utf-8-emacs" => decode_utf8_emacs_bytes(&bytes),
+        "chinese-big5" | "chinese-big5-hkscs" => {
+            let (decoded, _, _) = BIG5.decode(&bytes);
+            decoded.into_owned()
+        }
+        "chinese-iso-8bit" => {
+            let (decoded, _, _) = GBK.decode(&bytes);
+            decoded.into_owned()
+        }
         "latin-1" | "iso-8859-1" | "iso-latin-1" | "iso-latin-5" | "iso-latin-9" => bytes
             .iter()
             .map(|&b| {
@@ -1250,7 +1280,19 @@ fn expect_string(val: &Value) -> Result<String, crate::emacs_core::error::Flow> 
 }
 
 fn known_coding_system(name: &str) -> bool {
-    crate::emacs_core::coding::CodingSystemManager::new().is_known(name)
+    crate::emacs_core::coding::CodingSystemManager::new().is_known_or_derived(name)
+}
+
+fn validate_coding_system(
+    name: &str,
+    arg: Value,
+    known: impl FnOnce(&str) -> bool,
+) -> Result<(), crate::emacs_core::error::Flow> {
+    if known(name) {
+        Ok(())
+    } else {
+        Err(signal("coding-system-error", vec![arg]))
+    }
 }
 
 /// `(char-width CHAR)` -> integer
@@ -1312,6 +1354,13 @@ pub(crate) fn builtin_unibyte_string_p(args: Vec<Value>) -> EvalResult {
 
 /// `(encode-coding-string STRING CODING-SYSTEM)` -> string
 pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
+    builtin_encode_coding_string_with_known(args, known_coding_system)
+}
+
+pub(crate) fn builtin_encode_coding_string_with_known(
+    args: Vec<Value>,
+    known: impl FnOnce(&str) -> bool,
+) -> EvalResult {
     expect_min_args("encode-coding-string", &args, 2)?;
     if args.len() > 4 {
         return Err(signal(
@@ -1338,9 +1387,7 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    if !known_coding_system(&coding) {
-        return Err(signal("coding-system-error", vec![args[1]]));
-    }
+    validate_coding_system(&coding, args[1], known)?;
     let bytes = encode_lisp_string(string, &coding);
     Ok(Value::heap_string(
         crate::heap_types::LispString::from_unibyte(bytes),
@@ -1349,6 +1396,13 @@ pub(crate) fn builtin_encode_coding_string(args: Vec<Value>) -> EvalResult {
 
 /// `(decode-coding-string STRING CODING-SYSTEM)` -> string
 pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
+    builtin_decode_coding_string_with_known(args, known_coding_system)
+}
+
+pub(crate) fn builtin_decode_coding_string_with_known(
+    args: Vec<Value>,
+    known: impl FnOnce(&str) -> bool,
+) -> EvalResult {
     expect_min_args("decode-coding-string", &args, 2)?;
     if args.len() > 4 {
         return Err(signal(
@@ -1370,9 +1424,7 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
             ));
         }
     };
-    if !known_coding_system(&coding) {
-        return Err(signal("coding-system-error", vec![args[1]]));
-    }
+    validate_coding_system(&coding, args[1], known)?;
     let bytes = storage_string_to_bytes(&s);
     if is_byte_preserving_coding_system(&coding) {
         let bytes = if coding.starts_with("raw-text") {
@@ -1389,8 +1441,14 @@ pub(crate) fn builtin_decode_coding_string(args: Vec<Value>) -> EvalResult {
         return Ok(Value::multibyte_string(decoded));
     }
     let decoded = decode_bytes(&bytes, &coding);
-    if matches!(coding.as_str(), "latin-1" | "iso-8859-1" | "iso-latin-1") {
-        let runs = charset_property_runs(&decoded, "iso-8859-1");
+    let charset = match coding_system_family(&coding) {
+        "iso-latin-1" => Some("iso-8859-1"),
+        "chinese-iso-8bit" => Some("chinese-gb2312"),
+        "chinese-big5" | "chinese-big5-hkscs" => Some("big5"),
+        _ => None,
+    };
+    if let Some(charset) = charset {
+        let runs = charset_property_runs(&decoded, charset);
         if !runs.is_empty() {
             return Ok(Value::multibyte_string_with_text_properties(decoded, runs));
         }

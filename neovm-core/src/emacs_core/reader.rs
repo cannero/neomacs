@@ -698,7 +698,7 @@ fn skip_ws_comments(input: &str, mut pos: usize) -> usize {
 ///
 /// Read one Lisp expression from STREAM.
 /// - If STREAM is a string, read from that string (equivalent to car of read-from-string).
-/// - If STREAM is nil, would read from stdin (returns nil in non-interactive mode).
+/// - If STREAM is nil, read from `standard-input`.
 /// - If STREAM is a buffer, read from buffer at point.
 pub fn builtin_read(ctx: &mut crate::emacs_core::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_read_impl(ctx, args, false)
@@ -714,7 +714,16 @@ pub fn builtin_read_impl(
 ) -> EvalResult {
     expect_max_args("read", &args, 1)?;
 
-    if args.is_empty() || args[0].is_nil() {
+    let stream = if args.is_empty() || args[0].is_nil() {
+        ctx.obarray
+            .symbol_value("standard-input")
+            .copied()
+            .unwrap_or(Value::NIL)
+    } else {
+        args[0]
+    };
+
+    if stream.is_nil() {
         // In batch/non-interactive runs, stdin-backed read signals EOF.
         return Err(signal(
             "end-of-file",
@@ -722,10 +731,10 @@ pub fn builtin_read_impl(
         ));
     }
 
-    match args[0].kind() {
+    match stream.kind() {
         ValueKind::String => {
             // Read from string
-            let result = read_from_string_impl_inner(&ctx.obarray, args, locate_syms)?;
+            let result = read_from_string_impl_inner(&ctx.obarray, vec![stream], locate_syms)?;
             // Return just the car (the parsed object)
             match result.kind() {
                 ValueKind::Cons => {
@@ -738,7 +747,7 @@ pub fn builtin_read_impl(
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
             // Read from buffer at point
-            let buf_id = args[0].as_buffer_id().unwrap();
+            let buf_id = stream.as_buffer_id().unwrap();
             let (text, pt, begv_byte) = {
                 let buf = &mut ctx
                     .buffers
@@ -788,7 +797,7 @@ pub fn builtin_read_impl(
         )),
         _ => {
             // Unsupported stream source type for read-char function protocol.
-            Err(signal("invalid-function", vec![args[0]]))
+            Err(signal("invalid-function", vec![stream]))
         }
     }
 }

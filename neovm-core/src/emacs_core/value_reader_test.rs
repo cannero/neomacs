@@ -222,6 +222,23 @@ fn string_escapes() {
 }
 
 #[test]
+fn string_old_control_escape_matches_gnu_reader() {
+    crate::test_utils::init_test_tracing();
+
+    let assert_string_bytes = |source: &str, expected: &[u8]| {
+        let v = read1(source);
+        let ls = v.as_lisp_string().expect("string literal");
+        assert_eq!(ls.as_bytes(), expected);
+        assert!(!ls.is_multibyte());
+    };
+
+    assert_string_bytes(r#""\^l""#, &[0x0C]);
+    assert_string_bytes(r#""\^?""#, &[0x7F]);
+    assert_string_bytes(r#""\^@""#, &[0]);
+    assert_string_bytes(r#""\^ ""#, &[0]);
+}
+
+#[test]
 fn string_literal_preserves_literal_carriage_return() {
     crate::test_utils::init_test_tracing();
     let v = read1("\"a\rb\"");
@@ -296,6 +313,14 @@ fn char_literal_control() {
     // \C-a should be 1
     let v = read1("?\\C-a");
     assert_eq!(v.as_fixnum(), Some(1));
+}
+
+#[test]
+fn char_literal_old_control_escape_matches_gnu_reader() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(read1("?\\^l").as_fixnum(), Some(12));
+    assert_eq!(read1("?\\^?").as_fixnum(), Some(127));
+    assert_eq!(read1("?\\^@").as_fixnum(), Some(0));
 }
 
 #[test]

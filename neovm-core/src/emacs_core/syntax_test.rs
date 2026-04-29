@@ -273,6 +273,34 @@ fn non_ascii_defaults_to_word() {
     assert_eq!(table.char_syntax('\u{1F600}'), SyntaxClass::Word);
 }
 
+#[test]
+fn char_syntax_accepts_full_emacs_character_codes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    // GNU Emacs `CHAR_VALID_P` accepts integer character codes through
+    // MAX_CHAR (0x3FFFFF), including values that are not Unicode scalar
+    // values.  `char-syntax` indexes the syntax table by that integer
+    // code instead of converting through a host character type.
+    assert_eq!(
+        builtin_char_syntax(&mut eval, vec![Value::fixnum(0x20_0220)]).unwrap(),
+        Value::char('w')
+    );
+
+    let err = builtin_char_syntax(&mut eval, vec![Value::fixnum(0x40_0000)])
+        .expect_err("out-of-range character code should signal");
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "wrong-type-argument");
+            assert_eq!(
+                sig.data,
+                vec![Value::symbol("characterp"), Value::fixnum(0x40_0000)]
+            );
+        }
+        other => panic!("expected wrong-type-argument signal, got {other:?}"),
+    }
+}
+
 // -----------------------------------------------------------------------
 // forward_word / backward_word
 // -----------------------------------------------------------------------
@@ -1273,6 +1301,91 @@ fn parse_partial_sexp_baseline_shapes() {
             Value::NIL,
             Value::NIL,
             Value::list(vec![Value::fixnum(1)]),
+            Value::NIL,
+        ])
+    );
+}
+
+#[test]
+fn parse_partial_sexp_tracks_completed_sexp_per_nesting_level_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert("(a (");
+    }
+
+    let state =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(5)]).unwrap();
+    assert_eq!(
+        state,
+        Value::list(vec![
+            Value::fixnum(2),
+            Value::fixnum(4),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(0),
+            Value::NIL,
+            Value::NIL,
+            Value::list(vec![Value::fixnum(1), Value::fixnum(4)]),
+            Value::NIL,
+        ])
+    );
+}
+
+#[test]
+fn parse_partial_sexp_preserves_gnu_negative_depth_state() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(")");
+    }
+
+    let close =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(2)]).unwrap();
+    assert_eq!(
+        close,
+        Value::list(vec![
+            Value::fixnum(-1),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(-1),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ])
+    );
+
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.delete_region(buf.point_min(), buf.point_max());
+        buf.insert(")(");
+    }
+
+    let close_then_open =
+        builtin_parse_partial_sexp(&mut eval, vec![Value::fixnum(1), Value::fixnum(3)]).unwrap();
+    assert_eq!(
+        close_then_open,
+        Value::list(vec![
+            Value::fixnum(0),
+            Value::fixnum(2),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+            Value::fixnum(-1),
+            Value::NIL,
+            Value::NIL,
+            Value::list(vec![Value::fixnum(2)]),
             Value::NIL,
         ])
     );

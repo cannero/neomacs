@@ -3679,9 +3679,20 @@ pub fn create_bootstrap_evaluator_with_startup_surface(
         eval.set_variable("exec-path", Value::list(path_dirs));
         eval.set_variable("exec-suffixes", Value::NIL);
         eval.set_variable("exec-directory", Value::NIL);
-        // GNU callproc.c: syms_of_callproc defines this Lisp variable
-        // before mail-source.el reads it as a defcustom default.
-        eval.set_variable("movemail-program-name", Value::unibyte_string("movemail"));
+        // GNU callproc.c: syms_of_callproc defines these Lisp variables
+        // before Lisp files read them as defcustom defaults.
+        for (name, program) in [
+            ("ctags-program-name", "ctags"),
+            ("etags-program-name", "etags"),
+            ("hexl-program-name", "hexl"),
+            ("emacsclient-program-name", "emacsclient"),
+            ("movemail-program-name", "movemail"),
+            ("ebrowse-program-name", "ebrowse"),
+            ("rcs2log-program-name", "rcs2log"),
+        ] {
+            eval.set_variable(name, Value::unibyte_string(program));
+            eval.obarray.make_special(name);
+        }
 
         // shell-file-name: GNU callproc.c:2041 — $SHELL or /bin/sh
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());

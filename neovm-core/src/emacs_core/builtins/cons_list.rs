@@ -490,7 +490,13 @@ fn builtin_length_value(sequence: Value) -> EvalResult {
 fn vector_sequence_length(sequence: &Value) -> i64 {
     super::chartable::bool_vector_length(sequence)
         .or_else(|| super::chartable::char_table_length(sequence))
-        .unwrap_or_else(|| sequence.as_vector_data().unwrap().len() as i64)
+        .unwrap_or_else(|| {
+            sequence
+                .as_vector_data()
+                .or_else(|| sequence.as_record_data())
+                .expect("vector or record")
+                .len() as i64
+        })
 }
 
 fn sequence_length_less_than(sequence: &Value, target: i64) -> Result<bool, Flow> {

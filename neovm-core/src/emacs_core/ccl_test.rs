@@ -11,6 +11,12 @@ fn ccl_programp_validates_shape_and_type() {
         Value::vector(vec![Value::fixnum(-1), Value::fixnum(0), Value::fixnum(0)]);
     let invalid_header_mode =
         Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]);
+    let valid_real_eof = Value::vector(vec![
+        Value::fixnum(10),
+        Value::fixnum(4),
+        Value::fixnum(0),
+        Value::fixnum(0),
+    ]);
     assert_eq!(
         builtin_ccl_program_p_impl(vec![program]).expect("valid program"),
         Value::T
@@ -26,6 +32,10 @@ fn ccl_programp_validates_shape_and_type() {
     assert_eq!(
         builtin_ccl_program_p_impl(vec![invalid_header_mode]).expect("invalid program"),
         Value::NIL
+    );
+    assert_eq!(
+        builtin_ccl_program_p_impl(vec![valid_real_eof]).expect("valid GNU CCL EOF index"),
+        Value::T
     );
 }
 
@@ -242,20 +252,19 @@ fn register_ccl_program_rejects_invalid_program_shape() {
 }
 
 #[test]
-fn register_ccl_program_rejects_second_header_out_of_range() {
+fn register_ccl_program_accepts_eof_header_within_vector_length() {
     crate::test_utils::init_test_tracing();
-    let err = builtin_register_ccl_program_impl(vec![
+    let result = builtin_register_ccl_program_impl(vec![
         Value::symbol("foo"),
-        Value::vector(vec![Value::fixnum(10), Value::fixnum(4), Value::fixnum(0)]),
+        Value::vector(vec![
+            Value::fixnum(10),
+            Value::fixnum(4),
+            Value::fixnum(0),
+            Value::fixnum(0),
+        ]),
     ])
-    .expect_err("second header slot must be in 0..=3");
-    match err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "error");
-            assert_eq!(sig.data[0], Value::string("Error in CCL program"));
-        }
-        other => panic!("expected error signal, got {other:?}"),
-    }
+    .expect("EOF instruction counter may point to vector length");
+    assert!(result.as_int().is_some_and(|id| id > 0));
 }
 
 #[test]

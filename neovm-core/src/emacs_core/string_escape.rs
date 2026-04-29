@@ -18,7 +18,7 @@ const EXT_SEQ_MAX_LEN: u32 = 6;
 ///
 /// Returns `None` for Unicode scalar values (which can be stored directly).
 pub(crate) fn encode_nonunicode_char_for_storage(code: u32) -> Option<String> {
-    if code <= 0x10FFFF {
+    if code <= 0x10FFFF && char::from_u32(code).is_some() {
         return None;
     }
 
@@ -29,7 +29,7 @@ pub(crate) fn encode_nonunicode_char_for_storage(code: u32) -> Option<String> {
         return Some(ch.to_string());
     }
 
-    if code <= 0x3FFFFF {
+    if code <= crate::emacs_core::emacs_char::MAX_CHAR {
         let bytes = encode_emacs_extended_utf8(code);
         return Some(encode_extended_sequence_for_storage(&bytes));
     }

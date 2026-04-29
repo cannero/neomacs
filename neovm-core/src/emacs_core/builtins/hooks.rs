@@ -935,7 +935,8 @@ pub(crate) fn builtin_run_window_scroll_functions(
 pub(crate) fn builtin_featurep(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_min_args("featurep", &args, 1)?;
     expect_max_args("featurep", &args, 2)?;
-    let name = args[0].as_symbol_name().ok_or_else(|| {
+    let feature = eval.unwrap_symbol(args[0]);
+    let name = feature.as_symbol_name().ok_or_else(|| {
         signal(
             "wrong-type-argument",
             vec![Value::symbol("symbolp"), args[0]],

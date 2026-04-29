@@ -474,7 +474,9 @@ impl CharsetRegistry {
     /// the charset's valid range or the charset method cannot handle it.
     pub fn decode_char(&self, name: SymId, code_point: i64) -> Option<i64> {
         let info = self.charsets.get(&name)?;
-        // Check code-point is within charset's valid range.
+        if info.ascii_compatible_p && (0..=0x7f).contains(&code_point) {
+            return Some(code_point);
+        }
         if code_point < info.min_code || code_point > info.max_code {
             return None;
         }
@@ -485,7 +487,9 @@ impl CharsetRegistry {
             return Some(decoded);
         }
         match &info.method {
-            CharsetMethod::Offset(offset) => Some(code_point + offset),
+            CharsetMethod::Offset(offset) => {
+                charset_code_point_to_index(info, code_point).map(|index| index + offset)
+            }
             CharsetMethod::Map(map_name) => load_charset_map(map_name)
                 .and_then(|map| map.code_to_char.get(&code_point).copied()),
             CharsetMethod::Subset(subset) => {
@@ -519,7 +523,10 @@ impl CharsetRegistry {
         }
         match &info.method {
             CharsetMethod::Offset(offset) => {
-                let code_point = ch - offset;
+                if info.ascii_compatible_p && (0..=0x7f).contains(&ch) {
+                    return Some(ch);
+                }
+                let code_point = charset_index_to_code_point(info, ch.checked_sub(*offset)?)?;
                 if code_point >= info.min_code && code_point <= info.max_code {
                     Some(code_point)
                 } else {
@@ -607,11 +614,43 @@ pub(crate) fn charset_target_ranges(name: &str) -> Option<Vec<(u32, u32)>> {
         let info = reg.charsets.get(&name)?;
         match info.method {
             CharsetMethod::Offset(offset) => {
-                let from = info.min_code.checked_add(offset)?;
-                let to = info.max_code.checked_add(offset)?;
-                let from = u32::try_from(from).ok()?;
-                let to = u32::try_from(to).ok()?;
-                Some(vec![(from.min(to), from.max(to))])
+                let span = info.max_code.checked_sub(info.min_code)?;
+                if span <= 65536 {
+                    let values = (info.min_code..=info.max_code)
+                        .filter_map(|code| reg.decode_char(name, code))
+                        .filter_map(|ch| u32::try_from(ch).ok())
+                        .collect();
+                    return coalesce_u32_ranges(values);
+                }
+
+                let mut ranges = Vec::new();
+                if info.ascii_compatible_p && info.min_code <= 0x7f {
+                    let ascii_from = u32::try_from(info.min_code.max(0)).ok()?;
+                    let ascii_to = u32::try_from(info.max_code.min(0x7f)).ok()?;
+                    if ascii_from <= ascii_to {
+                        ranges.push((ascii_from, ascii_to));
+                    }
+                }
+
+                let from_code = if info.ascii_compatible_p {
+                    info.min_code.max(0x80)
+                } else {
+                    info.min_code
+                };
+                if from_code <= info.max_code {
+                    let from = charset_code_point_to_index(info, from_code)?.checked_add(offset)?;
+                    let to =
+                        charset_code_point_to_index(info, info.max_code)?.checked_add(offset)?;
+                    let from = u32::try_from(from).ok()?;
+                    let to = u32::try_from(to).ok()?;
+                    ranges.push((from.min(to), from.max(to)));
+                }
+
+                if ranges.is_empty() {
+                    None
+                } else {
+                    Some(ranges)
+                }
             }
             CharsetMethod::Map(ref map_name) => {
                 let values = load_charset_map(map_name)?
@@ -1048,6 +1087,149 @@ fn coalesce_u32_ranges(mut values: Vec<u32>) -> Option<Vec<(u32, u32)>> {
 
     ranges.push((start, end));
     Some(ranges)
+}
+
+fn charset_dimension(info: &CharsetInfo) -> usize {
+    usize::try_from(info.dimension).unwrap_or(1).clamp(1, 4)
+}
+
+fn charset_byte_min(info: &CharsetInfo, byte_index: usize) -> i64 {
+    info.code_space.get(byte_index * 2).copied().unwrap_or(0)
+}
+
+fn charset_byte_max(info: &CharsetInfo, byte_index: usize) -> i64 {
+    info.code_space
+        .get(byte_index * 2 + 1)
+        .copied()
+        .unwrap_or(0)
+}
+
+fn charset_byte_size(info: &CharsetInfo, byte_index: usize) -> Option<i64> {
+    let min = charset_byte_min(info, byte_index);
+    let max = charset_byte_max(info, byte_index);
+    if max < min { None } else { Some(max - min + 1) }
+}
+
+fn charset_code_linear_p(info: &CharsetInfo) -> bool {
+    let dimension = charset_dimension(info);
+    dimension == 1
+        || (0..dimension.saturating_sub(1)).all(|index| charset_byte_size(info, index) == Some(256))
+}
+
+fn charset_raw_code_index(info: &CharsetInfo, code_point: i64) -> Option<i64> {
+    let mut index = 0i64;
+    let mut stride = 1i64;
+    for byte_index in 0..4 {
+        let byte = (code_point >> (byte_index * 8)) & 0xff;
+        let min = charset_byte_min(info, byte_index);
+        let max = charset_byte_max(info, byte_index);
+        if byte < min || byte > max {
+            return None;
+        }
+        index = index.checked_add(byte.checked_sub(min)?.checked_mul(stride)?)?;
+        stride = stride.checked_mul(charset_byte_size(info, byte_index)?)?;
+    }
+    Some(index)
+}
+
+fn charset_code_point_to_index(info: &CharsetInfo, code_point: i64) -> Option<i64> {
+    if charset_code_linear_p(info) {
+        return code_point.checked_sub(info.min_code);
+    }
+    let raw_index = charset_raw_code_index(info, code_point)?;
+    let min_index = charset_raw_code_index(info, info.min_code)?;
+    raw_index.checked_sub(min_index)
+}
+
+fn charset_index_to_code_point(info: &CharsetInfo, index: i64) -> Option<i64> {
+    if index < 0 {
+        return None;
+    }
+    if charset_code_linear_p(info) {
+        return info.min_code.checked_add(index);
+    }
+
+    let mut index = index.checked_add(charset_raw_code_index(info, info.min_code)?)?;
+    let mut code_point = 0i64;
+    for byte_index in 0..4 {
+        let size = charset_byte_size(info, byte_index)?;
+        let min = charset_byte_min(info, byte_index);
+        let byte = min.checked_add(index % size)?;
+        if byte > charset_byte_max(info, byte_index) {
+            return None;
+        }
+        code_point |= byte << (byte_index * 8);
+        index /= size;
+    }
+    if index == 0 { Some(code_point) } else { None }
+}
+
+fn make_char_position_code(info: &CharsetInfo, args: &[Value]) -> Result<i64, Flow> {
+    let Some(code1) = args.get(1).filter(|value| !value.is_nil()) else {
+        return Ok(if info.ascii_compatible_p {
+            0
+        } else {
+            info.min_code
+        });
+    };
+
+    let dimension = charset_dimension(info);
+    let mut code = expect_make_char_code_byte(code1)?;
+    for low_dimension in (0..dimension.saturating_sub(1)).rev() {
+        code <<= 8;
+        let code_arg_index = dimension - low_dimension;
+        let next = match args.get(code_arg_index) {
+            Some(value) if !value.is_nil() => expect_make_char_code_byte(value)?,
+            _ => charset_byte_min(info, low_dimension),
+        };
+        code |= next;
+    }
+
+    if info.iso_final_char.is_some() {
+        code &= 0x7f7f7f7f;
+    }
+    Ok(code)
+}
+
+fn expect_make_char_code_byte(value: &Value) -> Result<i64, Flow> {
+    let code = expect_wholenump(value)?;
+    if code >= 0x100 {
+        Err(signal(
+            "args-out-of-range",
+            vec![Value::fixnum(0xff), *value],
+        ))
+    } else {
+        Ok(code)
+    }
+}
+
+/// `(make-char CHARSET &optional CODE1 CODE2 CODE3 CODE4)` -- return a
+/// character at the charset position codes.
+pub(crate) fn builtin_make_char(args: Vec<Value>) -> EvalResult {
+    if args.is_empty() || args.len() > 5 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol("make-char"), Value::fixnum(args.len() as i64)],
+        ));
+    }
+
+    let name = require_known_charset(&args[0])?;
+    let decoded = CHARSET_REGISTRY.with(|slot| {
+        let reg = slot.borrow();
+        let info = reg.charsets.get(&name).ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("charsetp"), args[0]],
+            )
+        })?;
+        let code = make_char_position_code(info, &args)?;
+        Ok(reg.decode_char(name, code))
+    })?;
+
+    match decoded {
+        Some(ch) => Ok(Value::fixnum(ch)),
+        None => Err(signal("error", vec![Value::string("Invalid code(s)")])),
+    }
 }
 
 /// `(define-charset-internal NAME DIM CODE-SPACE MIN-CODE MAX-CODE

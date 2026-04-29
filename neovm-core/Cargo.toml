@@ -41,6 +41,7 @@ parking_lot.workspace = true
 rug.workspace = true
 gmp-mpfr-sys.workspace = true
 unicode_names2.workspace = true
+encoding_rs.workspace = true
 
 [features]
 default = []

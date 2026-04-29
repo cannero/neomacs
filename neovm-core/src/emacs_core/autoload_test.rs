@@ -779,6 +779,33 @@ fn autoload_registers_in_autoload_manager() {
 }
 
 #[test]
+fn autoload_accepts_symbol_with_pos_only_when_enabled() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let positioned = ev
+        .tagged_heap
+        .alloc_symbol_with_pos(Value::symbol("test-auto-pos-fn"), Value::fixnum(17));
+
+    let disabled = builtin_autoload(
+        &mut ev,
+        vec![positioned, Value::string("test-auto-pos-file")],
+    );
+    assert!(
+        disabled.is_err(),
+        "autoload should reject symbol-with-pos while GNU transparency is disabled"
+    );
+
+    ev.set_variable("symbols-with-pos-enabled", Value::T);
+    let enabled = builtin_autoload(
+        &mut ev,
+        vec![positioned, Value::string("test-auto-pos-file")],
+    )
+    .expect("autoload should accept symbol-with-pos when GNU transparency is enabled");
+    assert_eq!(enabled, Value::symbol("test-auto-pos-fn"));
+    assert!(ev.autoloads.is_autoloaded("test-auto-pos-fn"));
+}
+
+#[test]
 fn symbol_file_preserves_raw_unibyte_autoload_file() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();

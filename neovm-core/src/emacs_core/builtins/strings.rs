@@ -795,6 +795,7 @@ fn format_char_argument(n: i64) -> Result<String, Flow> {
 
 /// Parsed format specification: %[flags][width][.precision]conversion
 struct FormatSpec {
+    field_number: Option<usize>,
     minus: bool,
     plus: bool,
     space: bool,
@@ -809,6 +810,7 @@ struct FormatSpec {
 /// Returns None only if the format string ends prematurely.
 fn parse_format_spec(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<FormatSpec> {
     let mut spec = FormatSpec {
+        field_number: None,
         minus: false,
         plus: false,
         space: false,
@@ -818,6 +820,28 @@ fn parse_format_spec(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Op
         precision: None,
         conversion: '\0',
     };
+
+    // GNU `styled_format` first looks for [0-9]+ followed by a literal
+    // '$'.  If there is no '$', the digits are left for the flag/width
+    // parser, so `%05d` still means zero-padded width 5 rather than
+    // field 5.
+    let mut lookahead = chars.clone();
+    let mut field_digits = String::new();
+    while let Some(ch) = lookahead.peek().copied() {
+        if ch.is_ascii_digit() {
+            field_digits.push(ch);
+            lookahead.next();
+        } else {
+            break;
+        }
+    }
+    if !field_digits.is_empty() && lookahead.peek() == Some(&'$') {
+        for _ in 0..field_digits.len() {
+            chars.next();
+        }
+        chars.next();
+        spec.field_number = field_digits.parse().ok();
+    }
 
     // Parse flags
     loop {
@@ -934,6 +958,17 @@ fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
             let prefix = if spec.sharp && abs_val != 0 { "0" } else { "" };
             format!("{}{}{:o}", sign, prefix, abs_val)
         }
+        'b' | 'B' => {
+            let negative = n < 0;
+            let abs_val = (n as i128).unsigned_abs() as u64;
+            let sign = if negative { "-" } else { "" };
+            let prefix = if spec.sharp && abs_val != 0 {
+                if spec.conversion == 'B' { "0B" } else { "0b" }
+            } else {
+                ""
+            };
+            format!("{}{}{:b}", sign, prefix, abs_val)
+        }
         'x' => {
             let negative = n < 0;
             let abs_val = (n as i128).unsigned_abs() as u64;
@@ -947,6 +982,15 @@ fn format_int_spec(n: i64, spec: &FormatSpec) -> String {
             let sign = if negative { "-" } else { "" };
             let prefix = if spec.sharp && abs_val != 0 { "0X" } else { "" };
             format!("{}{}{:X}", sign, prefix, abs_val)
+        }
+        'i' => {
+            if spec.plus && n >= 0 {
+                format!("+{}", n)
+            } else if spec.space && n >= 0 {
+                format!(" {}", n)
+            } else {
+                n.to_string()
+            }
         }
         _ => n.to_string(),
     };
@@ -971,8 +1015,9 @@ fn format_bignum_spec(n: &rug::Integer, spec: &FormatSpec) -> String {
                 body
             }
         }
-        'o' | 'x' | 'X' => {
+        'b' | 'B' | 'o' | 'x' | 'X' => {
             let radix: i32 = match spec.conversion {
+                'b' | 'B' => 2,
                 'o' => 8,
                 'x' | 'X' => 16,
                 _ => unreachable!(),
@@ -984,6 +1029,8 @@ fn format_bignum_spec(n: &rug::Integer, spec: &FormatSpec) -> String {
             }
             let prefix = if spec.sharp && !abs.is_zero() {
                 match spec.conversion {
+                    'b' => "0b",
+                    'B' => "0B",
                     'o' => "0",
                     'x' => "0x",
                     'X' => "0X",
@@ -994,6 +1041,16 @@ fn format_bignum_spec(n: &rug::Integer, spec: &FormatSpec) -> String {
             };
             let sign = if negative { "-" } else { "" };
             format!("{}{}{}", sign, prefix, digits)
+        }
+        'i' => {
+            let body = n.to_string();
+            if !negative && spec.plus {
+                format!("+{}", body)
+            } else if !negative && spec.space {
+                format!(" {}", body)
+            } else {
+                body
+            }
         }
         _ => n.to_string(),
     };
@@ -1188,15 +1245,14 @@ fn do_format(
             continue;
         }
 
-        if arg_idx >= args.len() {
+        let this_arg_idx = spec.field_number.unwrap_or(arg_idx);
+        if this_arg_idx >= args.len() {
             return Err(format_not_enough_args_error());
         }
 
         let formatted = match spec.conversion {
             's' => {
-                let this_arg_idx = arg_idx;
-                let s = princ_fn(&args[arg_idx]);
-                arg_idx += 1;
+                let s = princ_fn(&args[this_arg_idx]);
                 // Only `%s` on a string argument preserves text
                 // properties: princ_fn on a string returns the same
                 // bytes, so we can map byte ranges in the argument to
@@ -1228,19 +1284,18 @@ fn do_format(
                 formatted
             }
             'S' => {
-                let s = prin1_fn(&args[arg_idx]);
-                arg_idx += 1;
+                let s = prin1_fn(&args[this_arg_idx]);
                 format_string_spec(&s, &spec)
             }
-            'd' | 'o' | 'x' | 'X' => {
-                let formatted = match args[arg_idx].kind() {
+            'd' | 'i' | 'b' | 'B' | 'o' | 'x' | 'X' => {
+                let formatted = match args[this_arg_idx].kind() {
                     ValueKind::Fixnum(i) => format_int_spec(i, &spec),
                     ValueKind::Float => {
                         // GNU `Fformat` accepts a float for %d/%o/%x/%X
                         // by promoting it to a bignum via double_to_integer.
                         // We mirror that here so very large floats don't
                         // saturate at i64::MAX.
-                        let f = args[arg_idx].xfloat();
+                        let f = args[this_arg_idx].xfloat();
                         if !f.is_finite() {
                             return Err(format_spec_type_mismatch_error());
                         }
@@ -1249,34 +1304,36 @@ fn do_format(
                         format_bignum_spec(&big, &spec)
                     }
                     ValueKind::Veclike(VecLikeType::Bignum) => {
-                        format_bignum_spec(args[arg_idx].as_bignum().unwrap(), &spec)
+                        format_bignum_spec(args[this_arg_idx].as_bignum().unwrap(), &spec)
                     }
                     _ => {
                         return Err(format_spec_type_mismatch_error());
                     }
                 };
-                arg_idx += 1;
                 formatted
             }
             'f' | 'e' | 'E' | 'g' | 'G' => {
-                let f =
-                    expect_number(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
-                arg_idx += 1;
+                let f = expect_number(&args[this_arg_idx])
+                    .map_err(|_| format_spec_type_mismatch_error())?;
                 format_float_spec(f, &spec)
             }
             'c' => {
-                let n =
-                    expect_int(&args[arg_idx]).map_err(|_| format_spec_type_mismatch_error())?;
-                arg_idx += 1;
+                let n = expect_int(&args[this_arg_idx])
+                    .map_err(|_| format_spec_type_mismatch_error())?;
                 let s = format_char_argument(n)?;
                 format_string_spec(&s, &spec)
             }
             _ => {
-                // Unknown specifier: pass through literally
-                arg_idx += 1;
-                format!("%{}", spec.conversion)
+                return Err(signal(
+                    "error",
+                    vec![Value::string(format!(
+                        "Invalid format operation %{}",
+                        spec.conversion
+                    ))],
+                ));
             }
         };
+        arg_idx = this_arg_idx + 1;
         result.push_str(&formatted);
     }
 

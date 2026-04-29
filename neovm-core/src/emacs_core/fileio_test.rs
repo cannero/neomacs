@@ -3109,8 +3109,53 @@ fn test_insert_file_contents_visit_sets_file_name_and_clears_modified() {
         buf.file_name_runtime_string_owned().as_deref(),
         Some(path_str.as_str())
     );
+    assert!(
+        buf.buffer_local_value("buffer-file-truename")
+            .unwrap_or(Value::NIL)
+            .is_nil()
+    );
     assert!(!buf.is_modified());
     assert!(buf.get_undo_list().is_nil());
+
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn insert_file_contents_visit_missing_file_completes_visit_before_error() {
+    crate::test_utils::init_test_tracing();
+    use super::super::eval::Context;
+
+    let dir = std::env::temp_dir().join("neovm_eval_insert_file_contents_missing_visit");
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+
+    let path = dir.join("missing.txt");
+    let path_str = path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    let _ = eval.buffers.set_buffer_modified_flag(current, true);
+
+    let err = builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str), Value::T])
+        .expect_err("missing visited file should signal file-missing");
+    match err {
+        crate::emacs_core::error::Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "file-missing");
+        }
+        other => panic!("expected file-missing signal, got {other:?}"),
+    }
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(
+        buf.file_name_runtime_string_owned().as_deref(),
+        Some(path_str.as_str())
+    );
+    assert!(
+        buf.buffer_local_value("buffer-file-truename")
+            .unwrap_or(Value::NIL)
+            .is_nil()
+    );
+    assert!(!buf.is_modified());
 
     let _ = fs::remove_dir_all(&dir);
 }
@@ -3152,22 +3197,38 @@ fn insert_file_contents_sets_last_coding_before_after_insert_hook() {
 #[test]
 fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
     crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (unix_text, unix_coding) =
-        super::decode_insert_file_contents(b"alpha line\nbeta line\n", true, false, None)
-            .expect("decode ascii unix text");
+    let (unix_text, unix_coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        b"alpha line\nbeta line\n",
+        true,
+        false,
+        None,
+    )
+    .expect("decode ascii unix text");
     assert_eq!(unix_text, "alpha line\nbeta line\n");
     assert_eq!(unix_coding, "undecided-unix");
 
-    let (dos_text, dos_coding) =
-        super::decode_insert_file_contents(b"alpha line\r\nbeta line\r\n", true, false, None)
-            .expect("decode ascii dos text");
+    let (dos_text, dos_coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        b"alpha line\r\nbeta line\r\n",
+        true,
+        false,
+        None,
+    )
+    .expect("decode ascii dos text");
     assert_eq!(dos_text, "alpha line\nbeta line\n");
     assert_eq!(dos_coding, "undecided-dos");
 
-    let (mac_text, mac_coding) =
-        super::decode_insert_file_contents(b"alpha line\rbeta line\r", true, false, None)
-            .expect("decode ascii mac text");
+    let (mac_text, mac_coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        b"alpha line\rbeta line\r",
+        true,
+        false,
+        None,
+    )
+    .expect("decode ascii mac text");
     assert_eq!(mac_text, "alpha line\nbeta line\n");
     assert_eq!(mac_coding, "undecided-mac");
 }
@@ -3175,16 +3236,27 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
 #[test]
 fn decode_insert_file_contents_preserves_lone_cr_in_lf_text() {
     crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) =
-        super::decode_insert_file_contents(b"alpha\rdata\nbeta\n", true, false, None)
-            .expect("decode ascii unix text with embedded cr");
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        b"alpha\rdata\nbeta\n",
+        true,
+        false,
+        None,
+    )
+    .expect("decode ascii unix text with embedded cr");
     assert_eq!(text, "alpha\rdata\nbeta\n");
     assert_eq!(coding, "undecided-unix");
 
-    let (text, coding) =
-        super::decode_insert_file_contents(b"(setq probe \"a\rb\")\n", true, true, None)
-            .expect("decode source-loaded unix text with embedded cr");
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        b"(setq probe \"a\rb\")\n",
+        true,
+        true,
+        None,
+    )
+    .expect("decode source-loaded unix text with embedded cr");
     assert_eq!(text, "(setq probe \"a\rb\")\n");
     assert_eq!(coding, "utf-8-emacs-unix");
 }
@@ -3214,8 +3286,10 @@ fn insert_file_contents_preserves_lone_cr_in_lf_text() {
 #[test]
 fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
     crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
     let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
         b"(message \"alpha\")\r(message \"beta\")\r",
         true,
         true,
@@ -3225,6 +3299,60 @@ fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
 
     assert_eq!(text, "(message \"alpha\")\n(message \"beta\")\n");
     assert_eq!(coding, "utf-8-emacs-mac");
+}
+
+#[test]
+fn decode_insert_file_contents_accepts_chinese_big5_coding() {
+    crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
+
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        &[0xa4, 0x40, b'\r', b'\n'],
+        true,
+        false,
+        Some("chinese-big5-unix"),
+    )
+    .expect("decode Big5 file bytes");
+
+    assert_eq!(text, "一\r\n");
+    assert_eq!(coding, "chinese-big5-unix");
+}
+
+#[test]
+fn decode_insert_file_contents_accepts_chinese_gb2312_coding() {
+    crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
+
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        &[0xd2, 0xbb, b'\r', b'\n'],
+        true,
+        false,
+        Some("cn-gb-2312-unix"),
+    )
+    .expect("decode GB2312 file bytes");
+
+    assert_eq!(text, "一\r\n");
+    assert_eq!(coding, "cn-gb-2312-unix");
+}
+
+#[test]
+fn decode_insert_file_contents_adds_detected_eol_to_base_coding_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
+
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        &[0xd2, 0xbb, b'\r', b'\n'],
+        true,
+        false,
+        Some("cn-gb-2312"),
+    )
+    .expect("decode GB2312 file bytes with detected DOS EOL");
+
+    assert_eq!(text, "一\n");
+    assert_eq!(coding, "chinese-iso-8bit-dos");
 }
 
 #[test]
@@ -3247,6 +3375,85 @@ fn write_region_honors_dynamic_coding_system_for_write() {
     assert_eq!(results[0], "OK nil");
     assert_eq!(results[1], "OK emacs-internal");
     assert_eq!(std::fs::read(&path).expect("read output"), b"abc");
+}
+
+#[test]
+fn insert_file_contents_honors_dynamic_big5_coding_system_for_read() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("big5.txt");
+    fs::write(&path, [0xa4, 0x40, b'\r', b'\n']).expect("write Big5 fixture");
+    let path_lisp = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let results = bootstrap_eval(&format!(
+        r#"(let ((coding-system-for-read
+                  (coding-system-change-eol-conversion 'big5 'unix)))
+             (with-temp-buffer
+               (insert-file-contents "{path_lisp}")
+               (list (special-variable-p 'coding-system-for-read)
+                     (equal (string-to-list (buffer-string)) '(19968 13 10))
+                     last-coding-system-used)))"#
+    ));
+
+    assert_eq!(results[0], "OK (t t chinese-big5-unix)");
+}
+
+#[test]
+fn insert_file_contents_honors_dynamic_gb2312_coding_system_for_read() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("gb2312.txt");
+    fs::write(&path, [0xd2, 0xbb, b'\r', b'\n']).expect("write GB2312 fixture");
+    let path_lisp = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let results = bootstrap_eval(&format!(
+        r#"(let ((coding-system-for-read
+                  (coding-system-change-eol-conversion 'cn-gb-2312 'unix)))
+             (with-temp-buffer
+               (insert-file-contents "{path_lisp}")
+               (list (special-variable-p 'coding-system-for-read)
+                     (equal (string-to-list (buffer-string)) '(19968 13 10))
+                     last-coding-system-used)))"#
+    ));
+
+    assert_eq!(results[0], "OK (t t chinese-iso-8bit-unix)");
+}
+
+#[test]
+fn insert_file_contents_uses_set_auto_coding_function_for_coding_cookie() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("pinyin-cookie.map");
+    fs::write(
+        &path,
+        [
+            b'%', b' ', b'-', b'*', b'-', b' ', b'c', b'o', b'd', b'i', b'n', b'g', b':', b' ',
+            b'c', b'n', b'-', b'g', b'b', b'-', b'2', b'3', b'1', b'2', b' ', b'-', b'*', b'-',
+            b'\r', b'\n', 0xd2, 0xbb, b'\r', b'\n',
+        ],
+    )
+    .expect("write GB2312 coding-cookie fixture");
+    let path_lisp = path
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let results = bootstrap_eval(&format!(
+        r#"(with-temp-buffer
+             (insert-file-contents "{path_lisp}")
+             (let ((codes (string-to-list (buffer-string))))
+               (list last-coding-system-used
+                     (not (null (memq 19968 codes)))
+                     (null (memq 13 codes)))))"#
+    ));
+
+    assert_eq!(results[0], "OK (chinese-iso-8bit-dos t t)");
 }
 
 #[test]
@@ -3295,16 +3502,27 @@ fn insert_file_contents_sets_last_coding_before_after_insert_file_set_coding() {
 #[test]
 fn decode_insert_file_contents_defaults_to_gnu_utf8_coding_for_non_ascii_text() {
     crate::test_utils::init_test_tracing();
+    let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) =
-        super::decode_insert_file_contents("alpha cafe\n".as_bytes(), true, false, None)
-            .expect("decode utf-8 text");
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        "alpha cafe\n".as_bytes(),
+        true,
+        false,
+        None,
+    )
+    .expect("decode utf-8 text");
     assert_eq!(text, "alpha cafe\n");
     assert_eq!(coding, "undecided-unix");
 
-    let (text, coding) =
-        super::decode_insert_file_contents("alpha caf\u{00E9}\n".as_bytes(), true, false, None)
-            .expect("decode utf-8 accented text");
+    let (text, coding) = super::decode_insert_file_contents(
+        &coding_systems,
+        "alpha caf\u{00E9}\n".as_bytes(),
+        true,
+        false,
+        None,
+    )
+    .expect("decode utf-8 accented text");
     assert_eq!(text, "alpha caf\u{00E9}\n");
     assert_eq!(coding, "utf-8-unix");
 }
@@ -3832,6 +4050,11 @@ fn test_write_region_visit_sets_file_name_and_clears_modified() {
     assert_eq!(
         buf.file_name_runtime_string_owned().as_deref(),
         Some(out_str.as_str())
+    );
+    assert!(
+        buf.buffer_local_value("buffer-file-truename")
+            .unwrap_or(Value::NIL)
+            .is_nil()
     );
     assert!(!buf.is_modified());
     assert_eq!(read_file_contents(&out_str).unwrap(), "neo");

@@ -7,6 +7,7 @@ use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
 use std::io::ErrorKind;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -36,8 +37,192 @@ struct PipelinePaths {
     bootstrap: PathBuf,
     final_bin: PathBuf,
     lisp_root: PathBuf,
+    leim_root: PathBuf,
+    admin_grammars_root: PathBuf,
     makefile_in: PathBuf,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SemanticGrammarKind {
+    Bovine,
+    Wisent,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SemanticGrammarTarget {
+    kind: SemanticGrammarKind,
+    source_rel: &'static str,
+    output_rel: &'static str,
+    grammar_rel: &'static str,
+}
+
+const SEMANTIC_GRAMMAR_TARGETS: &[SemanticGrammarTarget] = &[
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Bovine,
+        source_rel: "c.by",
+        output_rel: "cedet/semantic/bovine/c-by.el",
+        grammar_rel: "cedet/semantic/bovine/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Bovine,
+        source_rel: "make.by",
+        output_rel: "cedet/semantic/bovine/make-by.el",
+        grammar_rel: "cedet/semantic/bovine/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Bovine,
+        source_rel: "scheme.by",
+        output_rel: "cedet/semantic/bovine/scm-by.el",
+        grammar_rel: "cedet/semantic/bovine/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Wisent,
+        source_rel: "grammar.wy",
+        output_rel: "cedet/semantic/grammar-wy.el",
+        grammar_rel: "cedet/semantic/wisent/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Wisent,
+        source_rel: "java-tags.wy",
+        output_rel: "cedet/semantic/wisent/javat-wy.el",
+        grammar_rel: "cedet/semantic/wisent/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Wisent,
+        source_rel: "js.wy",
+        output_rel: "cedet/semantic/wisent/js-wy.el",
+        grammar_rel: "cedet/semantic/wisent/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Wisent,
+        source_rel: "python.wy",
+        output_rel: "cedet/semantic/wisent/python-wy.el",
+        grammar_rel: "cedet/semantic/wisent/grammar.el",
+    },
+    SemanticGrammarTarget {
+        kind: SemanticGrammarKind::Wisent,
+        source_rel: "srecode-template.wy",
+        output_rel: "cedet/srecode/srt-wy.el",
+        grammar_rel: "cedet/semantic/wisent/grammar.el",
+    },
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeimGenerationKind {
+    TitDic,
+    MiscDic,
+    Pinyin,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LeimGenerationRule {
+    kind: LeimGenerationKind,
+    source_rel: &'static str,
+    output_rels: &'static [&'static str],
+}
+
+const LEIM_GENERATION_RULES: &[LeimGenerationRule] = &[
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/CCDOSPY.tit",
+        output_rels: &["leim/quail/CCDOSPY.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/Punct.tit",
+        output_rels: &["leim/quail/Punct.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/QJ.tit",
+        output_rels: &["leim/quail/QJ.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/SW.tit",
+        output_rels: &["leim/quail/SW.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/TONEPY.tit",
+        output_rels: &["leim/quail/TONEPY.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/4Corner.tit",
+        output_rels: &["leim/quail/4Corner.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/ARRAY30.tit",
+        output_rels: &["leim/quail/ARRAY30.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/ECDICT.tit",
+        output_rels: &["leim/quail/ECDICT.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/ETZY.tit",
+        output_rels: &["leim/quail/ETZY.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/Punct-b5.tit",
+        output_rels: &["leim/quail/Punct-b5.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/PY-b5.tit",
+        output_rels: &["leim/quail/PY-b5.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/QJ-b5.tit",
+        output_rels: &["leim/quail/QJ-b5.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::TitDic,
+        source_rel: "CXTERM-DIC/ZOZY.tit",
+        output_rels: &["leim/quail/ZOZY.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/cangjie-table.b5",
+        output_rels: &["leim/quail/tsang-b5.el", "leim/quail/quick-b5.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/cangjie-table.cns",
+        output_rels: &["leim/quail/tsang-cns.el", "leim/quail/quick-cns.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/pinyin.map",
+        output_rels: &["leim/quail/PY.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/ziranma.cin",
+        output_rels: &["leim/quail/ZIRANMA.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/CTLau.html",
+        output_rels: &["leim/quail/CTLau.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::MiscDic,
+        source_rel: "MISC-DIC/CTLau-b5.html",
+        output_rels: &["leim/quail/CTLau-b5.el"],
+    },
+    LeimGenerationRule {
+        kind: LeimGenerationKind::Pinyin,
+        source_rel: "MISC-DIC/pinyin.map",
+        output_rels: &["language/pinyin.el"],
+    },
+];
 
 fn main() {
     if let Err(err) = try_main() {
@@ -190,6 +375,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // pbootstrap/COMPILE_FIRST; GNU removes loaddefs.el later, in
     // autoloads-force, immediately before regenerating it.
     remove_stale_lisp_bytecode(options, &paths)?;
+    remove_stale_generated_leim_sources(options, &paths)?;
+    remove_stale_generated_custom_finder_sources(options, &paths)?;
 
     run_command(
         options,
@@ -245,6 +432,12 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         )?;
     }
 
+    // GNU lisp/Makefile.in makes both autoloads and compile-main depend on
+    // gen-lisp.  This generates Lisp sources that are intentionally not
+    // checked into the Neomacs tree, such as leim-list.el and CEDET parser
+    // tables, before autoload scanning and byte compilation see the tree.
+    run_gen_lisp(options, &paths, &envs)?;
+
     // ---------------------------------------------------------------
     // Loaddefs generation: uses the now-compiled .elc files.
     //
@@ -278,6 +471,14 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         validate_primary_loaddefs(&loaddefs_el)?;
         write_ldefs_boot(&loaddefs_el, &ldefs_boot)?;
     }
+
+    // GNU lisp/Makefile.in's top-level `all' target explicitly includes
+    // cus-load.el and finder-inf.el because ordinary dependencies do not
+    // request them.  Generate them before compile-main so byte-compilation
+    // sees the same completed generated-source set that a fresh GNU build
+    // eventually leaves in lisp/.
+    run_custom_dependencies_generation(options, &paths, &envs)?;
+    run_finder_data_generation(options, &paths, &envs)?;
 
     // GNU lisp/Makefile.in runs compile-main after regenerated autoloads and
     // before the final dump.  Leave the resulting .elc files in place so the
@@ -338,6 +539,406 @@ fn force_loaddefs_generate_eval() -> OsString {
     )
 }
 
+fn run_gen_lisp(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    run_leim_generation(options, paths, envs)?;
+    run_semantic_grammar_generation(options, paths, envs)?;
+    Ok(())
+}
+
+fn run_custom_dependencies_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let output = paths.lisp_root.join("cus-load.el");
+    let dirs = lisp_dirs_for_custom_dependencies(&paths.lisp_root)?;
+    let mut dependencies = dirs.clone();
+    dependencies.push(paths.lisp_root.join("cus-dep.el"));
+    if !generated_file_needs_rebuild(&output, &dependencies) {
+        return Ok(());
+    }
+
+    print_synthetic_step("generate lisp/cus-load.el (GNU custom-deps)");
+    let args = custom_dependencies_generation_args(&paths.lisp_root, &output, &dirs);
+    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+}
+
+fn run_finder_data_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let output = paths.lisp_root.join("finder-inf.el");
+    let dirs = lisp_dirs_for_finder_data(&paths.lisp_root)?;
+    let mut dependencies = dirs.clone();
+    dependencies.push(paths.lisp_root.join("finder.el"));
+    if !generated_file_needs_rebuild(&output, &dependencies) {
+        return Ok(());
+    }
+
+    print_synthetic_step("generate lisp/finder-inf.el (GNU finder-data)");
+    let args = finder_data_generation_args(&paths.lisp_root, &output, &dirs);
+    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+}
+
+fn custom_dependencies_generation_args(
+    lisp_root: &Path,
+    output: &Path,
+    dirs: &[PathBuf],
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("-l"),
+        OsString::from("cus-dep"),
+        OsString::from("--eval"),
+        OsString::from(format!(
+            "(setq generated-custom-dependencies-file (unmsys--file-name {}))",
+            elisp_string_literal(output)
+        )),
+        OsString::from("-f"),
+        OsString::from("custom-make-dependencies"),
+    ];
+    args.extend(
+        dirs.iter()
+            .filter(|dir| dir.starts_with(lisp_root))
+            .map(|dir| dir.as_os_str().to_os_string()),
+    );
+    args
+}
+
+fn finder_data_generation_args(lisp_root: &Path, output: &Path, dirs: &[PathBuf]) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("-l"),
+        OsString::from("finder"),
+        OsString::from("--eval"),
+        OsString::from(format!(
+            "(setq generated-finder-keywords-file (unmsys--file-name {}))",
+            elisp_string_literal(output)
+        )),
+        OsString::from("-f"),
+        OsString::from("finder-compile-keywords-make-dist"),
+    ];
+    args.extend(
+        dirs.iter()
+            .filter(|dir| dir.starts_with(lisp_root))
+            .map(|dir| dir.as_os_str().to_os_string()),
+    );
+    args
+}
+
+fn run_leim_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let titdic_cnv = paths.lisp_root.join("international/titdic-cnv.el");
+    if compile_main_needs_rebuild(&titdic_cnv) {
+        print_synthetic_step("compile leim generator (GNU gen-lisp leim)");
+        run_compile_main_source(options, paths, envs, &titdic_cnv)?;
+    }
+
+    let quail_dir = paths.lisp_root.join("leim/quail");
+    if !options.dry_run {
+        fs::create_dir_all(&quail_dir)?;
+    }
+
+    let mut generated = 0usize;
+    for rule in LEIM_GENERATION_RULES {
+        let source = paths.leim_root.join(rule.source_rel);
+        ensure_generation_input(&source)?;
+        let outputs = rule
+            .output_rels
+            .iter()
+            .map(|rel| paths.lisp_root.join(rel))
+            .collect::<Vec<_>>();
+        if !generated_outputs_need_rebuild(&outputs, std::slice::from_ref(&source)) {
+            continue;
+        }
+
+        if generated == 0 {
+            print_synthetic_step("generate leim sources (GNU gen-lisp leim)");
+        }
+        for output in &outputs {
+            ensure_output_parent(options, output)?;
+        }
+        let args = leim_generation_args(rule.kind, &quail_dir, &source, &outputs[0]);
+        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
+        generated += 1;
+    }
+
+    run_leim_list_generation(options, paths, envs)?;
+    Ok(())
+}
+
+fn run_leim_list_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let leim_dir = paths.lisp_root.join("leim");
+    let leim_ext = paths.leim_root.join("leim-ext.el");
+    ensure_generation_input(&leim_ext)?;
+
+    let output = leim_dir.join("leim-list.el");
+    let mut dependencies = leim_generated_output_paths(paths);
+    dependencies.push(leim_ext.clone());
+    if !generated_file_needs_rebuild(&output, &dependencies) {
+        return Ok(());
+    }
+
+    print_synthetic_step("generate lisp/leim/leim-list.el (GNU gen-lisp leim)");
+    if !options.dry_run {
+        ensure_output_parent(options, &output)?;
+        let _ = remove_file_if_exists(&output)?;
+    }
+
+    let args = leim_list_generation_args(&leim_dir);
+    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
+    if !options.dry_run {
+        append_leim_ext(&output, &leim_ext)?;
+    }
+    Ok(())
+}
+
+fn leim_generated_output_paths(paths: &PipelinePaths) -> Vec<PathBuf> {
+    LEIM_GENERATION_RULES
+        .iter()
+        .flat_map(|rule| {
+            rule.output_rels
+                .iter()
+                .map(|rel| paths.lisp_root.join(rel))
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn leim_generation_args(
+    kind: LeimGenerationKind,
+    quail_dir: &Path,
+    source: &Path,
+    output: &Path,
+) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("-l"),
+        OsString::from("titdic-cnv"),
+        OsString::from("-f"),
+    ];
+    match kind {
+        LeimGenerationKind::TitDic => {
+            args.push(OsString::from("batch-tit-dic-convert"));
+            args.push(OsString::from("-dir"));
+            args.push(quail_dir.as_os_str().to_os_string());
+            args.push(source.as_os_str().to_os_string());
+        }
+        LeimGenerationKind::MiscDic => {
+            args.push(OsString::from("batch-tit-miscdic-convert"));
+            args.push(OsString::from("-dir"));
+            args.push(quail_dir.as_os_str().to_os_string());
+            args.push(source.as_os_str().to_os_string());
+        }
+        LeimGenerationKind::Pinyin => {
+            args.push(OsString::from("tit-pinyin-convert"));
+            args.push(source.as_os_str().to_os_string());
+            args.push(output.as_os_str().to_os_string());
+        }
+    }
+    args
+}
+
+fn leim_list_generation_args(leim_dir: &Path) -> Vec<OsString> {
+    vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("-l"),
+        OsString::from("international/quail"),
+        OsString::from("--eval"),
+        OsString::from(format!(
+            "(update-leim-list-file (unmsys--file-name {}))",
+            elisp_string_literal(leim_dir)
+        )),
+    ]
+}
+
+fn append_leim_ext(output: &Path, leim_ext: &Path) -> Result<()> {
+    let contents = fs::read_to_string(leim_ext)?;
+    let append = leim_ext_append_contents(&contents);
+    let mut file = fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(output)?;
+    file.write_all(append.as_bytes())?;
+    Ok(())
+}
+
+fn leim_ext_append_contents(contents: &str) -> String {
+    let mut output = String::new();
+    for line in contents.lines() {
+        if !line.starts_with(';') {
+            output.push_str(line);
+            output.push('\n');
+            continue;
+        }
+
+        let mut chars = line.chars();
+        if chars.next() != Some(';') {
+            continue;
+        }
+        let semicolons = chars.by_ref().take_while(|ch| *ch == ';').count();
+        let rest = &line[1 + semicolons..];
+        if let Some(payload) = rest.strip_prefix("inc ") {
+            output.push(';');
+            for _ in 0..semicolons {
+                output.push(';');
+            }
+            output.push(' ');
+            output.push_str(payload);
+            output.push('\n');
+        }
+    }
+    output
+}
+
+fn run_semantic_grammar_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let mut generated = 0usize;
+    for target in semantic_grammar_targets(paths) {
+        ensure_generation_input(&target.source)?;
+        ensure_generation_input(&target.grammar)?;
+        if !generated_file_needs_rebuild(&target.output, &[target.source.clone(), target.grammar]) {
+            continue;
+        }
+
+        if generated == 0 {
+            print_synthetic_step("generate semantic grammars (GNU gen-lisp semantic)");
+        }
+        ensure_output_parent(options, &target.output)?;
+        make_output_writable(options, &target.output)?;
+        let args = semantic_grammar_args(target.kind, &target.output, &target.source);
+        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
+        generated += 1;
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct SemanticGrammarJob {
+    kind: SemanticGrammarKind,
+    source: PathBuf,
+    output: PathBuf,
+    grammar: PathBuf,
+}
+
+fn semantic_grammar_targets(paths: &PipelinePaths) -> Vec<SemanticGrammarJob> {
+    SEMANTIC_GRAMMAR_TARGETS
+        .iter()
+        .map(|target| SemanticGrammarJob {
+            kind: target.kind,
+            source: paths.admin_grammars_root.join(target.source_rel),
+            output: paths.lisp_root.join(target.output_rel),
+            grammar: paths.lisp_root.join(target.grammar_rel),
+        })
+        .collect()
+}
+
+fn semantic_grammar_args(kind: SemanticGrammarKind, output: &Path, source: &Path) -> Vec<OsString> {
+    let (library, function) = match kind {
+        SemanticGrammarKind::Bovine => ("semantic/bovine/grammar", "bovine-batch-make-parser"),
+        SemanticGrammarKind::Wisent => ("semantic/wisent/grammar", "wisent-batch-make-parser"),
+    };
+
+    vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("--eval"),
+        OsString::from("(setq load-prefer-newer t)"),
+        OsString::from("-l"),
+        OsString::from(library),
+        OsString::from("-f"),
+        OsString::from(function),
+        OsString::from("-o"),
+        output.as_os_str().to_os_string(),
+        source.as_os_str().to_os_string(),
+    ]
+}
+
+fn generated_outputs_need_rebuild(outputs: &[PathBuf], dependencies: &[PathBuf]) -> bool {
+    outputs
+        .iter()
+        .any(|output| generated_file_needs_rebuild(output, dependencies))
+}
+
+fn generated_file_needs_rebuild(output: &Path, dependencies: &[PathBuf]) -> bool {
+    let Ok(output_meta) = fs::metadata(output) else {
+        return true;
+    };
+    let Ok(output_mtime) = output_meta.modified() else {
+        return true;
+    };
+    dependencies.iter().any(|dependency| {
+        fs::metadata(dependency)
+            .and_then(|metadata| metadata.modified())
+            .map_or(true, |dependency_mtime| dependency_mtime > output_mtime)
+    })
+}
+
+fn ensure_generation_input(path: &Path) -> Result<()> {
+    if !path.is_file() {
+        return Err(format!("missing generated-source input: {}", path.display()).into());
+    }
+    Ok(())
+}
+
+fn ensure_output_parent(options: &FreshBuildOptions, output: &Path) -> Result<()> {
+    let Some(parent) = output.parent() else {
+        return Ok(());
+    };
+    if options.dry_run {
+        return Ok(());
+    }
+    fs::create_dir_all(parent)?;
+    Ok(())
+}
+
+fn make_output_writable(options: &FreshBuildOptions, output: &Path) -> Result<()> {
+    if options.dry_run || !output.exists() {
+        return Ok(());
+    }
+    let mut permissions = fs::metadata(output)?.permissions();
+    permissions.set_readonly(false);
+    fs::set_permissions(output, permissions)?;
+    Ok(())
+}
+
+fn elisp_string_literal(path: &Path) -> String {
+    let mut output = String::from("\"");
+    for ch in path.to_string_lossy().chars() {
+        match ch {
+            '\\' => output.push_str("\\\\"),
+            '"' => output.push_str("\\\""),
+            _ => output.push(ch),
+        }
+    }
+    output.push('"');
+    output
+}
+
 fn remove_stale_lisp_bytecode(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
     let files = generated_lisp_bytecode_files(&paths.lisp_root)?;
     if files.is_empty() {
@@ -369,6 +970,82 @@ fn generated_lisp_bytecode_files(lisp_root: &Path) -> Result<Vec<PathBuf>> {
     collect_lisp_bytecode_files(lisp_root, &mut files)?;
     files.sort();
     Ok(files)
+}
+
+fn generated_leim_source_files(paths: &PipelinePaths) -> Vec<PathBuf> {
+    let mut files = leim_generated_output_paths(paths);
+    files.push(paths.lisp_root.join("leim/leim-list.el"));
+    files.sort();
+    files.dedup();
+    files
+}
+
+fn remove_stale_generated_leim_sources(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let files = generated_leim_source_files(paths);
+    let existing = files
+        .into_iter()
+        .filter(|path| options.dry_run || path.exists())
+        .collect::<Vec<_>>();
+    if existing.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("remove stale generated LEIM sources");
+    if options.dry_run {
+        for file in &existing {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for file in &existing {
+        if remove_file_if_exists(file)? {
+            removed += 1;
+        }
+    }
+    println!("  INFO  removed {removed} stale generated LEIM source files");
+    Ok(())
+}
+
+fn generated_custom_finder_source_files(paths: &PipelinePaths) -> Vec<PathBuf> {
+    vec![
+        paths.lisp_root.join("cus-load.el"),
+        paths.lisp_root.join("finder-inf.el"),
+    ]
+}
+
+fn remove_stale_generated_custom_finder_sources(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let files = generated_custom_finder_source_files(paths)
+        .into_iter()
+        .filter(|path| options.dry_run || path.exists())
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("remove stale generated custom/finder sources");
+    if options.dry_run {
+        for file in &files {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for file in &files {
+        if remove_file_if_exists(file)? {
+            removed += 1;
+        }
+    }
+    println!("  INFO  removed {removed} stale generated custom/finder source files");
+    Ok(())
 }
 
 fn collect_lisp_bytecode_files(current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
@@ -545,6 +1222,8 @@ fn pipeline_paths(options: &FreshBuildOptions) -> PipelinePaths {
         bootstrap: options.bin_dir.join("bootstrap-neomacs"),
         final_bin: options.bin_dir.join("neomacs"),
         makefile_in: lisp_root.join("Makefile.in"),
+        leim_root: options.repo_root.join("leim"),
+        admin_grammars_root: options.repo_root.join("admin/grammars"),
         lisp_root,
     }
 }
@@ -554,6 +1233,8 @@ fn ensure_runtime_inputs(paths: &PipelinePaths) -> Result<()> {
         paths.lisp_root.join("loadup.el"),
         paths.makefile_in.clone(),
         paths.lisp_root.join("emacs-lisp/loaddefs-gen.el"),
+        paths.leim_root.join("Makefile.in"),
+        paths.admin_grammars_root.join("Makefile.in"),
     ] {
         if !required.exists() {
             return Err(format!("missing required path: {}", required.display()).into());
@@ -765,6 +1446,40 @@ fn loaddefs_dirs(lisp_root: &Path) -> Result<Vec<PathBuf>> {
     Ok(dirs)
 }
 
+fn lisp_dirs_for_custom_dependencies(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    lisp_dirs_matching_gnu_subdirs(
+        lisp_root,
+        |relative| !matches!(relative, rel if rel == Path::new("obsolete") || rel == Path::new("term")),
+    )
+}
+
+fn lisp_dirs_for_finder_data(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    lisp_dirs_matching_gnu_subdirs(lisp_root, |relative| {
+        !matches!(relative, rel if rel == Path::new("obsolete") || rel == Path::new("term"))
+            && !matches!(
+                relative
+                    .components()
+                    .next()
+                    .and_then(|component| component.as_os_str().to_str()),
+                Some("leim")
+            )
+    })
+}
+
+fn lisp_dirs_matching_gnu_subdirs(
+    lisp_root: &Path,
+    include_relative: impl Fn(&Path) -> bool,
+) -> Result<Vec<PathBuf>> {
+    let mut dirs = Vec::new();
+    collect_lisp_dirs(lisp_root, &mut dirs)?;
+    dirs.retain(|dir| {
+        dir.strip_prefix(lisp_root)
+            .map_or(true, |relative| include_relative(relative))
+    });
+    dirs.sort();
+    Ok(dirs)
+}
+
 fn collect_loaddefs_dirs(root: &Path, current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
     out.push(current.to_path_buf());
 
@@ -831,23 +1546,25 @@ fn run_compile_main(
         main_first.len() + general.len()
     );
     let mut errors = Vec::new();
+    let jobs = compile_main_jobs();
 
     if !main_first.is_empty() {
         println!(
-            "  INFO  byte-compiling {} MAIN_FIRST .el files sequentially",
-            main_first.len()
+            "  INFO  byte-compiling {} MAIN_FIRST .el files with {jobs} parallel jobs",
+            main_first.len(),
         );
-        for source in &main_first {
-            if let Err(e) = run_compile_main_source(options, paths, envs, source) {
-                eprintln!("  WARN  byte-compile failed: {} ({})", source.display(), e);
-                errors.push(source.display().to_string());
-            }
-        }
+        errors.extend(run_compile_main_parallel(
+            options,
+            paths,
+            envs,
+            main_first,
+            &BTreeMap::new(),
+            jobs,
+        )?);
     }
 
     if !general.is_empty() {
         let dependencies = parse_compile_main_dependencies(&paths.makefile_in, &paths.lisp_root)?;
-        let jobs = compile_main_jobs();
         println!(
             "  INFO  byte-compiling {} general .el files with {jobs} parallel jobs",
             general.len()
@@ -1406,9 +2123,10 @@ Build the GNU-shaped Neomacs runtime pipeline:
   1. cargo build -p neomacs-bin [--release]
   2. neomacs-temacs --temacs=pbootstrap
   3. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
-  4. bootstrap-neomacs generates loaddefs / ldefs-boot
-  5. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
-  6. neomacs-temacs --temacs=pdump
+  4. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
+  5. bootstrap-neomacs generates loaddefs / ldefs-boot
+  6. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
+  7. neomacs-temacs --temacs=pdump
 
 Options:
   --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs

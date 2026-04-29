@@ -1,5 +1,6 @@
 use super::*;
 use crate::emacs_core::eval::Context;
+use crate::emacs_core::print_value;
 use crate::emacs_core::value::{ValueKind, VecLikeType};
 use crate::test_utils::{eval_with_ldefs_boot_autoloads, runtime_startup_eval_all};
 use std::collections::VecDeque;
@@ -161,6 +162,9 @@ fn read_from_string_modifier_string_escapes_follow_gnu_rules() {
 
     let ctrl = builtin_read_from_string(&mut ev, vec![Value::string(r#""\C-x""#)]).unwrap();
     assert_string(ctrl.cons_car(), &[0x18]);
+
+    let old_ctrl = builtin_read_from_string(&mut ev, vec![Value::string(r#""\^l""#)]).unwrap();
+    assert_string(old_ctrl.cons_car(), &[0x0C]);
 
     let shift = builtin_read_from_string(&mut ev, vec![Value::string(r#""\S-a""#)]).unwrap();
     assert_string(shift.cons_car(), b"A");
@@ -551,6 +555,24 @@ fn read_from_string_stream() {
     let mut ev = Context::new();
     let result = builtin_read(&mut ev, vec![Value::string("42")]).unwrap();
     assert!(result.is_fixnum());
+}
+
+#[test]
+fn read_nil_stream_uses_string_valued_standard_input() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_variable("standard-input", Value::string("(LBRACE RBRACE)"));
+    let result = builtin_read(&mut ev, vec![Value::NIL]).unwrap();
+    assert_eq!(print_value(&result), "(LBRACE RBRACE)");
+}
+
+#[test]
+fn read_no_args_uses_string_valued_standard_input() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    ev.set_variable("standard-input", Value::string("(LBRACE RBRACE)"));
+    let result = builtin_read(&mut ev, vec![]).unwrap();
+    assert_eq!(print_value(&result), "(LBRACE RBRACE)");
 }
 
 #[test]

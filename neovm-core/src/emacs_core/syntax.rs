@@ -509,12 +509,26 @@ impl SyntaxTable {
     /// `SYNTAX_ENTRY(c)`. Falls back to the standard chartable when
     /// the wrapper is nil-backed (handled by `syntax_entry_at_char`).
     pub fn get_entry(&self, ch: char) -> Option<SyntaxEntry> {
-        syntax_entry_at_char(&self.chartable, ch)
+        self.get_entry_code(ch as u32)
+    }
+
+    /// Return the syntax entry for an Emacs character code.  GNU Emacs
+    /// syntax tables are indexed by `CHAR_VALID_P` integer codes
+    /// (`0..=MAX_CHAR`), not by Unicode scalar values; keep this path
+    /// available for callers such as `char-syntax`.
+    pub fn get_entry_code(&self, code: u32) -> Option<SyntaxEntry> {
+        syntax_entry_at_char_code(&self.chartable, code)
     }
 
     /// Return the syntax class for `ch` — GNU `SYNTAX(c)`.
     pub fn char_syntax(&self, ch: char) -> SyntaxClass {
-        syntax_class_at_char(&self.chartable, ch)
+        self.char_syntax_code(ch as u32)
+    }
+
+    /// Return the syntax class for an Emacs character code — GNU
+    /// `SYNTAX(c)`.
+    pub fn char_syntax_code(&self, code: u32) -> SyntaxClass {
+        syntax_class_at_char_code(&self.chartable, code)
     }
 
     // -- Mutation -------------------------------------------------------------
@@ -1609,6 +1623,10 @@ fn set_current_buffer_syntax_table_object(
 /// `buffer->syntax_table` — so from the reader's point of view a
 /// "never-set" slot always behaves like the standard.
 pub(crate) fn syntax_entry_at_char(table: &Value, c: char) -> Option<SyntaxEntry> {
+    syntax_entry_at_char_code(table, c as u32)
+}
+
+pub(crate) fn syntax_entry_at_char_code(table: &Value, code: u32) -> Option<SyntaxEntry> {
     let effective = if table.is_nil() {
         ensure_standard_syntax_table_object().unwrap_or(Value::NIL)
     } else {
@@ -1617,7 +1635,7 @@ pub(crate) fn syntax_entry_at_char(table: &Value, c: char) -> Option<SyntaxEntry
     if effective.is_nil() {
         return None;
     }
-    let entry = super::chartable::ct_lookup(&effective, c as i64).ok()?;
+    let entry = super::chartable::ct_lookup(&effective, code as i64).ok()?;
     syntax_entry_from_chartable_entry(&entry)
 }
 
@@ -1626,10 +1644,14 @@ pub(crate) fn syntax_entry_at_char(table: &Value, c: char) -> Option<SyntaxEntry
 /// `SyntaxTable::char_syntax` on the old compiled form: codepoints
 /// >= 0x80 default to Word; below 0x80 default to Whitespace.
 pub(crate) fn syntax_class_at_char(table: &Value, c: char) -> SyntaxClass {
-    match syntax_entry_at_char(table, c) {
+    syntax_class_at_char_code(table, c as u32)
+}
+
+pub(crate) fn syntax_class_at_char_code(table: &Value, code: u32) -> SyntaxClass {
+    match syntax_entry_at_char_code(table, code) {
         Some(entry) => entry.class,
         None => {
-            if u32::from(c) >= 0x80 {
+            if code >= 0x80 {
                 SyntaxClass::Word
             } else {
                 SyntaxClass::Whitespace
@@ -2026,14 +2048,17 @@ pub(crate) fn builtin_char_syntax_in_buffers(
             ],
         ));
     }
-    let ch = match args[0].kind() {
-        ValueKind::Fixnum(c) => {
-            super::builtins::character_code_to_rust_char(c).ok_or_else(|| {
-                signal(
-                    "error",
-                    vec![Value::string("Invalid character code"), args[0]],
-                )
-            })?
+    let code = match args[0].kind() {
+        ValueKind::Fixnum(c)
+            if (0..=crate::emacs_core::emacs_char::MAX_CHAR as i64).contains(&c) =>
+        {
+            c as u32
+        }
+        ValueKind::Fixnum(_) => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("characterp"), args[0]],
+            ));
         }
         _ => {
             return Err(signal(
@@ -2046,7 +2071,7 @@ pub(crate) fn builtin_char_syntax_in_buffers(
     let buf = buffers
         .current_buffer()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let class = SyntaxTable::for_buffer(buf).char_syntax(ch);
+    let class = SyntaxTable::for_buffer(buf).char_syntax_code(code);
     Ok(Value::char(class.to_char()))
 }
 
@@ -3172,12 +3197,17 @@ enum CommentStopMode {
 struct PartialParseState {
     depth: i64,
     mindepth: i64,
-    stack: Vec<i64>,
-    last_sexp_start: Option<i64>,
+    levels: Vec<PartialParseLevel>,
     in_string: Option<ParseStringState>,
     in_comment: Option<ParseCommentState>,
     comment_or_string_start: Option<i64>,
     quoted: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct PartialParseLevel {
+    last: Option<i64>,
+    prev: Option<i64>,
 }
 
 impl PartialParseState {
@@ -3185,8 +3215,7 @@ impl PartialParseState {
         Self {
             depth: 0,
             mindepth: 0,
-            stack: Vec::new(),
-            last_sexp_start: None,
+            levels: vec![PartialParseLevel::default()],
             in_string: None,
             in_comment: None,
             comment_or_string_start: None,
@@ -3247,20 +3276,82 @@ impl PartialParseState {
         if let Some(item) = items.get(9)
             && let Some(stack_items) = list_to_vec(item)
         {
-            state.stack = stack_items
-                .into_iter()
-                .filter_map(|v| v.as_fixnum())
-                .collect();
+            state.levels.clear();
+            state.levels.push(PartialParseLevel::default());
+            for start in stack_items.into_iter().filter_map(|v| v.as_fixnum()) {
+                if let Some(level) = state.levels.last_mut() {
+                    level.last = Some(start);
+                }
+                state.levels.push(PartialParseLevel::default());
+            }
         }
 
         state
     }
 
+    fn current_level_mut(&mut self) -> &mut PartialParseLevel {
+        self.levels
+            .last_mut()
+            .expect("partial parse state always has a current level")
+    }
+
+    fn finish_current_level_sexp(&mut self, start: i64) {
+        let level = self.current_level_mut();
+        level.last = Some(start);
+        level.prev = Some(start);
+    }
+
+    fn open_level(&mut self, start: i64) {
+        if let Some(level) = self.levels.last_mut() {
+            level.last = Some(start);
+        }
+        self.depth += 1;
+        self.levels.push(PartialParseLevel::default());
+    }
+
+    fn close_level(&mut self) {
+        self.depth -= 1;
+        self.mindepth = self.mindepth.min(self.depth);
+        if self.levels.len() > 1 {
+            self.levels.pop();
+        }
+        if let Some(start) = self.current_level_mut().last {
+            self.current_level_mut().prev = Some(start);
+        }
+    }
+
+    fn containing_sexp_start(&self) -> Option<i64> {
+        self.levels
+            .len()
+            .checked_sub(2)
+            .and_then(|idx| self.levels.get(idx))
+            .and_then(|level| level.last)
+    }
+
+    fn current_level_completed_sexp_start(&self) -> Option<i64> {
+        self.levels.last().and_then(|level| level.prev)
+    }
+
+    fn level_start_positions(&self) -> Vec<i64> {
+        if self.levels.len() <= 1 {
+            return Vec::new();
+        }
+
+        self.levels
+            .iter()
+            .take(self.levels.len() - 1)
+            .filter_map(|level| level.last)
+            .collect()
+    }
+
     fn into_value(self) -> Value {
-        let stack_value = if self.depth > 0 {
-            Value::list(self.stack.iter().map(|p| Value::fixnum(*p)).collect())
-        } else {
+        let containing_sexp_start = self.containing_sexp_start();
+        let completed_sexp_start = self.current_level_completed_sexp_start();
+        let level_starts = self.level_start_positions();
+        let stack_value = if level_starts.is_empty() {
             Value::NIL
+        } else {
+            Value::list(level_starts.into_iter().map(Value::fixnum).collect())
         };
 
         let string_value = match self.in_string {
@@ -3291,8 +3382,8 @@ impl PartialParseState {
 
         Value::list(vec![
             Value::fixnum(self.depth),
-            self.stack.last().map_or(Value::NIL, |p| Value::fixnum(*p)),
-            self.last_sexp_start.map_or(Value::NIL, Value::fixnum),
+            containing_sexp_start.map_or(Value::NIL, Value::fixnum),
+            completed_sexp_start.map_or(Value::NIL, Value::fixnum),
             string_value,
             comment_value,
             if self.quoted { Value::T } else { Value::NIL },
@@ -3358,7 +3449,7 @@ fn parse_state_from_range_with_options(
 
     let finish_atom = |state: &mut PartialParseState, atom_start: &mut Option<i64>| {
         if let Some(start) = atom_start.take() {
-            state.last_sexp_start = Some(start);
+            state.finish_current_level_sexp(start);
         }
     };
 
@@ -3386,7 +3477,9 @@ fn parse_state_from_range_with_options(
                     continue;
                 }
                 SyntaxClass::StringFence if string_state == ParseStringState::Fence => {
-                    state.last_sexp_start = state.comment_or_string_start;
+                    if let Some(start) = state.comment_or_string_start {
+                        state.finish_current_level_sexp(start);
+                    }
                     state.in_string = None;
                     state.comment_or_string_start = None;
                     idx += 1;
@@ -3397,7 +3490,9 @@ fn parse_state_from_range_with_options(
                 }
                 SyntaxClass::StringDelim if matches!(string_state, ParseStringState::Delim(term) if ch == term) =>
                 {
-                    state.last_sexp_start = state.comment_or_string_start;
+                    if let Some(start) = state.comment_or_string_start {
+                        state.finish_current_level_sexp(start);
+                    }
                     state.in_string = None;
                     state.comment_or_string_start = None;
                     idx += 1;
@@ -3594,8 +3689,7 @@ fn parse_state_from_range_with_options(
 
         match class {
             SyntaxClass::Open => {
-                state.depth += 1;
-                state.stack.push(pos1);
+                state.open_level(pos1);
                 idx += 1;
                 if target_depth == Some(state.depth) {
                     break;
@@ -3603,13 +3697,7 @@ fn parse_state_from_range_with_options(
                 continue;
             }
             SyntaxClass::Close => {
-                if state.depth > 0 {
-                    state.depth -= 1;
-                    state.mindepth = state.mindepth.min(state.depth);
-                }
-                if let Some(open_pos) = state.stack.pop() {
-                    state.last_sexp_start = Some(open_pos);
-                }
+                state.close_level();
                 idx += 1;
                 if target_depth == Some(state.depth) {
                     break;

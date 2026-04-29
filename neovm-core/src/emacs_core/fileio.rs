@@ -3720,6 +3720,7 @@ fn write_region_content_in_state(
 }
 
 fn decode_insert_file_contents(
+    coding_systems: &crate::emacs_core::coding::CodingSystemManager,
     bytes: &[u8],
     multibyte: bool,
     source_load_context: bool,
@@ -3800,26 +3801,95 @@ fn decode_insert_file_contents(
         return Ok((decoded, coding));
     };
 
-    if source_load_context && multibyte && is_utf8_like_source_coding(coding) {
-        return Ok((
-            crate::emacs_core::load::decode_emacs_utf8(bytes),
-            coding.to_string(),
-        ));
+    let eol_suffix = detected_default_eol_suffix(bytes);
+    let coding = coding_systems
+        .canonical_name_for_detected_eol(coding, eol_suffix)
+        .unwrap_or_else(|| coding.to_string());
+
+    if source_load_context && multibyte && is_utf8_like_source_coding(&coding) {
+        return Ok((crate::emacs_core::load::decode_emacs_utf8(bytes), coding));
     }
 
-    let decoded = crate::encoding::builtin_decode_coding_string(vec![
-        Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.to_vec())),
-        Value::symbol(coding),
-    ])?;
+    let decoded = crate::encoding::builtin_decode_coding_string_with_known(
+        vec![
+            Value::heap_string(crate::heap_types::LispString::from_unibyte(bytes.to_vec())),
+            Value::symbol(&coding),
+        ],
+        |name| coding_systems.is_known_or_derived(name),
+    )?;
 
     match decoded.kind() {
-        ValueKind::String => Ok((fileio_owned_runtime_string(decoded), coding.to_string())),
+        ValueKind::String => Ok((fileio_owned_runtime_string(decoded), coding)),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
                 "decode-coding-string returned non-string: {other:?}"
             ))],
         )),
+    }
+}
+
+fn decide_auto_coding_for_insert_file_contents(
+    eval: &mut super::eval::Context,
+    filename: crate::heap_types::LispString,
+    bytes: &[u8],
+) -> Result<Option<String>, Flow> {
+    let function = eval.visible_variable_value_or_nil("set-auto-coding-function");
+    if function.is_nil() || bytes.is_empty() {
+        return Ok(None);
+    }
+
+    let saved_current = eval.buffers.current_buffer_id();
+    let work_buffer = eval
+        .buffers
+        .find_buffer_by_name(" *code-converting-work*")
+        .unwrap_or_else(|| eval.buffers.create_buffer(" *code-converting-work*"));
+    let restore_and_finish = |eval: &mut super::eval::Context, result: EvalResult| {
+        if let Some(saved) = saved_current {
+            eval.restore_current_buffer_if_live(saved);
+        }
+        result
+    };
+
+    eval.set_current_buffer_unrecorded(work_buffer)?;
+    let old_len = eval
+        .buffers
+        .get(work_buffer)
+        .map(|buf| buf.text.len())
+        .unwrap_or(0);
+    eval.buffers
+        .delete_buffer_region(work_buffer, 0, old_len)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    eval.buffers
+        .set_buffer_multibyte_flag(work_buffer, false)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    let raw = crate::heap_types::LispString::from_unibyte(bytes.to_vec());
+    eval.buffers
+        .insert_lisp_string_into_buffer(work_buffer, &raw)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+    if let Some(buf) = eval.buffers.get_mut(work_buffer) {
+        buf.goto_byte(0);
+    }
+
+    let result = eval.apply(
+        function,
+        vec![
+            Value::heap_string(filename),
+            Value::fixnum(bytes.len() as i64),
+        ],
+    );
+    let value = restore_and_finish(eval, result)?;
+    let Some(name) = value
+        .as_symbol_name()
+        .map(str::to_owned)
+        .or_else(|| value.as_runtime_string_owned())
+    else {
+        return Ok(None);
+    };
+    if eval.coding_systems.is_known_or_derived(&name) {
+        Ok(Some(name))
+    } else {
+        Ok(None)
     }
 }
 
@@ -3920,13 +3990,27 @@ pub(crate) fn builtin_insert_file_contents(
         }
     }
 
-    let contents_bytes = fs::read(lisp_file_name_to_path_buf(&resolved)).map_err(|err| {
-        signal_file_action_error_value(
-            err,
-            "Opening input file",
-            Value::heap_string(resolved.clone()),
-        )
-    })?;
+    let contents_bytes = match fs::read(lisp_file_name_to_path_buf(&resolved)) {
+        Ok(contents) => contents,
+        Err(err) => {
+            if visit {
+                let _ = eval
+                    .buffers
+                    .set_buffer_file_name(current_id, Value::heap_string(resolved.clone()));
+                let _ = eval.buffers.set_buffer_modified_flag(current_id, false);
+                if empty_undo_list_p {
+                    let _ = eval
+                        .buffers
+                        .configure_buffer_undo_list(current_id, Value::NIL);
+                }
+            }
+            return Err(signal_file_action_error_value(
+                err,
+                "Opening input file",
+                Value::heap_string(resolved.clone()),
+            ));
+        }
+    };
     let file_len = contents_bytes.len() as i64;
 
     let begin = if args.get(2).is_some_and(|v| !v.is_nil()) {
@@ -3963,11 +4047,19 @@ pub(crate) fn builtin_insert_file_contents(
         .get(current_id)
         .map(|buffer| buffer.get_multibyte())
         .unwrap_or(true);
+    let auto_coding_system = if multibyte && coding_system_for_read.is_none() {
+        decide_auto_coding_for_insert_file_contents(eval, resolved.clone(), slice)?
+    } else {
+        None
+    };
     let (contents, used_coding) = decode_insert_file_contents(
+        &eval.coding_systems,
         slice,
         multibyte,
         source_load_context,
-        coding_system_for_read.as_deref(),
+        coding_system_for_read
+            .as_deref()
+            .or(auto_coding_system.as_deref()),
     )?;
     let decoded_char_count = contents.chars().count() as i64;
 
@@ -4240,6 +4332,10 @@ pub(crate) fn builtin_find_file_noselect(
         let _ = eval
             .buffers
             .set_buffer_file_name(buf_id, Value::heap_string(abs_path.clone()));
+        let truename = file_truename_lisp(&abs_path, None)?;
+        let _ = eval
+            .buffers
+            .set_buffer_file_truename(buf_id, Value::heap_string(truename));
         if let Some(default_directory) = lisp_file_name_directory(&abs_path) {
             let _ = eval.buffers.set_buffer_local_property(
                 buf_id,

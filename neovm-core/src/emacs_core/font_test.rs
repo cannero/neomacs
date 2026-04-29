@@ -1881,6 +1881,51 @@ fn merge_face_attribute_height_relative_over_relative() {
 }
 
 #[test]
+fn internal_set_face_height_accepts_function_height_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+
+    builtin_internal_set_lisp_face_attribute(
+        &mut eval,
+        vec![
+            Value::symbol("neo-height-face"),
+            Value::keyword(":height"),
+            Value::symbol("identity"),
+            Value::NIL,
+        ],
+    )
+    .expect("GNU accepts function-valued non-default face height");
+
+    let stored = builtin_internal_get_lisp_face_attribute(
+        &mut eval,
+        vec![
+            Value::symbol("neo-height-face"),
+            Value::keyword(":height"),
+            Value::NIL,
+        ],
+    )
+    .expect("read stored height");
+    assert_eq!(stored, Value::symbol("identity"));
+}
+
+#[test]
+fn merge_face_attribute_height_calls_function_height_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+
+    let result = builtin_merge_face_attribute_with_eval(
+        &mut eval,
+        vec![
+            Value::keyword("height"),
+            Value::symbol("1-"),
+            Value::fixnum(120),
+        ],
+    )
+    .expect("merge function height");
+    assert_eq!(result, Value::fixnum(119));
+}
+
+#[test]
 fn face_list_orders_default_last_and_includes_dynamic_faces() {
     crate::test_utils::init_test_tracing();
     clear_font_cache_state();

@@ -154,6 +154,99 @@ fn generated_lisp_bytecode_files_collects_nested_elc_files() {
 }
 
 #[test]
+fn generated_leim_source_files_match_gnu_bootstrap_clean_scope() {
+    let repo_root = PathBuf::from("/repo");
+    let paths = PipelinePaths {
+        temacs: repo_root.join("target/debug/neomacs-temacs"),
+        bootstrap: repo_root.join("target/debug/bootstrap-neomacs"),
+        final_bin: repo_root.join("target/debug/neomacs"),
+        lisp_root: repo_root.join("lisp"),
+        leim_root: repo_root.join("leim"),
+        admin_grammars_root: repo_root.join("admin/grammars"),
+        makefile_in: repo_root.join("lisp/Makefile.in"),
+    };
+
+    let files = generated_leim_source_files(&paths);
+    let relative = files
+        .iter()
+        .map(|path| {
+            path.strip_prefix(repo_root.join("lisp"))
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect::<Vec<_>>();
+
+    assert!(relative.contains(&"leim/quail/CTLau-b5.el".to_string()));
+    assert!(relative.contains(&"language/pinyin.el".to_string()));
+    assert!(relative.contains(&"leim/leim-list.el".to_string()));
+    assert_eq!(files.len(), LEIM_GENERATION_RULES.len() + 3);
+}
+
+#[test]
+fn generated_custom_finder_source_files_match_gnu_autogen_scope() {
+    let repo_root = PathBuf::from("/repo");
+    let paths = PipelinePaths {
+        temacs: repo_root.join("target/debug/neomacs-temacs"),
+        bootstrap: repo_root.join("target/debug/bootstrap-neomacs"),
+        final_bin: repo_root.join("target/debug/neomacs"),
+        lisp_root: repo_root.join("lisp"),
+        leim_root: repo_root.join("leim"),
+        admin_grammars_root: repo_root.join("admin/grammars"),
+        makefile_in: repo_root.join("lisp/Makefile.in"),
+    };
+
+    assert_eq!(
+        generated_custom_finder_source_files(&paths),
+        vec![
+            repo_root.join("lisp/cus-load.el"),
+            repo_root.join("lisp/finder-inf.el"),
+        ]
+    );
+}
+
+#[test]
+fn custom_and_finder_dirs_follow_gnu_subdir_filters() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    for dir in [
+        "",
+        "calendar",
+        "leim",
+        "leim/quail",
+        "obsolete",
+        "term",
+        "term/xterm",
+    ] {
+        fs::create_dir_all(lisp_root.join(dir)).unwrap();
+    }
+
+    let custom = lisp_dirs_for_custom_dependencies(&lisp_root)
+        .unwrap()
+        .into_iter()
+        .map(|path| path.strip_prefix(&lisp_root).unwrap().to_path_buf())
+        .collect::<Vec<_>>();
+    assert!(custom.contains(&PathBuf::from("calendar")));
+    assert!(custom.contains(&PathBuf::from("leim")));
+    assert!(custom.contains(&PathBuf::from("leim/quail")));
+    assert!(!custom.contains(&PathBuf::from("obsolete")));
+    assert!(!custom.contains(&PathBuf::from("term")));
+    assert!(custom.contains(&PathBuf::from("term/xterm")));
+
+    let finder = lisp_dirs_for_finder_data(&lisp_root)
+        .unwrap()
+        .into_iter()
+        .map(|path| path.strip_prefix(&lisp_root).unwrap().to_path_buf())
+        .collect::<Vec<_>>();
+    assert!(finder.contains(&PathBuf::from("calendar")));
+    assert!(!finder.contains(&PathBuf::from("leim")));
+    assert!(!finder.contains(&PathBuf::from("leim/quail")));
+    assert!(!finder.contains(&PathBuf::from("obsolete")));
+    assert!(!finder.contains(&PathBuf::from("term")));
+    assert!(finder.contains(&PathBuf::from("term/xterm")));
+}
+
+#[test]
 fn compile_main_sources_follow_gnu_no_byte_compile_filter() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
@@ -366,6 +459,160 @@ fn loaddefs_generation_args_force_full_generation() {
     assert_eq!(
         &rendered[rendered.len() - 2..],
         ["/repo/lisp", "/repo/lisp/calendar"]
+    );
+}
+
+#[test]
+fn custom_dependencies_generation_args_match_gnu_shape() {
+    let dirs = vec![
+        PathBuf::from("/repo/lisp"),
+        PathBuf::from("/repo/lisp/calendar"),
+    ];
+    let args = custom_dependencies_generation_args(
+        Path::new("/repo/lisp"),
+        Path::new("/repo/lisp/cus-load.el"),
+        &dirs,
+    );
+
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("-l"),
+            OsString::from("cus-dep"),
+            OsString::from("--eval"),
+            OsString::from(
+                "(setq generated-custom-dependencies-file (unmsys--file-name \"/repo/lisp/cus-load.el\"))"
+            ),
+            OsString::from("-f"),
+            OsString::from("custom-make-dependencies"),
+            OsString::from("/repo/lisp"),
+            OsString::from("/repo/lisp/calendar"),
+        ]
+    );
+}
+
+#[test]
+fn finder_data_generation_args_match_gnu_shape() {
+    let dirs = vec![
+        PathBuf::from("/repo/lisp"),
+        PathBuf::from("/repo/lisp/calendar"),
+    ];
+    let args = finder_data_generation_args(
+        Path::new("/repo/lisp"),
+        Path::new("/repo/lisp/finder-inf.el"),
+        &dirs,
+    );
+
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("-l"),
+            OsString::from("finder"),
+            OsString::from("--eval"),
+            OsString::from(
+                "(setq generated-finder-keywords-file (unmsys--file-name \"/repo/lisp/finder-inf.el\"))"
+            ),
+            OsString::from("-f"),
+            OsString::from("finder-compile-keywords-make-dist"),
+            OsString::from("/repo/lisp"),
+            OsString::from("/repo/lisp/calendar"),
+        ]
+    );
+}
+
+#[test]
+fn semantic_grammar_targets_follow_gnu_admin_grammars_makefile() {
+    let outputs = SEMANTIC_GRAMMAR_TARGETS
+        .iter()
+        .map(|target| target.output_rel)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        outputs,
+        vec![
+            "cedet/semantic/bovine/c-by.el",
+            "cedet/semantic/bovine/make-by.el",
+            "cedet/semantic/bovine/scm-by.el",
+            "cedet/semantic/grammar-wy.el",
+            "cedet/semantic/wisent/javat-wy.el",
+            "cedet/semantic/wisent/js-wy.el",
+            "cedet/semantic/wisent/python-wy.el",
+            "cedet/srecode/srt-wy.el",
+        ]
+    );
+}
+
+#[test]
+fn semantic_grammar_args_match_gnu_wisent_shape() {
+    let args = semantic_grammar_args(
+        SemanticGrammarKind::Wisent,
+        Path::new("/repo/lisp/cedet/srecode/srt-wy.el"),
+        Path::new("/repo/admin/grammars/srecode-template.wy"),
+    );
+
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("--eval"),
+            OsString::from("(setq load-prefer-newer t)"),
+            OsString::from("-l"),
+            OsString::from("semantic/wisent/grammar"),
+            OsString::from("-f"),
+            OsString::from("wisent-batch-make-parser"),
+            OsString::from("-o"),
+            OsString::from("/repo/lisp/cedet/srecode/srt-wy.el"),
+            OsString::from("/repo/admin/grammars/srecode-template.wy"),
+        ]
+    );
+}
+
+#[test]
+fn leim_generation_args_match_gnu_titdic_shape() {
+    let args = leim_generation_args(
+        LeimGenerationKind::TitDic,
+        Path::new("/repo/lisp/leim/quail"),
+        Path::new("/repo/leim/CXTERM-DIC/CCDOSPY.tit"),
+        Path::new("/repo/lisp/leim/quail/CCDOSPY.el"),
+    );
+
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("-l"),
+            OsString::from("titdic-cnv"),
+            OsString::from("-f"),
+            OsString::from("batch-tit-dic-convert"),
+            OsString::from("-dir"),
+            OsString::from("/repo/lisp/leim/quail"),
+            OsString::from("/repo/leim/CXTERM-DIC/CCDOSPY.tit"),
+        ]
+    );
+}
+
+#[test]
+fn leim_ext_append_contents_matches_gnu_sed_filter() {
+    let input = "\
+plain-entry
+;comment
+;inc one-level
+;;inc two-level
+";
+
+    assert_eq!(
+        leim_ext_append_contents(input),
+        "plain-entry\n; one-level\n;; two-level\n"
     );
 }
 

@@ -3532,18 +3532,21 @@ impl BufferManager {
     }
 
     pub fn set_buffer_file_name(&mut self, id: BufferId, file_name: Value) -> Option<()> {
-        // Phase 10D: `buffer-file-name` and `buffer-file-truename`
-        // both live in the slot table (BUFFER_SLOT_FILE_NAME /
-        // BUFFER_SLOT_FILE_TRUENAME). Writing through
-        // `set_file_name_value` covers buffer-file-name; mirror
-        // the same value into buffer-file-truename via the slot
-        // path. The legacy `buf.locals.set_raw_binding` calls
-        // were dual-write dead code from before Phase 8b
-        // migrated these names to BUFFER_SLOT_INFO.
+        // GNU keeps `buffer-file-name` and `buffer-file-truename` as
+        // distinct BUFFER_OBJFWD slots.  `insert-file-contents` and
+        // `write-region` with VISIT set only the former; file-visiting
+        // code such as `find-file-noselect-1` sets the truename slot
+        // separately.
         debug_assert!(file_name.is_nil() || file_name.is_string());
         let buf = self.buffers.get_mut(&id)?;
         buf.set_file_name_value(file_name);
-        buf.slots[BUFFER_SLOT_FILE_TRUENAME] = file_name;
+        Some(())
+    }
+
+    pub fn set_buffer_file_truename(&mut self, id: BufferId, file_truename: Value) -> Option<()> {
+        debug_assert!(file_truename.is_nil() || file_truename.is_string());
+        let buf = self.buffers.get_mut(&id)?;
+        buf.slots[BUFFER_SLOT_FILE_TRUENAME] = file_truename;
         Some(())
     }
 

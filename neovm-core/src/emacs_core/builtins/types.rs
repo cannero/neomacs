@@ -231,24 +231,29 @@ pub(crate) fn builtin_char_uppercase_p(args: Vec<Value>) -> EvalResult {
     ))
 }
 
-pub(super) fn is_lambda_form_list(value: &Value) -> bool {
+pub(super) fn is_lambda_form_list(value: &Value, symbols_with_pos_enabled: bool) -> bool {
     match value.kind() {
         ValueKind::Cons => {
             let pair_car = value.cons_car();
-            let pair_cdr = value.cons_cdr();
-            let name = pair_car.as_symbol_name();
-            name == Some("lambda") || name == Some("closure")
+            crate::emacs_core::value::eq_value_swp(
+                &pair_car,
+                &Value::symbol("lambda"),
+                symbols_with_pos_enabled,
+            )
         }
         _ => false,
     }
 }
 
-fn is_macro_marker_list(value: &Value) -> bool {
+fn is_macro_marker_list(value: &Value, symbols_with_pos_enabled: bool) -> bool {
     match value.kind() {
         ValueKind::Cons => {
             let pair_car = value.cons_car();
-            let pair_cdr = value.cons_cdr();
-            pair_car.as_symbol_name() == Some("macro")
+            crate::emacs_core::value::eq_value_swp(
+                &pair_car,
+                &Value::symbol("macro"),
+                symbols_with_pos_enabled,
+            )
         }
         _ => false,
     }
@@ -279,7 +284,8 @@ pub(crate) fn builtin_functionp(eval: &mut super::eval::Context, args: Vec<Value
 }
 
 pub(crate) fn builtin_functionp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
-    let is_function = if let Some(symbol) = match arg.kind() {
+    let object = eval.unwrap_symbol(arg);
+    let is_function = if let Some(symbol) = match object.kind() {
         ValueKind::Nil => Some(intern("nil")),
         ValueKind::T => Some(intern("t")),
         ValueKind::Symbol(id) => Some(id),
@@ -291,18 +297,22 @@ pub(crate) fn builtin_functionp_1(eval: &mut super::eval::Context, arg: Value) -
             if let Some(autoload_type) = autoload_type_of(&function) {
                 matches!(autoload_type, super::autoload::AutoloadType::Function)
             } else {
-                is_runtime_function_object(&function) || is_lambda_form_list(&function)
+                is_runtime_function_object(&function)
+                    || is_lambda_form_list(&function, eval.symbols_with_pos_enabled)
             }
         } else {
             false
         }
     } else {
-        match arg.kind() {
+        match object.kind() {
             ValueKind::Veclike(VecLikeType::Lambda)
             | ValueKind::Subr(_)
             | ValueKind::Veclike(VecLikeType::Subr)
-            | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&arg),
-            ValueKind::Cons => !is_macro_marker_list(&arg) && is_lambda_form_list(&arg),
+            | ValueKind::Veclike(VecLikeType::ByteCode) => is_runtime_function_object(&object),
+            ValueKind::Cons => {
+                !is_macro_marker_list(&object, eval.symbols_with_pos_enabled)
+                    && is_lambda_form_list(&object, eval.symbols_with_pos_enabled)
+            }
             _ => false,
         }
     };

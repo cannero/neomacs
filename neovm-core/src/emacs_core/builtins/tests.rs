@@ -3605,6 +3605,23 @@ fn featurep_accepts_optional_subfeature_arg() {
 }
 
 #[test]
+fn featurep_accepts_symbol_with_pos_when_enabled() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    eval.set_variable(
+        "features",
+        Value::list(vec![Value::symbol("vm-featurep-present")]),
+    );
+    eval.set_variable("symbols-with-pos-enabled", Value::T);
+    let feature = eval
+        .tagged_heap
+        .alloc_symbol_with_pos(Value::symbol("vm-featurep-present"), Value::fixnum(42));
+
+    let result = builtin_featurep(&mut eval, vec![feature]).unwrap();
+    assert_eq!(result, Value::T);
+}
+
+#[test]
 fn featurep_subfeatures_property_must_be_list() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
@@ -4002,6 +4019,36 @@ fn pure_dispatch_typed_length_family_uses_char_table_logical_length() {
     assert_eq!(eq, Value::T);
 
     let gt = dispatch_builtin_pure("length>", vec![ct, Value::fixnum(0)])
+        .expect("builtin length> should resolve")
+        .expect("builtin length> should evaluate");
+    assert_eq!(gt, Value::T);
+}
+
+#[test]
+fn pure_dispatch_typed_length_family_accepts_records() {
+    crate::test_utils::init_test_tracing();
+    let record = Value::make_record(vec![
+        Value::symbol("vm-record-type"),
+        Value::fixnum(1),
+        Value::fixnum(2),
+    ]);
+
+    let len = dispatch_builtin_pure("length", vec![record])
+        .expect("builtin length should resolve")
+        .expect("builtin length should evaluate");
+    assert_eq!(len, Value::fixnum(3));
+
+    let lt = dispatch_builtin_pure("length<", vec![record, Value::fixnum(4)])
+        .expect("builtin length< should resolve")
+        .expect("builtin length< should evaluate");
+    assert_eq!(lt, Value::T);
+
+    let eq = dispatch_builtin_pure("length=", vec![record, Value::fixnum(3)])
+        .expect("builtin length= should resolve")
+        .expect("builtin length= should evaluate");
+    assert_eq!(eq, Value::T);
+
+    let gt = dispatch_builtin_pure("length>", vec![record, Value::fixnum(2)])
         .expect("builtin length> should resolve")
         .expect("builtin length> should evaluate");
     assert_eq!(gt, Value::T);
@@ -6570,6 +6617,7 @@ fn make_byte_code_preserves_gnu_closure_slot_count() {
 #[test]
 fn make_char_matches_common_gnu_charset_mappings() {
     crate::test_utils::init_test_tracing();
+    crate::emacs_core::charset::reset_charset_registry();
     assert_eq!(
         dispatch_builtin_pure("make-char", vec![Value::symbol("ascii"), Value::fixnum(65)])
             .expect("builtin make-char should resolve")
@@ -6585,29 +6633,30 @@ fn make_char_matches_common_gnu_charset_mappings() {
         .expect("latin-1 make-char should evaluate"),
         Value::fixnum(193)
     );
+
+    let mut thai_args = vec![Value::NIL; 17];
+    thai_args[0] = Value::symbol("thai-tis620-test");
+    thai_args[1] = Value::fixnum(1);
+    thai_args[2] = Value::vector(vec![Value::fixnum(32), Value::fixnum(127)]);
+    thai_args[5] = Value::fixnum('T' as i64);
+    thai_args[11] = Value::fixnum(0x0E00);
+    crate::emacs_core::charset::builtin_define_charset_internal(thai_args)
+        .expect("test Thai charset should register");
+
     assert_eq!(
         dispatch_builtin_pure(
             "make-char",
-            vec![Value::symbol("latin-jisx0201"), Value::fixnum(92)]
+            vec![Value::symbol("thai-tis620-test"), Value::fixnum(230)]
         )
         .expect("builtin make-char should resolve")
-        .expect("jis roman make-char should evaluate"),
-        Value::fixnum(165)
+        .expect("thai make-char should evaluate"),
+        Value::fixnum(0x0E46)
     );
     assert_eq!(
-        dispatch_builtin_pure(
-            "make-char",
-            vec![Value::symbol("latin-jisx0201"), Value::fixnum(126)]
-        )
-        .expect("builtin make-char should resolve")
-        .expect("jis roman overline should evaluate"),
-        Value::fixnum(8254)
-    );
-    assert_eq!(
-        dispatch_builtin_pure("make-char", vec![Value::symbol("katakana-jisx0201")])
+        dispatch_builtin_pure("make-char", vec![Value::symbol("latin-iso8859-1")])
             .expect("builtin make-char should resolve")
-            .expect("katakana make-char should evaluate"),
-        Value::fixnum(65377)
+            .expect("latin-1 default make-char should evaluate"),
+        Value::fixnum(160)
     );
 }
 
@@ -11368,6 +11417,52 @@ fn format_message_and_message_signal_strict_format_errors() {
     }
 }
 
+#[test]
+fn format_matches_gnu_numbered_fields_and_integer_aliases() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+
+    let numbered = dispatch_builtin(
+        &mut eval,
+        "format",
+        vec![
+            Value::string("%1$s %1$s %% %2$s"),
+            Value::string("a"),
+            Value::string("b"),
+        ],
+    )
+    .expect("format should resolve")
+    .expect("numbered format should evaluate");
+    assert_eq!(
+        numbered.as_runtime_string_owned().as_deref(),
+        Some("a a % b")
+    );
+
+    let decimal_alias = dispatch_builtin(
+        &mut eval,
+        "format",
+        vec![Value::string("%03i"), Value::fixnum(1)],
+    )
+    .expect("format should resolve")
+    .expect("%i should evaluate like GNU decimal integer");
+    assert_eq!(
+        decimal_alias.as_runtime_string_owned().as_deref(),
+        Some("001")
+    );
+
+    let binary = dispatch_builtin(
+        &mut eval,
+        "format",
+        vec![Value::string("%#b %#B"), Value::fixnum(5), Value::fixnum(5)],
+    )
+    .expect("format should resolve")
+    .expect("%b/%B should evaluate like GNU binary integer");
+    assert_eq!(
+        binary.as_runtime_string_owned().as_deref(),
+        Some("0b101 0B101")
+    );
+}
+
 /// `user-error` is an Elisp function in GNU (subr.el:535), not a C builtin.
 /// Test it through the bootstrap evaluator which loads subr.el.
 #[test]
@@ -11445,7 +11540,7 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         .expect("functionp should accept improper lambda forms");
     assert!(improper_result.is_truthy());
 
-    // In official Emacs, (closure ENV PARAMS BODY...) cons lists ARE functions.
+    // GNU accepts interpreted closure objects, not literal (closure ...) lists.
     let quoted_closure = Value::list(vec![
         Value::symbol("closure"),
         Value::list(vec![Value::T]),
@@ -11453,8 +11548,8 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         Value::symbol("x"),
     ]);
     let closure_result = builtin_functionp(&mut eval, vec![quoted_closure])
-        .expect("functionp should accept quoted closure lists");
-    assert!(closure_result.is_truthy());
+        .expect("functionp should reject quoted closure lists");
+    assert!(closure_result.is_nil());
 
     let special_symbol = builtin_functionp(&mut eval, vec![Value::symbol("if")])
         .expect("functionp should reject special-form symbols");
@@ -11546,6 +11641,49 @@ fn functionp_eval_matches_symbol_and_lambda_form_semantics() {
         builtin_functionp(&mut eval, vec![Value::symbol("vm-test-auto-macro")])
             .expect("functionp should reject autoload macro symbol");
     assert!(autoload_macro_symbol.is_nil());
+}
+
+#[test]
+fn functionp_accepts_symbol_with_pos_when_enabled() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let positioned_message = eval
+        .tagged_heap
+        .alloc_symbol_with_pos(Value::symbol("message"), Value::fixnum(42));
+
+    eval.set_variable("symbols-with-pos-enabled", Value::T);
+    let enabled = builtin_functionp(&mut eval, vec![positioned_message])
+        .expect("functionp should accept symbol-with-pos when enabled");
+    assert!(enabled.is_truthy());
+
+    eval.set_variable("symbols-with-pos-enabled", Value::NIL);
+    let disabled = builtin_functionp(&mut eval, vec![positioned_message])
+        .expect("functionp should reject symbol-with-pos when disabled");
+    assert!(disabled.is_nil());
+}
+
+#[test]
+fn functionp_accepts_lambda_form_with_positioned_head_when_enabled() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let positioned_lambda = eval
+        .tagged_heap
+        .alloc_symbol_with_pos(Value::symbol("lambda"), Value::fixnum(42));
+    let lambda_form = Value::list(vec![
+        positioned_lambda,
+        Value::list(vec![Value::symbol("x")]),
+        Value::symbol("x"),
+    ]);
+
+    eval.set_variable("symbols-with-pos-enabled", Value::T);
+    let enabled = builtin_functionp(&mut eval, vec![lambda_form])
+        .expect("functionp should accept positioned lambda head when enabled");
+    assert!(enabled.is_truthy());
+
+    eval.set_variable("symbols-with-pos-enabled", Value::NIL);
+    let disabled = builtin_functionp(&mut eval, vec![lambda_form])
+        .expect("functionp should reject positioned lambda head when disabled");
+    assert!(disabled.is_nil());
 }
 
 #[test]

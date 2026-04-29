@@ -470,14 +470,13 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
     let mut thai_args = vec![Value::NIL; 17];
     thai_args[0] = Value::symbol("thai-offset-test");
     thai_args[1] = Value::fixnum(1);
-    thai_args[2] = Value::vector(vec![Value::fixnum(0), Value::fixnum(127)]);
-    thai_args[8] = Value::T;
+    thai_args[2] = Value::vector(vec![Value::fixnum(32), Value::fixnum(127)]);
     thai_args[11] = Value::fixnum(0x0E00);
     builtin_define_charset_internal(thai_args).unwrap();
 
     let superset_members = Value::list(vec![
         Value::symbol("ascii"),
-        Value::cons(Value::symbol("thai-offset-test"), Value::fixnum(128)),
+        Value::cons(Value::symbol("thai-offset-test"), Value::fixnum(96)),
     ]);
 
     let mut superset_args = vec![Value::NIL; 17];
@@ -522,6 +521,60 @@ fn charset_superset_supports_offsets_membership_and_ranges() {
             .iter()
             .any(|(from, to)| ('ก' as u32) >= *from && ('ก' as u32) <= *to)
     );
+}
+
+#[test]
+fn offset_charset_decode_encode_and_make_char_match_gnu_code_index_mapping() {
+    crate::test_utils::init_test_tracing();
+    reset_charset_registry();
+
+    let mut thai_args = vec![Value::NIL; 17];
+    thai_args[0] = Value::symbol("thai-tis620-test");
+    thai_args[1] = Value::fixnum(1);
+    thai_args[2] = Value::vector(vec![Value::fixnum(32), Value::fixnum(127)]);
+    thai_args[5] = Value::fixnum('T' as i64);
+    thai_args[11] = Value::fixnum(0x0E00);
+    builtin_define_charset_internal(thai_args).unwrap();
+
+    assert!(
+        builtin_decode_char(vec![Value::symbol("thai-tis620-test"), Value::fixnum(230)])
+            .expect("decode-char out of charset range should return nil")
+            .is_nil()
+    );
+    assert_eq!(
+        builtin_decode_char(vec![Value::symbol("thai-tis620-test"), Value::fixnum(0x66)])
+            .expect("thai decode-char should evaluate"),
+        Value::fixnum(0x0E46)
+    );
+    assert_eq!(
+        builtin_encode_char(vec![
+            Value::fixnum(0x0E46),
+            Value::symbol("thai-tis620-test")
+        ])
+        .expect("thai encode-char should evaluate"),
+        Value::fixnum(0x66)
+    );
+    assert_eq!(
+        builtin_make_char(vec![Value::symbol("thai-tis620-test"), Value::fixnum(230),])
+            .expect("thai make-char should apply ISO final masking"),
+        Value::fixnum(0x0E46)
+    );
+    assert_eq!(
+        builtin_make_char(vec![Value::symbol("thai-tis620-test")])
+            .expect("thai make-char default should use minimum code"),
+        Value::fixnum(0x0E00)
+    );
+
+    let out_of_range =
+        builtin_make_char(vec![Value::symbol("thai-tis620-test"), Value::fixnum(256)])
+            .expect_err("position codes above one byte should signal");
+    match out_of_range {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "args-out-of-range");
+            assert_eq!(sig.data, vec![Value::fixnum(0xff), Value::fixnum(256)]);
+        }
+        other => panic!("expected args-out-of-range signal, got {other:?}"),
+    }
 }
 
 #[test]

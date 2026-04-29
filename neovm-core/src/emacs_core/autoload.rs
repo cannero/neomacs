@@ -573,6 +573,7 @@ pub(crate) fn register_autoload_in_state(
     obarray: &mut Obarray,
     autoloads: &mut AutoloadManager,
     args: &[Value],
+    symbols_with_pos_enabled: bool,
 ) -> EvalResult {
     if args.len() < 2 || args.len() > 5 {
         return Err(signal(
@@ -582,15 +583,23 @@ pub(crate) fn register_autoload_in_state(
     }
 
     let func_val = args[0];
-    let name = match func_val.kind() {
-        ValueKind::Symbol(id) => id,
-        _ => {
-            return Err(signal(
+    let name = func_val
+        .as_symbol_id()
+        .or_else(|| {
+            if symbols_with_pos_enabled {
+                func_val
+                    .as_symbol_with_pos_sym()
+                    .and_then(|sym| sym.as_symbol_id())
+            } else {
+                None
+            }
+        })
+        .ok_or_else(|| {
+            signal(
                 "wrong-type-argument",
                 vec![Value::symbol("symbolp"), func_val],
-            ));
-        }
-    };
+            )
+        })?;
 
     // GNU Emacs eval.c:Fautoload — "If function is defined and not as an
     // autoload, don't override."  If the symbol already has a real (non-
@@ -648,7 +657,12 @@ pub(crate) fn register_autoload_in_state(
 /// Callable builtin form used by `funcall`/`apply` and direct function calls.
 /// Arguments are already evaluated.
 pub(crate) fn builtin_autoload(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    register_autoload_in_state(&mut eval.obarray, &mut eval.autoloads, &args)
+    register_autoload_in_state(
+        &mut eval.obarray,
+        &mut eval.autoloads,
+        &args,
+        eval.symbols_with_pos_enabled,
+    )
 }
 
 /// Context-aware `(symbol-file SYMBOL &optional TYPE)`.

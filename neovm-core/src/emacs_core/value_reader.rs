@@ -50,6 +50,25 @@ pub fn get_reader_load_file_name_public() -> Option<Value> {
 use super::value::{HashTableTest, Value, build_hash_table_literal_value};
 
 const UNICODE_CHARACTER_NAME_LENGTH_BOUND: usize = 200;
+const CHAR_CODE_MASK: u32 = 0x3F_FFFF;
+const CHAR_CTRL_MODIFIER: u32 = 1 << 26;
+const CHAR_META_MODIFIER: u32 = 1 << 27;
+const CHAR_SHIFT_MODIFIER: u32 = 1 << 25;
+
+fn apply_control_modifier(value: u32) -> u32 {
+    let code = value & CHAR_CODE_MASK;
+    let modifiers = value & !CHAR_CODE_MASK;
+
+    if code == b'?' as u32 {
+        0x7F | modifiers
+    } else if (b'@' as u32..=b'_' as u32).contains(&code)
+        || (b'a' as u32..=b'z' as u32).contains(&code)
+    {
+        (code & 0x1F) | modifiers
+    } else {
+        code | modifiers | CHAR_CTRL_MODIFIER
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -611,27 +630,28 @@ impl<'a> Reader<'a> {
                         x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
                             let base = self.parse_string_char_value(0)?;
-                            let base_char = base & 0x3FFFFF;
-                            let mods = base & !0x3FFFFFu32;
-                            let result = if base_char == 0x3F {
-                                0x7F | mods // '?' -> DEL
-                            } else if (0x40..=0x5F).contains(&base_char)
-                                || (0x61..=0x7A).contains(&base_char)
-                            {
-                                (base_char & 0x1F) | mods
-                            } else {
-                                base_char | mods | (1u32 << 26)
-                            };
-                            self.push_string_escape_value(&mut buf, &mut unibyte_buf, result)?;
+                            self.push_string_escape_value(
+                                &mut buf,
+                                &mut unibyte_buf,
+                                apply_control_modifier(base),
+                            )?;
+                        }
+                        x if x == b'^' as u32 => {
+                            let base = self.parse_string_char_value(0)?;
+                            self.push_string_escape_value(
+                                &mut buf,
+                                &mut unibyte_buf,
+                                apply_control_modifier(base),
+                            )?;
                         }
                         x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
-                            let val = self.parse_string_char_value(1 << 27)?;
+                            let val = self.parse_string_char_value(CHAR_META_MODIFIER)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                             self.bump(); // consume '-'
-                            let val = self.parse_string_char_value(1 << 25)?;
+                            let val = self.parse_string_char_value(CHAR_SHIFT_MODIFIER)?;
                             self.push_string_escape_value(&mut buf, &mut unibyte_buf, val)?;
                         }
                         x if x == b'A' as u32 && self.current_code() == Some(b'-' as u32) => {
@@ -772,25 +792,15 @@ impl<'a> Reader<'a> {
                 x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
                     let base = self.parse_string_char_value(modifiers)?;
-                    let base_char = base & 0x3FFFFF;
-                    let mods = base & !0x3FFFFFu32;
-                    Ok(if base_char == 0x3F {
-                        0x7F | mods
-                    } else if (0x40..=0x5F).contains(&base_char)
-                        || (0x61..=0x7A).contains(&base_char)
-                    {
-                        (base_char & 0x1F) | mods
-                    } else {
-                        base_char | mods | (1u32 << 26)
-                    })
+                    Ok(apply_control_modifier(base))
                 }
                 x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
-                    self.parse_string_char_value(modifiers | (1 << 27))
+                    self.parse_string_char_value(modifiers | CHAR_META_MODIFIER)
                 }
                 x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
-                    self.parse_string_char_value(modifiers | (1 << 25))
+                    self.parse_string_char_value(modifiers | CHAR_SHIFT_MODIFIER)
                 }
                 x if x == b's' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
@@ -820,11 +830,8 @@ impl<'a> Reader<'a> {
                     Ok(self.read_unicode_name_escape()? | modifiers)
                 }
                 x if x == b'^' as u32 => {
-                    let Some(base) = self.current_code() else {
-                        return Err(self.error("expected char after \\^ in string"));
-                    };
-                    self.bump();
-                    Ok((base & 0x1F) | modifiers)
+                    let base = self.parse_string_char_value(modifiers)?;
+                    Ok(apply_control_modifier(base))
                 }
                 other => Ok(other | modifiers),
             }
@@ -865,31 +872,26 @@ impl<'a> Reader<'a> {
         unibyte_buf: &mut Option<Vec<u8>>,
         val: u32,
     ) -> Result<(), ReadError> {
-        const MODIFIER_MASK: u32 = 0x3F_FFFF;
-        const CTRL: u32 = 1 << 26;
-        const META: u32 = 1 << 27;
-        const SHIFT: u32 = 1 << 25;
-
-        let mut modifiers = val & !MODIFIER_MASK;
-        let mut code = val & MODIFIER_MASK;
+        let mut modifiers = val & !CHAR_CODE_MASK;
+        let mut code = val & CHAR_CODE_MASK;
 
         if !emacs_char::char_byte8_p(code) && code < 0x80 {
-            if modifiers == CTRL && code == ' ' as u32 {
+            if modifiers == CHAR_CTRL_MODIFIER && code == ' ' as u32 {
                 code = 0;
                 modifiers = 0;
             }
 
-            if (modifiers & SHIFT) != 0 {
+            if (modifiers & CHAR_SHIFT_MODIFIER) != 0 {
                 if ('A' as u32..='Z' as u32).contains(&code) {
-                    modifiers &= !SHIFT;
+                    modifiers &= !CHAR_SHIFT_MODIFIER;
                 } else if ('a' as u32..='z' as u32).contains(&code) {
                     code -= 'a' as u32 - 'A' as u32;
-                    modifiers &= !SHIFT;
+                    modifiers &= !CHAR_SHIFT_MODIFIER;
                 }
             }
 
-            if (modifiers & META) != 0 {
-                modifiers &= !META;
+            if (modifiers & CHAR_META_MODIFIER) != 0 {
+                modifiers &= !CHAR_META_MODIFIER;
                 code = emacs_char::byte8_to_char((code as u8) | 0x80);
             }
         }
@@ -1126,25 +1128,15 @@ impl<'a> Reader<'a> {
                 x if x == b'C' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump(); // consume '-'
                     let base = self.parse_char_value(modifiers)?;
-                    let base_char = base & 0x3FFFFF;
-                    let existing_mods = base & 0xFC00000;
-                    if base_char == 0x3F {
-                        return Ok(0x7F | existing_mods);
-                    } else if (base_char >= 0x40 && base_char <= 0x5F)
-                        || (base_char >= 0x61 && base_char <= 0x7A)
-                    {
-                        return Ok((base_char & 0x1F) | existing_mods);
-                    } else {
-                        return Ok(base_char | existing_mods | (1u32 << 26));
-                    }
+                    return Ok(apply_control_modifier(base));
                 }
                 x if x == b'M' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
-                    return self.parse_char_value(modifiers | (1 << 27)); // meta bit
+                    return self.parse_char_value(modifiers | CHAR_META_MODIFIER);
                 }
                 x if x == b'S' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
-                    return self.parse_char_value(modifiers | (1 << 25)); // shift bit
+                    return self.parse_char_value(modifiers | CHAR_SHIFT_MODIFIER);
                 }
                 x if x == b'A' as u32 && self.current_code() == Some(b'-' as u32) => {
                     self.bump();
@@ -1155,15 +1147,8 @@ impl<'a> Reader<'a> {
                     return self.parse_char_value(modifiers | (1 << 24)); // hyper bit
                 }
                 x if x == b'^' as u32 => {
-                    let Some(base) = self.current_code() else {
-                        return Err(self.error("expected char after \\^"));
-                    };
-                    self.bump();
-                    if base == 0x3F {
-                        0x7F // '?' -> DEL
-                    } else {
-                        base & 0x1F
-                    }
+                    let base = self.parse_char_value(modifiers)?;
+                    return Ok(apply_control_modifier(base));
                 }
                 other => other,
             };
