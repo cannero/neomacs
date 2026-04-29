@@ -5998,23 +5998,24 @@ impl Context {
 
     /// Trigger a safe-point collection using only explicit evaluator roots.
     pub(crate) fn gc_safe_point_exact(&mut self) {
+        if self.gc_safe_point_exact_should_collect() {
+            self.gc_collect_from_current_roots();
+        }
+    }
+
+    fn gc_safe_point_exact_should_collect(&mut self) -> bool {
         if self.gc_inhibit_depth > 0 {
-            return;
+            return false;
         }
         if self.gc_stress || self.gc_pending {
-            self.gc_collect_from_current_roots();
-            return;
+            return true;
         }
-
         if self.tagged_heap.gc_threshold_is_overridden() {
-            if self.tagged_heap.should_collect() {
-                self.gc_collect_from_current_roots();
-            }
-            return;
+            return self.tagged_heap.should_collect();
         }
 
         if !self.tagged_heap.should_collect() {
-            return;
+            return false;
         }
 
         // GNU's maybe_gc hot path only checks consing_until_gc and defers
@@ -6024,9 +6025,7 @@ impl Context {
         if self.tagged_heap.gc_threshold() != threshold {
             self.tagged_heap.set_gc_threshold_from_runtime(threshold);
         }
-        if self.tagged_heap.should_collect() {
-            self.gc_collect_from_current_roots();
-        }
+        self.tagged_heap.should_collect()
     }
 
     /// GNU-style quit processing used from evaluator boundaries.
@@ -6275,15 +6274,21 @@ impl Context {
         Ok(true)
     }
 
+    fn maybe_quit_before_gc(&mut self) -> Result<(), Flow> {
+        self.poll_pending_input_for_throw_on_input()?;
+        self.maybe_quit()
+    }
+
     /// Match GNU `eval_sub` / `funcall_general`: quit check first, then GC.
     ///
     /// The remaining evaluator entry points either root their live Values
     /// explicitly or run before materializing heap-backed Values, so this path
     /// now uses exact roots rather than conservative stack scanning.
     fn maybe_gc_and_quit(&mut self) -> Result<(), Flow> {
-        self.poll_pending_input_for_throw_on_input()?;
-        self.maybe_quit()?;
-        self.gc_safe_point_exact();
+        self.maybe_quit_before_gc()?;
+        if self.gc_safe_point_exact_should_collect() {
+            self.gc_collect_from_current_roots();
+        }
         Ok(())
     }
 }
@@ -6848,13 +6853,14 @@ impl Context {
         }
 
         let result = self.maybe_grow_eval_stack(|ctx| {
-            let specpdl_root_scope = ctx.save_specpdl_roots();
-            ctx.push_specpdl_root(form);
-            let result = ctx
-                .maybe_gc_and_quit()
-                .and_then(|()| ctx.eval_sub_cons(form));
-            ctx.restore_specpdl_roots(specpdl_root_scope);
-            result
+            ctx.maybe_quit_before_gc()?;
+            if ctx.gc_safe_point_exact_should_collect() {
+                let specpdl_root_scope = ctx.save_specpdl_roots();
+                ctx.push_specpdl_root(form);
+                ctx.gc_collect_from_current_roots();
+                ctx.restore_specpdl_roots(specpdl_root_scope);
+            }
+            ctx.eval_sub_cons(form)
         });
         self.depth -= 1;
         result
