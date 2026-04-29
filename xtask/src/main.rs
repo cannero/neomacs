@@ -1557,12 +1557,43 @@ fn run_command(
     command.current_dir(cwd);
     command.args(args.iter().map(OsString::as_os_str));
     command.envs(envs.iter().map(|(key, value)| (key, value)));
+    if program.file_name() == Some(OsStr::new("cargo")) {
+        remove_outer_cargo_env(&mut command);
+    }
 
     let status = command.status()?;
     if !status.success() {
         return Err(command_failure(program, args, status).into());
     }
     Ok(())
+}
+
+fn remove_outer_cargo_env(command: &mut Command) {
+    for (key, _) in env::vars_os() {
+        if should_remove_outer_cargo_env(&key) {
+            command.env_remove(key);
+        }
+    }
+}
+
+fn should_remove_outer_cargo_env(key: &OsStr) -> bool {
+    let Some(key) = key.to_str() else {
+        return false;
+    };
+
+    matches!(
+        key,
+        "CARGO"
+            | "CARGO_CRATE_NAME"
+            | "CARGO_MANIFEST_DIR"
+            | "CARGO_MANIFEST_LINKS"
+            | "CARGO_MANIFEST_PATH"
+            | "CARGO_PRIMARY_PACKAGE"
+            | "OUT_DIR"
+    ) || key.starts_with("CARGO_BIN_EXE_")
+        || key.starts_with("CARGO_CFG_")
+        || key.starts_with("CARGO_FEATURE_")
+        || key.starts_with("CARGO_PKG_")
 }
 
 fn command_failure(program: &Path, args: &[OsString], status: ExitStatus) -> String {

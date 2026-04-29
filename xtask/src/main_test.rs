@@ -942,6 +942,37 @@ fn resolve_program_on_path_returns_absolute_path_from_path() {
     );
 }
 
+#[test]
+fn outer_cargo_env_filter_strips_package_build_vars_only() {
+    for key in [
+        "CARGO",
+        "CARGO_BIN_EXE_xtask",
+        "CARGO_CFG_TARGET_OS",
+        "CARGO_CRATE_NAME",
+        "CARGO_FEATURE_DEFAULT",
+        "CARGO_MANIFEST_DIR",
+        "CARGO_MANIFEST_LINKS",
+        "CARGO_MANIFEST_PATH",
+        "CARGO_PKG_NAME",
+        "CARGO_PRIMARY_PACKAGE",
+        "OUT_DIR",
+    ] {
+        assert!(should_remove_outer_cargo_env(OsStr::new(key)), "{key}");
+    }
+
+    for key in [
+        "CARGO_BUILD_JOBS",
+        "CARGO_HOME",
+        "CARGO_NET_OFFLINE",
+        "CARGO_PROFILE_RELEASE_LTO",
+        "CARGO_TARGET_DIR",
+        "CARGO_TERM_COLOR",
+        "RUSTFLAGS",
+    ] {
+        assert!(!should_remove_outer_cargo_env(OsStr::new(key)), "{key}");
+    }
+}
+
 fn tempdir() -> PathBuf {
     let dir = env::temp_dir().join(format!(
         "xtask-tests-{}-{}",
