@@ -6,8 +6,7 @@ use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs;
-use std::io::ErrorKind;
-use std::io::Write as IoWrite;
+use std::io::{ErrorKind, Seek, SeekFrom, Write as IoWrite};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
@@ -40,6 +39,14 @@ struct PipelinePaths {
     leim_root: PathBuf,
     admin_grammars_root: PathBuf,
     makefile_in: PathBuf,
+}
+
+#[derive(Debug)]
+struct ExecutableFingerprintImage {
+    path: PathBuf,
+    file_name: OsString,
+    normalized: Vec<u8>,
+    slots: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1427,9 +1434,10 @@ fn patch_executable_fingerprints(options: &FreshBuildOptions, paths: &PipelinePa
     }
 
     ensure_binaries_exist(paths)?;
-    let fingerprint = executable_family_fingerprint(&binaries)?;
-    for binary in binaries {
-        patch_executable_fingerprint(binary, &fingerprint)?;
+    let images = load_executable_fingerprint_images(&binaries)?;
+    let fingerprint = executable_family_fingerprint_from_images(&images);
+    for image in images {
+        patch_loaded_executable_fingerprint(image, &fingerprint)?;
     }
     println!(
         "  INFO  patched pdump fingerprint {}",
@@ -1438,47 +1446,99 @@ fn patch_executable_fingerprints(options: &FreshBuildOptions, paths: &PipelinePa
     Ok(())
 }
 
+#[cfg(test)]
 fn executable_family_fingerprint(binaries: &[&Path]) -> Result<[u8; 32]> {
+    let images = load_executable_fingerprint_images(binaries)?;
+    Ok(executable_family_fingerprint_from_images(&images))
+}
+
+fn load_executable_fingerprint_images(
+    binaries: &[&Path],
+) -> Result<Vec<ExecutableFingerprintImage>> {
+    let loaded: Vec<std::result::Result<ExecutableFingerprintImage, String>> = binaries
+        .par_iter()
+        .map(|binary| load_executable_fingerprint_image(binary))
+        .collect();
+    let mut images = Vec::with_capacity(loaded.len());
+    for image in loaded {
+        match image {
+            Ok(image) => images.push(image),
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(images)
+}
+
+fn load_executable_fingerprint_image(
+    binary: &Path,
+) -> std::result::Result<ExecutableFingerprintImage, String> {
+    let mut normalized =
+        fs::read(binary).map_err(|err| format!("failed to read {}: {err}", binary.display()))?;
+    let slots = executable_fingerprint_slots(&normalized);
+    if slots.is_empty() {
+        return Err(format!(
+            "missing pdump fingerprint record in {}",
+            binary.display()
+        ));
+    }
+    for slot in &slots {
+        normalized[*slot..*slot + FINGERPRINT_PLACEHOLDER.len()]
+            .copy_from_slice(FINGERPRINT_PLACEHOLDER);
+    }
+
+    Ok(ExecutableFingerprintImage {
+        path: binary.to_path_buf(),
+        file_name: binary.file_name().unwrap_or_default().to_os_string(),
+        normalized,
+        slots,
+    })
+}
+
+fn executable_family_fingerprint_from_images(images: &[ExecutableFingerprintImage]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"neomacs-executable-fingerprint-v1\0");
-    for binary in binaries {
-        let bytes = fs::read(binary)?;
-        let normalized = normalize_executable_fingerprint_slots(&bytes)
-            .ok_or_else(|| format!("missing pdump fingerprint record in {}", binary.display()))?;
-        hasher.update(binary.file_name().unwrap_or_default().as_encoded_bytes());
+    for image in images {
+        hasher.update(image.file_name.as_encoded_bytes());
         hasher.update([0]);
-        hasher.update(normalized);
+        hasher.update(&image.normalized);
         hasher.update([0xff]);
     }
 
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);
-    Ok(out)
+    out
 }
 
-fn normalize_executable_fingerprint_slots(bytes: &[u8]) -> Option<Vec<u8>> {
-    let mut normalized = bytes.to_vec();
-    let mut found = false;
-    for slot in executable_fingerprint_slots(bytes) {
-        normalized[slot..slot + FINGERPRINT_PLACEHOLDER.len()]
-            .copy_from_slice(FINGERPRINT_PLACEHOLDER);
-        found = true;
-    }
-    found.then_some(normalized)
-}
-
+#[cfg(test)]
 fn patch_executable_fingerprint(path: &Path, fingerprint: &[u8; 32]) -> Result<()> {
-    let mut bytes = fs::read(path)?;
-    let mut found = false;
-    for slot in executable_fingerprint_slots(&bytes) {
-        bytes[slot..slot + fingerprint.len()].copy_from_slice(fingerprint);
-        found = true;
-    }
-    if !found {
+    let bytes = fs::read(path)?;
+    let slots = executable_fingerprint_slots(&bytes);
+    if slots.is_empty() {
         return Err(format!("missing pdump fingerprint record in {}", path.display()).into());
     }
-    fs::write(path, bytes)?;
+    patch_executable_fingerprint_slots(path, &slots, fingerprint)?;
+    Ok(())
+}
+
+fn patch_loaded_executable_fingerprint(
+    image: ExecutableFingerprintImage,
+    fingerprint: &[u8; 32],
+) -> Result<()> {
+    patch_executable_fingerprint_slots(&image.path, &image.slots, fingerprint)?;
+    Ok(())
+}
+
+fn patch_executable_fingerprint_slots(
+    path: &Path,
+    slots: &[usize],
+    fingerprint: &[u8; 32],
+) -> Result<()> {
+    let mut file = fs::OpenOptions::new().write(true).open(path)?;
+    for slot in slots {
+        file.seek(SeekFrom::Start((*slot).try_into()?))?;
+        file.write_all(fingerprint)?;
+    }
     Ok(())
 }
 
