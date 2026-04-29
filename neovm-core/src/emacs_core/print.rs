@@ -257,22 +257,13 @@ fn put_print_number_table_entry(
 
 fn remove_print_number_table_t_entries(table_value: Value) {
     let _ = table_value.with_hash_table_mut(|table| {
-        let keys: Vec<HashKey> = table
-            .data
-            .iter()
-            .filter_map(|(key, value)| {
-                if *value == Value::T {
-                    Some(key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for key in keys {
-            table.data.remove(&key);
-            table.key_snapshots.remove(&key);
-            table.insertion_order.retain(|existing| existing != &key);
-        }
+        // GNU print.c removes all `t` status entries after preprocessing.
+        // Keep Neomacs' parallel insertion-order snapshot in sync without
+        // rescanning it once for every removed key.
+        table.data.retain(|_, value| *value != Value::T);
+        let data = &table.data;
+        table.key_snapshots.retain(|key, _| data.contains_key(key));
+        table.insertion_order.retain(|key| data.contains_key(key));
     });
 }
 

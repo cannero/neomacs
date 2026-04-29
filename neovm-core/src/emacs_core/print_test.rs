@@ -303,6 +303,38 @@ fn print_circle_handles_self_referential_records() {
 }
 
 #[test]
+fn print_number_table_cleanup_preserves_only_labeled_entries() {
+    crate::test_utils::init_test_tracing();
+    let table = Value::hash_table(HashTableTest::Eq);
+    let retained = Value::cons(Value::symbol("shared"), Value::NIL);
+    let retained_key = print_number_table_key(table, &retained).unwrap();
+    let alias = Value::string("#$");
+    let alias_key_value = Value::string("alias-key");
+    let alias_key = print_number_table_key(table, &alias_key_value).unwrap();
+
+    for i in 0..64 {
+        let seen_once = Value::cons(Value::fixnum(i), Value::NIL);
+        let key = print_number_table_key(table, &seen_once).unwrap();
+        put_print_number_table_entry(table, key, seen_once, Value::T);
+    }
+    put_print_number_table_entry(table, retained_key.clone(), retained, Value::fixnum(7));
+    put_print_number_table_entry(table, alias_key.clone(), alias_key_value, alias);
+
+    remove_print_number_table_t_entries(table);
+
+    let hash_table = table.as_hash_table().unwrap();
+    assert_eq!(hash_table.data.len(), 2);
+    assert_eq!(hash_table.key_snapshots.len(), 2);
+    assert_eq!(
+        hash_table.insertion_order,
+        vec![retained_key.clone(), alias_key.clone()]
+    );
+    assert_eq!(hash_table.data.get(&retained_key), Some(&Value::fixnum(7)));
+    assert_eq!(hash_table.data.get(&alias_key), Some(&alias));
+    assert!(hash_table.data.values().all(|value| *value != Value::T));
+}
+
+#[test]
 fn print_default_handles_self_referential_records_like_gnu() {
     crate::test_utils::init_test_tracing();
     let record = Value::make_record(vec![Value::symbol("foo"), Value::NIL]);
