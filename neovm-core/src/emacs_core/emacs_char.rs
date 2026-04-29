@@ -220,6 +220,40 @@ pub fn string_char(bytes: &[u8]) -> (u32, usize) {
     }
 }
 
+/// Decode one character from a valid Emacs multibyte byte sequence.
+///
+/// This mirrors GNU Emacs' inline `string_char_and_length` fast path in
+/// `src/character.h`: callers that already own valid internal Lisp string
+/// bytes can skip continuation-byte and truncation checks in tight loops.
+/// Use [`string_char`] instead when malformed or incomplete input is possible.
+#[inline]
+pub fn string_char_unchecked(bytes: &[u8]) -> (u32, usize) {
+    debug_assert!(!bytes.is_empty());
+    let c = bytes[0] as i32;
+    if (c & 0x80) == 0 {
+        return (c as u32, 1);
+    }
+
+    let mut d = (c << 6) + bytes[1] as i32 - ((0xC0 << 6) + 0x80);
+    if (c & 0x20) == 0 {
+        let raw_offset = if c < 0xC2 { 0x3F_FF80 } else { 0 };
+        return ((d + raw_offset) as u32, 2);
+    }
+
+    d = (d << 6) + bytes[2] as i32 - ((0x20 << 12) + 0x80);
+    if (c & 0x10) == 0 {
+        return (d as u32, 3);
+    }
+
+    d = (d << 6) + bytes[3] as i32 - ((0x10 << 18) + 0x80);
+    if (c & 0x08) == 0 {
+        return (d as u32, 4);
+    }
+
+    d = (d << 6) + bytes[4] as i32 - ((0x08 << 24) + 0x80);
+    (d as u32, 5)
+}
+
 // ---------------------------------------------------------------------------
 // Higher-level utilities
 // ---------------------------------------------------------------------------

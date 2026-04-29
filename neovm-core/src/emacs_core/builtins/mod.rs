@@ -90,7 +90,7 @@ pub(crate) fn lisp_string_char_codes(string: &crate::heap_types::LispString) -> 
     let mut out = Vec::with_capacity(string.schars());
     let mut pos = 0;
     while pos < bytes.len() {
-        let (cp, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+        let (cp, len) = crate::emacs_core::emacs_char::string_char_unchecked(&bytes[pos..]);
         out.push(translate_sentinel(cp).unwrap_or(cp));
         pos += len;
     }
@@ -114,7 +114,7 @@ pub(crate) fn lisp_string_char_at(
         return None;
     }
     let byte_pos = crate::emacs_core::emacs_char::char_to_byte_pos(bytes, idx);
-    let (cp, _) = crate::emacs_core::emacs_char::string_char(&bytes[byte_pos..]);
+    let (cp, _) = crate::emacs_core::emacs_char::string_char_unchecked(&bytes[byte_pos..]);
     Some(translate_sentinel(cp).unwrap_or(cp))
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn for_each_lisp_string_char(
     }
     let mut pos = 0;
     while pos < bytes.len() {
-        let (cp, len) = crate::emacs_core::emacs_char::string_char(&bytes[pos..]);
+        let (cp, len) = crate::emacs_core::emacs_char::string_char_unchecked(&bytes[pos..]);
         f(translate_sentinel(cp).unwrap_or(cp));
         pos += len;
     }

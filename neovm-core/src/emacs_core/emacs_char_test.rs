@@ -148,6 +148,29 @@ fn raw_byte_all_roundtrip() {
     }
 }
 
+#[test]
+fn unchecked_decoder_matches_checked_decoder_for_valid_internal_bytes() {
+    let samples = [
+        b'A' as u32,
+        0xE9,
+        0x2018,
+        0x1F344,
+        0x20_0000,
+        MAX_5_BYTE_CHAR,
+        byte8_to_char(0x80),
+        byte8_to_char(0xFF),
+    ];
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    for code in samples {
+        let len = char_string(code, &mut buf);
+        assert_eq!(
+            string_char_unchecked(&buf[..len]),
+            string_char(&buf[..len]),
+            "fast decoder mismatch for U+{code:X}"
+        );
+    }
+}
+
 // -----------------------------------------------------------------------
 // chars_in_multibyte
 // -----------------------------------------------------------------------
