@@ -28,6 +28,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::emacs_core::{emacs_char, syntax::SyntaxClass};
+use smallvec::SmallVec;
+
+const INLINE_REGEX_REGISTERS: usize = 8;
+type RegisterScratch = SmallVec<[Option<usize>; INLINE_REGEX_REGISTERS]>;
+type SavedRegisters = SmallVec<[(usize, i64, i64); INLINE_REGEX_REGISTERS]>;
 
 // ---------------------------------------------------------------------------
 // Phase 1: Opcodes and Data Structures
@@ -327,7 +332,7 @@ struct FailurePoint {
     string_pos: Option<usize>,
 
     /// Saved group register values at this point.
-    saved_registers: Vec<(usize, i64, i64)>, // (group_idx, start, end)
+    saved_registers: SavedRegisters, // (group_idx, start, end)
 
     /// Saved interval-counter overrides at this point.
     /// Keyed by bytecode position of the 2-byte counter field.
@@ -2279,17 +2284,27 @@ pub(crate) fn re_match(
 ) -> Option<(usize, MatchRegisters)> {
     let bytecode = &pattern.buffer;
     let num_regs = pattern.re_nsub + 1;
-
-    let mut regs = MatchRegisters::new(num_regs);
     let mut fail_stack: Vec<FailurePoint> = Vec::new();
 
     // Mutable counter table for interval repetition (succeed_n / jump_n / set_number_at).
     // GNU modifies bytecode in-place; we use a side table keyed by bytecode position.
     let mut counters: HashMap<usize, i16> = HashMap::new();
 
-    // Register tracking arrays
-    let mut regstart: Vec<Option<usize>> = vec![None; num_regs];
-    let mut regend: Vec<Option<usize>> = vec![None; num_regs];
+    // GNU regex-emacs.c:4188-4204 skips all internal register arrays
+    // when the pattern has no subexpressions. Register 0 is handled
+    // separately on success, so failed no-group candidate checks should
+    // not allocate register scratch space.
+    let has_subexpressions = pattern.re_nsub > 0;
+    let mut regstart: RegisterScratch = if has_subexpressions {
+        register_scratch(num_regs)
+    } else {
+        RegisterScratch::new()
+    };
+    let mut regend: RegisterScratch = if has_subexpressions {
+        register_scratch(num_regs)
+    } else {
+        RegisterScratch::new()
+    };
 
     // Best match tracking for POSIX longest-match (audit #2).
     //
@@ -2304,8 +2319,16 @@ pub(crate) fn re_match(
     let posix_longest = pattern.posix;
     let mut best_regs_set = false;
     let mut best_match_end: usize = pos;
-    let mut best_regstart: Vec<Option<usize>> = vec![None; num_regs];
-    let mut best_regend: Vec<Option<usize>> = vec![None; num_regs];
+    let mut best_regstart: RegisterScratch = if has_subexpressions {
+        register_scratch(num_regs)
+    } else {
+        RegisterScratch::new()
+    };
+    let mut best_regend: RegisterScratch = if has_subexpressions {
+        register_scratch(num_regs)
+    } else {
+        RegisterScratch::new()
+    };
 
     let mut pc = 0usize; // Bytecode program counter
     let mut d = pos; // Data position in text
@@ -2683,16 +2706,20 @@ pub(crate) fn re_match(
             RegexOp::StartMemory => {
                 let group = bytecode[pc] as usize;
                 pc += 1;
-                if group < num_regs {
-                    regstart[group] = Some(d);
+                if group < num_regs
+                    && let Some(start) = regstart.get_mut(group)
+                {
+                    *start = Some(d);
                 }
             }
 
             RegexOp::StopMemory => {
                 let group = bytecode[pc] as usize;
                 pc += 1;
-                if group < num_regs {
-                    regend[group] = Some(d);
+                if group < num_regs
+                    && let Some(end) = regend.get_mut(group)
+                {
+                    *end = Some(d);
                 }
             }
 
@@ -3078,6 +3105,7 @@ pub(crate) fn re_match(
 
     // If we got here, we matched!
     // Fill in registers
+    let mut regs = MatchRegisters::new(num_regs);
     regs.start[0] = pos as i64;
     regs.end[0] = d as i64;
     for i in 1..num_regs {
@@ -3103,8 +3131,8 @@ fn save_registers(
     regstart: &[Option<usize>],
     regend: &[Option<usize>],
     num_regs: usize,
-) -> Vec<(usize, i64, i64)> {
-    let mut saved = Vec::new();
+) -> SavedRegisters {
+    let mut saved = SavedRegisters::new();
     for i in 1..num_regs.min(regstart.len()).min(regend.len()) {
         saved.push((
             i,
@@ -3141,8 +3169,8 @@ fn goto_fail(
     pc: &mut usize,
     d: &mut usize,
     fail_stack: &mut Vec<FailurePoint>,
-    regstart: &mut Vec<Option<usize>>,
-    regend: &mut Vec<Option<usize>>,
+    regstart: &mut [Option<usize>],
+    regend: &mut [Option<usize>],
     counters: &mut HashMap<usize, i16>,
 ) -> Option<()> {
     // Mirrors GNU `regex-emacs.c:5236`: poll quit at the failure /
@@ -3162,6 +3190,12 @@ fn goto_fail(
     // Restore interval counters to the state when this failure point was pushed
     *counters = fp.saved_counters;
     Some(())
+}
+
+fn register_scratch(num_regs: usize) -> RegisterScratch {
+    let mut scratch = RegisterScratch::new();
+    scratch.resize(num_regs, None);
+    scratch
 }
 
 // ---------------------------------------------------------------------------
