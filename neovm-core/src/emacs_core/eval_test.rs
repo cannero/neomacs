@@ -9400,7 +9400,7 @@ fn specpdl_backtrace_frame_args_survive_exact_gc() {
         .iter()
         .rev()
         .find_map(|entry| match entry {
-            SpecBinding::Backtrace { args, .. } => args.first().copied(),
+            SpecBinding::Backtrace { args, .. } => args.as_slice().first().copied(),
             _ => None,
         })
         .expect("backtrace frame should remain present");
@@ -9428,7 +9428,7 @@ fn specpdl_gc_root_survives_exact_gc() {
         .iter()
         .rev()
         .find_map(|entry| match entry {
-            SpecBinding::Backtrace { args, .. } => args.first().copied(),
+            SpecBinding::Backtrace { args, .. } => args.as_slice().first().copied(),
             _ => None,
         })
         .expect("backtrace frame should remain present");

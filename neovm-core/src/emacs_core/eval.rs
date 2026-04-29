@@ -39,7 +39,7 @@ use super::value::*;
 use crate::buffer::BufferManager;
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
-use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind};
+use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrFn};
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 128 * 1024;
@@ -324,16 +324,16 @@ pub(crate) enum SpecBinding {
     /// Call frame for backtrace. Matches GNU SPECPDL_BACKTRACE.
     /// unbind_to discards these (no-op).
     ///
-    /// `unevalled == true` mirrors GNU's `nargs == UNEVALLED` marker
-    /// (eval.c:2585 for special forms). In that shape, `args` holds
-    /// a single element: the original cons list of un-evaluated argument
-    /// forms. The walker emits `(nil FUNC FORMS FLAGS)` for these
-    /// (`backtrace_frame_apply`, eval.c:3993-3994).
+    /// `args == BacktraceArgs::Unevalled(_)` mirrors GNU's
+    /// `nargs == UNEVALLED` marker (eval.c:2585 for special forms).
+    /// In that shape, the payload is the original cons list of
+    /// un-evaluated argument forms. The walker emits
+    /// `(nil FUNC FORMS FLAGS)` for these (`backtrace_frame_apply`,
+    /// eval.c:3993-3994).
     Backtrace {
         function: Value,
-        args: LispArgVec,
+        args: BacktraceArgs,
         debug_on_exit: bool,
-        unevalled: bool,
     },
     /// unwind-protect cleanup. Matches GNU SPECPDL_UNWIND.
     /// For interpreter: forms is a cons list, unbind_to calls sf_progn_value.
@@ -353,6 +353,27 @@ pub(crate) enum SpecBinding {
     },
     /// Placeholder. Matches GNU SPECPDL_NOP.
     Nop,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum BacktraceArgs {
+    Unevalled(Value),
+    Evaluated(LispArgVec),
+}
+
+impl BacktraceArgs {
+    #[inline]
+    pub(crate) fn is_unevalled(&self) -> bool {
+        matches!(self, Self::Unevalled(_))
+    }
+
+    #[inline]
+    pub(crate) fn as_slice(&self) -> &[Value] {
+        match self {
+            Self::Unevalled(value) => std::slice::from_ref(value),
+            Self::Evaluated(args) => args.as_slice(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -4451,7 +4472,7 @@ impl Context {
                 SpecBinding::GcRoot { value } => visit(*value),
                 SpecBinding::Backtrace { function, args, .. } => {
                     visit(*function);
-                    for arg in args.iter().copied() {
+                    for arg in args.as_slice().iter().copied() {
                         visit(arg);
                     }
                 }
@@ -7089,6 +7110,22 @@ impl Context {
             args.push(arg_val);
             cursor = cursor.cons_cdr();
         }
+        if let Some((sym_id, entry)) = direct_subr_entry {
+            if Self::subr_entry_uses_fixed_value_call(entry) {
+                self.set_backtrace_args_evalled_owned(outer_bt_count, args);
+                self.unbind_to(args_roots_base);
+
+                self.maybe_gc_and_quit()?;
+
+                return self.maybe_grow_eval_stack(|ctx| {
+                    ctx.dispatch_subr_entry_from_backtrace_unchecked(entry, outer_bt_count)
+                        .unwrap_or_else(|| {
+                            Err(signal("void-function", vec![Value::from_sym_id(sym_id)]))
+                        })
+                });
+            }
+        }
+
         self.set_backtrace_args_evalled(outer_bt_count, &args);
         self.unbind_to(args_roots_base);
 
@@ -9460,9 +9497,8 @@ impl Context {
     pub(crate) fn push_backtrace_frame(&mut self, function: Value, args: &[Value]) {
         self.specpdl.push(SpecBinding::Backtrace {
             function,
-            args: args.iter().copied().collect(),
+            args: BacktraceArgs::Evaluated(args.iter().copied().collect()),
             debug_on_exit: false,
-            unevalled: false,
         });
     }
 
@@ -9471,13 +9507,10 @@ impl Context {
     /// argument forms — XCDR of the original form. The walker emits
     /// `(nil FUNC FORMS FLAGS)` for these frames.
     pub(crate) fn push_unevalled_backtrace_frame(&mut self, function: Value, original_args: Value) {
-        let mut args = LispArgVec::new();
-        args.push(original_args);
         self.specpdl.push(SpecBinding::Backtrace {
             function,
-            args,
+            args: BacktraceArgs::Unevalled(original_args),
             debug_on_exit: false,
-            unevalled: true,
         });
     }
 
@@ -9500,14 +9533,31 @@ impl Context {
             .expect("set_backtrace_args_evalled: specpdl index out of range");
         match entry {
             SpecBinding::Backtrace {
-                unevalled, args, ..
-            } if *unevalled => {
-                args.clear();
-                args.extend(evaluated.iter().copied());
-                *unevalled = false;
+                args: backtrace_args,
+                ..
+            } if backtrace_args.is_unevalled() => {
+                *backtrace_args = BacktraceArgs::Evaluated(evaluated.iter().copied().collect());
             }
             other => panic!(
                 "set_backtrace_args_evalled: expected UNEVALLED Backtrace at specpdl[{count}], got {other:?}"
+            ),
+        }
+    }
+
+    pub(crate) fn set_backtrace_args_evalled_owned(&mut self, count: usize, evaluated: LispArgVec) {
+        let entry = self
+            .specpdl
+            .get_mut(count)
+            .expect("set_backtrace_args_evalled_owned: specpdl index out of range");
+        match entry {
+            SpecBinding::Backtrace {
+                args: backtrace_args,
+                ..
+            } if backtrace_args.is_unevalled() => {
+                *backtrace_args = BacktraceArgs::Evaluated(evaluated);
+            }
+            other => panic!(
+                "set_backtrace_args_evalled_owned: expected UNEVALLED Backtrace at specpdl[{count}], got {other:?}"
             ),
         }
     }
@@ -10017,6 +10067,56 @@ impl Context {
     ) -> Option<EvalResult> {
         let func = entry.function?;
         Some(self.dispatch_subr_func_unchecked(func, args))
+    }
+
+    #[inline]
+    fn subr_entry_uses_fixed_value_call(entry: SubrEntry) -> bool {
+        entry.dispatch_kind == SubrDispatchKind::Builtin
+            && matches!(
+                entry.function,
+                Some(SubrFn::A0(_) | SubrFn::A1(_) | SubrFn::A2(_) | SubrFn::A3(_))
+            )
+    }
+
+    #[inline]
+    fn backtrace_evaluated_arg_or_nil(&self, count: usize, index: usize) -> Value {
+        match self.specpdl.get(count) {
+            Some(SpecBinding::Backtrace {
+                args: BacktraceArgs::Evaluated(args),
+                ..
+            }) => args.get(index).copied().unwrap_or(Value::NIL),
+            Some(other) => panic!(
+                "backtrace_evaluated_arg_or_nil: expected EVALD Backtrace at specpdl[{count}], got {other:?}"
+            ),
+            None => panic!("backtrace_evaluated_arg_or_nil: specpdl index out of range"),
+        }
+    }
+
+    #[inline]
+    fn dispatch_subr_entry_from_backtrace_unchecked(
+        &mut self,
+        entry: SubrEntry,
+        backtrace_count: usize,
+    ) -> Option<EvalResult> {
+        match entry.function? {
+            SubrFn::A0(func) => Some(func(self)),
+            SubrFn::A1(func) => {
+                let arg0 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 0);
+                Some(func(self, arg0))
+            }
+            SubrFn::A2(func) => {
+                let arg0 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 0);
+                let arg1 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 1);
+                Some(func(self, arg0, arg1))
+            }
+            SubrFn::A3(func) => {
+                let arg0 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 0);
+                let arg1 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 1);
+                let arg2 = self.backtrace_evaluated_arg_or_nil(backtrace_count, 2);
+                Some(func(self, arg0, arg1, arg2))
+            }
+            SubrFn::Many(_) | SubrFn::ManySlice(_) => None,
+        }
     }
 
     #[inline]

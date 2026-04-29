@@ -587,11 +587,9 @@ fn eval_sub_cons_pushes_unevalled_frame_for_special_forms() {
             .specpdl
             .iter()
             .filter_map(|e| match e {
-                super::super::eval::SpecBinding::Backtrace {
-                    function,
-                    unevalled,
-                    ..
-                } => Some((*function, *unevalled)),
+                super::super::eval::SpecBinding::Backtrace { function, args, .. } => {
+                    Some((*function, args.is_unevalled()))
+                }
                 _ => None,
             })
             .collect();
@@ -632,11 +630,9 @@ fn eval_sub_cons_pushes_outer_unevalled_during_arg_eval() {
             .specpdl
             .iter()
             .filter_map(|e| match e {
-                super::super::eval::SpecBinding::Backtrace {
-                    function,
-                    unevalled,
-                    ..
-                } => Some((*function, *unevalled)),
+                super::super::eval::SpecBinding::Backtrace { function, args, .. } => {
+                    Some((*function, args.is_unevalled()))
+                }
                 _ => None,
             })
             .collect();
@@ -688,15 +684,10 @@ fn set_backtrace_args_evalled_mutates_in_place() {
 
     // Inspect slot — should now be EVALD with the evaluated values.
     match eval.specpdl.last().expect("frame present") {
-        super::super::eval::SpecBinding::Backtrace {
-            function,
-            args,
-            unevalled,
-            ..
-        } => {
-            assert!(!*unevalled, "flag cleared after promotion");
+        super::super::eval::SpecBinding::Backtrace { function, args, .. } => {
+            assert!(!args.is_unevalled(), "flag cleared after promotion");
             assert_eq!(*function, Value::symbol("my-func"), "function preserved");
-            let got: Vec<Value> = args.iter().copied().collect();
+            let got: Vec<Value> = args.as_slice().iter().copied().collect();
             assert_eq!(got, evaluated, "args replaced with evaluated values");
         }
         other => panic!("expected Backtrace, got {other:?}"),

@@ -713,12 +713,11 @@ fn collect_backtrace_frames(eval: &super::eval::Context) -> Vec<BacktraceFrameSn
                 function,
                 args,
                 debug_on_exit,
-                unevalled,
             } => Some(BacktraceFrameSnapshot {
                 function: *function,
-                args: args.iter().copied().collect(),
+                args: args.as_slice().iter().copied().collect(),
                 debug_on_exit: *debug_on_exit,
-                unevalled: *unevalled,
+                unevalled: args.is_unevalled(),
             }),
             _ => None,
         })

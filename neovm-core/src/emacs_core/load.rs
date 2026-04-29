@@ -344,6 +344,7 @@ fn log_streaming_load_form_error(
         for (j, (function, frame_args)) in bt_frames.iter().enumerate() {
             let func_name = super::print::print_value(function);
             let args_str = frame_args
+                .as_slice()
                 .iter()
                 .take(4)
                 .map(|a| {
@@ -356,7 +357,11 @@ fn log_streaming_load_form_error(
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            let ellipsis = if frame_args.len() > 4 { " ..." } else { "" };
+            let ellipsis = if frame_args.as_slice().len() > 4 {
+                " ..."
+            } else {
+                ""
+            };
             tracing::error!("    {j}: ({func_name} {args_str}{ellipsis})");
             if j >= 20 {
                 tracing::error!("    ... ({} more frames)", bt_frames.len() - j - 1);
