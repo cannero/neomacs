@@ -14,6 +14,7 @@ mod input_bridge;
 mod tty_frontend;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -1847,6 +1848,9 @@ fn run_gui_evaluator_worker(
 }
 
 pub fn run(mode: RuntimeMode) {
+    let process_started_at = Instant::now();
+    let process_args = std::env::args_os().collect::<Vec<_>>();
+
     // Always enable full backtraces for debugging low-level runtime crashes.
     if std::env::var("RUST_BACKTRACE").is_err() {
         unsafe {
@@ -1954,6 +1958,7 @@ pub fn run(mode: RuntimeMode) {
 
     if startup.frontend == FrontendKind::Gui {
         run_gui_main_thread(mode, startup, width, height, bootstrap_display);
+        log_clean_process_exit(process_started_at, &process_args);
         return;
     }
 
@@ -2091,7 +2096,7 @@ pub fn run(mode: RuntimeMode) {
     if should_enable_live_tty_io(&startup) {
         tty_shutdown_terminal();
     }
-    tracing::info!("Neomacs exited cleanly");
+    log_clean_process_exit(process_started_at, &process_args);
 
     if let Some(request) = evaluator.shutdown_request() {
         if request.restart {
@@ -2101,6 +2106,14 @@ pub fn run(mode: RuntimeMode) {
             std::process::exit(request.exit_code);
         }
     }
+}
+
+fn log_clean_process_exit(started_at: Instant, args: &[OsString]) {
+    tracing::info!(
+        duration_ms = %started_at.elapsed().as_millis(),
+        command_args = ?args,
+        "Neomacs exited cleanly"
+    );
 }
 
 // ---------------------------------------------------------------------------
