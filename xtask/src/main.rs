@@ -127,6 +127,12 @@ struct LeimGenerationJob {
     args: Vec<OsString>,
 }
 
+#[derive(Debug)]
+struct GeneratedLispJob {
+    name: &'static str,
+    args: Vec<OsString>,
+}
+
 const LEIM_GENERATION_RULES: &[LeimGenerationRule] = &[
     LeimGenerationRule {
         kind: LeimGenerationKind::TitDic,
@@ -480,11 +486,10 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
 
     // GNU lisp/Makefile.in's top-level `all' target explicitly includes
     // cus-load.el and finder-inf.el because ordinary dependencies do not
-    // request them.  Generate them before compile-main so byte-compilation
-    // sees the same completed generated-source set that a fresh GNU build
-    // eventually leaves in lisp/.
-    run_custom_dependencies_generation(options, &paths, &envs)?;
-    run_finder_data_generation(options, &paths, &envs)?;
+    // request them.  They are independent targets, and both generated files
+    // mark themselves no-byte-compile, so run them together before the final
+    // dump sees the completed generated-source set.
+    run_custom_finder_generation(options, &paths, &envs)?;
 
     // GNU lisp/Makefile.in runs compile-main after regenerated autoloads and
     // before the final dump.  Leave the resulting .elc files in place so the
@@ -555,40 +560,128 @@ fn run_gen_lisp(
     Ok(())
 }
 
-fn run_custom_dependencies_generation(
+fn run_custom_finder_generation(
     options: &FreshBuildOptions,
     paths: &PipelinePaths,
     envs: &[(OsString, OsString)],
 ) -> Result<()> {
+    let mut jobs = Vec::new();
+    if let Some(job) = custom_dependencies_generation_job(paths)? {
+        jobs.push(job);
+    }
+    if let Some(job) = finder_data_generation_job(paths)? {
+        jobs.push(job);
+    }
+
+    if jobs.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("generate custom/finder data (GNU lisp all)");
+    println!(
+        "  INFO  generating {} independent Lisp data target{} with {} parallel job{}",
+        jobs.len(),
+        if jobs.len() == 1 { "" } else { "s" },
+        jobs.len(),
+        if jobs.len() == 1 { "" } else { "s" }
+    );
+    let errors = run_generated_lisp_jobs(options, paths, envs, jobs)?;
+    if !errors.is_empty() {
+        eprintln!(
+            "  ERROR  {} generated Lisp job{} failed:",
+            errors.len(),
+            if errors.len() == 1 { "" } else { "s" }
+        );
+        for error in &errors {
+            eprintln!("    - {error}");
+        }
+        return Err(generated_lisp_failure_summary(&errors).into());
+    }
+
+    Ok(())
+}
+
+fn custom_dependencies_generation_job(paths: &PipelinePaths) -> Result<Option<GeneratedLispJob>> {
     let output = paths.lisp_root.join("cus-load.el");
     let dirs = lisp_dirs_for_custom_dependencies(&paths.lisp_root)?;
     let mut dependencies = dirs.clone();
     dependencies.push(paths.lisp_root.join("cus-dep.el"));
     if !generated_file_needs_rebuild(&output, &dependencies) {
-        return Ok(());
+        return Ok(None);
     }
 
-    print_synthetic_step("generate lisp/cus-load.el (GNU custom-deps)");
     let args = custom_dependencies_generation_args(&paths.lisp_root, &output, &dirs);
-    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+    Ok(Some(GeneratedLispJob {
+        name: "lisp/cus-load.el (GNU custom-deps)",
+        args,
+    }))
 }
 
-fn run_finder_data_generation(
-    options: &FreshBuildOptions,
-    paths: &PipelinePaths,
-    envs: &[(OsString, OsString)],
-) -> Result<()> {
+fn finder_data_generation_job(paths: &PipelinePaths) -> Result<Option<GeneratedLispJob>> {
     let output = paths.lisp_root.join("finder-inf.el");
     let dirs = lisp_dirs_for_finder_data(&paths.lisp_root)?;
     let mut dependencies = dirs.clone();
     dependencies.push(paths.lisp_root.join("finder.el"));
     if !generated_file_needs_rebuild(&output, &dependencies) {
-        return Ok(());
+        return Ok(None);
     }
 
-    print_synthetic_step("generate lisp/finder-inf.el (GNU finder-data)");
     let args = finder_data_generation_args(&paths.lisp_root, &output, &dirs);
-    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+    Ok(Some(GeneratedLispJob {
+        name: "lisp/finder-inf.el (GNU finder-data)",
+        args,
+    }))
+}
+
+fn run_generated_lisp_jobs(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    jobs: Vec<GeneratedLispJob>,
+) -> Result<Vec<String>> {
+    if options.dry_run {
+        return Ok(jobs
+            .iter()
+            .filter_map(|job| {
+                run_command(
+                    options,
+                    &options.repo_root,
+                    &paths.bootstrap,
+                    &job.args,
+                    envs,
+                )
+                .err()
+                .map(|err| format!("{} ({err})", job.name))
+            })
+            .collect());
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(jobs.len().max(1))
+        .build()?;
+    Ok(pool.install(|| {
+        jobs.par_iter()
+            .filter_map(|job| {
+                run_command(
+                    options,
+                    &options.repo_root,
+                    &paths.bootstrap,
+                    &job.args,
+                    envs,
+                )
+                .err()
+                .map(|err| format!("{} ({err})", job.name))
+            })
+            .collect()
+    }))
+}
+
+fn generated_lisp_failure_summary(errors: &[String]) -> String {
+    format!(
+        "generated Lisp data failed for {} target{}",
+        errors.len(),
+        if errors.len() == 1 { "" } else { "s" }
+    )
 }
 
 fn custom_dependencies_generation_args(
