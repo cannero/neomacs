@@ -21,7 +21,7 @@
 //!   face attributes and normalises product names.
 
 use std::io::{Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -112,15 +112,18 @@ impl TuiSession {
 
     /// Spawn Neomacs in TUI mode.
     ///
-    /// Looks for the binary at `./target/debug/neomacs` relative to
-    /// the workspace root (found via `CARGO_MANIFEST_DIR`).
+    /// `NEOMACS_TUI_NEOMACS_BIN` can override the binary path.  Otherwise,
+    /// the harness follows Cargo's active test profile: debug nextest runs
+    /// use `target/debug/neomacs`, and `cargo nextest --release` runs use
+    /// `target/release/neomacs`.
     pub fn neomacs(extra_args: &str) -> Self {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         let workspace = manifest.parent().expect("workspace root");
-        let bin = workspace.join("target/debug/neomacs");
+        let bin = neomacs_binary_path(workspace);
         assert!(
             bin.exists(),
-            "neomacs binary not found at {}\nRun `cargo build -p neomacs-bin` first.",
+            "neomacs binary not found at {}\nRun `cargo build -p neomacs-bin` for debug, \
+             `cargo build --release -p neomacs-bin` for release, or set NEOMACS_TUI_NEOMACS_BIN.",
             bin.display()
         );
         let cmd = if extra_args.is_empty() {
@@ -282,6 +285,36 @@ impl TuiSession {
     }
 }
 
+const NEOMACS_TUI_NEOMACS_BIN: &str = "NEOMACS_TUI_NEOMACS_BIN";
+
+fn neomacs_binary_path(workspace: &Path) -> PathBuf {
+    neomacs_binary_path_from_override(workspace, std::env::var_os(NEOMACS_TUI_NEOMACS_BIN))
+}
+
+fn neomacs_binary_path_from_override(
+    workspace: &Path,
+    override_path: Option<std::ffi::OsString>,
+) -> PathBuf {
+    if let Some(path) = override_path
+        && !path.as_os_str().is_empty()
+    {
+        return PathBuf::from(path);
+    }
+
+    workspace
+        .join("target")
+        .join(active_cargo_profile_dir())
+        .join("neomacs")
+}
+
+fn active_cargo_profile_dir() -> &'static str {
+    if cfg!(debug_assertions) {
+        "debug"
+    } else {
+        "release"
+    }
+}
+
 impl Drop for TuiSession {
     fn drop(&mut self) {
         // Best-effort kill
@@ -340,8 +373,35 @@ pub fn emacs_key(key: &str) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use super::emacs_key;
+    use super::{active_cargo_profile_dir, emacs_key, neomacs_binary_path_from_override};
+    use std::ffi::OsString;
     use std::fmt::Write as _;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn neomacs_binary_path_prefers_explicit_override() {
+        let workspace = Path::new("/repo");
+        let path = neomacs_binary_path_from_override(
+            workspace,
+            Some(OsString::from("/tmp/custom-neomacs")),
+        );
+
+        assert_eq!(path, PathBuf::from("/tmp/custom-neomacs"));
+    }
+
+    #[test]
+    fn neomacs_binary_path_uses_active_cargo_profile() {
+        let workspace = Path::new("/repo");
+        let path = neomacs_binary_path_from_override(workspace, None);
+
+        assert_eq!(
+            path,
+            PathBuf::from("/repo")
+                .join("target")
+                .join(active_cargo_profile_dir())
+                .join("neomacs")
+        );
+    }
 
     #[test]
     fn emacs_key_maps_control_space_to_terminal_nul() {
