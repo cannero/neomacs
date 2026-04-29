@@ -516,10 +516,8 @@ fn empty_symbol() {
 #[test]
 fn byte_code_literal_short_vector() {
     crate::test_utils::init_test_tracing();
-    let v = read1("#[1 2 3]");
-    // Too few elements for a byte-code object (needs >= 4),
-    // so the reader falls back to a plain vector.
-    assert!(v.is_vector());
+    let err = super::read_one("#[1 2 3]", 0).expect_err("GNU signals invalid byte-code object");
+    assert!(err.message.contains("Invalid byte-code object"));
 }
 
 #[test]
@@ -529,6 +527,20 @@ fn byte_code_literal_produces_bytecode() {
     // arglist=0 means (&rest _), bytecode="" means empty, constants=[], maxdepth=0
     let v = read1("#[0 \"\" [] 0]");
     assert!(v.is_bytecode(), "expected ByteCode, got {:?}", v.kind());
+}
+
+#[test]
+fn byte_code_literal_can_produce_interpreted_closure() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("#[(x) ((+ x 1)) nil]");
+    assert!(v.is_lambda(), "expected Lambda, got {:?}", v.kind());
+}
+
+#[test]
+fn ordinary_vector_with_closure_like_shape_stays_vector() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("[(x) ((+ x 1)) nil]");
+    assert!(v.is_vector(), "expected plain vector, got {:?}", v.kind());
 }
 
 #[test]

@@ -4592,6 +4592,59 @@ pub(crate) fn make_byte_code_from_slots(slots: &[Value]) -> EvalResult {
     )
 }
 
+fn valid_closure_arglist(value: Value) -> bool {
+    value.is_fixnum() || value.is_cons() || value.is_nil()
+}
+
+fn valid_bytecode_stack_depth(value: Value) -> bool {
+    value.as_fixnum().is_some_and(|n| n >= 0)
+}
+
+pub(crate) fn closure_from_reader_literal_slots(slots: &[Value]) -> EvalResult {
+    if !(3..=6).contains(&slots.len()) || !valid_closure_arglist(slots[0]) {
+        return Err(signal(
+            "invalid-read-syntax",
+            vec![Value::string("Invalid byte-code object")],
+        ));
+    }
+
+    if slots[1].is_string() {
+        if slots.len() <= 3 || !slots[2].is_vector() || !valid_bytecode_stack_depth(slots[3]) {
+            return Err(signal(
+                "invalid-read-syntax",
+                vec![Value::string("Invalid byte-code object")],
+            ));
+        }
+        return make_byte_code_from_slots(slots).map_err(|_| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string("Invalid byte-code object")],
+            )
+        });
+    }
+
+    if slots[1].is_cons() && (slots[2].is_cons() || slots[2].is_nil()) {
+        return make_interpreted_closure_from_parts(
+            &slots[0],
+            &slots[1],
+            &slots[2],
+            slots.get(4),
+            slots.get(5),
+        )
+        .map_err(|_| {
+            signal(
+                "invalid-read-syntax",
+                vec![Value::string("Invalid byte-code object")],
+            )
+        });
+    }
+
+    Err(signal(
+        "invalid-read-syntax",
+        vec![Value::string("Invalid byte-code object")],
+    ))
+}
+
 /// Core logic for constructing a `Value::ByteCode` from GNU-style parts.
 /// Used by both `make-byte-code` builtin and `sf_byte_code_literal`.
 pub(crate) fn make_byte_code_from_parts(
@@ -4795,51 +4848,16 @@ pub(crate) fn make_interpreted_closure_from_parts(
 
 /// Reify nested compiled literals embedded in `.elc` constant vectors.
 ///
-/// GNU compiled constants are first read as ordinary Lisp data. Nested
-/// `#[...]` functions arrive as vectors and nested `#s(hash-table ...)`
-/// literals arrive as `(make-hash-table-from-literal '(...))` forms. This
-/// pass turns them back into actual runtime objects before bytecode decode.
+/// The value reader already turns `#[...]` into closure objects, just as GNU's
+/// reader does.  Hash-table literals still arrive as
+/// `(make-hash-table-from-literal '(...))` forms, so this pass reifies those
+/// without guessing that ordinary vectors are closures.
 pub(crate) fn try_convert_nested_compiled_literal(val: Value) -> Value {
     if let Some(table) = try_convert_hash_table_literal(val) {
         return table;
     }
 
-    let items = match val.kind() {
-        ValueKind::Veclike(VecLikeType::Vector) => {
-            let v = val.as_vector_data().unwrap().clone();
-            if v.len() < 3 {
-                return val;
-            }
-            v
-        }
-        _ => return val,
-    };
-
-    if items.len() >= 4 && items[1].is_string() && (items[2].is_vector() || items[2].is_nil()) {
-        return match make_byte_code_from_slots(&items) {
-            Ok(bc) => bc,
-            Err(_) => val,
-        };
-    }
-
-    let looks_interpreted_closure = matches!(items.len(), 3 | 5 | 6)
-        && (items[0].is_cons() || items[0].is_nil())
-        && items[1].is_cons()
-        && (items.len() < 4 || items[3].is_nil());
-    if !looks_interpreted_closure {
-        return val;
-    }
-
-    match make_interpreted_closure_from_parts(
-        &items[0],
-        &items[1],
-        &items[2],
-        items.get(4),
-        items.get(5),
-    ) {
-        Ok(lambda) => lambda,
-        Err(_) => val,
-    }
+    val
 }
 
 fn try_convert_hash_table_literal(val: Value) -> Option<Value> {

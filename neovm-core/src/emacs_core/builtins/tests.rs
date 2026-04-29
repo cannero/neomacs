@@ -599,9 +599,8 @@ fn pure_dispatch_typed_length_tracks_interpreted_closure_slot_count() {
 }
 
 #[test]
-fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
+fn compiled_literal_reifier_preserves_ordinary_vectors() {
     crate::test_utils::init_test_tracing();
-    let mut eval = crate::emacs_core::eval::Context::new();
     let closure_vec = Value::vector(vec![
         Value::list(vec![Value::symbol("x")]),
         Value::list(vec![Value::list(vec![
@@ -613,12 +612,26 @@ fn compiled_literal_reifier_turns_interpreted_closure_vectors_callable() {
     ]);
 
     let converted = super::symbols::try_convert_nested_compiled_literal(closure_vec);
-    assert!(converted.is_lambda());
+    assert!(
+        converted.is_vector(),
+        "ordinary vectors are not reader closures"
+    );
+}
 
-    let out = eval
-        .apply(converted, vec![Value::fixnum(41)])
-        .expect("converted closure should be callable");
-    assert_eq!(out, Value::fixnum(42));
+#[test]
+fn compiled_literal_reifier_preserves_cperl_key_vector_shape() {
+    crate::test_utils::init_test_tracing();
+    let key_vec = Value::vector(vec![
+        Value::list(vec![Value::symbol("control"), Value::fixnum(99)]),
+        Value::list(vec![Value::symbol("control"), Value::fixnum(104)]),
+        Value::fixnum(70),
+    ]);
+
+    let converted = super::symbols::try_convert_nested_compiled_literal(key_vec);
+    assert!(
+        converted.is_vector(),
+        "key vectors must not become closures"
+    );
 }
 
 #[test]

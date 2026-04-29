@@ -5077,6 +5077,15 @@ fn byte_code_literal_value_path_produces_bytecode() {
 }
 
 #[test]
+fn byte_code_literal_value_path_produces_interpreted_closure() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(r##"(funcall (read "#[(x) ((+ x 1)) nil]") 41)"##),
+        "OK 42"
+    );
+}
+
+#[test]
 fn quoted_lambda_funcall_strips_dynamic_documentation_form() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

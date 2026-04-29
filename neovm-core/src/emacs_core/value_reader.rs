@@ -1203,19 +1203,15 @@ impl<'a> Reader<'a> {
             }
             x if x == b'[' as u32 => {
                 // #[...] — compiled-function literal in .elc.
-                // Produce a ByteCode Value directly, matching GNU Emacs's reader.
-                // The vector items are [arglist bytecode-string constants-vector
-                // stack-depth docstring interactive-spec].
-                // Since read_form is called recursively for each element, any
-                // nested #[...] literals in the constants vector are already
-                // converted to ByteCode values by the time we get here.
+                // Produce a closure object directly, matching GNU Emacs's
+                // lread.c `bytecode_from_rev_list`.
                 let saved = save_scratch_gc_roots();
                 let items = self.read_vector_items()?;
                 for item in &items {
                     push_scratch_gc_root(*item);
                 }
-                let result = if items.len() >= 4 {
-                    crate::emacs_core::builtins::make_byte_code_from_slots(&items).map_err(|e| {
+                let result = crate::emacs_core::builtins::closure_from_reader_literal_slots(&items)
+                    .map_err(|e| {
                         let msg = match &e {
                             crate::emacs_core::error::Flow::Signal(sig) => sig
                                 .data
@@ -1225,12 +1221,8 @@ impl<'a> Reader<'a> {
                                 .unwrap_or_else(|| format!("{:?}", sig.data)),
                             other => format!("{:?}", other),
                         };
-                        self.error(&format!("byte-code literal: {}", msg))
-                    })
-                } else {
-                    // Too few elements — fall back to plain vector
-                    Ok(Value::make_vector(items))
-                };
+                        self.error(&msg)
+                    });
                 restore_scratch_gc_roots(saved);
                 result
             }
