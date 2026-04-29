@@ -913,9 +913,14 @@ fn macroexp_dynvars_symbol() -> SymId {
 
 macro_rules! cached_symbol_id {
     ($fn_name:ident, $name:literal) => {
+        #[inline(always)]
         fn $fn_name() -> SymId {
             static SYMBOL: OnceLock<SymId> = OnceLock::new();
-            *SYMBOL.get_or_init(|| intern($name))
+            if let Some(id) = SYMBOL.get() {
+                *id
+            } else {
+                *SYMBOL.get_or_init(|| intern($name))
+            }
         }
     };
 }
