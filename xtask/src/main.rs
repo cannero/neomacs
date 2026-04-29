@@ -353,6 +353,7 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     if !options.skip_build {
         let mut cargo_args = vec![
             OsString::from("build"),
+            OsString::from("--verbose"),
             OsString::from("-p"),
             OsString::from("neomacs-bin"),
         ];
@@ -2472,7 +2473,7 @@ fn usage_text() -> &'static str {
 Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release] [--dry-run] [--native-comp|--no-native-comp] [--skip-build]
 
 Build the GNU-shaped Neomacs runtime pipeline:
-  1. cargo build -p neomacs-bin [--release]
+  1. cargo build --verbose -p neomacs-bin [--release]
   2. regenerate GNU subdirs.el files
   3. neomacs-temacs --temacs=pbootstrap
   4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
