@@ -1706,46 +1706,81 @@ fn equal_value_inner(
     if depth > 200 {
         return false;
     }
-    // Fast path: bitwise equal
+
+    let mut left = *left;
+    let mut right = *right;
+    if symbols_with_pos_enabled {
+        if left.is_symbol_with_pos() {
+            left = left.as_symbol_with_pos_sym().unwrap();
+        }
+        if right.is_symbol_with_pos() {
+            right = right.as_symbol_with_pos_sym().unwrap();
+        }
+    }
+
     if left.bits() == right.bits() {
         return true;
     }
-    match (left.kind(), right.kind()) {
-        (ValueKind::Nil, ValueKind::Nil) => true,
-        (ValueKind::T, ValueKind::T) => true,
-        (ValueKind::Fixnum(a), ValueKind::Fixnum(b)) => a == b,
-        (ValueKind::Float, ValueKind::Float) => left.xfloat().to_bits() == right.xfloat().to_bits(),
-        (ValueKind::Symbol(a), ValueKind::Symbol(b)) => a == b,
-        (ValueKind::String, ValueKind::String) => {
+
+    if left.is_fixnum() || right.is_fixnum() || left.is_symbol() || right.is_symbol() {
+        return false;
+    }
+
+    if left.is_float() {
+        return right.is_float() && left.xfloat().to_bits() == right.xfloat().to_bits();
+    }
+    if left.is_string() {
+        return if right.is_string() {
             match (left.as_lisp_string(), right.as_lisp_string()) {
-                (Some(a), Some(b)) => {
-                    a.schars() == b.schars()
-                        && a.sbytes() == b.sbytes()
-                        && a.as_bytes() == b.as_bytes()
+                (Some(left_string), Some(right_string)) => {
+                    left_string.schars() == right_string.schars()
+                        && left_string.sbytes() == right_string.sbytes()
+                        && left_string.as_bytes() == right_string.as_bytes()
                 }
                 _ => false,
             }
+        } else {
+            false
+        };
+    }
+    if left.is_cons() {
+        if !right.is_cons() {
+            return false;
         }
-        (ValueKind::Veclike(VecLikeType::Marker), ValueKind::Veclike(VecLikeType::Marker)) => {
-            super::marker::marker_logical_fields(left)
-                == super::marker::marker_logical_fields(right)
-        }
-        (ValueKind::Cons, ValueKind::Cons) => {
-            if depth > 10 {
-                let pair = (left.bits(), right.bits());
-                if !seen.get_or_insert_with(HashSet::new).insert(pair) {
-                    return true;
-                }
+        if depth > 10 {
+            let pair = (left.bits(), right.bits());
+            if !seen.get_or_insert_with(HashSet::new).insert(pair) {
+                return true;
             }
-            let a_car = left.cons_car();
-            let a_cdr = left.cons_cdr();
-            let b_car = right.cons_car();
-            let b_cdr = right.cons_cdr();
-            equal_value_inner(&a_car, &b_car, depth + 1, seen, symbols_with_pos_enabled)
-                && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen, symbols_with_pos_enabled)
         }
-        (ValueKind::Veclike(VecLikeType::Vector), ValueKind::Veclike(VecLikeType::Vector))
-        | (ValueKind::Veclike(VecLikeType::Record), ValueKind::Veclike(VecLikeType::Record)) => {
+        let a_car = left.cons_car();
+        let a_cdr = left.cons_cdr();
+        let b_car = right.cons_car();
+        let b_cdr = right.cons_cdr();
+        return equal_value_inner(&a_car, &b_car, depth + 1, seen, symbols_with_pos_enabled)
+            && equal_value_inner(&a_cdr, &b_cdr, depth + 1, seen, symbols_with_pos_enabled);
+    }
+
+    if !left.is_veclike() || !right.is_veclike() {
+        return false;
+    }
+
+    let Some(left_type) = left.veclike_type() else {
+        return false;
+    };
+    let Some(right_type) = right.veclike_type() else {
+        return false;
+    };
+    if left_type != right_type {
+        return false;
+    }
+
+    match left_type {
+        VecLikeType::Marker => {
+            super::marker::marker_logical_fields(&left)
+                == super::marker::marker_logical_fields(&right)
+        }
+        VecLikeType::Vector | VecLikeType::Record => {
             if depth > 10 {
                 let pair = (left.bits(), right.bits());
                 if !seen.get_or_insert_with(HashSet::new).insert(pair) {
@@ -1766,54 +1801,25 @@ fn equal_value_inner(
                 _ => false,
             }
         }
-        (
-            ValueKind::Veclike(VecLikeType::HashTable),
-            ValueKind::Veclike(VecLikeType::HashTable),
-        ) => left.bits() == right.bits(),
-        (ValueKind::Veclike(VecLikeType::Lambda), ValueKind::Veclike(VecLikeType::Lambda)) => {
+        VecLikeType::HashTable => false,
+        VecLikeType::Lambda => {
             if depth > 10 {
                 let pair = (left.bits(), right.bits());
                 if !seen.get_or_insert_with(HashSet::new).insert(pair) {
                     return true;
                 }
             }
-            closure_equal(left, right, depth + 1, seen, symbols_with_pos_enabled)
+            closure_equal(&left, &right, depth + 1, seen, symbols_with_pos_enabled)
         }
-        // symbol-with-pos: when flag enabled, unwrap and compare as symbols.
-        // When disabled, compare both sym AND pos fields.
-        (
-            ValueKind::Veclike(VecLikeType::SymbolWithPos),
-            ValueKind::Veclike(VecLikeType::SymbolWithPos),
-        ) => {
+        VecLikeType::SymbolWithPos => {
             if symbols_with_pos_enabled {
-                let l = left.as_symbol_with_pos_sym().unwrap();
-                let r = right.as_symbol_with_pos_sym().unwrap();
-                l.bits() == r.bits()
+                unreachable!("symbol-with-pos values are unwrapped before equality dispatch")
             } else {
                 let l = left.as_symbol_with_pos().unwrap();
                 let r = right.as_symbol_with_pos().unwrap();
                 l.sym.bits() == r.sym.bits() && l.pos.bits() == r.pos.bits()
             }
         }
-        // symbol-with-pos vs bare symbol when flag enabled
-        (ValueKind::Symbol(_), ValueKind::Veclike(VecLikeType::SymbolWithPos))
-        | (ValueKind::Veclike(VecLikeType::SymbolWithPos), ValueKind::Symbol(_))
-            if symbols_with_pos_enabled =>
-        {
-            let l = if left.is_symbol_with_pos() {
-                left.as_symbol_with_pos_sym().unwrap()
-            } else {
-                *left
-            };
-            let r = if right.is_symbol_with_pos() {
-                right.as_symbol_with_pos_sym().unwrap()
-            } else {
-                *right
-            };
-            l.bits() == r.bits()
-        }
-        // For all other same-type veclike comparisons, use identity
-        (ValueKind::Veclike(a), ValueKind::Veclike(b)) if a == b => left.bits() == right.bits(),
         _ => false,
     }
 }
