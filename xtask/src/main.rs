@@ -121,6 +121,12 @@ struct LeimGenerationRule {
     output_rels: &'static [&'static str],
 }
 
+#[derive(Debug)]
+struct LeimGenerationJob {
+    source: PathBuf,
+    args: Vec<OsString>,
+}
+
 const LEIM_GENERATION_RULES: &[LeimGenerationRule] = &[
     LeimGenerationRule {
         kind: LeimGenerationKind::TitDic,
@@ -651,7 +657,7 @@ fn run_leim_generation(
         fs::create_dir_all(&quail_dir)?;
     }
 
-    let mut generated = 0usize;
+    let mut generation_jobs = Vec::new();
     for rule in LEIM_GENERATION_RULES {
         let source = paths.leim_root.join(rule.source_rel);
         ensure_generation_input(&source)?;
@@ -664,19 +670,88 @@ fn run_leim_generation(
             continue;
         }
 
-        if generated == 0 {
-            print_synthetic_step("generate leim sources (GNU gen-lisp leim)");
-        }
         for output in &outputs {
             ensure_output_parent(options, output)?;
         }
         let args = leim_generation_args(rule.kind, &quail_dir, &source, &outputs[0]);
-        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
-        generated += 1;
+        generation_jobs.push(LeimGenerationJob { source, args });
+    }
+
+    if !generation_jobs.is_empty() {
+        print_synthetic_step("generate leim sources (GNU gen-lisp leim)");
+        let jobs = compile_main_jobs();
+        println!(
+            "  INFO  generating {} LEIM source rule{} with {jobs} parallel jobs",
+            generation_jobs.len(),
+            if generation_jobs.len() == 1 { "" } else { "s" }
+        );
+        let errors = run_leim_generation_jobs(options, paths, envs, generation_jobs, jobs)?;
+        if !errors.is_empty() {
+            eprintln!(
+                "  ERROR  {} LEIM generation job{} failed:",
+                errors.len(),
+                if errors.len() == 1 { "" } else { "s" }
+            );
+            for error in &errors {
+                eprintln!("    - {error}");
+            }
+            return Err(leim_generation_failure_summary(&errors).into());
+        }
     }
 
     run_leim_list_generation(options, paths, envs)?;
     Ok(())
+}
+
+fn run_leim_generation_jobs(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    jobs_to_run: Vec<LeimGenerationJob>,
+    jobs: usize,
+) -> Result<Vec<String>> {
+    if options.dry_run {
+        return Ok(jobs_to_run
+            .iter()
+            .filter_map(|job| {
+                run_command(
+                    options,
+                    &options.repo_root,
+                    &paths.bootstrap,
+                    &job.args,
+                    envs,
+                )
+                .err()
+                .map(|err| format!("{} ({err})", job.source.display()))
+            })
+            .collect());
+    }
+
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(jobs).build()?;
+    Ok(pool.install(|| {
+        jobs_to_run
+            .par_iter()
+            .filter_map(|job| {
+                run_command(
+                    options,
+                    &options.repo_root,
+                    &paths.bootstrap,
+                    &job.args,
+                    envs,
+                )
+                .err()
+                .map(|err| format!("{} ({err})", job.source.display()))
+            })
+            .collect()
+    }))
+}
+
+fn leim_generation_failure_summary(errors: &[String]) -> String {
+    format!(
+        "LEIM generation failed for {} source rule{}",
+        errors.len(),
+        if errors.len() == 1 { "" } else { "s" }
+    )
 }
 
 fn run_leim_list_generation(
