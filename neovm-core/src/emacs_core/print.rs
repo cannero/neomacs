@@ -668,6 +668,31 @@ fn write_value_stateful(value: &Value, out: &mut String, state: &mut PrintState)
                 });
                 return;
             }
+            if let Some((depth, min_char, slots)) =
+                super::chartable::sub_char_table_external_slots(value)
+            {
+                with_default_cycle_guard(value, out, state, |out, state| {
+                    // Level check for sub-char-table
+                    if let Some(level) = state.options.print_level {
+                        if state.depth >= level {
+                            out.push_str("#");
+                            return;
+                        }
+                    }
+                    state.depth += 1;
+                    out.push_str("#^^[");
+                    out.push_str(&depth.to_string());
+                    out.push(' ');
+                    out.push_str(&min_char.to_string());
+                    for item in &slots {
+                        out.push(' ');
+                        write_value_stateful(item, out, state);
+                    }
+                    out.push(']');
+                    state.depth -= 1;
+                });
+                return;
+            }
             with_default_cycle_guard(value, out, state, |out, state| {
                 // Level check
                 if let Some(level) = state.options.print_level {
@@ -1584,6 +1609,21 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 pop_bytes_cycle_object(pushed);
                 return;
             }
+            if let Some((depth, min_char, slots)) =
+                super::chartable::sub_char_table_external_slots(value)
+            {
+                out.extend_from_slice(b"#^^[");
+                out.extend_from_slice(depth.to_string().as_bytes());
+                out.push(b' ');
+                out.extend_from_slice(min_char.to_string().as_bytes());
+                for item in &slots {
+                    out.push(b' ');
+                    append_print_value_bytes(item, out, options);
+                }
+                out.push(b']');
+                pop_bytes_cycle_object(pushed);
+                return;
+            }
             out.push(b'[');
             let items = value.as_vector_data().unwrap().clone();
             for (idx, item) in items.iter().enumerate() {
@@ -1740,27 +1780,17 @@ fn format_symbol_name(name: &str) -> String {
         return "##".to_string();
     }
     let mut out = String::with_capacity(name.len());
-    for (idx, ch) in name.chars().enumerate() {
+    let mut confusing = symbol_name_confusing(name.as_bytes());
+    for ch in name.chars() {
         let needs_escape = matches!(
             ch,
-            ' ' | '\t'
-                | '\n'
-                | '\r'
-                | '\u{0c}'
-                | '('
-                | ')'
-                | '['
-                | ']'
-                | '"'
-                | '\\'
-                | ';'
-                | '#'
-                | '\''
-                | '`'
-                | ','
-        ) || (idx == 0 && matches!(ch, '.' | '?'));
+            '(' | ')' | '[' | ']' | '"' | '\\' | ';' | '#' | '\'' | '`' | ','
+        ) || ch <= ' '
+            || ch == '\u{a0}'
+            || confusing;
         if needs_escape {
             out.push('\\');
+            confusing = false;
         }
         out.push(ch);
     }
@@ -1791,27 +1821,16 @@ fn append_symbol_name_bytes(name: &crate::heap_types::LispString, out: &mut Vec<
         return;
     }
 
-    for (idx, byte) in bytes.iter().copied().enumerate() {
+    let mut confusing = symbol_name_confusing(bytes);
+    for byte in bytes.iter().copied() {
         let needs_escape = matches!(
             byte,
-            b' ' | b'\t'
-                | b'\n'
-                | b'\r'
-                | 0x0c
-                | b'('
-                | b')'
-                | b'['
-                | b']'
-                | b'"'
-                | b'\\'
-                | b';'
-                | b'#'
-                | b'\''
-                | b'`'
-                | b','
-        ) || (idx == 0 && matches!(byte, b'.' | b'?'));
+            b'(' | b')' | b'[' | b']' | b'"' | b'\\' | b';' | b'#' | b'\'' | b'`' | b','
+        ) || byte <= b' '
+            || confusing;
         if needs_escape {
             out.push(b'\\');
+            confusing = false;
         }
         if !name.is_multibyte() && byte >= 0x80 {
             let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
@@ -1824,6 +1843,75 @@ fn append_symbol_name_bytes(name: &crate::heap_types::LispString, out: &mut Vec<
             out.push(byte);
         }
     }
+}
+
+fn symbol_name_confusing(bytes: &[u8]) -> bool {
+    let Some(&first) = bytes.first() else {
+        return false;
+    };
+
+    let signed = matches!(first, b'+' | b'-');
+    let after_sign = usize::from(signed);
+    let number_like_start = bytes
+        .get(after_sign)
+        .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'.');
+
+    (number_like_start && emacs_decimal_number_consumes_all(bytes))
+        || first == b'?'
+        || (first == b'.' && !bytes.get(1).is_some_and(|byte| byte.is_ascii_alphabetic()))
+}
+
+fn emacs_decimal_number_consumes_all(bytes: &[u8]) -> bool {
+    let mut pos = 0usize;
+    if matches!(bytes.get(pos), Some(b'+' | b'-')) {
+        pos += 1;
+    }
+
+    let mut has_leading_digits = false;
+    while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
+        has_leading_digits = true;
+        pos += 1;
+    }
+
+    if bytes.get(pos) == Some(&b'.') {
+        pos += 1;
+    }
+
+    let mut has_trailing_digits = false;
+    while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
+        has_trailing_digits = true;
+        pos += 1;
+    }
+
+    let mut has_exponent = false;
+    if matches!(bytes.get(pos), Some(b'e' | b'E')) {
+        let exponent_start = pos;
+        pos += 1;
+        let exponent_sign_is_plus = bytes.get(pos) == Some(&b'+');
+        if matches!(bytes.get(pos), Some(b'+' | b'-')) {
+            pos += 1;
+        }
+
+        let exponent_digits_start = pos;
+        while bytes.get(pos).is_some_and(u8::is_ascii_digit) {
+            pos += 1;
+        }
+
+        if pos > exponent_digits_start {
+            has_exponent = true;
+        } else if exponent_sign_is_plus && bytes.get(pos..pos + 3) == Some(b"INF") {
+            pos += 3;
+            has_exponent = true;
+        } else if exponent_sign_is_plus && bytes.get(pos..pos + 3) == Some(b"NaN") {
+            pos += 3;
+            has_exponent = true;
+        } else {
+            pos = exponent_start;
+        }
+    }
+
+    let float_syntax = has_trailing_digits || (has_leading_digits && has_exponent);
+    pos == bytes.len() && (has_leading_digits || float_syntax)
 }
 
 pub(crate) fn format_float(f: f64) -> String {

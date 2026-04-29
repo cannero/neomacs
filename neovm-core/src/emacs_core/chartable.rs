@@ -278,6 +278,10 @@ fn is_char_code_property_table(table: &Value) -> bool {
         return false;
     }
     let vec = table.as_vector_data().unwrap();
+    is_char_code_property_vec(vec)
+}
+
+fn is_char_code_property_vec(vec: &[Value]) -> bool {
     vec.get(CT_SUBTYPE)
         .is_some_and(|v| v.is_symbol_named("char-code-property-table"))
         && char_table_extra_count(vec) == 5
@@ -287,6 +291,85 @@ fn uniprop_compressed_string(value: Value) -> Option<Vec<u32>> {
     let string = value.as_lisp_string()?;
     let codes = crate::emacs_core::builtins::lisp_string_char_codes(string);
     matches!(codes.first(), Some(1 | 2)).then_some(codes)
+}
+
+fn uniprop_compressed_value_at(value: Value, offset: i64) -> Option<Value> {
+    if !(0..GNU_CHARTAB_CHARS[2]).contains(&offset) {
+        return None;
+    }
+    let codes = uniprop_compressed_string(value)?;
+    let offset = offset as u32;
+    match codes.first().copied() {
+        Some(1) => {
+            let mut cursor = 1;
+            let mut idx = codes.get(cursor).copied()?;
+            cursor += 1;
+            while cursor < codes.len() && idx < GNU_CHARTAB_CHARS[2] as u32 {
+                if idx == offset {
+                    let value = codes[cursor] as i64;
+                    return Some(if value > 0 {
+                        Value::fixnum(value)
+                    } else {
+                        Value::NIL
+                    });
+                }
+                idx += 1;
+                cursor += 1;
+            }
+            Some(Value::NIL)
+        }
+        Some(2) => {
+            let mut cursor = 1;
+            let mut idx = 0_u32;
+            while cursor < codes.len() && idx < GNU_CHARTAB_CHARS[2] as u32 {
+                let value = codes[cursor] as i64;
+                cursor += 1;
+                let count = if cursor < codes.len() && codes[cursor] >= 128 {
+                    let count = codes[cursor] - 128;
+                    cursor += 1;
+                    count
+                } else {
+                    1
+                };
+                let next = idx.saturating_add(count);
+                if offset >= idx && offset < next {
+                    return Some(Value::fixnum(value));
+                }
+                idx = next;
+            }
+            Some(Value::NIL)
+        }
+        _ => None,
+    }
+}
+
+fn uniprop_compressed_runs(value: Value, start: i64, end: i64) -> Option<Vec<RawEntry>> {
+    if end < start || end - start + 1 != GNU_CHARTAB_CHARS[2] {
+        return None;
+    }
+    uniprop_compressed_string(value)?;
+
+    let mut runs = Vec::new();
+    let mut run_start = start;
+    let mut previous = uniprop_compressed_value_at(value, 0)?;
+    for offset in 1..GNU_CHARTAB_CHARS[2] {
+        let current = uniprop_compressed_value_at(value, offset)?;
+        if !eq_value(&previous, &current) {
+            runs.push(RawEntry {
+                start: run_start,
+                end: start + offset - 1,
+                value: previous,
+            });
+            run_start = start + offset;
+            previous = current;
+        }
+    }
+    runs.push(RawEntry {
+        start: run_start,
+        end,
+        value: previous,
+    });
+    Some(runs)
 }
 
 fn flatten_uniprop_compressed_string(vec: &mut Vec<Value>, start: i64, codes: &[u32]) {
@@ -575,7 +658,7 @@ fn ct_set_range(vec: &mut Vec<Value>, min: i64, max: i64, value: Value) {
 /// The last assignment that covers the character wins, matching GNU Emacs
 /// `set-char-table-range` overwrite semantics for both single-char and range
 /// entries.
-fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
+fn ct_get_char(vec: &[Value], ch: i64, is_uniprop: bool) -> Option<Value> {
     let start = ct_data_start(vec);
     let len = vec.len();
     if len < start + 2 {
@@ -603,7 +686,14 @@ fn ct_get_char(vec: &[Value], ch: i64) -> Option<Value> {
                 let pair_cdr = key.cons_cdr();
                 if let (Some(min), Some(max)) = (pair_car.as_fixnum(), pair_cdr.as_fixnum()) {
                     if ch >= min && ch <= max {
-                        return Some(vec[i + 1]);
+                        let value = vec[i + 1];
+                        if is_uniprop
+                            && max - min + 1 == GNU_CHARTAB_CHARS[2]
+                            && let Some(decoded) = uniprop_compressed_value_at(value, ch - min)
+                        {
+                            return Some(decoded);
+                        }
+                        return Some(value);
                     }
                 }
             }
@@ -671,7 +761,7 @@ pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     // the table is to index without copying.
     let vec_ref = table.as_vector_data().unwrap();
 
-    if let Some(val) = ct_get_char(vec_ref, ch) {
+    if let Some(val) = ct_get_char(vec_ref, ch, is_char_code_property_vec(vec_ref)) {
         if !val.is_nil() {
             return Ok(val);
         }
@@ -944,7 +1034,7 @@ struct EffectiveRun {
     value: Value,
 }
 
-fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
+fn ct_collect_raw_entries(vec: &[Value], is_uniprop: bool) -> Vec<RawEntry> {
     let start = ct_data_start(vec);
     let mut raws = Vec::new();
     let mut i = start;
@@ -959,11 +1049,17 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
                 let pair_car = vec[i].cons_car();
                 let pair_cdr = vec[i].cons_cdr();
                 if let (Some(min), Some(max)) = (pair_car.as_fixnum(), pair_cdr.as_fixnum()) {
-                    raws.push(RawEntry {
-                        start: min,
-                        end: max,
-                        value: vec[i + 1],
-                    });
+                    if is_uniprop
+                        && let Some(mut decoded) = uniprop_compressed_runs(vec[i + 1], min, max)
+                    {
+                        raws.append(&mut decoded);
+                    } else {
+                        raws.push(RawEntry {
+                            start: min,
+                            end: max,
+                            value: vec[i + 1],
+                        });
+                    }
                 }
             }
             _ => {}
@@ -971,6 +1067,10 @@ fn ct_collect_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
         i += 2;
     }
     raws
+}
+
+fn ct_collect_local_raw_entries(vec: &[Value]) -> Vec<RawEntry> {
+    ct_collect_raw_entries(vec, false)
 }
 
 fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
@@ -982,7 +1082,7 @@ fn ct_effective_runs(table: &Value) -> Vec<EffectiveRun> {
         }];
     };
     let vec = table.as_vector_data().unwrap().clone();
-    let raws = ct_collect_raw_entries(&vec);
+    let raws = ct_collect_raw_entries(&vec, is_char_code_property_vec(&vec));
     let default = vec[CT_DEFAULT];
     let parent = vec[CT_PARENT];
     let domain_end = MAX_CHAR.saturating_add(1);
@@ -1096,10 +1196,96 @@ where
 const GNU_CHAR_TABLE_CONTENT_BLOCKS: i64 = 64;
 const GNU_CHAR_TABLE_BLOCK_CHARS: i64 = 1 << 16;
 
-fn uniform_run_value(runs: &[EffectiveRun], start: i64, end: i64) -> Option<Value> {
-    runs.iter()
-        .find(|run| start >= run.start && end <= run.end)
-        .map(|run| run.value)
+fn raw_entry_overlaps(raw: &RawEntry, start: i64, end: i64) -> bool {
+    raw.start <= end && raw.end >= start
+}
+
+fn local_raw_value_at(raws: &[RawEntry], ch: i64) -> Value {
+    raws.iter()
+        .rev()
+        .find(|raw| ch >= raw.start && ch <= raw.end)
+        .map(|raw| raw.value)
+        .unwrap_or(Value::NIL)
+}
+
+fn local_uniform_value(raws: &[RawEntry], start: i64, end: i64) -> Option<Value> {
+    if start > end {
+        return Some(Value::NIL);
+    }
+    if !raws.iter().any(|raw| raw_entry_overlaps(raw, start, end)) {
+        return Some(Value::NIL);
+    }
+
+    let mut boundaries = BTreeSet::new();
+    let domain_end = MAX_CHAR.saturating_add(1);
+    boundaries.insert(start.clamp(0, domain_end));
+    boundaries.insert(end.saturating_add(1).clamp(0, domain_end));
+    for raw in raws
+        .iter()
+        .filter(|raw| raw_entry_overlaps(raw, start, end))
+    {
+        boundaries.insert(raw.start.max(start).clamp(0, domain_end));
+        boundaries.insert(raw.end.saturating_add(1).min(end.saturating_add(1)));
+    }
+
+    let mut value = None;
+    for window in boundaries.into_iter().collect::<Vec<_>>().windows(2) {
+        let segment_start = window[0];
+        if segment_start > end || window[1] <= segment_start {
+            continue;
+        }
+        let segment_value = local_raw_value_at(raws, segment_start);
+        match value {
+            Some(previous) if !eq_value(&previous, &segment_value) => return None,
+            Some(_) => {}
+            None => value = Some(segment_value),
+        }
+    }
+    value.or(Some(Value::NIL))
+}
+
+fn make_sub_char_table_literal(depth: usize, min_char: i64, contents: Vec<Value>) -> Value {
+    let mut values = Vec::with_capacity(contents.len() + 3);
+    values.push(Value::symbol(SUB_CHAR_TABLE_TAG));
+    values.push(Value::fixnum(depth as i64));
+    values.push(Value::fixnum(min_char));
+    values.extend(contents);
+    Value::vector(values)
+}
+
+fn external_subtree_for_span(
+    raws: &[RawEntry],
+    depth: usize,
+    min_char: i64,
+    start: i64,
+    end: i64,
+) -> Value {
+    if let Some(value) = local_uniform_value(raws, start, end) {
+        return value;
+    }
+
+    let child_span = GNU_CHARTAB_CHARS[depth];
+    let mut contents = Vec::with_capacity(GNU_CHARTAB_SIZE[depth]);
+    for idx in 0..GNU_CHARTAB_SIZE[depth] {
+        let child_start = min_char + idx as i64 * child_span;
+        let child_end = (child_start + child_span - 1).min(MAX_CHAR);
+        let child = if depth == 3 {
+            local_uniform_value(raws, child_start, child_end).unwrap_or(Value::NIL)
+        } else {
+            external_subtree_for_span(raws, depth + 1, child_start, child_start, child_end)
+        };
+        contents.push(child);
+    }
+    make_sub_char_table_literal(depth, min_char, contents)
+}
+
+fn external_ascii_slot(raws: &[RawEntry]) -> Value {
+    external_subtree_for_span(raws, 3, 0, 0, 127)
+}
+
+pub(crate) fn sub_char_table_external_slots(table: &Value) -> Option<(i64, i64, Vec<Value>)> {
+    let (depth, min_char, contents) = sub_char_table_depth_min_contents(table)?;
+    Some((depth as i64, min_char, contents))
 }
 
 pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
@@ -1111,7 +1297,7 @@ pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
         return None;
     };
     let vec = table.as_vector_data().unwrap().clone();
-    let runs = ct_effective_runs(table);
+    let raws = ct_collect_local_raw_entries(&vec);
     let extra_count = match vec[CT_EXTRA_COUNT].kind() {
         ValueKind::Fixnum(n) if n >= 0 => n as usize,
         _ => 0,
@@ -1121,12 +1307,12 @@ pub(crate) fn char_table_external_slots(table: &Value) -> Option<Vec<Value>> {
     slots.push(vec[CT_DEFAULT]);
     slots.push(vec[CT_PARENT]);
     slots.push(vec[CT_SUBTYPE]);
-    slots.push(uniform_run_value(&runs, 0, 127).unwrap_or(Value::NIL));
+    slots.push(external_ascii_slot(&raws));
 
     for idx in 0..GNU_CHAR_TABLE_CONTENT_BLOCKS {
         let start = idx * GNU_CHAR_TABLE_BLOCK_CHARS;
         let end = (start + GNU_CHAR_TABLE_BLOCK_CHARS - 1).min(MAX_CHAR);
-        slots.push(uniform_run_value(&runs, start, end).unwrap_or(Value::NIL));
+        slots.push(external_subtree_for_span(&raws, 1, start, start, end));
     }
 
     for extra_idx in 0..extra_count {

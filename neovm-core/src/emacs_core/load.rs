@@ -390,6 +390,12 @@ const TRANSIENT_RUNTIME_FEATURES: &[&str] = &[
     "cl-lib", "cl-macs", "cl-seq", "cl-extra", "gv", "icons", "pcase",
 ];
 
+fn clear_transient_runtime_features(eval: &mut super::eval::Context) {
+    for feature in TRANSIENT_RUNTIME_FEATURES {
+        eval.remove_feature(feature);
+    }
+}
+
 fn is_generated_loaddefs_source(source: &str) -> bool {
     source.contains(GENERATED_LOADDEFS_MARKER)
 }
@@ -3122,9 +3128,7 @@ fn normalize_bootstrap_runtime_surface(
     }
     // Keep the transient helper list authoritative even if the parsed source
     // surface misses a provide edge.
-    for feature in TRANSIENT_RUNTIME_FEATURES {
-        eval.remove_feature(feature);
-    }
+    clear_transient_runtime_features(eval);
     // GNU's dumped runtime starts `gensym-counter` at 0.  Source bootstrap
     // expands many macros while loading core Lisp, so NeoVM must explicitly
     // drop that transient expansion count from the runtime surface.
@@ -3386,6 +3390,7 @@ fn finalize_cached_bootstrap_eval(
     }
     super::font::restore_created_faces_from_table(&eval.face_table.face_list());
     clear_runtime_loader_state(eval);
+    clear_transient_runtime_features(eval);
     ensure_startup_compat_variables(eval, project_root);
     restore_cached_runtime_window_system_surface(eval);
 
@@ -3518,9 +3523,7 @@ pub fn apply_runtime_startup_state(eval: &mut super::eval::Context) -> Result<()
     normalize_bootstrap_runtime_surface(eval, &project_root)?;
 
     sync_runtime_interpreted_closure_filter(eval);
-    for feature in TRANSIENT_RUNTIME_FEATURES {
-        eval.remove_feature(feature);
-    }
+    clear_transient_runtime_features(eval);
     eval.clear_top_level_eval_state();
 
     Ok(())

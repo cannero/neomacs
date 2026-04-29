@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::fs;
 use std::io::{ErrorKind, Seek, SeekFrom, Write as IoWrite};
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
 
 type DynError = Box<dyn Error>;
 type Result<T> = std::result::Result<T, DynError>;
@@ -35,9 +35,12 @@ struct PipelinePaths {
     temacs: PathBuf,
     bootstrap: PathBuf,
     final_bin: PathBuf,
+    etc_root: PathBuf,
     lisp_root: PathBuf,
     leim_root: PathBuf,
+    admin_charsets_root: PathBuf,
     admin_grammars_root: PathBuf,
+    admin_unidata_root: PathBuf,
     makefile_in: PathBuf,
 }
 
@@ -135,7 +138,7 @@ struct LeimGenerationJob {
 
 #[derive(Debug)]
 struct GeneratedLispJob {
-    name: &'static str,
+    name: String,
     args: Vec<OsString>,
 }
 
@@ -397,6 +400,12 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     remove_stale_lisp_bytecode(options, &paths)?;
     remove_stale_generated_leim_sources(options, &paths)?;
     remove_stale_generated_custom_finder_sources(options, &paths)?;
+    remove_stale_generated_unidata_sources(options, &paths)?;
+    // GNU src/Makefile.in makes temacs depend on the generated charset
+    // translation tables plus the AWK-generated Unicode helpers needed by
+    // early loadup.  These are source artifacts in lisp/international/, but
+    // they are intentionally not tracked in Git.
+    run_early_international_generation(options, &paths)?;
     // GNU src/Makefile.in runs `make -C ../lisp update-subdirs` before
     // bootstrap-emacs is dumped, so the bootstrap load path sees current
     // generated subdirectory metadata.
@@ -456,6 +465,11 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         )?;
     }
 
+    // GNU src/Makefile.in generates the full Unicode data set with
+    // bootstrap-emacs before final dumping and before Lisp files such as
+    // ucs-normalize.el are byte-compiled.
+    run_unidata_lisp_generation(options, &paths, &envs)?;
+
     // GNU lisp/Makefile.in makes both autoloads and compile-main depend on
     // gen-lisp.  This generates Lisp sources that are intentionally not
     // checked into the Neomacs tree, such as leim-list.el and CEDET parser
@@ -503,12 +517,6 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // dump sees the completed generated-source set.
     run_custom_finder_generation(options, &paths, &envs)?;
 
-    // GNU lisp/Makefile.in runs compile-main after regenerated autoloads and
-    // before the final dump.  Leave the resulting .elc files in place so the
-    // final pdump and runtime `load' path see bytecode before source, matching
-    // GNU lread.c's default `load-suffixes' order.
-    run_compile_main(options, &paths, &envs)?;
-
     run_command(
         options,
         &options.repo_root,
@@ -521,6 +529,13 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         ],
         &envs,
     )?;
+
+    // GNU top-level Makefile.in makes `lisp' depend on `src', so the general
+    // lisp/compile-main pass uses the final dumped src/emacs, not
+    // bootstrap-emacs.  This matters for Unicode property users such as
+    // sgml-mode and char-fold: charprop.el is generated after pbootstrap, then
+    // loaded into the final pdump before the broad Lisp byte-compile pass.
+    run_compile_main(options, &paths, &envs)?;
 
     Ok(())
 }
@@ -539,6 +554,427 @@ fn loaddefs_generation_args(loaddefs_gen: &Path, loaddefs_dirs: &[PathBuf]) -> V
             .map(|path| path.as_os_str().to_os_string()),
     );
     loaddefs_args
+}
+
+fn run_early_international_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    run_charset_translation_generation(options, paths)?;
+    run_unidata_awk_generation(options, paths)?;
+    Ok(())
+}
+
+fn run_charset_translation_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let mut generated = 0usize;
+
+    let cp51932_output = paths.lisp_root.join("international/cp51932.el");
+    let cp51932_script = paths.admin_charsets_root.join("cp51932.awk");
+    let cp932_map = paths.etc_root.join("charsets/CP932-2BYTE.map");
+    let cp51932_deps = vec![cp51932_script.clone(), cp932_map.clone()];
+    ensure_generation_input(&cp51932_script)?;
+    ensure_generation_input(&cp932_map)?;
+    if generated_file_needs_rebuild(&cp51932_output, &cp51932_deps) {
+        if generated == 0 {
+            print_synthetic_step("generate charset translation Lisp (GNU src/admin charsets)");
+        }
+        run_awk_stdin_to_output(options, &cp51932_script, &cp932_map, &cp51932_output)?;
+        generated += 1;
+    }
+
+    let eucjp_output = paths.lisp_root.join("international/eucjp-ms.el");
+    let eucjp_script = paths.admin_charsets_root.join("eucjp-ms.awk");
+    let eucjp_charmap = paths.admin_charsets_root.join("glibc/EUC-JP-MS.gz");
+    let eucjp_deps = vec![eucjp_script.clone(), eucjp_charmap.clone()];
+    ensure_generation_input(&eucjp_script)?;
+    ensure_generation_input(&eucjp_charmap)?;
+    if generated_file_needs_rebuild(&eucjp_output, &eucjp_deps) {
+        if generated == 0 {
+            print_synthetic_step("generate charset translation Lisp (GNU src/admin charsets)");
+        }
+        run_gunzip_awk_to_output(options, &eucjp_script, &eucjp_charmap, &eucjp_output)?;
+    }
+
+    Ok(())
+}
+
+fn run_unidata_awk_generation(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    let mut generated = 0usize;
+
+    let charscript_output = paths.lisp_root.join("international/charscript.el");
+    let blocks_script = paths.admin_unidata_root.join("blocks.awk");
+    let blocks_txt = paths.admin_unidata_root.join("Blocks.txt");
+    let emoji_data = paths.admin_unidata_root.join("emoji-data.txt");
+    let charscript_deps = vec![
+        blocks_script.clone(),
+        blocks_txt.clone(),
+        emoji_data.clone(),
+    ];
+    ensure_generation_inputs(&charscript_deps)?;
+    if generated_file_needs_rebuild(&charscript_output, &charscript_deps) {
+        if generated == 0 {
+            print_synthetic_step("generate Unicode AWK Lisp helpers (GNU src/admin unidata)");
+        }
+        run_awk_files_to_output(
+            options,
+            &blocks_script,
+            &[blocks_txt, emoji_data],
+            &charscript_output,
+        )?;
+        generated += 1;
+    }
+
+    let emoji_zwj_output = paths.lisp_root.join("international/emoji-zwj.el");
+    let emoji_zwj_script = paths.admin_unidata_root.join("emoji-zwj.awk");
+    let emoji_zwj_sequences = paths.admin_unidata_root.join("emoji-zwj-sequences.txt");
+    let emoji_sequences = paths.admin_unidata_root.join("emoji-sequences.txt");
+    let emoji_zwj_deps = vec![
+        emoji_zwj_script.clone(),
+        emoji_zwj_sequences.clone(),
+        emoji_sequences.clone(),
+    ];
+    ensure_generation_inputs(&emoji_zwj_deps)?;
+    if generated_file_needs_rebuild(&emoji_zwj_output, &emoji_zwj_deps) {
+        if generated == 0 {
+            print_synthetic_step("generate Unicode AWK Lisp helpers (GNU src/admin unidata)");
+        }
+        run_awk_files_to_output(
+            options,
+            &emoji_zwj_script,
+            &[emoji_zwj_sequences, emoji_sequences],
+            &emoji_zwj_output,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn run_unidata_lisp_generation(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    let unidata_gen = paths.admin_unidata_root.join("unidata-gen.el");
+    ensure_generation_input(&unidata_gen)?;
+
+    let unifiles = unidata_generated_lisp_files(paths)?;
+    let unidata_txt = paths.admin_unidata_root.join("unidata.txt");
+    let unifile_deps = vec![
+        unidata_gen.clone(),
+        paths.admin_unidata_root.join("UnicodeData.txt"),
+        paths.admin_unidata_root.join("BidiMirroring.txt"),
+        paths.admin_unidata_root.join("BidiBrackets.txt"),
+        unidata_txt.clone(),
+    ];
+    ensure_generation_inputs(&unifile_deps[..unifile_deps.len() - 1])?;
+
+    let unifiles_need_rebuild = unifiles
+        .iter()
+        .any(|output| generated_file_needs_rebuild(output, &unifile_deps));
+    let charprop_output = paths.lisp_root.join("international/charprop.el");
+    let mut charprop_deps = Vec::with_capacity(unifiles.len() + 1);
+    charprop_deps.push(unidata_gen.clone());
+    charprop_deps.extend(unifiles.iter().cloned());
+    let charprop_needs_rebuild =
+        unifiles_need_rebuild || generated_file_needs_rebuild(&charprop_output, &charprop_deps);
+
+    let extra_jobs = unidata_extra_lisp_jobs(paths, &unidata_gen)?;
+    let extra_needs_rebuild = extra_jobs
+        .iter()
+        .any(|job| generated_file_needs_rebuild(&job.output, &job.dependencies));
+
+    if !unifiles_need_rebuild && !charprop_needs_rebuild && !extra_needs_rebuild {
+        return Ok(());
+    }
+
+    print_synthetic_step("generate Unicode Lisp data (GNU src/admin unidata)");
+    run_unidata_txt_generation(options, paths)?;
+    if bytecode_needs_rebuild(&unidata_gen) {
+        let args = vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("-f"),
+            OsString::from("batch-byte-compile"),
+            unidata_gen.as_os_str().to_os_string(),
+        ];
+        run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)?;
+    }
+
+    if unifiles_need_rebuild {
+        let unifile_jobs =
+            unidata_gen_file_jobs(options, paths, &unifiles, &unifile_deps, &unidata_txt)?;
+        if !unifile_jobs.is_empty() {
+            let jobs = compile_main_jobs();
+            println!(
+                "  INFO  generating {} Unicode property .el files with {jobs} parallel jobs",
+                unifile_jobs.len(),
+            );
+            let errors = run_generated_lisp_jobs(options, paths, envs, unifile_jobs)?;
+            if !errors.is_empty() {
+                eprintln!(
+                    "  ERROR  {} Unicode property job{} failed:",
+                    errors.len(),
+                    if errors.len() == 1 { "" } else { "s" }
+                );
+                for error in &errors {
+                    eprintln!("    - {error}");
+                }
+                return Err(generated_lisp_failure_summary(&errors).into());
+            }
+        }
+    }
+
+    if charprop_needs_rebuild {
+        run_unidata_generator_function(
+            options,
+            paths,
+            envs,
+            "unidata-gen-charprop",
+            &charprop_output,
+            &[],
+        )?;
+    }
+
+    let extra_jobs = unidata_extra_jobs_to_run(options, extra_jobs)?;
+    if !extra_jobs.is_empty() {
+        let jobs = compile_main_jobs();
+        println!(
+            "  INFO  generating {} extra Unicode .el files with {jobs} parallel jobs",
+            extra_jobs.len(),
+        );
+        let errors = run_generated_lisp_jobs(options, paths, envs, extra_jobs)?;
+        if !errors.is_empty() {
+            eprintln!(
+                "  ERROR  {} extra Unicode job{} failed:",
+                errors.len(),
+                if errors.len() == 1 { "" } else { "s" }
+            );
+            for error in &errors {
+                eprintln!("    - {error}");
+            }
+            return Err(generated_lisp_failure_summary(&errors).into());
+        }
+    }
+
+    Ok(())
+}
+
+fn unidata_gen_file_jobs(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    unifiles: &[PathBuf],
+    dependencies: &[PathBuf],
+    unidata_txt: &Path,
+) -> Result<Vec<GeneratedLispJob>> {
+    let mut jobs = Vec::new();
+    for output in unifiles {
+        if !generated_file_needs_rebuild(output, dependencies) {
+            continue;
+        }
+        ensure_output_parent(options, output)?;
+        make_output_writable(options, output)?;
+        jobs.push(GeneratedLispJob {
+            name: format!("{} (GNU unidata-gen-file)", output.display()),
+            args: unidata_gen_file_args(paths, output, unidata_txt),
+        });
+    }
+    Ok(jobs)
+}
+
+fn unidata_extra_jobs_to_run(
+    options: &FreshBuildOptions,
+    jobs: Vec<UnidataExtraJob>,
+) -> Result<Vec<GeneratedLispJob>> {
+    let mut jobs_to_run = Vec::new();
+    for job in jobs {
+        if !generated_file_needs_rebuild(&job.output, &job.dependencies) {
+            continue;
+        }
+        ensure_output_parent(options, &job.output)?;
+        make_output_writable(options, &job.output)?;
+        jobs_to_run.push(GeneratedLispJob {
+            name: format!("{} (GNU unidata)", job.output.display()),
+            args: job.args,
+        });
+    }
+    Ok(jobs_to_run)
+}
+
+#[derive(Debug)]
+struct UnidataExtraJob {
+    output: PathBuf,
+    dependencies: Vec<PathBuf>,
+    args: Vec<OsString>,
+}
+
+fn unidata_extra_lisp_jobs(
+    paths: &PipelinePaths,
+    unidata_gen: &Path,
+) -> Result<Vec<UnidataExtraJob>> {
+    let output = |name: &str| paths.lisp_root.join("international").join(name);
+    let admin = |name: &str| paths.admin_unidata_root.join(name);
+    let unidata_gen_os = unidata_gen.as_os_str().to_os_string();
+    let admin_dir_os = paths.admin_unidata_root.as_os_str().to_os_string();
+
+    let specs = [
+        (
+            "emoji-labels.el",
+            vec![
+                paths.lisp_root.join("international/emoji.el"),
+                admin("emoji-test.txt"),
+            ],
+            vec![
+                OsString::from("--batch"),
+                OsString::from("--no-site-file"),
+                OsString::from("--no-site-lisp"),
+                OsString::from("-l"),
+                OsString::from("emoji.el"),
+                OsString::from("-f"),
+                OsString::from("emoji--generate-file"),
+            ],
+        ),
+        (
+            "uni-scripts.el",
+            vec![
+                unidata_gen.to_path_buf(),
+                admin("Scripts.txt"),
+                admin("ScriptExtensions.txt"),
+                admin("PropertyValueAliases.txt"),
+            ],
+            unidata_generator_args(&admin_dir_os, &unidata_gen_os, "unidata-gen-scripts"),
+        ),
+        (
+            "uni-confusable.el",
+            vec![unidata_gen.to_path_buf(), admin("confusables.txt")],
+            unidata_generator_args(&admin_dir_os, &unidata_gen_os, "unidata-gen-confusable"),
+        ),
+        (
+            "idna-mapping.el",
+            vec![unidata_gen.to_path_buf(), admin("IdnaMappingTable.txt")],
+            unidata_generator_args(&admin_dir_os, &unidata_gen_os, "unidata-gen-idna-mapping"),
+        ),
+    ];
+
+    specs
+        .into_iter()
+        .map(|(name, dependencies, mut args)| {
+            ensure_generation_inputs(&dependencies)?;
+            let output = output(name);
+            args.push(output.as_os_str().to_os_string());
+            Ok(UnidataExtraJob {
+                output,
+                dependencies,
+                args,
+            })
+        })
+        .collect()
+}
+
+fn unidata_generator_args(
+    admin_dir: &OsString,
+    unidata_gen: &OsString,
+    function: &str,
+) -> Vec<OsString> {
+    vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("-L"),
+        admin_dir.clone(),
+        OsString::from("-l"),
+        unidata_gen.clone(),
+        OsString::from("-f"),
+        OsString::from(function),
+    ]
+}
+
+fn unidata_gen_file_args(
+    paths: &PipelinePaths,
+    output: &Path,
+    unidata_txt: &Path,
+) -> Vec<OsString> {
+    let mut args = unidata_generator_args(
+        &paths.admin_unidata_root.as_os_str().to_os_string(),
+        &paths
+            .admin_unidata_root
+            .join("unidata-gen.el")
+            .as_os_str()
+            .to_os_string(),
+        "unidata-gen-file",
+    );
+    args.push(output.as_os_str().to_os_string());
+    args.push(paths.admin_unidata_root.as_os_str().to_os_string());
+    args.push(unidata_txt.as_os_str().to_os_string());
+    args
+}
+
+fn run_unidata_generator_function(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    function: &str,
+    output: &Path,
+    extra_args: &[OsString],
+) -> Result<()> {
+    ensure_output_parent(options, output)?;
+    make_output_writable(options, output)?;
+    let mut args = unidata_generator_args(
+        &paths.admin_unidata_root.as_os_str().to_os_string(),
+        &paths
+            .admin_unidata_root
+            .join("unidata-gen.el")
+            .as_os_str()
+            .to_os_string(),
+        function,
+    );
+    args.push(output.as_os_str().to_os_string());
+    args.extend(extra_args.iter().cloned());
+    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+}
+
+fn run_unidata_txt_generation(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    let unicode_data = paths.admin_unidata_root.join("UnicodeData.txt");
+    let output = paths.admin_unidata_root.join("unidata.txt");
+    ensure_generation_input(&unicode_data)?;
+    let deps = vec![unicode_data.clone()];
+    if !generated_file_needs_rebuild(&output, &deps) {
+        return Ok(());
+    }
+    ensure_output_parent(options, &output)?;
+    make_output_writable(options, &output)?;
+    run_sed_unicode_data_to_output(options, &unicode_data, &output)
+}
+
+fn unidata_generated_lisp_files(paths: &PipelinePaths) -> Result<Vec<PathBuf>> {
+    let contents = fs::read_to_string(paths.admin_unidata_root.join("unidata-gen.el"))?;
+    Ok(unidata_generated_lisp_file_names_from_str(&contents)
+        .into_iter()
+        .map(|name| paths.lisp_root.join("international").join(name))
+        .collect())
+}
+
+fn unidata_generated_lisp_file_names_from_str(contents: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    for line in contents.lines() {
+        let trimmed = line.trim_start();
+        let Some(rest) = trimmed.strip_prefix("(\"uni-") else {
+            continue;
+        };
+        let Some((name_rest, _)) = rest.split_once('"') else {
+            continue;
+        };
+        let name = format!("uni-{name_rest}");
+        if name.ends_with(".el") && seen.insert(name.clone()) {
+            out.push(name);
+        }
+    }
+    out.sort();
+    out
 }
 
 fn run_gen_lisp(
@@ -603,7 +1039,7 @@ fn custom_dependencies_generation_job(paths: &PipelinePaths) -> Result<Option<Ge
 
     let args = custom_dependencies_generation_args(&paths.lisp_root, &output, &dirs);
     Ok(Some(GeneratedLispJob {
-        name: "lisp/cus-load.el (GNU custom-deps)",
+        name: "lisp/cus-load.el (GNU custom-deps)".to_string(),
         args,
     }))
 }
@@ -619,7 +1055,7 @@ fn finder_data_generation_job(paths: &PipelinePaths) -> Result<Option<GeneratedL
 
     let args = finder_data_generation_args(&paths.lisp_root, &output, &dirs);
     Ok(Some(GeneratedLispJob {
-        name: "lisp/finder-inf.el (GNU finder-data)",
+        name: "lisp/finder-inf.el (GNU finder-data)".to_string(),
         args,
     }))
 }
@@ -648,7 +1084,7 @@ fn run_generated_lisp_jobs(
     }
 
     let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(jobs.len().max(1))
+        .num_threads(jobs.len().min(compile_main_jobs()).max(1))
         .build()?;
     Ok(pool.install(|| {
         jobs.par_iter()
@@ -733,7 +1169,7 @@ fn run_leim_generation(
     let titdic_cnv = paths.lisp_root.join("international/titdic-cnv.el");
     if compile_main_needs_rebuild(&titdic_cnv) {
         print_synthetic_step("compile leim generator (GNU gen-lisp leim)");
-        run_compile_main_source(options, paths, envs, &titdic_cnv)?;
+        run_bootstrap_byte_compile_source(options, paths, envs, &titdic_cnv)?;
     }
 
     let quail_dir = paths.lisp_root.join("leim/quail");
@@ -1064,6 +1500,13 @@ fn ensure_generation_input(path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn ensure_generation_inputs(paths: &[PathBuf]) -> Result<()> {
+    for path in paths {
+        ensure_generation_input(path)?;
+    }
+    Ok(())
+}
+
 fn ensure_output_parent(options: &FreshBuildOptions, output: &Path) -> Result<()> {
     let Some(parent) = output.parent() else {
         return Ok(());
@@ -1082,6 +1525,134 @@ fn make_output_writable(options: &FreshBuildOptions, output: &Path) -> Result<()
     let mut permissions = fs::metadata(output)?.permissions();
     permissions.set_readonly(false);
     fs::set_permissions(output, permissions)?;
+    Ok(())
+}
+
+fn run_awk_stdin_to_output(
+    options: &FreshBuildOptions,
+    script: &Path,
+    input: &Path,
+    output: &Path,
+) -> Result<()> {
+    ensure_output_parent(options, output)?;
+    make_output_writable(options, output)?;
+    let awk = tool_program("awk");
+    let args = vec![OsString::from("-f"), script.as_os_str().to_os_string()];
+    print_redirected_command(awk.as_os_str(), &args, Some(input), output);
+    if options.dry_run {
+        return Ok(());
+    }
+
+    let input_file = fs::File::open(input)?;
+    let output_file = fs::File::create(output)?;
+    let status = Command::new(&awk)
+        .args(args.iter().map(OsString::as_os_str))
+        .stdin(input_file)
+        .stdout(output_file)
+        .status()?;
+    if !status.success() {
+        return Err(redirected_command_failure(&awk, &args, Some(input), output, status).into());
+    }
+    Ok(())
+}
+
+fn run_awk_files_to_output(
+    options: &FreshBuildOptions,
+    script: &Path,
+    inputs: &[PathBuf],
+    output: &Path,
+) -> Result<()> {
+    ensure_output_parent(options, output)?;
+    make_output_writable(options, output)?;
+    let awk = tool_program("awk");
+    let mut args = vec![OsString::from("-f"), script.as_os_str().to_os_string()];
+    args.extend(inputs.iter().map(|input| input.as_os_str().to_os_string()));
+    print_redirected_command(awk.as_os_str(), &args, None, output);
+    if options.dry_run {
+        return Ok(());
+    }
+
+    let output_file = fs::File::create(output)?;
+    let status = Command::new(&awk)
+        .args(args.iter().map(OsString::as_os_str))
+        .stdout(output_file)
+        .status()?;
+    if !status.success() {
+        return Err(redirected_command_failure(&awk, &args, None, output, status).into());
+    }
+    Ok(())
+}
+
+fn run_gunzip_awk_to_output(
+    options: &FreshBuildOptions,
+    script: &Path,
+    input: &Path,
+    output: &Path,
+) -> Result<()> {
+    ensure_output_parent(options, output)?;
+    make_output_writable(options, output)?;
+    let gunzip = tool_program("gunzip");
+    let awk = tool_program("awk");
+    let gunzip_args = vec![OsString::from("-c"), input.as_os_str().to_os_string()];
+    print_command(gunzip.as_os_str(), &gunzip_args);
+    let awk_args = vec![OsString::from("-f"), script.as_os_str().to_os_string()];
+    print_redirected_command(awk.as_os_str(), &awk_args, None, output);
+    if options.dry_run {
+        return Ok(());
+    }
+
+    let gunzip_output = Command::new(&gunzip)
+        .args(gunzip_args.iter().map(OsString::as_os_str))
+        .output()?;
+    if !gunzip_output.status.success() {
+        return Err(command_failure(&gunzip, &gunzip_args, gunzip_output.status).into());
+    }
+
+    let output_file = fs::File::create(output)?;
+    let mut child = Command::new(&awk)
+        .args(awk_args.iter().map(OsString::as_os_str))
+        .stdin(Stdio::piped())
+        .stdout(output_file)
+        .spawn()?;
+    child
+        .stdin
+        .take()
+        .expect("awk child stdin should be piped")
+        .write_all(&gunzip_output.stdout)?;
+    let status = child.wait()?;
+    if !status.success() {
+        return Err(redirected_command_failure(&awk, &awk_args, None, output, status).into());
+    }
+    Ok(())
+}
+
+fn run_sed_unicode_data_to_output(
+    options: &FreshBuildOptions,
+    input: &Path,
+    output: &Path,
+) -> Result<()> {
+    let sed = tool_program("sed");
+    let args = vec![
+        OsString::from("-e"),
+        OsString::from(r#"s/\([^;]*\);\(.*\)/(#x\1 "\2")/"#),
+        OsString::from("-e"),
+        OsString::from(r#"s/;/" "/g"#),
+    ];
+    print_redirected_command(sed.as_os_str(), &args, Some(input), output);
+    if options.dry_run {
+        return Ok(());
+    }
+
+    let input_file = fs::File::open(input)?;
+    let output_file = fs::File::create(output)?;
+    let status = Command::new(&sed)
+        .args(args.iter().map(OsString::as_os_str))
+        .stdin(input_file)
+        .stdout(output_file)
+        .status()?;
+    if !status.success() {
+        return Err(redirected_command_failure(&sed, &args, Some(input), output, status).into());
+    }
     Ok(())
 }
 
@@ -1204,6 +1775,62 @@ fn remove_stale_generated_custom_finder_sources(
         }
     }
     println!("  INFO  removed {removed} stale generated custom/finder source files");
+    Ok(())
+}
+
+fn generated_unidata_source_files(paths: &PipelinePaths) -> Result<Vec<PathBuf>> {
+    let mut files = vec![
+        paths.lisp_root.join("international/charscript.el"),
+        paths.lisp_root.join("international/emoji-zwj.el"),
+        paths.lisp_root.join("international/charprop.el"),
+        paths.lisp_root.join("international/emoji-labels.el"),
+        paths.lisp_root.join("international/idna-mapping.el"),
+        paths.lisp_root.join("international/uni-confusable.el"),
+        paths.lisp_root.join("international/uni-scripts.el"),
+    ];
+    files.extend(unidata_generated_lisp_files(paths)?);
+    files.sort();
+    files.dedup();
+    Ok(files)
+}
+
+fn generated_unidata_admin_files(paths: &PipelinePaths) -> Vec<PathBuf> {
+    vec![
+        paths.admin_unidata_root.join("unidata.txt"),
+        paths.admin_unidata_root.join("unidata-gen.elc"),
+        paths.admin_unidata_root.join("uvs.elc"),
+    ]
+}
+
+fn remove_stale_generated_unidata_sources(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    let mut files = generated_unidata_source_files(paths)?;
+    files.extend(generated_unidata_admin_files(paths));
+    let files = files
+        .into_iter()
+        .filter(|path| options.dry_run || path.exists())
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return Ok(());
+    }
+
+    print_synthetic_step("remove stale generated Unicode data sources");
+    if options.dry_run {
+        for file in &files {
+            println!("  would remove: {}", file.display());
+        }
+        return Ok(());
+    }
+
+    let mut removed = 0usize;
+    for file in &files {
+        if remove_file_if_exists(file)? {
+            removed += 1;
+        }
+    }
+    println!("  INFO  removed {removed} stale generated Unicode data source files");
     Ok(())
 }
 
@@ -1380,9 +2007,12 @@ fn pipeline_paths(options: &FreshBuildOptions) -> PipelinePaths {
         temacs: options.bin_dir.join("neomacs-temacs"),
         bootstrap: options.bin_dir.join("bootstrap-neomacs"),
         final_bin: options.bin_dir.join("neomacs"),
+        etc_root: options.runtime_root.join("etc"),
         makefile_in: lisp_root.join("Makefile.in"),
         leim_root: options.repo_root.join("leim"),
+        admin_charsets_root: options.repo_root.join("admin/charsets"),
         admin_grammars_root: options.repo_root.join("admin/grammars"),
+        admin_unidata_root: options.repo_root.join("admin/unidata"),
         lisp_root,
     }
 }
@@ -1393,7 +2023,9 @@ fn ensure_runtime_inputs(paths: &PipelinePaths) -> Result<()> {
         paths.makefile_in.clone(),
         paths.lisp_root.join("emacs-lisp/loaddefs-gen.el"),
         paths.leim_root.join("Makefile.in"),
+        paths.admin_charsets_root.join("Makefile.in"),
         paths.admin_grammars_root.join("Makefile.in"),
+        paths.admin_unidata_root.join("Makefile.in"),
     ] {
         if !required.exists() {
             return Err(format!("missing required path: {}", required.display()).into());
@@ -1568,9 +2200,13 @@ fn uppercase_hex(bytes: &[u8]) -> String {
 }
 
 fn cargo_program() -> PathBuf {
+    tool_program("cargo")
+}
+
+fn tool_program(name: &str) -> PathBuf {
     let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    resolve_program_on_path("cargo", env::var_os("PATH").as_deref(), &cwd)
-        .unwrap_or_else(|| PathBuf::from("cargo"))
+    resolve_program_on_path(name, env::var_os("PATH").as_deref(), &cwd)
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 fn resolve_program_on_path(program: &str, path: Option<&OsStr>, cwd: &Path) -> Option<PathBuf> {
@@ -1659,6 +2295,23 @@ fn command_failure(program: &Path, args: &[OsString], status: ExitStatus) -> Str
     rendered
 }
 
+fn redirected_command_failure(
+    program: &Path,
+    args: &[OsString],
+    input: Option<&Path>,
+    output: &Path,
+    status: ExitStatus,
+) -> String {
+    let mut rendered = String::new();
+    write!(
+        &mut rendered,
+        "command failed with status {status}: {}",
+        redirected_command_string(program.as_os_str(), args, input, output)
+    )
+    .expect("write to string");
+    rendered
+}
+
 fn print_command(program: &OsStr, args: &[OsString]) {
     let mut rendered = String::from("+ ");
     rendered.push_str(&shell_quote(program));
@@ -1667,6 +2320,39 @@ fn print_command(program: &OsStr, args: &[OsString]) {
         rendered.push_str(&shell_quote(arg.as_os_str()));
     }
     println!("{rendered}");
+}
+
+fn print_redirected_command(
+    program: &OsStr,
+    args: &[OsString],
+    input: Option<&Path>,
+    output: &Path,
+) {
+    println!(
+        "+ {}",
+        redirected_command_string(program, args, input, output)
+    );
+}
+
+fn redirected_command_string(
+    program: &OsStr,
+    args: &[OsString],
+    input: Option<&Path>,
+    output: &Path,
+) -> String {
+    let mut rendered = String::new();
+    rendered.push_str(&shell_quote(program));
+    for arg in args {
+        rendered.push(' ');
+        rendered.push_str(&shell_quote(arg.as_os_str()));
+    }
+    if let Some(input) = input {
+        rendered.push_str(" < ");
+        rendered.push_str(&shell_quote(input.as_os_str()));
+    }
+    rendered.push_str(" > ");
+    rendered.push_str(&shell_quote(output.as_os_str()));
+    rendered
 }
 
 fn print_synthetic_step(message: &str) {
@@ -1968,7 +2654,7 @@ fn run_compile_main_parallel(
         let wave_errors = if options.dry_run {
             wave.iter()
                 .filter_map(|source| {
-                    run_compile_main_source(options, paths, envs, source)
+                    run_final_compile_main_source(options, paths, envs, source)
                         .err()
                         .map(|err| format!("{} ({err})", source.display()))
                 })
@@ -1977,7 +2663,7 @@ fn run_compile_main_parallel(
             pool.install(|| {
                 wave.par_iter()
                     .filter_map(|source| {
-                        run_compile_main_source(options, paths, envs, source)
+                        run_final_compile_main_source(options, paths, envs, source)
                             .err()
                             .map(|err| format!("{} ({err})", source.display()))
                     })
@@ -2099,14 +2785,40 @@ fn compile_main_dependency_bytecode_newer(
     })
 }
 
-fn run_compile_main_source(
+fn run_bootstrap_byte_compile_source(
     options: &FreshBuildOptions,
     paths: &PipelinePaths,
     envs: &[(OsString, OsString)],
     source: &Path,
 ) -> Result<()> {
+    run_byte_compile_source_with(options, bootstrap_byte_compile_emacs(paths), envs, source)
+}
+
+fn run_final_compile_main_source(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    source: &Path,
+) -> Result<()> {
+    run_byte_compile_source_with(options, compile_main_emacs(paths), envs, source)
+}
+
+fn run_byte_compile_source_with(
+    options: &FreshBuildOptions,
+    program: &Path,
+    envs: &[(OsString, OsString)],
+    source: &Path,
+) -> Result<()> {
     let args = compile_main_args_for_source(options.native_comp, source);
-    run_command(options, &options.repo_root, &paths.bootstrap, &args, envs)
+    run_command(options, &options.repo_root, program, &args, envs)
+}
+
+fn compile_main_emacs(paths: &PipelinePaths) -> &Path {
+    &paths.final_bin
+}
+
+fn bootstrap_byte_compile_emacs(paths: &PipelinePaths) -> &Path {
+    &paths.bootstrap
 }
 
 fn push_compile_main_source(
@@ -2553,13 +3265,15 @@ Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release
 
 Build the GNU-shaped Neomacs runtime pipeline:
   1. cargo build --verbose -p neomacs [--release]
-  2. regenerate GNU subdirs.el files
-  3. neomacs-temacs --temacs=pbootstrap
-  4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
-  5. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
-  6. bootstrap-neomacs generates loaddefs / ldefs-boot
-  7. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
-  8. neomacs-temacs --temacs=pdump
+  2. generate GNU early charset/unidata Lisp sources
+  3. regenerate GNU subdirs.el files
+  4. neomacs-temacs --temacs=pbootstrap
+  5. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
+  6. bootstrap-neomacs generates GNU Unicode Lisp data
+  7. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
+  8. bootstrap-neomacs generates loaddefs / ldefs-boot
+  9. neomacs-temacs --temacs=pdump
+ 10. neomacs byte-compiles the GNU compile-main Lisp set into .elc files
 
 Options:
   --bin-dir DIR       Directory containing neomacs and generated role copies

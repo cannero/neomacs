@@ -37,6 +37,41 @@ fn explicit_bin_dir_before_release_stays_in_effect() {
 }
 
 #[test]
+fn compile_main_uses_final_dumped_emacs() {
+    let options = parse_options(&[]);
+    let paths = pipeline_paths(&options);
+
+    assert_eq!(compile_main_emacs(&paths), paths.final_bin.as_path());
+    assert_ne!(compile_main_emacs(&paths), paths.bootstrap.as_path());
+}
+
+#[test]
+fn gen_lisp_bootstrap_byte_compile_uses_bootstrap_emacs() {
+    let options = parse_options(&[]);
+    let paths = pipeline_paths(&options);
+
+    assert_eq!(
+        bootstrap_byte_compile_emacs(&paths),
+        paths.bootstrap.as_path()
+    );
+    assert_ne!(
+        bootstrap_byte_compile_emacs(&paths),
+        paths.final_bin.as_path()
+    );
+}
+
+#[test]
+fn usage_places_final_pdump_before_compile_main() {
+    let usage = usage_text();
+    let pdump = usage.find("neomacs-temacs --temacs=pdump").unwrap();
+    let compile_main = usage
+        .find("neomacs byte-compiles the GNU compile-main")
+        .unwrap();
+
+    assert!(pdump < compile_main);
+}
+
+#[test]
 fn parse_compile_first_skips_native_entries_by_default() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
@@ -303,9 +338,12 @@ fn generated_leim_source_files_match_gnu_bootstrap_clean_scope() {
         temacs: repo_root.join("target/debug/neomacs-temacs"),
         bootstrap: repo_root.join("target/debug/bootstrap-neomacs"),
         final_bin: repo_root.join("target/debug/neomacs"),
+        etc_root: repo_root.join("etc"),
         lisp_root: repo_root.join("lisp"),
         leim_root: repo_root.join("leim"),
+        admin_charsets_root: repo_root.join("admin/charsets"),
         admin_grammars_root: repo_root.join("admin/grammars"),
+        admin_unidata_root: repo_root.join("admin/unidata"),
         makefile_in: repo_root.join("lisp/Makefile.in"),
     };
 
@@ -333,9 +371,12 @@ fn generated_custom_finder_source_files_match_gnu_autogen_scope() {
         temacs: repo_root.join("target/debug/neomacs-temacs"),
         bootstrap: repo_root.join("target/debug/bootstrap-neomacs"),
         final_bin: repo_root.join("target/debug/neomacs"),
+        etc_root: repo_root.join("etc"),
         lisp_root: repo_root.join("lisp"),
         leim_root: repo_root.join("leim"),
+        admin_charsets_root: repo_root.join("admin/charsets"),
         admin_grammars_root: repo_root.join("admin/grammars"),
+        admin_unidata_root: repo_root.join("admin/unidata"),
         makefile_in: repo_root.join("lisp/Makefile.in"),
     };
 
@@ -1004,6 +1045,119 @@ fn outer_cargo_env_filter_strips_package_build_vars_only() {
     ] {
         assert!(!should_remove_outer_cargo_env(OsStr::new(key)), "{key}");
     }
+}
+
+#[test]
+fn unidata_generated_lisp_file_names_match_gnu_makefile_shape() {
+    let contents = r#"
+(defconst unidata-file-alist
+  '(
+    ("uni-name.el"
+     name
+     1)
+    ("uni-category.el"
+     category
+     2)
+    ("not-generated.el"
+     ignored)
+    ("uni-special-uppercase.el"
+     special)))
+"#;
+
+    assert_eq!(
+        unidata_generated_lisp_file_names_from_str(contents),
+        vec![
+            "uni-category.el".to_string(),
+            "uni-name.el".to_string(),
+            "uni-special-uppercase.el".to_string(),
+        ]
+    );
+}
+
+#[test]
+fn unidata_generator_args_use_gnu_batch_shape() {
+    let args = unidata_generator_args(
+        &OsString::from("/repo/admin/unidata"),
+        &OsString::from("/repo/admin/unidata/unidata-gen.el"),
+        "unidata-gen-file",
+    );
+
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("-L"),
+            OsString::from("/repo/admin/unidata"),
+            OsString::from("-l"),
+            OsString::from("/repo/admin/unidata/unidata-gen.el"),
+            OsString::from("-f"),
+            OsString::from("unidata-gen-file"),
+        ]
+    );
+}
+
+#[test]
+fn generated_unidata_source_files_match_gnu_gen_clean_shape() {
+    let tempdir = tempdir();
+    let repo = tempdir.join("repo");
+    let lisp = repo.join("lisp");
+    let admin = repo.join("admin/unidata");
+    fs::create_dir_all(&admin).unwrap();
+    fs::write(
+        admin.join("unidata-gen.el"),
+        r#"
+(defconst unidata-file-alist
+  '(
+    ("uni-name.el"
+     name)
+    ("uni-category.el"
+     category)))
+"#,
+    )
+    .unwrap();
+    let options = FreshBuildOptions {
+        repo_root: repo.clone(),
+        runtime_root: repo.clone(),
+        bin_dir: repo.join("target/debug"),
+        release: false,
+        dry_run: false,
+        native_comp: false,
+        skip_build: false,
+    };
+    let paths = PipelinePaths {
+        lisp_root: lisp.clone(),
+        admin_unidata_root: admin.clone(),
+        ..pipeline_paths(&options)
+    };
+
+    let files = generated_unidata_source_files(&paths).unwrap();
+
+    assert!(files.contains(&lisp.join("international/charscript.el")));
+    assert!(files.contains(&lisp.join("international/emoji-zwj.el")));
+    assert!(files.contains(&lisp.join("international/charprop.el")));
+    assert!(files.contains(&lisp.join("international/uni-name.el")));
+    assert!(files.contains(&lisp.join("international/uni-category.el")));
+    assert!(files.contains(&lisp.join("international/emoji-labels.el")));
+    assert!(files.contains(&lisp.join("international/idna-mapping.el")));
+    assert!(files.contains(&lisp.join("international/uni-confusable.el")));
+    assert!(files.contains(&lisp.join("international/uni-scripts.el")));
+}
+
+#[test]
+fn generated_unidata_admin_files_match_gnu_clean_shape() {
+    let options = parse_options(&[]);
+    let paths = pipeline_paths(&options);
+
+    assert_eq!(
+        generated_unidata_admin_files(&paths),
+        vec![
+            PathBuf::from("/repo/admin/unidata/unidata.txt"),
+            PathBuf::from("/repo/admin/unidata/unidata-gen.elc"),
+            PathBuf::from("/repo/admin/unidata/uvs.elc"),
+        ]
+    );
 }
 
 fn tempdir() -> PathBuf {

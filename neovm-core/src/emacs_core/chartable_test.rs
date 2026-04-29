@@ -449,6 +449,108 @@ fn map_char_table_decodes_unicode_property_run_length_values() {
 }
 
 #[test]
+fn char_table_range_uncompresses_unicode_property_character_blocks() {
+    crate::test_utils::init_test_tracing();
+    let table =
+        make_char_table_with_extra_slots(Value::symbol("char-code-property-table"), Value::NIL, 5);
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(0), Value::symbol("uppercase")])
+        .unwrap();
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(2), Value::fixnum(0)]).unwrap();
+    builtin_set_char_table_range(vec![
+        table,
+        Value::cons(Value::fixnum(128), Value::fixnum(255)),
+        Value::string("\u{1}\u{2}AB"),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        builtin_char_table_range(vec![table, Value::fixnum(129)]).unwrap(),
+        Value::NIL
+    );
+    assert_eq!(
+        builtin_char_table_range(vec![table, Value::fixnum(130)]).unwrap(),
+        Value::fixnum('A' as i64)
+    );
+    assert_eq!(
+        builtin_char_table_range(vec![table, Value::fixnum(131)]).unwrap(),
+        Value::fixnum('B' as i64)
+    );
+}
+
+#[test]
+fn get_unicode_property_internal_uncompresses_run_length_blocks() {
+    crate::test_utils::init_test_tracing();
+    let table =
+        make_char_table_with_extra_slots(Value::symbol("char-code-property-table"), Value::NIL, 5);
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(0),
+        Value::symbol("general-category"),
+    ])
+    .unwrap();
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(1), Value::fixnum(0)]).unwrap();
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(4),
+        Value::vector(vec![Value::NIL, Value::symbol("Lu"), Value::symbol("Ll")]),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![
+        table,
+        Value::cons(Value::fixnum(256), Value::fixnum(383)),
+        Value::string("\u{2}\u{1}\u{83}\u{2}"),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        builtin_get_unicode_property_internal(vec![table, Value::fixnum(256)]).unwrap(),
+        Value::symbol("Lu")
+    );
+    assert_eq!(
+        builtin_get_unicode_property_internal(vec![table, Value::fixnum(258)]).unwrap(),
+        Value::symbol("Lu")
+    );
+    assert_eq!(
+        builtin_get_unicode_property_internal(vec![table, Value::fixnum(259)]).unwrap(),
+        Value::symbol("Ll")
+    );
+    assert_eq!(
+        builtin_get_unicode_property_internal(vec![table, Value::fixnum(260)]).unwrap(),
+        Value::NIL
+    );
+}
+
+#[test]
+fn format_percent_s_prints_unicode_property_table_as_gnu_char_table() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let table =
+        make_char_table_with_extra_slots(Value::symbol("char-code-property-table"), Value::NIL, 5);
+    builtin_set_char_table_extra_slot(vec![
+        table,
+        Value::fixnum(0),
+        Value::symbol("general-category"),
+    ])
+    .unwrap();
+    builtin_set_char_table_extra_slot(vec![table, Value::fixnum(1), Value::fixnum(0)]).unwrap();
+    builtin_set_char_table_range(vec![
+        table,
+        Value::cons(Value::fixnum(256), Value::fixnum(383)),
+        Value::string("\u{2}\u{1}\u{83}\u{2}"),
+    ])
+    .unwrap();
+
+    let formatted =
+        crate::emacs_core::builtins::builtin_format(&mut eval, vec![Value::string("%S"), table])
+            .unwrap();
+    let rendered = formatted.as_runtime_string_owned().unwrap();
+    assert!(rendered.starts_with("#^[nil nil char-code-property-table"));
+    assert!(rendered.contains("#^^[1 0"));
+    assert!(rendered.contains("#^^[2 0"));
+    assert!(!rendered.contains("--char-table--"));
+}
+
+#[test]
 fn char_table_p_on_plain_vector() {
     crate::test_utils::init_test_tracing();
     // A plain vector should not be detected as a char-table.

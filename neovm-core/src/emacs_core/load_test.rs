@@ -985,6 +985,26 @@ fn after_pdump_load_hook_runs_after_finalize_and_only_once() {
 }
 
 #[test]
+fn finalize_cached_bootstrap_eval_strips_transient_compile_features() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    for feature in TRANSIENT_RUNTIME_FEATURES {
+        eval.provide_value(Value::symbol(feature), None)
+            .expect("provide transient feature");
+    }
+
+    finalize_cached_bootstrap_eval(&mut eval, &runtime_project_root())
+        .expect("finalize cached bootstrap eval");
+
+    for feature in TRANSIENT_RUNTIME_FEATURES {
+        assert!(
+            !eval.features.contains(&intern(feature)),
+            "{feature} should not stay provided in finalized bootstrap runtime"
+        );
+    }
+}
+
+#[test]
 fn load_file_stops_immediately_on_kill_emacs() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
@@ -8845,6 +8865,79 @@ fn compiled_characters_loads_after_case_table() {
             format_eval_error(&eval, &err)
         )
     });
+}
+
+#[test]
+fn source_characters_loads_after_generated_charprop() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("international/characters", false);
+    let load_path = get_load_path(&eval.obarray());
+    let Some(charprop) = bootstrap_fixture_path(&load_path, "international/charprop", false) else {
+        return;
+    };
+    let characters = bootstrap_fixture_path(&load_path, "international/characters", false)
+        .expect("international/characters source path");
+
+    load_file(&mut eval, &charprop).unwrap_or_else(|err| {
+        panic!(
+            "failed loading generated international/charprop from {}: {}",
+            charprop.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+    load_file(&mut eval, &characters).unwrap_or_else(|err| {
+        panic!(
+            "failed loading international/characters from {} after charprop: {}",
+            characters.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+}
+
+#[test]
+fn set_case_syntax_preserves_outer_lexical_c_after_charprop() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("international/characters", false);
+    let load_path = get_load_path(&eval.obarray());
+    let Some(charprop) = bootstrap_fixture_path(&load_path, "international/charprop", false) else {
+        return;
+    };
+    load_file(&mut eval, &charprop).unwrap_or_else(|err| {
+        panic!(
+            "failed loading generated international/charprop from {}: {}",
+            charprop.display(),
+            format_eval_error(&eval, &err)
+        )
+    });
+
+    let rendered = eval_rendered(
+        &mut eval,
+        r#"(let ((tbl (standard-case-table)) c)
+             (set-case-syntax ?¡ "." tbl)
+             (set-case-syntax ?¦ "_" tbl)
+             (set-case-syntax ?§ "." tbl)
+             (set-case-syntax ?© "_" tbl)
+             (set-case-syntax ?« "." tbl)
+             (set-case-syntax ?» "." tbl)
+             (set-case-syntax ?¬ "_" tbl)
+             (set-case-syntax ?­ "_" tbl)
+             (set-case-syntax ?® "_" tbl)
+             (set-case-syntax ?° "_" tbl)
+             (set-case-syntax ?± "_" tbl)
+             (set-case-syntax ?µ "_" tbl)
+             (set-case-syntax ?· "_" tbl)
+             (set-case-syntax ?¼ "_" tbl)
+             (set-case-syntax ?½ "_" tbl)
+             (set-case-syntax ?¾ "_" tbl)
+             (set-case-syntax ?¿ "." tbl)
+             (set-case-syntax ?× "_" tbl)
+             (set-case-syntax ?ß "w" tbl)
+             (set-case-syntax ?÷ "_" tbl)
+             (setq c #x0100)
+             (list c (<= c #x02B8)))"#,
+    );
+
+    assert_eq!(rendered, "OK (256 t)");
 }
 
 #[test]

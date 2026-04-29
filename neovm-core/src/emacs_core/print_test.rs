@@ -14,7 +14,7 @@ fn print_basic_values() {
     assert_eq!(print_value(&Value::make_float(3.14)), "3.14");
     assert_eq!(print_value(&Value::make_float(1.0)), "1.0");
     assert_eq!(print_value(&Value::symbol("foo")), "foo");
-    assert_eq!(print_value(&Value::symbol(".foo")), "\\.foo");
+    assert_eq!(print_value(&Value::symbol(".foo")), ".foo");
     assert_eq!(print_value(&Value::symbol("")), "##");
     assert_eq!(print_value(&Value::keyword(":bar")), ":bar");
 }
@@ -37,6 +37,27 @@ fn print_symbol_escapes_reader_sensitive_chars() {
     assert_eq!(print_value(&Value::symbol("##")), "\\#\\#");
     assert_eq!(print_value(&Value::symbol("?a")), "\\?a");
     assert_eq!(print_value(&Value::symbol("a?b")), "a?b");
+}
+
+#[test]
+fn print_symbol_escapes_numeric_looking_names_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(print_value(&Value::symbol("2")), "\\2");
+    assert_eq!(print_value(&Value::symbol("+1")), "\\+1");
+    assert_eq!(print_value(&Value::symbol("-1")), "\\-1");
+    assert_eq!(print_value(&Value::symbol("1e2")), "\\1e2");
+    assert_eq!(print_value(&Value::symbol("1.")), "\\1.");
+    assert_eq!(print_value(&Value::symbol(".5")), "\\.5");
+    assert_eq!(print_value(&Value::symbol("+.5")), "\\+.5");
+    assert_eq!(print_value(&Value::symbol("1e+INF")), "\\1e+INF");
+    assert_eq!(print_value(&Value::symbol("0.0e+NaN")), "\\0.0e+NaN");
+
+    assert_eq!(print_value(&Value::symbol("1+")), "1+");
+    assert_eq!(print_value(&Value::symbol("0x10")), "0x10");
+    assert_eq!(print_value(&Value::symbol("+.")), "+.");
+    assert_eq!(print_value(&Value::symbol("-.")), "-.");
+    assert_eq!(print_value(&Value::symbol("+")), "+");
+    assert_eq!(print_value(&Value::symbol("-")), "-");
 }
 
 #[test]
