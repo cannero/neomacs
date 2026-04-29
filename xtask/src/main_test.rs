@@ -704,7 +704,7 @@ fn compile_main_args_match_gnu_native_shape() {
 }
 
 #[test]
-fn loaddefs_generation_args_force_full_generation() {
+fn loaddefs_generation_args_use_gnu_emacs_batch_entrypoint() {
     let loaddefs_gen = Path::new("/repo/lisp/emacs-lisp/loaddefs-gen.el");
     let loaddefs_dirs = vec![
         PathBuf::from("/repo/lisp"),
@@ -716,11 +716,8 @@ fn loaddefs_generation_args_force_full_generation() {
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
-    assert!(rendered.contains(&"--eval".to_string()));
-    assert!(rendered.contains(&"neomacs-loaddefs-generate--force".to_string()));
-    assert!(rendered.iter().any(|arg| arg.contains("(loaddefs-generate")
-        && arg.contains("nil t t")
-        && arg.contains("theme-loaddefs.el")));
+    assert!(!rendered.contains(&"--eval".to_string()));
+    assert!(rendered.contains(&"loaddefs-generate--emacs-batch".to_string()));
     assert_eq!(
         &rendered[rendered.len() - 2..],
         ["/repo/lisp", "/repo/lisp/calendar"]

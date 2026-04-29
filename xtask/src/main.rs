@@ -522,10 +522,8 @@ fn loaddefs_generation_args(loaddefs_gen: &Path, loaddefs_dirs: &[PathBuf]) -> V
         OsString::from("--batch"),
         OsString::from("-l"),
         loaddefs_gen.as_os_str().to_os_string(),
-        OsString::from("--eval"),
-        force_loaddefs_generate_eval(),
         OsString::from("-f"),
-        OsString::from("neomacs-loaddefs-generate--force"),
+        OsString::from("loaddefs-generate--emacs-batch"),
     ];
     loaddefs_args.extend(
         loaddefs_dirs
@@ -533,25 +531,6 @@ fn loaddefs_generation_args(loaddefs_gen: &Path, loaddefs_dirs: &[PathBuf]) -> V
             .map(|path| path.as_os_str().to_os_string()),
     );
     loaddefs_args
-}
-
-fn force_loaddefs_generate_eval() -> OsString {
-    OsString::from(
-        r#"(defun neomacs-loaddefs-generate--force ()
-  (let* ((args (mapcar #'file-truename command-line-args-left))
-         (default-directory (file-truename lisp-directory))
-         (output-file (expand-file-name "loaddefs.el")))
-    (setq command-line-args-left nil)
-    (loaddefs-generate
-     args output-file
-     (loaddefs-generate--excluded-files)
-     nil t t)
-    (let ((lisp-mode-autoload-regexp
-           "^;;;###\\(\\(noexist\\)-\\)?\\(theme-autoload\\)"))
-      (loaddefs-generate
-       (expand-file-name "../etc/themes/")
-       (expand-file-name "theme-loaddefs.el")))))"#,
-    )
 }
 
 fn run_gen_lisp(
