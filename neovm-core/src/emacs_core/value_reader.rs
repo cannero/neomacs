@@ -16,6 +16,7 @@ use super::intern::{intern, intern_lisp_string, intern_uninterned_lisp_string, r
 // bytes_to_unibyte_storage_string and encode_nonunicode_char_for_storage
 // imports removed — using emacs_char + Vec<u8> directly
 use super::emacs_char;
+use crate::buffer::Buffer;
 use smallvec::SmallVec;
 use std::cell::RefCell;
 
@@ -135,6 +136,27 @@ pub fn read_one_with_locate_syms(
     Ok(Some((value, reader.pos)))
 }
 
+/// Read a single form directly from a buffer byte range.
+///
+/// GNU Emacs' reader installs buffer get/unget callbacks for buffer streams;
+/// it does not copy the accessible region into a temporary string on each
+/// `(read (current-buffer))`.  Keep the same model here so repeated buffer
+/// reads, such as `unidata-gen.el`, advance through the original buffer.
+pub fn read_one_from_buffer_with_locate_syms(
+    buffer: &Buffer,
+    start: usize,
+    end: usize,
+    locate_syms: bool,
+) -> Result<(Option<Value>, usize), ReadError> {
+    let mut reader = Reader::new_buffer(buffer, start, end);
+    reader.locate_syms = locate_syms;
+    if !reader.skip_ws_and_comments() {
+        return Ok((None, reader.pos));
+    }
+    let value = reader.read_form()?;
+    Ok((Some(value), reader.pos))
+}
+
 /// Reader source wrapper for Lisp strings.
 ///
 /// This keeps the runtime-storage adapter inside the reader boundary so callers
@@ -236,6 +258,7 @@ impl std::error::Error for ReadError {}
 enum ReaderSource<'a> {
     Runtime(&'a str),
     LispString(&'a crate::heap_types::LispString),
+    Buffer(&'a Buffer),
 }
 
 struct Reader<'a> {
@@ -290,6 +313,23 @@ impl<'a> Reader<'a> {
         Self {
             source: ReaderSource::LispString(input),
             source_multibyte: input.is_multibyte(),
+            pos: start,
+            limit: end,
+            read_labels: std::collections::HashMap::new(),
+            locate_syms: false,
+        }
+    }
+
+    fn new_buffer(input: &'a Buffer, start: usize, end: usize) -> Self {
+        assert!(start <= end, "invalid buffer reader range: {start}..{end}");
+        assert!(
+            end <= input.total_bytes(),
+            "buffer reader end {end} exceeds logical length {}",
+            input.total_bytes()
+        );
+        Self {
+            source: ReaderSource::Buffer(input),
+            source_multibyte: input.get_multibyte(),
             pos: start,
             limit: end,
             read_labels: std::collections::HashMap::new(),
@@ -1792,6 +1832,17 @@ impl<'a> Reader<'a> {
                 self.pos = end;
                 Ok(())
             }
+            ReaderSource::Buffer(_) => {
+                let end = self
+                    .pos
+                    .checked_add(len)
+                    .ok_or_else(|| self.error("byte skip past end of input"))?;
+                if end > self.limit {
+                    return Err(self.error("byte skip past end of input"));
+                }
+                self.pos = end;
+                Ok(())
+            }
         }
     }
 
@@ -1807,6 +1858,7 @@ impl<'a> Reader<'a> {
             ReaderSource::LispString(input) => {
                 self.lisp_string_code_step(input, pos).map(|(code, _)| code)
             }
+            ReaderSource::Buffer(input) => self.buffer_code_step(input, pos).map(|(code, _)| code),
         }
     }
 
@@ -1821,6 +1873,9 @@ impl<'a> Reader<'a> {
                 .map(|ch| pos + ch.len_utf8()),
             ReaderSource::LispString(input) => self
                 .lisp_string_code_step(input, pos)
+                .map(|(_, width)| pos + width),
+            ReaderSource::Buffer(input) => self
+                .buffer_code_step(input, pos)
                 .map(|(_, width)| pos + width),
         }
     }
@@ -1847,6 +1902,28 @@ impl<'a> Reader<'a> {
         Some((code, width))
     }
 
+    fn buffer_code_step(&self, input: &Buffer, pos: usize) -> Option<(u32, usize)> {
+        if pos >= self.limit || pos >= input.total_bytes() {
+            return None;
+        }
+
+        if !self.source_multibyte {
+            let byte = input.text.emacs_byte_at(pos)?;
+            return Some((byte as u32, 1));
+        }
+
+        let mut tmp = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+        let available = (self.limit - pos).min(tmp.len());
+        for (idx, slot) in tmp[..available].iter_mut().enumerate() {
+            *slot = input.text.emacs_byte_at(pos + idx)?;
+        }
+        let (code, width) = emacs_char::string_char(&tmp[..available]);
+        if pos + width > self.limit {
+            return None;
+        }
+        Some((code, width))
+    }
+
     fn source_slice_string(&self, start: usize, end: usize) -> String {
         assert!(start <= end, "invalid reader slice: {start}..{end}");
         assert!(
@@ -1860,6 +1937,16 @@ impl<'a> Reader<'a> {
                 let slice = input
                     .slice(start, end)
                     .expect("reader slice should stay within source");
+                crate::emacs_core::builtins::runtime_string_from_lisp_string(&slice)
+            }
+            ReaderSource::Buffer(input) => {
+                let mut bytes = Vec::with_capacity(end - start);
+                input.copy_emacs_bytes_to(start, end, &mut bytes);
+                let slice = if input.get_multibyte() {
+                    crate::heap_types::LispString::from_emacs_bytes(bytes)
+                } else {
+                    crate::heap_types::LispString::from_unibyte(bytes)
+                };
                 crate::emacs_core::builtins::runtime_string_from_lisp_string(&slice)
             }
         }

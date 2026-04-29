@@ -472,6 +472,43 @@ fn signal_invalid_read_syntax_in_lisp_string(
     )
 }
 
+fn signal_invalid_read_syntax_in_buffer_object(
+    buffer: &crate::buffer::Buffer,
+    absolute_error_pos: usize,
+    message: String,
+) -> Flow {
+    let start = buffer.point_min_byte();
+    let end = absolute_error_pos.clamp(start, buffer.point_max_byte());
+    let mut prefix = Vec::with_capacity(end.saturating_sub(start));
+    buffer.copy_emacs_bytes_to(start, end, &mut prefix);
+    let line = prefix.iter().filter(|&&byte| byte == b'\n').count() as i64 + 1;
+    let line_start = prefix
+        .iter()
+        .rposition(|&byte| byte == b'\n')
+        .map(|pos| pos + 1)
+        .unwrap_or(0);
+    let column = if buffer.get_multibyte() {
+        crate::emacs_core::emacs_char::chars_in_multibyte(&prefix[line_start..]) as i64
+    } else {
+        (prefix.len() - line_start) as i64
+    };
+    signal(
+        "invalid-read-syntax",
+        vec![
+            Value::string(message),
+            Value::fixnum(line),
+            Value::fixnum(column),
+        ],
+    )
+}
+
+fn end_of_file_during_parsing_error() -> Flow {
+    signal(
+        "end-of-file",
+        vec![Value::string("End of file during parsing")],
+    )
+}
+
 fn stdin_end_of_file_error() -> Flow {
     signal(
         "end-of-file",
@@ -743,46 +780,44 @@ pub fn builtin_read_impl(
             }
         }
         ValueKind::Veclike(VecLikeType::Buffer) => {
-            // Read from buffer at point
             let buf_id = stream.as_buffer_id().unwrap();
-            let (text, pt, begv_byte) = {
-                let buf = &mut ctx
+            let (maybe_value, new_pt) = {
+                let buf = ctx
                     .buffers
                     .get(buf_id)
                     .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
-                let text = buf.buffer_substring_lisp_string(buf.point_min(), buf.point_max());
-                (text, buf.pt_byte, buf.begv_byte)
-            };
-            let read_source = super::value_reader::LispReadSource::new(&text);
-            let start = pt.saturating_sub(begv_byte);
-            if start >= read_source.logical_len() {
-                return Err(signal(
-                    "end-of-file",
-                    vec![Value::string("End of file during parsing")],
-                ));
-            }
-            let (value, end_offset) = read_source
-                .read_one_with_locate_syms(start, locate_syms)
-                .map_err(|e| {
-                    if e.message.contains("unterminated") || e.message.contains("end of input") {
-                        signal(
-                            "end-of-file",
-                            vec![Value::string("End of file during parsing")],
-                        )
-                    } else {
-                        signal_invalid_read_syntax_in_lisp_string(&text, e.position, e.message)
+
+                let start = buf.point_byte();
+                let end = buf.point_max_byte();
+                if start >= end {
+                    return Err(end_of_file_during_parsing_error());
+                }
+
+                match super::value_reader::read_one_from_buffer_with_locate_syms(
+                    buf,
+                    start,
+                    end,
+                    locate_syms,
+                ) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        return Err(
+                            if e.message.contains("unterminated")
+                                || e.message.contains("end of input")
+                            {
+                                end_of_file_during_parsing_error()
+                            } else {
+                                signal_invalid_read_syntax_in_buffer_object(
+                                    buf, e.position, e.message,
+                                )
+                            },
+                        );
                     }
-                })?
-                .ok_or_else(|| {
-                    signal(
-                        "end-of-file",
-                        vec![Value::string("End of file during parsing")],
-                    )
-                })?;
-            // Advance point past the read form.
-            let new_pt = begv_byte + end_offset;
+                }
+            };
+
             let _ = &mut ctx.buffers.goto_buffer_byte(buf_id, new_pt);
-            Ok(value)
+            maybe_value.ok_or_else(end_of_file_during_parsing_error)
         }
         ValueKind::Symbol(id) => Err(signal(
             "void-function",

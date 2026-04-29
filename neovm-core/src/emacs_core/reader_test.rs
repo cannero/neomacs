@@ -3575,6 +3575,11 @@ fn read_from_buffer_advances_point_across_multiple_forms() {
     let eof = builtin_read(&mut ev, vec![Value::make_buffer(buf_id)]);
     assert!(matches!(eof, Err(Flow::Signal(sig)) if sig.symbol_name() == "end-of-file"));
     assert_eq!(
+        ev.buffers.get(buf_id).expect("buffer").pt,
+        source.len(),
+        "EOF read should consume trailing whitespace like GNU Emacs"
+    );
+    assert_eq!(
         ev.obarray.symbol_value("reader-first").cloned(),
         Some(Value::fixnum(1))
     );
