@@ -85,7 +85,10 @@ pub(crate) fn builtin_tty_frame_list_z_order(args: Vec<Value>) -> EvalResult {
 
 pub(crate) fn builtin_tty_frame_restack(args: Vec<Value>) -> EvalResult {
     expect_range_args("tty-frame-restack", &args, 2, 3)?;
-    Ok(Value::NIL)
+    Err(signal(
+        "error",
+        vec![Value::string("tty-frame-restack is not implemented")],
+    ))
 }
 
 pub(crate) fn builtin_tty_display_pixel_width(args: Vec<Value>) -> EvalResult {

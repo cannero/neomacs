@@ -1318,6 +1318,9 @@ pub struct Frame {
     pub parent_frame: Value,
     /// Terminal owner id for GNU `frame-terminal` / terminal lifecycle.
     pub terminal_id: u64,
+    /// GNU `FRAME_INITIAL_P`: bootstrap placeholder frame that exists before
+    /// a real terminal or window-system frame is installed.
+    pub initial: bool,
     /// Root of the window tree.
     pub root_window: Window,
     /// The selected (active) window.
@@ -1456,6 +1459,7 @@ impl Frame {
             focus_frame: Value::NIL,
             parent_frame: Value::NIL,
             terminal_id,
+            initial: false,
             root_window,
             selected_window: selected,
             // GNU `make_frame_without_minibuffer` leaves

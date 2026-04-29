@@ -715,6 +715,7 @@ fn ensure_selected_frame_id_in_state_with_policy(
         .find_buffer_by_name(" *Minibuf-0*")
         .unwrap_or_else(|| buffers.create_buffer(" *Minibuf-0*"));
     if let Some(frame) = frames.get_mut(fid) {
+        frame.initial = true;
         frame.char_width = 1.0;
         frame.char_height = 1.0;
         frame.font_pixel_size = 1.0;
@@ -1133,6 +1134,9 @@ pub(crate) fn builtin_tty_frame_edges(
         .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    if frame.initial || frame.effective_window_system().is_some() {
+        return Ok(Value::NIL);
+    }
     Ok(tty_frame_edges_value(frame))
 }
 
@@ -1147,6 +1151,9 @@ pub(crate) fn builtin_tty_frame_geometry(
         .frames
         .get(fid)
         .ok_or_else(|| signal("error", vec![Value::string("Frame not found")]))?;
+    if frame.initial || frame.effective_window_system().is_some() {
+        return Ok(Value::NIL);
+    }
     Ok(Value::list(vec![
         Value::cons(
             Value::symbol("outer-position"),

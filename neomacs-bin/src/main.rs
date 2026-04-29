@@ -2438,6 +2438,11 @@ fn bootstrap_buffers(
     let _ = eval.frame_manager_mut().select_frame(frame_id);
 
     // Seed frame parameters so GNU Lisp startup sees the correct host surface.
+    let initial_tty_frame = display.frontend == FrontendKind::Tty
+        && eval
+            .obarray()
+            .symbol_value("noninteractive")
+            .is_some_and(|value| value.is_truthy());
     if let Some(frame) = eval.frame_manager_mut().get_mut(frame_id) {
         // Font parameter resolution creates a FontMetricsService which
         // scans the system font database (~500ms). Skip for TTY where
@@ -2455,6 +2460,7 @@ fn bootstrap_buffers(
         frame.set_generated_name_value(frame.generated_name_value());
         frame.clear_title();
         frame.icon_name = Value::NIL;
+        frame.initial = initial_tty_frame;
         frame.width = width;
         frame.height = height;
         frame.visible = true;

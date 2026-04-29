@@ -6854,10 +6854,10 @@ fn vm_x_frame_property_and_tty_stub_builtins_use_direct_dispatch() {
                   (tty-frame-edges f nil)
                   (tty-frame-geometry f)
                   (tty-frame-list-z-order f)
-                  (tty-frame-restack f f t)
+                  (condition-case err (tty-frame-restack f f t) (error err))
                   (tty-suppress-bold-inverse-default-colors f)))"#
         ),
-        r#"OK (nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") nil nil nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") 0 nil 0 0 nil nil nil nil nil nil)"#
+        r#"OK (nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") nil nil nil nil (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") (error "Window system frame should be used") 0 nil 0 0 (#<frame F1 0x100000000> 0 0) nil nil (#<frame F1 0x100000000>) (error "tty-frame-restack is not implemented") nil)"#
     );
 }
 
