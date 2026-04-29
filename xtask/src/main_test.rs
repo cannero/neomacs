@@ -921,6 +921,11 @@ fn executable_fingerprint_patches_all_records() {
     }
 }
 
+#[test]
+fn cargo_program_uses_path_lookup() {
+    assert_eq!(cargo_program(), PathBuf::from("cargo"));
+}
+
 fn tempdir() -> PathBuf {
     let dir = env::temp_dir().join(format!(
         "xtask-tests-{}-{}",

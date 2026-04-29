@@ -1519,9 +1519,7 @@ fn uppercase_hex(bytes: &[u8]) -> String {
 }
 
 fn cargo_program() -> PathBuf {
-    env::var_os("CARGO")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("cargo"))
+    PathBuf::from("cargo")
 }
 
 fn run_command(
