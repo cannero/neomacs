@@ -456,6 +456,47 @@ fn dotted_list() {
 }
 
 #[test]
+fn dotted_tail_before_unquote_without_whitespace() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("(a .,_ )");
+    assert!(v.is_cons());
+    assert!(v.cons_car().is_symbol_named("a"));
+    let tail = v.cons_cdr();
+    assert!(tail.is_cons());
+    assert!(tail.cons_car().is_symbol_named(","));
+    assert!(tail.cons_cdr().cons_car().is_symbol_named("_"));
+}
+
+#[test]
+fn dotted_tail_before_reader_prefix_without_whitespace() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("(a .`b)");
+    assert!(v.is_cons());
+    assert!(v.cons_car().is_symbol_named("a"));
+    let tail = v.cons_cdr();
+    assert!(tail.is_cons());
+    assert!(tail.cons_car().is_symbol_named("`"));
+    assert!(tail.cons_cdr().cons_car().is_symbol_named("b"));
+}
+
+#[test]
+fn leading_dot_in_list_is_invalid() {
+    crate::test_utils::init_test_tracing();
+    assert!(read_one("(. a)", 0).is_err());
+}
+
+#[test]
+fn dot_before_close_paren_is_symbol() {
+    crate::test_utils::init_test_tracing();
+    let v = read1("(a .)");
+    assert!(v.is_cons());
+    assert!(v.cons_car().is_symbol_named("a"));
+    let second = v.cons_cdr().cons_car();
+    assert!(second.is_symbol_named("."));
+    assert!(v.cons_cdr().cons_cdr().is_nil());
+}
+
+#[test]
 fn nested_list() {
     crate::test_utils::init_test_tracing();
     let v = read1("(a (b c))");

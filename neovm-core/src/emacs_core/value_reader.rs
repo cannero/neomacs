@@ -438,6 +438,10 @@ impl<'a> Reader<'a> {
                     return Ok(result);
                 }
                 Some(code) if code == b'.' as u32 && self.is_dot_separator() => {
+                    if items.is_empty() {
+                        restore_scratch_gc_roots(saved);
+                        return Err(self.error("."));
+                    }
                     // Dotted pair
                     self.bump(); // consume '.'
                     let cdr = self.read_form()?;
@@ -476,14 +480,25 @@ impl<'a> Reader<'a> {
     }
 
     /// Check if current '.' is a dot separator (not part of a number like 1.5).
+    ///
+    /// GNU lread.c treats dot as a dotted-tail marker when the following
+    /// character starts a new reader token, including reader-prefix characters
+    /// such as comma and backquote.
     fn is_dot_separator(&self) -> bool {
         match self.peek_code_at(1) {
             None => true,
             Some(c) => {
                 is_ascii_whitespace_code(c)
-                    || c == b')' as u32
+                    || c == 0xA0
+                    || c == b'"' as u32
+                    || c == b'\'' as u32
                     || c == b'(' as u32
                     || c == b';' as u32
+                    || c == b'[' as u32
+                    || c == b'#' as u32
+                    || c == b'?' as u32
+                    || c == b'`' as u32
+                    || c == b',' as u32
             }
         }
     }
