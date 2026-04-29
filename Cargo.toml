@@ -13,7 +13,10 @@ members = [
     "neomacs-tui-tests",
     "xtask",
 ]
-default-members = ["neomacs-bin"]
+default-members = [
+    "neomacs-bin",
+    "xtask",
+]
 resolver = "2"
 
 [workspace.package]
