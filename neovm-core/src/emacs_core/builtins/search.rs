@@ -1361,7 +1361,7 @@ pub(crate) fn builtin_match_data(eval: &mut super::eval::Context, args: Vec<Valu
 }
 
 pub(crate) fn builtin_set_match_data_with_state(
-    buffers: &crate::buffer::BufferManager,
+    buffers: &mut crate::buffer::BufferManager,
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
@@ -1431,14 +1431,37 @@ pub(crate) fn builtin_set_match_data_with_state(
         });
     }
 
+    if args.get(1).is_some_and(|arg| arg.is_truthy()) {
+        reseat_match_data_markers(buffers, args[0], pair_len);
+    }
+
     Ok(Value::NIL)
+}
+
+fn reseat_match_data_markers(
+    buffers: &mut crate::buffer::BufferManager,
+    list: Value,
+    pair_len: usize,
+) {
+    let mut tail = list;
+    for _ in 0..pair_len {
+        if !tail.is_cons() {
+            return;
+        }
+        let item = tail.cons_car();
+        if super::marker::is_marker(&item) {
+            super::marker::detach_marker_in_buffers(buffers, &item);
+            tail.set_car(Value::NIL);
+        }
+        tail = tail.cons_cdr();
+    }
 }
 
 pub(crate) fn builtin_set_match_data(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_set_match_data_with_state(&eval.buffers, &mut eval.match_data, &args)
+    builtin_set_match_data_with_state(&mut eval.buffers, &mut eval.match_data, &args)
 }
 
 fn translate_match_data(match_data: &mut Option<super::regex::MatchData>, delta: i64) {

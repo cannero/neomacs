@@ -293,6 +293,36 @@ fn set_match_data_round_trip() {
 }
 
 #[test]
+fn set_match_data_reseat_detaches_buffer_markers() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let buffer_id = eval.buffers.create_buffer("match-data-reseat");
+    eval.buffers.set_current(buffer_id);
+    eval.buffers
+        .insert_into_buffer(buffer_id, "alpha beta")
+        .expect("insert test text");
+    eval.buffers
+        .goto_buffer_byte(buffer_id, 0)
+        .expect("rewind point");
+
+    assert_true(builtin_looking_at(&mut eval, vec![Value::string("alpha")]).unwrap());
+    let saved = builtin_match_data(&mut eval, vec![]).unwrap();
+    let start_marker = saved.cons_car();
+    let end_marker = saved.cons_cdr().cons_car();
+    assert!(start_marker.as_marker_data().unwrap().buffer.is_some());
+    assert!(end_marker.as_marker_data().unwrap().buffer.is_some());
+
+    builtin_set_match_data(&mut eval, vec![saved, Value::T]).unwrap();
+
+    assert!(start_marker.as_marker_data().unwrap().buffer.is_none());
+    assert!(end_marker.as_marker_data().unwrap().buffer.is_none());
+    assert_nil(saved.cons_car());
+    assert_nil(saved.cons_cdr().cons_car());
+    let buffer = eval.buffers.get(buffer_id).expect("test buffer");
+    assert_eq!(buffer.text.chain_walk_collect().len(), 0);
+}
+
+#[test]
 fn string_match_start_nil_and_negative() {
     crate::test_utils::init_test_tracing();
     let with_nil =

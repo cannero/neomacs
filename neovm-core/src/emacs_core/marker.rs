@@ -190,6 +190,21 @@ fn set_marker_id(v: &Value, mid: u64) {
     }
 }
 
+pub(crate) fn detach_marker_in_buffers(buffers: &mut BufferManager, marker: &Value) {
+    if !is_marker(marker) {
+        return;
+    }
+    if let Some(mid) = marker_id_value(marker) {
+        buffers.remove_marker(mid);
+    }
+    let _ = marker.with_marker_data_mut(|data| {
+        data.buffer = None;
+        data.bytepos = 0;
+        data.charpos = 0;
+        data.next_marker = std::ptr::null_mut();
+    });
+}
+
 /// Assert that a value is a marker and return a wrong-type-argument error if
 /// it is not.
 fn expect_marker(_name: &str, v: &Value) -> Result<(), Flow> {

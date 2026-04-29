@@ -8055,6 +8055,28 @@ fn buffer_save_excursion_tracks_marker_through_edits() {
 }
 
 #[test]
+fn save_excursion_unlinks_point_markers_after_unwind() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let buffer_id = ev.buffers.create_buffer("se-marker-chain");
+    ev.buffers.set_current(buffer_id);
+    let result = ev.eval_str(
+        r#"(progn
+             (insert "abcdef")
+             (let ((i 0))
+               (while (< i 10)
+                 (save-excursion
+                   (goto-char 1)
+                   (insert "x"))
+                 (setq i (1+ i)))))"#,
+    );
+    assert_eq!(format_eval_result(&result), "OK nil");
+
+    let buffer = ev.buffers.get(buffer_id).expect("test buffer should exist");
+    assert_eq!(buffer.text.chain_walk_collect().len(), 0);
+}
+
+#[test]
 fn insert_before_markers_advances_before_markers_at_point() {
     crate::test_utils::init_test_tracing();
     let results = bootstrap_eval_all(
