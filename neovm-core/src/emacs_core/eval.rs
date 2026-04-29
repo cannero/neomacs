@@ -6013,11 +6013,18 @@ impl Context {
             return;
         }
 
+        if !self.tagged_heap.should_collect() {
+            return;
+        }
+
+        // GNU's maybe_gc hot path only checks consing_until_gc and defers
+        // percentage-based threshold recalculation until the countdown crosses
+        // zero.  Keep Neomacs' allocation fast path in the same shape.
         let threshold = self.effective_gc_threshold_bytes();
-        if self.tagged_heap.bytes_since_gc() >= threshold {
-            if self.tagged_heap.gc_threshold() != threshold {
-                self.tagged_heap.set_gc_threshold_from_runtime(threshold);
-            }
+        if self.tagged_heap.gc_threshold() != threshold {
+            self.tagged_heap.set_gc_threshold_from_runtime(threshold);
+        }
+        if self.tagged_heap.should_collect() {
             self.gc_collect_from_current_roots();
         }
     }
