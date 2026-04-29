@@ -60,6 +60,34 @@ fn bignum_constructor_and_predicates() {
 }
 
 #[test]
+fn make_int_uses_gnu_fixnum_boundary() {
+    crate::test_utils::init_test_tracing();
+    with_test_heap(|| {
+        let max = Value::make_int(Value::MOST_POSITIVE_FIXNUM);
+        assert!(max.is_fixnum());
+        assert_eq!(max.as_fixnum(), Some(Value::MOST_POSITIVE_FIXNUM));
+
+        let min = Value::make_int(Value::MOST_NEGATIVE_FIXNUM);
+        assert!(min.is_fixnum());
+        assert_eq!(min.as_fixnum(), Some(Value::MOST_NEGATIVE_FIXNUM));
+
+        let above = Value::make_int(Value::MOST_POSITIVE_FIXNUM + 1);
+        assert!(above.is_bignum());
+        assert_eq!(
+            above.as_bignum().expect("bignum").to_string(),
+            "2305843009213693952"
+        );
+
+        let below = Value::make_int(Value::MOST_NEGATIVE_FIXNUM - 1);
+        assert!(below.is_bignum());
+        assert_eq!(
+            below.as_bignum().expect("bignum").to_string(),
+            "-2305843009213693953"
+        );
+    });
+}
+
+#[test]
 fn list_round_trip() {
     crate::test_utils::init_test_tracing();
     with_test_heap(|| {

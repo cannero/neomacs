@@ -61,9 +61,8 @@ fn rug_from_value(eval: &super::eval::Context, value: &Value) -> Result<rug::Int
 ///
 /// Note: i64 has 64 bits, but fixnums only get 62 bits (the low 2 are
 /// the tag). A sum like `most-positive-fixnum + 1` does not overflow
-/// i64 yet exceeds fixnum range; we therefore funnel the final result
-/// through `Value::make_integer`, which decides between fixnum and
-/// bignum just like GNU `make_int` (`src/lisp.h`).
+/// i64 yet exceeds fixnum range; the final i64 result therefore returns
+/// through `Value::make_int`, mirroring GNU `make_int` (`src/lisp.h`).
 pub(crate) fn builtin_add(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
     builtin_add_slice(eval, &args)
 }
@@ -99,7 +98,7 @@ pub(crate) fn builtin_add_slice(
             }
         }
     }
-    Ok(Value::make_integer(rug::Integer::from(sum)))
+    Ok(Value::make_int(sum))
 }
 
 fn continue_bignum_add(
@@ -170,9 +169,9 @@ pub(crate) fn builtin_sub_slice(
             }
         }
     }
-    // Funnel through make_integer to promote i64 results that exceeded
-    // fixnum range (62-bit) but stayed within i64 (64-bit).
-    Ok(Value::make_integer(rug::Integer::from(acc)))
+    // Promote i64 results that exceeded fixnum range (62-bit) but
+    // stayed within i64 (64-bit), matching GNU `make_int`.
+    Ok(Value::make_int(acc))
 }
 
 fn continue_bignum_sub(
@@ -202,10 +201,9 @@ fn negate_value(eval: &super::super::eval::Context, value: &Value) -> EvalResult
         None => unreachable!(),
     };
     // checked_neg only fails for i64::MIN; for everything else we get
-    // an i64 back which still has to clear the fixnum-range hurdle, so
-    // route through make_integer.
+    // an i64 back which still has to clear the fixnum-range hurdle.
     match n.checked_neg() {
-        Some(neg) => Ok(Value::make_integer(rug::Integer::from(neg))),
+        Some(neg) => Ok(Value::make_int(neg)),
         None => Ok(Value::make_integer(-rug::Integer::from(n))),
     }
 }
@@ -257,7 +255,7 @@ pub(crate) fn builtin_mul(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::make_integer(rug::Integer::from(prod)))
+    Ok(Value::make_int(prod))
 }
 
 fn continue_bignum_mul(rest: &[Value], mut acc: rug::Integer) -> EvalResult {
@@ -335,7 +333,7 @@ pub(crate) fn builtin_div(args: Vec<Value>) -> EvalResult {
             }
         }
     }
-    Ok(Value::make_integer(rug::Integer::from(acc)))
+    Ok(Value::make_int(acc))
 }
 
 fn div_one_arg(arg: &Value) -> EvalResult {
@@ -448,7 +446,7 @@ fn integer_remainder(num: &Value, den: &Value, modulo: bool) -> EvalResult {
     } else {
         r
     };
-    Ok(Value::make_integer(rug::Integer::from(r)))
+    Ok(Value::make_int(r))
 }
 
 /// Convert a fixnum / bignum / marker operand to `rug::Integer`. Used
@@ -481,9 +479,7 @@ pub(crate) fn builtin_add1_1(_eval: &mut super::eval::Context, arg: Value) -> Ev
 fn add1_value(arg: Value) -> EvalResult {
     match arg.kind() {
         ValueKind::Fixnum(n) => match n.checked_add(1) {
-            // Even non-overflowing i64 results may exceed fixnum range
-            // (62-bit) — funnel through make_integer.
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            Some(s) => Ok(Value::make_int(s)),
             None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
         },
         ValueKind::Float => Ok(Value::make_float(arg.xfloat() + 1.0)),
@@ -493,7 +489,7 @@ fn add1_value(arg: Value) -> EvalResult {
         _ if arg.is_marker() => {
             let n = super::marker::marker_position_as_int(&arg)?;
             match n.checked_add(1) {
-                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                Some(s) => Ok(Value::make_int(s)),
                 None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
             }
         }
@@ -518,7 +514,7 @@ pub(crate) fn builtin_sub1_1(_eval: &mut super::eval::Context, arg: Value) -> Ev
 fn sub1_value(arg: Value) -> EvalResult {
     match arg.kind() {
         ValueKind::Fixnum(n) => match n.checked_sub(1) {
-            Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+            Some(s) => Ok(Value::make_int(s)),
             None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
         },
         ValueKind::Float => Ok(Value::make_float(arg.xfloat() - 1.0)),
@@ -528,7 +524,7 @@ fn sub1_value(arg: Value) -> EvalResult {
         _ if arg.is_marker() => {
             let n = super::marker::marker_position_as_int(&arg)?;
             match n.checked_sub(1) {
-                Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
+                Some(s) => Ok(Value::make_int(s)),
                 None => Ok(Value::make_integer(rug::Integer::from(n) - 1)),
             }
         }
@@ -599,9 +595,8 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
     expect_args("abs", &args, 1)?;
     match args[0].kind() {
         ValueKind::Fixnum(n) => match n.checked_abs() {
-            // Even non-overflowing |i64| might exceed fixnum range —
-            // make_integer DTRT.
-            Some(a) => Ok(Value::make_integer(rug::Integer::from(a))),
+            // Even non-overflowing |i64| might exceed fixnum range.
+            Some(a) => Ok(Value::make_int(a)),
             None => Ok(Value::make_integer(rug::Integer::from(n).abs())),
         },
         ValueKind::Float => Ok(Value::make_float(args[0].xfloat().abs())),
@@ -628,7 +623,7 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
 /// final result still has to clear the fixnum-bits hurdle since `&`
 /// can produce a value with the high bits set (e.g. `(logand -1 -1)
 /// → -1` is fine, but `(logand most-positive-fixnum #x7fffffffffffffff)`
-/// could exceed fixnum range). Funnel through `make_integer`.
+/// could exceed fixnum range). Return through `make_int`.
 pub(crate) fn builtin_logand(args: Vec<Value>) -> EvalResult {
     builtin_logand_slice(&args)
 }
@@ -641,7 +636,7 @@ pub(crate) fn builtin_logand_slice(args: &[Value]) -> EvalResult {
     for a in args {
         acc &= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::make_integer(rug::Integer::from(acc)))
+    Ok(Value::make_int(acc))
 }
 
 pub(crate) fn builtin_logior(args: Vec<Value>) -> EvalResult {
@@ -656,7 +651,7 @@ pub(crate) fn builtin_logior_slice(args: &[Value]) -> EvalResult {
     for a in args {
         acc |= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::make_integer(rug::Integer::from(acc)))
+    Ok(Value::make_int(acc))
 }
 
 pub(crate) fn builtin_logxor(args: Vec<Value>) -> EvalResult {
@@ -671,7 +666,7 @@ pub(crate) fn builtin_logxor_slice(args: &[Value]) -> EvalResult {
     for a in args {
         acc ^= expect_integer_or_marker_after_number_check(a)?;
     }
-    Ok(Value::make_integer(rug::Integer::from(acc)))
+    Ok(Value::make_int(acc))
 }
 
 #[derive(Clone, Copy)]
@@ -704,7 +699,7 @@ pub(crate) fn builtin_lognot(args: Vec<Value>) -> EvalResult {
         return Ok(Value::make_integer(!big.clone()));
     }
     let n = expect_int(&args[0])?;
-    Ok(Value::make_integer(rug::Integer::from(!n)))
+    Ok(Value::fixnum(!n))
 }
 
 /// `(ash VALUE COUNT)` — arithmetic shift, mirrors GNU `Fash`
@@ -1085,7 +1080,7 @@ fn rounding_with_divisor(
     expect_range_args(name, args, 1, 2)?;
     if args.len() == 1 {
         return match args[0].kind() {
-            ValueKind::Fixnum(n) => Ok(Value::make_integer(rug::Integer::from(n))),
+            ValueKind::Fixnum(n) => Ok(Value::fixnum(n)),
             ValueKind::Float => float_to_lisp_integer(round_fn(args[0].xfloat())),
             ValueKind::Veclike(VecLikeType::Bignum) => {
                 Ok(Value::make_integer(args[0].as_bignum().unwrap().clone()))
@@ -1110,7 +1105,7 @@ fn rounding_with_divisor(
             return Err(signal("arith-error", vec![]));
         }
         if let Some(a) = args[0].as_fixnum() {
-            return Ok(Value::make_integer(rug::Integer::from(int_div(a, d))));
+            return Ok(Value::make_int(int_div(a, d)));
         }
     }
     if args[1].is_bignum() && args[1].as_bignum().unwrap().is_zero() {

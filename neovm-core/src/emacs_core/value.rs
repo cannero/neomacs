@@ -835,6 +835,19 @@ impl TaggedValue {
         with_tagged_heap(|h| h.alloc_bignum(value))
     }
 
+    /// Canonical "make a Lisp integer from this machine integer" fast
+    /// path. Mirrors GNU `make_int` (`src/lisp.h:3041`): return an
+    /// immediate fixnum when possible and allocate a bignum only when
+    /// the value is outside the fixnum range.
+    #[inline]
+    pub fn make_int(value: i64) -> Self {
+        if (Self::MOST_NEGATIVE_FIXNUM..=Self::MOST_POSITIVE_FIXNUM).contains(&value) {
+            Self::fixnum(value)
+        } else {
+            Self::bignum(rug::Integer::from(value))
+        }
+    }
+
     /// Canonical "make a Lisp integer from this rug::Integer" entry
     /// point. Mirrors GNU `make_integer_mpz` (`src/bignum.c:146`):
     /// returns a fixnum if the value fits in fixnum range, otherwise
