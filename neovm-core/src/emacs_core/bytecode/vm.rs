@@ -12,11 +12,15 @@ use crate::emacs_core::builtins;
 use crate::emacs_core::coding::CodingSystemManager;
 use crate::emacs_core::custom::CustomManager;
 use crate::emacs_core::error::*;
-use crate::emacs_core::eval::{ConditionFrame, Context, LispArgVec, ResumeTarget};
+use crate::emacs_core::eval::{
+    ConditionFrame, Context, LispArgVec, ResumeTarget, SubrEntry, lookup_global_subr_entry,
+    subr_entry_from_value,
+};
 use crate::emacs_core::intern::{SymId, intern, intern_uninterned, lookup_interned, resolve_sym};
 use crate::emacs_core::regex::MatchData;
 // storage_char_len and storage_substring no longer needed here — using emacs_char + LispString
 use crate::emacs_core::value::*;
+use crate::tagged::header::SubrDispatchKind;
 use crate::window::{FrameId, FrameManager, Window};
 
 /// Local marker for catch/condition-case frames mirrored into the shared
@@ -654,15 +658,16 @@ impl<'a> Vm<'a> {
                     } else {
                         Value::NIL
                     };
-                    // GNU bytecode.c:Bcall passes a pointer into the VM stack
-                    // (`call_args = &TOP + 1`) and overwrites the function slot
-                    // with the result after the call.  Keep operands in bc_buf
-                    // while the call runs so they remain roots, but copy the
-                    // slice for the current Rust call API.
-                    let args: LispArgVec = stk!()[args_start..].iter().copied().collect();
                     let writeback_names = self.writeback_mutating_callable_names(&func_val);
-                    let writeback_args = writeback_names.as_ref().map(|_| args.clone());
-                    let result = vm_try!(self.call_function(func_val, args));
+                    let writeback_args = writeback_names
+                        .as_ref()
+                        .map(|_| stk!()[args_start..].iter().copied().collect::<LispArgVec>());
+                    let result = if writeback_names.is_none() {
+                        vm_try!(self.call_function_from_stack_args(func_val, args_start, n, true,))
+                    } else {
+                        let args: LispArgVec = stk!()[args_start..].iter().copied().collect();
+                        vm_try!(self.call_function(func_val, args))
+                    };
                     if let (Some((called_name, alias_target)), Some(writeback_args)) =
                         (writeback_names.as_ref(), writeback_args.as_ref())
                     {
@@ -1454,7 +1459,10 @@ impl<'a> Vm<'a> {
                     let val = stk!().pop().unwrap_or(Value::NIL);
                     let idx_val = stk!().pop().unwrap_or(Value::fixnum(0));
                     let vec_val = stk!().pop().unwrap_or(Value::NIL);
-                    let call_args = vec![vec_val, idx_val, val];
+                    let mut call_args = LispArgVec::new();
+                    call_args.push(vec_val);
+                    call_args.push(idx_val);
+                    call_args.push(val);
                     let result = if let Some(result) = vm_try!(self.maybe_call_named_function_cell(
                         func,
                         "aset",
@@ -1462,7 +1470,7 @@ impl<'a> Vm<'a> {
                     )) {
                         result
                     } else {
-                        vm_try!(builtins::builtin_aset(call_args.clone()))
+                        vm_try!(builtins::builtin_aset(call_args.clone().into_vec()))
                     };
                     let root_scope = self.ctx.save_vm_roots();
                     self.push_dynamic_vm_root(result);
@@ -1622,7 +1630,7 @@ impl<'a> Vm<'a> {
                     let name = resolve_sym(name_id);
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: Vec<Value> = stk!()[args_start..].to_vec();
+                    let args: LispArgVec = stk!()[args_start..].iter().copied().collect();
                     let writeback_args = Self::mutates_first_arg_name(name).then(|| args.clone());
                     let result = if self.named_builtin_fast_path_allowed_id(name_id) {
                         vm_try!(self.dispatch_vm_builtin_with_frame(func, name, args,))
@@ -1659,7 +1667,7 @@ impl<'a> Vm<'a> {
                     let name = crate::emacs_core::intern::resolve_sym(*sym).to_owned();
                     let n = *n as usize;
                     let args_start = stk!().len().saturating_sub(n);
-                    let args: Vec<Value> = stk!()[args_start..].to_vec();
+                    let args: LispArgVec = stk!()[args_start..].iter().copied().collect();
                     let writeback_args = Self::mutates_first_arg_name(&name).then(|| args.clone());
                     // GNU-parity: opcodes 0140-0177 (decode.rs:295-303)
                     // dispatch *directly* to their C implementations
@@ -1768,7 +1776,7 @@ impl<'a> Vm<'a> {
         &mut self,
         func: &ByteCodeFunction,
         name: &str,
-        args: Vec<Value>,
+        args: LispArgVec,
     ) -> Result<Option<Value>, Flow> {
         let id = Self::builtin_name_id(name);
         if self.named_builtin_fast_path_allowed_id(id) {
@@ -3466,6 +3474,36 @@ impl<'a> Vm<'a> {
         let args = args.into();
         let bt_count = self.ctx.specpdl.len();
         self.ctx.push_backtrace_frame(func_val, &args);
+        let result = self.call_function_untraced_owned(func_val, args);
+        let result = self.ctx.dispatch_signal_result_if_needed(result);
+        self.ctx.unbind_to_with_result(bt_count, result)
+    }
+
+    fn call_function_from_stack_args(
+        &mut self,
+        func_val: Value,
+        args_start: usize,
+        nargs: usize,
+        allow_direct_fixed_subr: bool,
+    ) -> EvalResult {
+        let bt_count = self.ctx.specpdl.len();
+        if allow_direct_fixed_subr
+            && let Some(result) =
+                self.try_call_fixed_subr_from_stack_args(func_val, args_start, nargs)
+        {
+            return result;
+        }
+        let args: LispArgVec = self.ctx.bc_buf[args_start..args_start + nargs]
+            .iter()
+            .copied()
+            .collect();
+        self.ctx.push_backtrace_frame(func_val, &args);
+        let result = self.call_function_untraced_owned(func_val, args);
+        let result = self.ctx.dispatch_signal_result_if_needed(result);
+        self.ctx.unbind_to_with_result(bt_count, result)
+    }
+
+    fn call_function_untraced_owned(&mut self, func_val: Value, args: LispArgVec) -> EvalResult {
         let result = match func_val.kind() {
             // Fast path: stay in VM for bytecoded calls.
             // Matches GNU Emacs's CLOSUREP → goto setup_frame in bytecode.c.
@@ -3477,8 +3515,57 @@ impl<'a> Vm<'a> {
             // Matches GNU Emacs where exec_byte_code delegates to funcall_general.
             _ => self.ctx.funcall_general_untraced(func_val, args),
         };
+        result
+    }
+
+    fn try_call_fixed_subr_from_stack_args(
+        &mut self,
+        func_val: Value,
+        args_start: usize,
+        nargs: usize,
+    ) -> Option<EvalResult> {
+        let (sym_id, entry, callee) = self.fixed_subr_call_target(func_val)?;
+        let bt_count = self.ctx.specpdl.len();
+        let args: LispArgVec = self.ctx.bc_buf[args_start..args_start + nargs]
+            .iter()
+            .copied()
+            .collect();
+        self.ctx.push_backtrace_frame_owned(func_val, args);
+        let result = if nargs < entry.min_args as usize
+            || entry.max_args.is_some_and(|max| nargs > max as usize)
+        {
+            Err(signal(
+                "wrong-number-of-arguments",
+                vec![callee, Value::fixnum(nargs as i64)],
+            ))
+        } else {
+            self.ctx
+                .dispatch_subr_entry_from_backtrace_unchecked(entry, bt_count)
+                .unwrap_or_else(|| Err(signal("void-function", vec![Value::from_sym_id(sym_id)])))
+        };
         let result = self.ctx.dispatch_signal_result_if_needed(result);
-        self.ctx.unbind_to_with_result(bt_count, result)
+        Some(self.ctx.unbind_to_with_result(bt_count, result))
+    }
+
+    fn fixed_subr_call_target(&self, func_val: Value) -> Option<(SymId, SubrEntry, Value)> {
+        let (sym_id, entry, callee) = match func_val.kind() {
+            ValueKind::Symbol(sym_id) if self.named_builtin_fast_path_allowed_id(sym_id) => (
+                sym_id,
+                lookup_global_subr_entry(sym_id)?,
+                Value::subr_from_sym_id(sym_id),
+            ),
+            ValueKind::Veclike(VecLikeType::Subr) | ValueKind::Subr(_) => {
+                let (sym_id, entry) = subr_entry_from_value(func_val)?;
+                (sym_id, entry, func_val)
+            }
+            _ => return None,
+        };
+        if entry.dispatch_kind != SubrDispatchKind::Builtin
+            || !Context::subr_entry_uses_fixed_value_call(entry)
+        {
+            return None;
+        }
+        Some((sym_id, entry, callee))
     }
 
     /// Execute a compiled function without param binding (for inline compilation).
@@ -3585,27 +3672,34 @@ impl<'a> Vm<'a> {
         &mut self,
         func: &ByteCodeFunction,
         name: &str,
-        args: Vec<Value>,
+        args: impl Into<LispArgVec>,
     ) -> EvalResult {
+        let args = args.into();
         self.with_frame_arg_roots(func, args, |vm, args| {
             vm.dispatch_vm_builtin_unrooted(name, args)
         })
     }
 
-    fn dispatch_vm_builtin(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
-        self.dispatch_vm_builtin_unrooted(name, args)
+    fn dispatch_vm_builtin(&mut self, name: &str, args: impl Into<LispArgVec>) -> EvalResult {
+        self.dispatch_vm_builtin_unrooted(name, args.into())
     }
 
     /// Dispatch to builtin functions from the VM.
-    fn dispatch_vm_builtin_unrooted(&mut self, name: &str, args: Vec<Value>) -> EvalResult {
+    fn dispatch_vm_builtin_unrooted(&mut self, name: &str, args: LispArgVec) -> EvalResult {
         // VM-internal bytecode operations that are not real Elisp builtins.
         match name {
             "call-interactively" => return self.builtin_call_interactively_shared(&args),
             "start-kbd-macro" => {
-                return crate::emacs_core::kmacro::builtin_start_kbd_macro(&mut *self.ctx, args);
+                return crate::emacs_core::kmacro::builtin_start_kbd_macro(
+                    &mut *self.ctx,
+                    args.into_vec(),
+                );
             }
             "end-kbd-macro" => {
-                return crate::emacs_core::kmacro::builtin_end_kbd_macro(&mut *self.ctx, args);
+                return crate::emacs_core::kmacro::builtin_end_kbd_macro(
+                    &mut *self.ctx,
+                    args.into_vec(),
+                );
             }
             "call-last-kbd-macro" => return self.builtin_call_last_kbd_macro_shared(&args),
             "execute-kbd-macro" => return self.builtin_execute_kbd_macro_shared(&args),
@@ -3615,13 +3709,13 @@ impl<'a> Vm<'a> {
             "store-kbd-macro-event" => {
                 return crate::emacs_core::kmacro::builtin_store_kbd_macro_event(
                     &mut *self.ctx,
-                    args,
+                    args.into_vec(),
                 );
             }
             "cancel-kbd-macro-events" => {
                 return crate::emacs_core::builtins::builtin_cancel_kbd_macro_events(
                     &mut *self.ctx,
-                    args,
+                    args.into_vec(),
                 );
             }
             "%%defvar" => {

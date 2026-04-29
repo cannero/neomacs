@@ -201,7 +201,7 @@ pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
 }
 
 #[inline(always)]
-fn subr_entry_from_value(function: Value) -> Option<(SymId, SubrEntry)> {
+pub(crate) fn subr_entry_from_value(function: Value) -> Option<(SymId, SubrEntry)> {
     let ptr = function.as_veclike_ptr()?;
     let header = unsafe { &*ptr };
     if header.type_tag != VecLikeType::Subr {
@@ -9496,6 +9496,14 @@ impl Context {
         });
     }
 
+    pub(crate) fn push_backtrace_frame_owned(&mut self, function: Value, args: LispArgVec) {
+        self.specpdl.push(SpecBinding::Backtrace {
+            function,
+            args: BacktraceArgs::Evaluated(args),
+            debug_on_exit: false,
+        });
+    }
+
     /// Push a backtrace frame for a special-form call (`nargs == UNEVALLED`
     /// in GNU eval.c:2585). `original_args` is the cons list of un-evaluated
     /// argument forms — XCDR of the original form. The walker emits
@@ -10062,7 +10070,7 @@ impl Context {
     }
 
     #[inline]
-    fn subr_entry_uses_fixed_value_call(entry: SubrEntry) -> bool {
+    pub(crate) fn subr_entry_uses_fixed_value_call(entry: SubrEntry) -> bool {
         entry.dispatch_kind == SubrDispatchKind::Builtin
             && matches!(
                 entry.function,
@@ -10085,7 +10093,7 @@ impl Context {
     }
 
     #[inline]
-    fn dispatch_subr_entry_from_backtrace_unchecked(
+    pub(crate) fn dispatch_subr_entry_from_backtrace_unchecked(
         &mut self,
         entry: SubrEntry,
         backtrace_count: usize,
