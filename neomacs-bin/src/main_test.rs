@@ -1286,6 +1286,10 @@ fn configure_gnu_startup_state_marks_batch_mode_noninteractive() {
         Some(&Value::T)
     );
     assert_eq!(
+        eval.obarray().symbol_value("gc-cons-percentage"),
+        Some(&Value::make_float(1.0))
+    );
+    assert_eq!(
         eval.obarray().symbol_value("command-line-args"),
         Some(&Value::list(vec![
             Value::string("neomacs"),

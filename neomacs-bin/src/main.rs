@@ -2659,6 +2659,11 @@ fn configure_gnu_startup_state(eval: &mut Context, frame_id: FrameId, startup: &
             Value::NIL
         },
     );
+    if startup.noninteractive {
+        // GNU emacs.c raises this after initialization for batch jobs so
+        // short-lived noninteractive commands spend less time in GC.
+        eval.set_variable("gc-cons-percentage", Value::make_float(1.0));
+    }
     // Mirror GNU's C-side `no_site_lisp` / `build_details` globals as
     // Lisp variables. GNU itself does not expose them as Lisp vars (the
     // load-path / version code reads the C globals directly), but
