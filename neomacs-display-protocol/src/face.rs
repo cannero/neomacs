@@ -122,6 +122,11 @@ pub struct Face {
     pub underline_position: i32,
     /// Underline thickness (font->underline_thickness)
     pub underline_thickness: i32,
+
+    /// Optional GPU-rendered gradient background.
+    /// If present, this overrides the solid `background` color during rendering.
+    /// GPU fragment shader evaluates the gradient per-pixel with no CPU overhead.
+    pub background_gradient: Option<Box<crate::gradient::Gradient>>,
 }
 
 impl Default for Face {
@@ -152,6 +157,7 @@ impl Default for Face {
             font_descent: 0,
             underline_position: 1,
             underline_thickness: 1,
+            background_gradient: None,
         }
     }
 }
@@ -376,6 +382,7 @@ impl FaceDataFFI {
             font_descent: self.font_descent,
             underline_position: self.underline_position.max(1),
             underline_thickness: self.underline_thickness.max(1),
+            background_gradient: None,
         }
     }
 }

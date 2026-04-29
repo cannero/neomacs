@@ -11,6 +11,7 @@ use neomacs_display_protocol::face::{BoxType, Face, FaceAttributes, UnderlineSty
 use neomacs_display_protocol::frame_glyphs::{
     CursorStyle, FrameGlyph, FrameGlyphBuffer, GlyphRowRole, PhysCursor, WindowCursorVisual,
 };
+use neomacs_display_protocol::gradient::{ColorStop, Gradient};
 use neomacs_display_protocol::types::{AnimatedCursor, Color, Rect};
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{
@@ -78,6 +79,117 @@ macro_rules! draw_stateful {
             $rp.draw(0..verts.len() as u32, 0..1);
         }
     }};
+}
+
+fn lerp_color(a: Color, b: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color::new(
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t,
+        a.a + (b.a - a.a) * t,
+    )
+}
+
+fn sample_color_stops(stops: &[ColorStop], t: f32) -> Color {
+    match stops {
+        [] => Color::BLACK,
+        [stop] => stop.color,
+        _ => {
+            let t = t.clamp(0.0, 1.0);
+            if t <= stops[0].position {
+                return stops[0].color;
+            }
+            for window in stops.windows(2) {
+                let start = &window[0];
+                let end = &window[1];
+                if t <= end.position {
+                    let span = (end.position - start.position).max(f32::EPSILON);
+                    return lerp_color(start.color, end.color, (t - start.position) / span);
+                }
+            }
+            stops[stops.len() - 1].color
+        }
+    }
+}
+
+fn fract(v: f32) -> f32 {
+    v - v.floor()
+}
+
+fn pseudo_noise_2d(x: f32, y: f32) -> f32 {
+    fract((x * 12.9898 + y * 78.233).sin() * 43_758.547)
+}
+
+fn sample_gradient_color(gradient: &Gradient, bounds: &Rect, x: f32, y: f32) -> Color {
+    let width = bounds.width.max(f32::EPSILON);
+    let height = bounds.height.max(f32::EPSILON);
+    let u = ((x - bounds.x) / width).clamp(0.0, 1.0);
+    let v = ((y - bounds.y) / height).clamp(0.0, 1.0);
+
+    match gradient {
+        Gradient::Linear { angle, stops } => {
+            let radians = angle.to_radians();
+            let dir_x = radians.cos();
+            let dir_y = radians.sin();
+            let min_proj =
+                if dir_x < 0.0 { dir_x } else { 0.0 } + if dir_y < 0.0 { dir_y } else { 0.0 };
+            let max_proj =
+                if dir_x > 0.0 { dir_x } else { 0.0 } + if dir_y > 0.0 { dir_y } else { 0.0 };
+            let proj = u * dir_x + v * dir_y;
+            let t = if (max_proj - min_proj).abs() <= f32::EPSILON {
+                0.0
+            } else {
+                (proj - min_proj) / (max_proj - min_proj)
+            };
+            sample_color_stops(stops, t)
+        }
+        Gradient::Radial {
+            center_x,
+            center_y,
+            radius,
+            stops,
+        } => {
+            let dx = u - *center_x;
+            let dy = v - *center_y;
+            let dist = (dx * dx + dy * dy).sqrt() / (*radius).max(f32::EPSILON);
+            sample_color_stops(stops, dist)
+        }
+        Gradient::Conic {
+            center_x,
+            center_y,
+            angle_offset,
+            stops,
+        } => {
+            let angle = (v - *center_y).atan2(u - *center_x);
+            let turns = fract((angle + angle_offset.to_radians()) / std::f32::consts::TAU);
+            sample_color_stops(stops, turns)
+        }
+        Gradient::Noise {
+            scale,
+            octaves,
+            color1,
+            color2,
+        } => {
+            let mut noise = 0.0;
+            let mut amplitude = 1.0;
+            let mut frequency = 1.0;
+            let mut max_value = 0.0;
+            for _ in 0..*octaves {
+                noise +=
+                    amplitude * pseudo_noise_2d(u * *scale * frequency, v * *scale * frequency);
+                max_value += amplitude;
+                amplitude *= 0.5;
+                frequency *= 2.0;
+            }
+            let t = if max_value <= f32::EPSILON {
+                0.0
+            } else {
+                noise / max_value
+            };
+            lerp_color(*color1, *color2, t)
+        }
+    }
 }
 
 struct BoxSpan {
@@ -478,6 +590,132 @@ impl WgpuRenderer {
         }
     }
 
+    fn gradient_bounds_for_rect(
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        clip_rect: Option<&Rect>,
+    ) -> Rect {
+        clip_rect
+            .copied()
+            .filter(|rect| rect.width > 0.0 && rect.height > 0.0)
+            .unwrap_or_else(|| Rect::new(x, y, width, height))
+    }
+
+    fn sample_face_background(
+        face: Option<&Face>,
+        fallback: Option<Color>,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        clip_rect: Option<&Rect>,
+    ) -> Option<Color> {
+        if let Some(face) = face {
+            if let Some(gradient) = face.background_gradient.as_deref() {
+                let bounds = Self::gradient_bounds_for_rect(x, y, width, height, clip_rect);
+                return Some(sample_gradient_color(
+                    gradient,
+                    &bounds,
+                    x + width * 0.5,
+                    y + height * 0.5,
+                ));
+            }
+        }
+        fallback.or_else(|| face.map(|resolved| resolved.background))
+    }
+
+    fn add_gradient_quad(
+        vertices: &mut Vec<RectVertex>,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        c00: Color,
+        c10: Color,
+        c11: Color,
+        c01: Color,
+    ) {
+        vertices.push(RectVertex {
+            position: [x0, y0],
+            color: [c00.r, c00.g, c00.b, c00.a],
+        });
+        vertices.push(RectVertex {
+            position: [x1, y0],
+            color: [c10.r, c10.g, c10.b, c10.a],
+        });
+        vertices.push(RectVertex {
+            position: [x0, y1],
+            color: [c01.r, c01.g, c01.b, c01.a],
+        });
+        vertices.push(RectVertex {
+            position: [x1, y0],
+            color: [c10.r, c10.g, c10.b, c10.a],
+        });
+        vertices.push(RectVertex {
+            position: [x1, y1],
+            color: [c11.r, c11.g, c11.b, c11.a],
+        });
+        vertices.push(RectVertex {
+            position: [x0, y1],
+            color: [c01.r, c01.g, c01.b, c01.a],
+        });
+    }
+
+    fn add_face_background_rect(
+        &self,
+        vertices: &mut Vec<RectVertex>,
+        face: Option<&Face>,
+        fallback: &Color,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        clip_rect: Option<&Rect>,
+    ) {
+        let Some(face) = face else {
+            self.add_rect(vertices, x, y, width, height, fallback);
+            return;
+        };
+        let Some(gradient) = face.background_gradient.as_deref() else {
+            self.add_rect(vertices, x, y, width, height, fallback);
+            return;
+        };
+
+        let bounds = Self::gradient_bounds_for_rect(x, y, width, height, clip_rect);
+        let (segments_x, segments_y) = match gradient {
+            Gradient::Linear { .. } => (1, 1),
+            Gradient::Radial { .. } => (8, 8),
+            Gradient::Conic { .. } => (12, 12),
+            Gradient::Noise { .. } => (12, 12),
+        };
+        let step_x = width / segments_x as f32;
+        let step_y = height / segments_y as f32;
+
+        for iy in 0..segments_y {
+            for ix in 0..segments_x {
+                let x0 = x + step_x * ix as f32;
+                let y0 = y + step_y * iy as f32;
+                let x1 = if ix + 1 == segments_x {
+                    x + width
+                } else {
+                    x0 + step_x
+                };
+                let y1 = if iy + 1 == segments_y {
+                    y + height
+                } else {
+                    y0 + step_y
+                };
+                let c00 = sample_gradient_color(gradient, &bounds, x0, y0);
+                let c10 = sample_gradient_color(gradient, &bounds, x1, y0);
+                let c11 = sample_gradient_color(gradient, &bounds, x1, y1);
+                let c01 = sample_gradient_color(gradient, &bounds, x0, y1);
+                Self::add_gradient_quad(vertices, x0, y0, x1, y1, c00, c10, c11, c01);
+            }
+        }
+    }
+
     /// Render frame glyphs to a texture view
     ///
     /// `surface_width` and `surface_height` should be the actual surface dimensions
@@ -859,6 +1097,7 @@ impl WgpuRenderer {
                 width,
                 height,
                 bg,
+                face_id,
                 row_role,
                 clip_rect,
                 stipple_id,
@@ -881,14 +1120,16 @@ impl WgpuRenderer {
                     else {
                         continue;
                     };
-                    // Draw background color first
-                    self.add_rect(
+                    let face = faces.get(face_id);
+                    self.add_face_background_rect(
                         &mut non_overlay_rect_vertices,
+                        face,
+                        bg,
                         *x,
                         draw_y,
                         *width,
                         draw_h,
-                        bg,
+                        clip_rect.as_ref(),
                     );
                     // Overlay stipple pattern if present
                     if *stipple_id > 0 {
@@ -917,35 +1158,46 @@ impl WgpuRenderer {
                 width,
                 height,
                 bg,
+                face_id,
                 row_role,
                 clip_rect,
                 ..
             } = glyph
             {
                 if !row_role.is_chrome() {
-                    if let Some(bg_color) = bg {
-                        if !Self::overlaps_rounded_box_span(
+                    let face = faces.get(face_id);
+                    let has_gradient = face
+                        .and_then(|resolved| resolved.background_gradient.as_deref())
+                        .is_some();
+                    if (bg.is_some() || has_gradient)
+                        && !Self::overlaps_rounded_box_span(
                             *x, *y, false, &box_spans, faces, box_margin,
-                        ) {
-                            let ya = if has_line_anims {
-                                *y + self.line_y_offset(*x, *y)
-                            } else {
-                                *y
-                            };
-                            let Some((draw_y, draw_h)) =
-                                Self::clip_vertical(ya, *height, clip_rect.as_ref())
-                            else {
-                                continue;
-                            };
-                            self.add_rect(
-                                &mut non_overlay_rect_vertices,
-                                *x,
-                                draw_y,
-                                *width,
-                                draw_h,
-                                bg_color,
-                            );
-                        }
+                        )
+                    {
+                        let ya = if has_line_anims {
+                            *y + self.line_y_offset(*x, *y)
+                        } else {
+                            *y
+                        };
+                        let Some((draw_y, draw_h)) =
+                            Self::clip_vertical(ya, *height, clip_rect.as_ref())
+                        else {
+                            continue;
+                        };
+                        let fallback = bg.unwrap_or(
+                            face.map(|resolved| resolved.background)
+                                .unwrap_or(Color::TRANSPARENT),
+                        );
+                        self.add_face_background_rect(
+                            &mut non_overlay_rect_vertices,
+                            face,
+                            &fallback,
+                            *x,
+                            draw_y,
+                            *width,
+                            draw_h,
+                            clip_rect.as_ref(),
+                        );
                     }
                 }
             }
@@ -1149,6 +1401,7 @@ impl WgpuRenderer {
                 width,
                 height,
                 bg,
+                face_id,
                 row_role,
                 clip_rect,
                 stipple_id,
@@ -1164,7 +1417,17 @@ impl WgpuRenderer {
                     else {
                         continue;
                     };
-                    self.add_rect(&mut overlay_rect_vertices, *x, draw_y, *width, draw_h, bg);
+                    let face = faces.get(face_id);
+                    self.add_face_background_rect(
+                        &mut overlay_rect_vertices,
+                        face,
+                        bg,
+                        *x,
+                        draw_y,
+                        *width,
+                        draw_h,
+                        clip_rect.as_ref(),
+                    );
                     if *stipple_id > 0 {
                         if let (Some(fg), Some(pat)) =
                             (stipple_fg, frame_glyphs.stipple_patterns.get(stipple_id))
@@ -1191,30 +1454,41 @@ impl WgpuRenderer {
                 width,
                 height,
                 bg,
+                face_id,
                 row_role,
                 clip_rect,
                 ..
             } = glyph
             {
                 if row_role.is_chrome() {
-                    if let Some(bg_color) = bg {
-                        if !Self::overlaps_rounded_box_span(
+                    let face = faces.get(face_id);
+                    let has_gradient = face
+                        .and_then(|resolved| resolved.background_gradient.as_deref())
+                        .is_some();
+                    if (bg.is_some() || has_gradient)
+                        && !Self::overlaps_rounded_box_span(
                             *x, *y, true, &box_spans, faces, box_margin,
-                        ) {
-                            let Some((draw_y, draw_h)) =
-                                Self::clip_vertical(*y, *height, clip_rect.as_ref())
-                            else {
-                                continue;
-                            };
-                            self.add_rect(
-                                &mut overlay_rect_vertices,
-                                *x,
-                                draw_y,
-                                *width,
-                                draw_h,
-                                bg_color,
-                            );
-                        }
+                        )
+                    {
+                        let Some((draw_y, draw_h)) =
+                            Self::clip_vertical(*y, *height, clip_rect.as_ref())
+                        else {
+                            continue;
+                        };
+                        let fallback = bg.unwrap_or(
+                            face.map(|resolved| resolved.background)
+                                .unwrap_or(Color::TRANSPARENT),
+                        );
+                        self.add_face_background_rect(
+                            &mut overlay_rect_vertices,
+                            face,
+                            &fallback,
+                            *x,
+                            draw_y,
+                            *width,
+                            draw_h,
+                            clip_rect.as_ref(),
+                        );
                     }
                 }
             }
@@ -1517,6 +1791,7 @@ impl WgpuRenderer {
                         y,
                         baseline,
                         width,
+                        height,
                         ascent,
                         fg,
                         bg,
@@ -1641,9 +1916,16 @@ impl WgpuRenderer {
                             // For the character under a filled box cursor, swap to
                             // cursor_fg (inverse video) when cursor is visible.
                             let mut effective_fg = *fg;
-                            let mut effective_bg = (*bg)
-                                .or_else(|| face.map(|resolved| resolved.background))
-                                .unwrap_or(Color::rgb(1.0, 1.0, 1.0));
+                            let mut effective_bg = Self::sample_face_background(
+                                face,
+                                *bg,
+                                *x,
+                                *y,
+                                *width,
+                                *height,
+                                clip_rect.as_ref(),
+                            )
+                            .unwrap_or(Color::rgb(1.0, 1.0, 1.0));
                             if cursor_visible
                                 && let Some(cursor) = frame_glyphs.phys_cursor.as_ref()
                                 && matches!(cursor.style, CursorStyle::FilledBox)

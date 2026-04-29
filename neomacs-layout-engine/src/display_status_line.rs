@@ -197,6 +197,7 @@ impl StatusLineFace {
             font_descent: self.font_descent,
             underline_position: self.underline_position.max(1),
             underline_thickness: self.underline_thickness.max(1),
+            background_gradient: None,
         }
     }
 }

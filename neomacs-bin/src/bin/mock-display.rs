@@ -672,15 +672,90 @@ fn build_minibuffer(ncols: usize, text: &str) -> GlyphMatrix {
 // -------------------------------------------------------------------
 
 fn build_faces() -> HashMap<u32, Face> {
+    use neomacs_display_protocol::gradient::{ColorStop, Gradient};
+
     let mut f = HashMap::new();
-    f.insert(0, mk(0, 0.87, 0.87, 0.87, 0.0, 0.0, 0.0, 400, false));
-    f.insert(1, mk(1, 0.0, 0.0, 0.0, 0.6, 0.7, 0.9, 700, false));
-    f.insert(2, mk(2, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 400, false));
-    f.insert(3, mk(3, 1.0, 0.6, 0.2, 0.0, 0.0, 0.0, 700, false));
-    f.insert(4, mk(4, 0.4, 0.9, 0.4, 0.0, 0.0, 0.0, 400, false));
-    f.insert(5, mk(5, 0.4, 0.7, 0.7, 0.0, 0.0, 0.0, 400, true));
-    f.insert(6, mk(6, 0.87, 0.87, 0.87, 0.15, 0.15, 0.15, 400, false));
-    f.insert(7, mk(7, 0.4, 0.4, 0.4, 0.0, 0.0, 0.0, 400, false));
+    f.insert(0, mk(0, 0.87, 0.87, 0.87, 0.0, 0.0, 0.0, 400, false, None));
+
+    // Face 1: Mode-line with linear gradient (red to blue, top to bottom)
+    let mode_line_gradient = Some(Box::new(Gradient::Linear {
+        angle: 90.0,
+        stops: vec![
+            ColorStop::new(0.0, Color::new(1.0, 0.42, 0.62, 1.0)), // #FF6B9D
+            ColorStop::new(0.5, Color::new(0.77, 0.27, 0.41, 1.0)), // #C44569
+            ColorStop::new(1.0, Color::new(0.29, 0.06, 0.31, 1.0)), // #4A0E4E
+        ],
+    }));
+    f.insert(
+        1,
+        mk(
+            1,
+            1.0,
+            1.0,
+            1.0,
+            0.0,
+            0.0,
+            0.0,
+            700,
+            false,
+            mode_line_gradient,
+        ),
+    );
+
+    f.insert(2, mk(2, 0.5, 0.5, 0.5, 0.0, 0.0, 0.0, 400, false, None));
+
+    // Face 3: Comments with radial gradient (bright center, dark edges)
+    let comment_gradient = Some(Box::new(Gradient::Radial {
+        center_x: 0.5,
+        center_y: 0.5,
+        radius: 0.8,
+        stops: vec![
+            ColorStop::new(0.0, Color::new(1.0, 1.0, 1.0, 1.0)), // White center
+            ColorStop::new(1.0, Color::new(0.0, 0.2, 0.4, 1.0)), // Dark blue edge
+        ],
+    }));
+    f.insert(
+        3,
+        mk(
+            3,
+            1.0,
+            0.6,
+            0.2,
+            0.0,
+            0.0,
+            0.0,
+            700,
+            false,
+            comment_gradient,
+        ),
+    );
+
+    // Face 4: Strings with conic gradient (rainbow spinner)
+    let string_gradient = Some(Box::new(Gradient::Conic {
+        center_x: 0.5,
+        center_y: 0.5,
+        angle_offset: 0.0,
+        stops: vec![
+            ColorStop::new(0.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red
+            ColorStop::new(0.17, Color::new(1.0, 0.5, 0.0, 1.0)), // Orange
+            ColorStop::new(0.33, Color::new(1.0, 1.0, 0.0, 1.0)), // Yellow
+            ColorStop::new(0.50, Color::new(0.0, 1.0, 0.0, 1.0)), // Green
+            ColorStop::new(0.67, Color::new(0.0, 0.0, 1.0, 1.0)), // Blue
+            ColorStop::new(0.83, Color::new(0.3, 0.0, 0.5, 1.0)), // Indigo
+            ColorStop::new(1.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red (wrap)
+        ],
+    }));
+    f.insert(
+        4,
+        mk(4, 0.4, 0.9, 0.4, 0.0, 0.0, 0.0, 400, false, string_gradient),
+    );
+
+    f.insert(5, mk(5, 0.4, 0.7, 0.7, 0.0, 0.0, 0.0, 400, true, None));
+    f.insert(
+        6,
+        mk(6, 0.87, 0.87, 0.87, 0.15, 0.15, 0.15, 400, false, None),
+    );
+    f.insert(7, mk(7, 0.4, 0.4, 0.4, 0.0, 0.0, 0.0, 400, false, None));
     f
 }
 
@@ -694,6 +769,7 @@ fn mk(
     bb: f32,
     weight: u16,
     italic: bool,
+    gradient: Option<Box<neomacs_display_protocol::gradient::Gradient>>,
 ) -> Face {
     let mut attrs = FaceAttributes::empty();
     if italic {
@@ -704,6 +780,7 @@ fn mk(
     face.background = Color::new(br, bg, bb, 1.0);
     face.font_weight = weight;
     face.attributes = attrs;
+    face.background_gradient = gradient;
     face
 }
 

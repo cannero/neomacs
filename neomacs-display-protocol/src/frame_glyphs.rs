@@ -750,6 +750,7 @@ impl FrameGlyphBuffer {
             font_descent: 0,
             underline_position: 1,
             underline_thickness: 1,
+            background_gradient: None,
         }
     }
 
