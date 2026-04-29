@@ -283,29 +283,29 @@ impl TaggedValue {
     // ---------------------------------------------------------------------------
 
     /// Raw tag (low 3 bits).
-    #[inline]
+    #[inline(always)]
     pub fn tag(self) -> usize {
         self.0 & TAG_MASK
     }
 
     /// Raw bits (for hashing, pointer identity, etc.).
-    #[inline]
+    #[inline(always)]
     pub fn bits(self) -> usize {
         self.0
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_nil(self) -> bool {
         self.0 == 0
     }
 
     /// Check for `t` (the canonical true value).
-    #[inline]
+    #[inline(always)]
     pub fn is_t(self) -> bool {
         self.0 == Self::T.0
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_fixnum(self) -> bool {
         self.0 & FIXNUM_CHECK_MASK == FIXNUM_CHECK_VALUE
     }
@@ -314,27 +314,27 @@ impl TaggedValue {
     /// In GNU Emacs, keywords are symbols (interned with `:` prefix).
     /// Check if this value is a symbol. Keywords are symbols (name starts
     /// with `:`). nil and t are also symbols.
-    #[inline]
+    #[inline(always)]
     pub fn is_symbol(self) -> bool {
         self.0 & TAG_MASK == TAG_SYMBOL
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_cons(self) -> bool {
         self.0 & TAG_MASK == TAG_CONS
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_string(self) -> bool {
         self.0 & TAG_MASK == TAG_STRING
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_float(self) -> bool {
         self.0 & TAG_MASK == TAG_FLOAT
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn is_veclike(self) -> bool {
         self.0 & TAG_MASK == TAG_VECLIKE
     }
@@ -371,7 +371,7 @@ impl TaggedValue {
     }
 
     /// Subrs are PVEC_SUBR-like vectorlike objects, matching GNU Emacs.
-    #[inline]
+    #[inline(always)]
     pub fn is_subr(self) -> bool {
         self.veclike_type() == Some(super::header::VecLikeType::Subr)
     }
@@ -459,7 +459,7 @@ impl TaggedValue {
 
     /// Extract SymId for a symbol (including keywords, which are symbols
     /// Extract SymId for a symbol (including keywords). Returns None if not a symbol.
-    #[inline]
+    #[inline(always)]
     pub fn as_symbol_id(self) -> Option<SymId> {
         if self.0 & TAG_MASK == TAG_SYMBOL {
             Some(SymId((self.0 >> TAG_BITS) as u32))
@@ -469,7 +469,7 @@ impl TaggedValue {
     }
 
     /// Extract SymId without tag check. Caller must ensure `is_symbol()`.
-    #[inline]
+    #[inline(always)]
     pub fn xsymbol_id(self) -> SymId {
         debug_assert!(self.is_symbol());
         SymId((self.0 >> TAG_BITS) as u32)
@@ -505,7 +505,7 @@ impl TaggedValue {
     }
 
     /// Extract the canonical public symbol id for a subr.
-    #[inline]
+    #[inline(always)]
     pub fn as_subr_id(self) -> Option<SymId> {
         if self.veclike_type() == Some(super::header::VecLikeType::Subr) {
             let ptr = self.as_veclike_ptr().unwrap() as *const super::header::SubrObj;
@@ -518,7 +518,7 @@ impl TaggedValue {
     // -- Heap pointer extractors --
 
     /// Extract raw cons cell pointer. Returns None if not a cons.
-    #[inline]
+    #[inline(always)]
     pub fn as_cons_ptr(self) -> Option<*const ConsCell> {
         if self.is_cons() {
             Some((self.0 & !TAG_MASK) as *const ConsCell)
@@ -528,14 +528,14 @@ impl TaggedValue {
     }
 
     /// Extract raw cons cell pointer without tag check.
-    #[inline]
+    #[inline(always)]
     pub fn xcons_ptr(self) -> *const ConsCell {
         debug_assert!(self.is_cons());
         (self.0 & !TAG_MASK) as *const ConsCell
     }
 
     /// Extract raw string object pointer. Returns None if not a string.
-    #[inline]
+    #[inline(always)]
     pub fn as_string_ptr(self) -> Option<*const StringObj> {
         if self.is_string() {
             Some((self.0 & !TAG_MASK) as *const StringObj)
@@ -545,7 +545,7 @@ impl TaggedValue {
     }
 
     /// Extract raw float object pointer. Returns None if not a float.
-    #[inline]
+    #[inline(always)]
     pub fn as_float_ptr(self) -> Option<*const FloatObj> {
         if self.is_float() {
             Some((self.0 & !TAG_MASK) as *const FloatObj)
@@ -555,7 +555,7 @@ impl TaggedValue {
     }
 
     /// Extract raw veclike header pointer. Returns None if not veclike.
-    #[inline]
+    #[inline(always)]
     pub fn as_veclike_ptr(self) -> Option<*const VecLikeHeader> {
         if self.is_veclike() {
             Some((self.0 & !TAG_MASK) as *const VecLikeHeader)
@@ -579,13 +579,13 @@ impl TaggedValue {
     // ---------------------------------------------------------------------------
 
     /// Get the car of a cons cell. Panics if not a cons.
-    #[inline]
+    #[inline(always)]
     pub fn cons_car(self) -> Self {
         unsafe { (*self.xcons_ptr()).car }
     }
 
     /// Get the cdr of a cons cell. Panics if not a cons.
-    #[inline]
+    #[inline(always)]
     pub fn cons_cdr(self) -> Self {
         unsafe { (*self.xcons_ptr()).cdr() }
     }
@@ -607,7 +607,7 @@ impl TaggedValue {
     // ---------------------------------------------------------------------------
 
     /// Get the f64 value of a float. Panics if not a float.
-    #[inline]
+    #[inline(always)]
     pub fn xfloat(self) -> f64 {
         debug_assert!(self.is_float());
         unsafe { (*(self.as_float_ptr().unwrap())).value }
@@ -618,7 +618,7 @@ impl TaggedValue {
     // ---------------------------------------------------------------------------
 
     /// Get the veclike sub-type. Returns None if not veclike.
-    #[inline]
+    #[inline(always)]
     pub fn veclike_type(self) -> Option<VecLikeType> {
         if self.is_veclike() {
             Some(unsafe { (*self.as_veclike_ptr().unwrap()).type_tag })
@@ -633,6 +633,7 @@ impl TaggedValue {
 
     /// Decode into a `ValueKind` enum for exhaustive pattern matching.
     /// This provides Rust `match` ergonomics without the old `Value` enum.
+    #[inline(always)]
     pub fn kind(self) -> ValueKind {
         match self.tag() {
             TAG_SYMBOL => {
