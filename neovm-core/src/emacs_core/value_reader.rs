@@ -16,6 +16,7 @@ use super::intern::{intern, intern_lisp_string, intern_uninterned_lisp_string, r
 // bytes_to_unibyte_storage_string and encode_nonunicode_char_for_storage
 // imports removed — using emacs_char + Vec<u8> directly
 use super::emacs_char;
+use smallvec::SmallVec;
 use std::cell::RefCell;
 
 thread_local! {
@@ -234,6 +235,8 @@ struct ReaderToken {
     text: Option<String>,
     had_escape: bool,
 }
+
+type ReaderTokenBytes = SmallVec<[u8; 64]>;
 
 fn translate_runtime_source_char(ch: char) -> u32 {
     let cp = ch as u32;
@@ -1660,7 +1663,7 @@ impl<'a> Reader<'a> {
     }
 
     fn read_symbol_token(&mut self) -> ReaderToken {
-        let mut bytes = Vec::new();
+        let mut bytes = ReaderTokenBytes::new();
         let mut had_escape = false;
         while let Some(ch) = self.current_code() {
             if is_symbol_delimiter_code(ch) {
@@ -1681,6 +1684,7 @@ impl<'a> Reader<'a> {
             self.push_symbol_token_code(&mut bytes, ch);
             self.bump();
         }
+        let bytes = bytes.into_vec();
         let name = if self.source_multibyte {
             crate::heap_types::LispString::from_emacs_bytes(bytes)
         } else {
@@ -1694,7 +1698,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    fn push_symbol_token_code(&self, bytes: &mut Vec<u8>, code: u32) {
+    fn push_symbol_token_code(&self, bytes: &mut ReaderTokenBytes, code: u32) {
         if !self.source_multibyte && code <= 0xFF {
             bytes.push(code as u8);
             return;
