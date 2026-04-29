@@ -90,6 +90,12 @@ pub(crate) fn lisp_string_char_codes(string: &crate::heap_types::LispString) -> 
     let mut out = Vec::with_capacity(string.schars());
     let mut pos = 0;
     while pos < bytes.len() {
+        let byte = bytes[pos];
+        if byte < 0x80 {
+            out.push(byte as u32);
+            pos += 1;
+            continue;
+        }
         let (cp, len) = crate::emacs_core::emacs_char::string_char_unchecked(&bytes[pos..]);
         out.push(translate_sentinel(cp).unwrap_or(cp));
         pos += len;
