@@ -1463,7 +1463,7 @@ impl TaggedHeap {
         self.gc_collections += 1;
         self.gc_total_elapsed_us += elapsed.as_micros() as u64;
 
-        tracing::info!(
+        tracing::debug!(
             "gc#{} {:.1}ms, {} → {} bytes ({:+.1}%), cons_live={}, threshold={}",
             self.gc_collections,
             self.gc_total_elapsed_us as f64 / self.gc_collections as f64 / 1000.0,
