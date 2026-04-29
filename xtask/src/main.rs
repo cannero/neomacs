@@ -1608,10 +1608,10 @@ fn shell_quote(value: &OsStr) -> String {
 }
 
 fn loaddefs_dirs(lisp_root: &Path) -> Result<Vec<PathBuf>> {
-    let mut dirs = Vec::new();
-    collect_loaddefs_dirs(lisp_root, lisp_root, &mut dirs)?;
-    dirs.sort();
-    Ok(dirs)
+    lisp_dirs_matching_gnu_subdirs(
+        lisp_root,
+        |relative| !matches!(relative, rel if rel == Path::new("obsolete") || rel == Path::new("term")),
+    )
 }
 
 fn lisp_dirs_for_custom_dependencies(lisp_root: &Path) -> Result<Vec<PathBuf>> {
@@ -1646,32 +1646,6 @@ fn lisp_dirs_matching_gnu_subdirs(
     });
     dirs.sort();
     Ok(dirs)
-}
-
-fn collect_loaddefs_dirs(root: &Path, current: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
-    out.push(current.to_path_buf());
-
-    let mut children = fs::read_dir(current)?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.is_dir())
-        .collect::<Vec<_>>();
-    children.sort();
-
-    for child in children {
-        let relative = child
-            .strip_prefix(root)
-            .expect("child directory should remain under lisp root");
-        let first_component = relative
-            .components()
-            .next()
-            .and_then(|component| component.as_os_str().to_str());
-        if matches!(first_component, Some("obsolete" | "term")) {
-            continue;
-        }
-        collect_loaddefs_dirs(root, &child, out)?;
-    }
-
-    Ok(())
 }
 
 fn run_compile_main(

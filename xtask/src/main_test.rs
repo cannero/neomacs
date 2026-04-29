@@ -390,6 +390,35 @@ fn custom_and_finder_dirs_follow_gnu_subdir_filters() {
 }
 
 #[test]
+fn loaddefs_dirs_follow_gnu_subdirs_almost_filter() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    for dir in [
+        "",
+        "calendar",
+        "obsolete",
+        "obsolete/child",
+        "term",
+        "term/xterm",
+    ] {
+        fs::create_dir_all(lisp_root.join(dir)).unwrap();
+    }
+
+    let dirs = loaddefs_dirs(&lisp_root)
+        .unwrap()
+        .into_iter()
+        .map(|path| path.strip_prefix(&lisp_root).unwrap().to_path_buf())
+        .collect::<Vec<_>>();
+
+    assert!(dirs.contains(&PathBuf::from("")));
+    assert!(dirs.contains(&PathBuf::from("calendar")));
+    assert!(!dirs.contains(&PathBuf::from("obsolete")));
+    assert!(dirs.contains(&PathBuf::from("obsolete/child")));
+    assert!(!dirs.contains(&PathBuf::from("term")));
+    assert!(dirs.contains(&PathBuf::from("term/xterm")));
+}
+
+#[test]
 fn compile_main_sources_follow_gnu_no_byte_compile_filter() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
