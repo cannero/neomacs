@@ -461,6 +461,42 @@ fn pure_dispatch_typed_append_concatenates_lists() {
 }
 
 #[test]
+fn pure_dispatch_typed_append_preserves_dotted_tail() {
+    crate::test_utils::init_test_tracing();
+    let result = dispatch_builtin_pure(
+        "append",
+        vec![Value::list(vec![Value::fixnum(1)]), Value::T],
+    )
+    .expect("builtin append should resolve")
+    .expect("builtin append should evaluate");
+    assert_eq!(result, Value::cons(Value::fixnum(1), Value::T));
+
+    let atom = dispatch_builtin_pure("append", vec![Value::NIL, Value::T])
+        .expect("builtin append should resolve")
+        .expect("builtin append should evaluate");
+    assert_eq!(atom, Value::T);
+}
+
+#[test]
+fn pure_dispatch_typed_append_flattens_vector_and_string() {
+    crate::test_utils::init_test_tracing();
+    let vector = Value::vector(vec![Value::fixnum(1), Value::fixnum(2)]);
+    let string = Value::string("AB");
+    let result = dispatch_builtin_pure("append", vec![vector, string, Value::NIL])
+        .expect("builtin append should resolve")
+        .expect("builtin append should evaluate");
+    assert_eq!(
+        result,
+        Value::list(vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::fixnum(65),
+            Value::fixnum(66)
+        ])
+    );
+}
+
+#[test]
 fn pure_dispatch_typed_append_flattens_bytecode_slots() {
     crate::test_utils::init_test_tracing();
     let bc = Value::make_bytecode(crate::emacs_core::bytecode::ByteCodeFunction::new(

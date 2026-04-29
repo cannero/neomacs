@@ -706,16 +706,25 @@ pub(crate) fn builtin_append_slice(_eval: &mut super::eval::Context, args: &[Val
 }
 
 fn builtin_append_slice_impl(args: &[Value]) -> EvalResult {
-    fn extend_from_proper_list(out: &mut Vec<Value>, list: &Value) -> Result<(), Flow> {
-        let mut cursor = *list;
+    fn append_element(result: &mut Value, last: &mut Value, element: Value) {
+        let node = Value::cons(element, Value::NIL);
+        if result.is_nil() {
+            *result = node;
+        } else {
+            last.set_cdr(node);
+        }
+        *last = node;
+        crate::emacs_core::eval::push_scratch_gc_root(node);
+    }
+
+    fn append_proper_list(result: &mut Value, last: &mut Value, list: Value) -> Result<(), Flow> {
+        let mut cursor = list;
         loop {
             match cursor.kind() {
                 ValueKind::Nil => return Ok(()),
                 ValueKind::Cons => {
-                    let pair_car = cursor.cons_car();
-                    let pair_cdr = cursor.cons_cdr();
-                    out.push(pair_car);
-                    cursor = pair_cdr;
+                    append_element(result, last, cursor.cons_car());
+                    cursor = cursor.cons_cdr();
                 }
                 _ => {
                     return Err(signal(
@@ -734,55 +743,64 @@ fn builtin_append_slice_impl(args: &[Value]) -> EvalResult {
         return Ok(args[0]);
     }
 
-    // Collect all elements from all lists except the last, then use last as tail
-    let mut elements: Vec<Value> = Vec::new();
-    for arg in &args[..args.len() - 1] {
-        match arg.kind() {
-            ValueKind::Nil => {}
-            ValueKind::Cons => extend_from_proper_list(&mut elements, arg)?,
-            ValueKind::Veclike(VecLikeType::Lambda) => {
-                elements.extend(lambda_to_closure_vector(arg).into_iter())
-            }
-            ValueKind::Veclike(VecLikeType::ByteCode) => {
-                elements.extend(bytecode_to_closure_vector(arg).into_iter())
-            }
-            ValueKind::Veclike(VecLikeType::Vector) => {
-                elements.extend(arg.as_vector_data().unwrap().clone().into_iter())
-            }
-            ValueKind::String => {
-                let string = arg.as_lisp_string().expect("string");
-                super::for_each_lisp_string_char(string, |cp| {
-                    elements.push(Value::fixnum(cp as i64));
-                });
-            }
-            _ => {
-                return Err(signal(
-                    "wrong-type-argument",
-                    vec![Value::symbol("sequencep"), *arg],
-                ));
+    let saved_roots = crate::emacs_core::eval::save_scratch_gc_roots();
+    for arg in args {
+        crate::emacs_core::eval::push_scratch_gc_root(*arg);
+    }
+
+    let result = (|| -> EvalResult {
+        let mut result = Value::NIL;
+        let mut last = Value::NIL;
+
+        for arg in &args[..args.len() - 1] {
+            match arg.kind() {
+                ValueKind::Nil => {}
+                ValueKind::Cons => append_proper_list(&mut result, &mut last, *arg)?,
+                ValueKind::Veclike(VecLikeType::Lambda) => {
+                    if let Some(slots) = arg.closure_slots() {
+                        for item in slots.as_slice().iter().copied() {
+                            append_element(&mut result, &mut last, item);
+                        }
+                    }
+                }
+                ValueKind::Veclike(VecLikeType::ByteCode) => {
+                    for item in bytecode_to_closure_vector(arg) {
+                        crate::emacs_core::eval::push_scratch_gc_root(item);
+                        append_element(&mut result, &mut last, item);
+                    }
+                }
+                ValueKind::Veclike(VecLikeType::Vector) => {
+                    if let Some(items) = arg.as_vector_data() {
+                        for item in items.as_slice().iter().copied() {
+                            append_element(&mut result, &mut last, item);
+                        }
+                    }
+                }
+                ValueKind::String => {
+                    let string = arg.as_lisp_string().expect("string");
+                    super::for_each_lisp_string_char(string, |cp| {
+                        append_element(&mut result, &mut last, Value::fixnum(cp as i64));
+                    });
+                }
+                _ => {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("sequencep"), *arg],
+                    ));
+                }
             }
         }
-    }
 
-    let last = &args[args.len() - 1];
-    // Debug: trace when append's last arg is t (causes dotted pair ending with t)
-    if last.is_t() && !elements.is_empty() {
-        tracing::error!(
-            "append: last arg is t, will create dotted pair! nargs={} elements={}",
-            args.len(),
-            elements.len()
-        );
-    }
-    if elements.is_empty() {
-        return Ok(*last);
-    }
+        let last_tail = args[args.len() - 1];
+        if result.is_nil() {
+            return Ok(last_tail);
+        }
 
-    // Build list with last arg as tail (supports improper lists)
-    let tail = *last;
-    Ok(elements
-        .into_iter()
-        .rev()
-        .fold(tail, |acc, item| Value::cons(item, acc)))
+        last.set_cdr(last_tail);
+        Ok(result)
+    })();
+    crate::emacs_core::eval::restore_scratch_gc_roots(saved_roots);
+    result
 }
 
 pub(crate) fn builtin_reverse(args: Vec<Value>) -> EvalResult {
