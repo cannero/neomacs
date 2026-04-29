@@ -1456,6 +1456,8 @@ pub struct Context {
     inhibit_quit_symbol: SymId,
     throw_on_input_symbol: SymId,
     kill_emacs_symbol: SymId,
+    quit_flag: Value,
+    inhibit_quit: Value,
     noninteractive_symbol: SymId,
     noninteractive: bool,
     symbols_with_pos_enabled_symbol: SymId,
@@ -4164,6 +4166,8 @@ impl Context {
         let print_symbols_bare = obarray
             .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
+        let quit_flag = obarray.symbol_value_id_or_nil(core_eval_symbols.quit_flag_symbol);
+        let inhibit_quit = obarray.symbol_value_id_or_nil(core_eval_symbols.inhibit_quit_symbol);
 
         let mut ev = Self {
             tagged_heap,
@@ -4177,6 +4181,8 @@ impl Context {
             inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
             throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
+            quit_flag,
+            inhibit_quit,
             noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
             noninteractive,
             symbols_with_pos_enabled_symbol: core_eval_symbols.symbols_with_pos_enabled_symbol,
@@ -4309,6 +4315,8 @@ impl Context {
         let print_symbols_bare = obarray
             .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
+        let quit_flag = obarray.symbol_value_id_or_nil(core_eval_symbols.quit_flag_symbol);
+        let inhibit_quit = obarray.symbol_value_id_or_nil(core_eval_symbols.inhibit_quit_symbol);
 
         let mut ev = Self {
             tagged_heap,
@@ -4322,6 +4330,8 @@ impl Context {
             inhibit_quit_symbol: core_eval_symbols.inhibit_quit_symbol,
             throw_on_input_symbol: core_eval_symbols.throw_on_input_symbol,
             kill_emacs_symbol: core_eval_symbols.kill_emacs_symbol,
+            quit_flag,
+            inhibit_quit,
             noninteractive_symbol: core_eval_symbols.noninteractive_symbol,
             noninteractive,
             symbols_with_pos_enabled_symbol: core_eval_symbols.symbols_with_pos_enabled_symbol,
@@ -4510,6 +4520,8 @@ impl Context {
             }
         }
         visit(self.lexenv);
+        visit(self.quit_flag);
+        visit(self.inhibit_quit);
         for entry in self.runtime_macro_expansion_cache.values() {
             visit(entry.function);
             visit(entry.expanded);
@@ -6015,9 +6027,8 @@ impl Context {
     /// Mirrors `process_quit_flag` in GNU `eval.c`: clear `quit-flag`, then
     /// honor `throw-on-input`, `kill-emacs`, or signal `quit`.
     fn process_quit_flag(&mut self) -> Result<(), Flow> {
-        let flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
-        self.obarray
-            .set_symbol_value_id(self.quit_flag_symbol, Value::NIL);
+        let flag = self.quit_flag;
+        self.set_quit_flag_value(Value::NIL);
 
         let throw_on_input = self
             .obarray
@@ -6065,24 +6076,16 @@ impl Context {
                 .quit_requested
                 .swap(false, std::sync::atomic::Ordering::Relaxed)
         {
-            if self
-                .obarray
-                .symbol_value_id_or_nil(self.quit_flag_symbol)
-                .is_nil()
-            {
-                self.obarray
-                    .set_symbol_value_id(self.quit_flag_symbol, Value::T);
+            if self.quit_flag.is_nil() {
+                self.set_quit_flag_value(Value::T);
             }
         }
-        let quit_flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
+        let quit_flag = self.quit_flag;
         if quit_flag.is_nil() {
             return Ok(());
         }
 
-        let inhibit_quit = self
-            .obarray
-            .symbol_value_id_or_nil(self.inhibit_quit_symbol);
-        if inhibit_quit.is_truthy() {
+        if self.inhibit_quit.is_truthy() {
             return Ok(());
         }
 
@@ -6091,11 +6094,12 @@ impl Context {
 
     #[inline(always)]
     pub(crate) fn quit_flag_value(&self) -> Value {
-        self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol)
+        self.quit_flag
     }
 
     #[inline(always)]
     pub(crate) fn set_quit_flag_value(&mut self, value: Value) {
+        self.quit_flag = value;
         self.obarray
             .set_symbol_value_id(self.quit_flag_symbol, value);
     }
@@ -6210,8 +6214,7 @@ impl Context {
             return Ok(());
         }
 
-        let quit_flag = self.obarray.symbol_value_id_or_nil(self.quit_flag_symbol);
-        if !quit_flag.is_nil() {
+        if !self.quit_flag.is_nil() {
             return Ok(());
         }
 
@@ -6233,8 +6236,7 @@ impl Context {
                 pending_input_events = self.command_loop.keyboard.pending_input_events.len(),
                 "poll_pending_input_for_throw_on_input: setting quit-flag"
             );
-            self.obarray
-                .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
+            self.set_quit_flag_value(throw_on_input);
         }
 
         Ok(())
@@ -6253,10 +6255,7 @@ impl Context {
             return Ok(false);
         }
 
-        let inhibit_quit = self
-            .obarray
-            .symbol_value_id_or_nil(self.inhibit_quit_symbol);
-        if inhibit_quit.is_truthy() {
+        if self.inhibit_quit.is_truthy() {
             return Ok(false);
         }
 
@@ -6264,8 +6263,7 @@ impl Context {
             .keyboard
             .pending_input_events
             .push_front(event);
-        self.obarray
-            .set_symbol_value_id(self.quit_flag_symbol, throw_on_input);
+        self.set_quit_flag_value(throw_on_input);
         self.maybe_quit()?;
         Ok(true)
     }
@@ -6312,7 +6310,11 @@ impl Context {
 
     #[inline]
     fn sync_cached_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
-        if sym_id == self.noninteractive_symbol {
+        if sym_id == self.quit_flag_symbol {
+            self.quit_flag = value;
+        } else if sym_id == self.inhibit_quit_symbol {
+            self.inhibit_quit = value;
+        } else if sym_id == self.noninteractive_symbol {
             self.noninteractive = value.is_truthy();
         } else if sym_id == self.symbols_with_pos_enabled_symbol {
             self.symbols_with_pos_enabled = value.is_truthy();
