@@ -56,7 +56,7 @@ impl Error for EvalError {}
 /// Internal non-local control flow.
 #[derive(Clone, Debug)]
 pub enum Flow {
-    Signal(SignalData),
+    Signal(Box<SignalData>),
     Throw { tag: Value, value: Value },
 }
 
@@ -101,14 +101,14 @@ fn signal_internal(
         let data_strs: Vec<String> = data.iter().map(|v| super::print::print_value(v)).collect();
         tracing::debug!("signal {symbol} ({})", data_strs.join(" "));
     }
-    Flow::Signal(SignalData {
+    Flow::Signal(Box::new(SignalData {
         symbol: intern(symbol),
         data,
         raw_data,
         suppress_signal_hook,
         selected_resume: None,
         search_complete: false,
-    })
+    }))
 }
 
 /// Create a signal where DATA is used as the raw cdr payload.
@@ -131,11 +131,19 @@ fn signal_with_data_internal(symbol: &str, data: Value, suppress_signal_hook: bo
 /// Convert internal flow to public EvalError.
 pub fn map_flow(flow: Flow) -> EvalError {
     match flow {
-        Flow::Signal(sig) => EvalError::Signal {
-            symbol: sig.symbol,
-            data: sig.data,
-            raw_data: sig.raw_data,
-        },
+        Flow::Signal(sig) => {
+            let SignalData {
+                symbol,
+                data,
+                raw_data,
+                ..
+            } = *sig;
+            EvalError::Signal {
+                symbol,
+                data,
+                raw_data,
+            }
+        }
         Flow::Throw { tag, value } => EvalError::UncaughtThrow { tag, value },
     }
 }

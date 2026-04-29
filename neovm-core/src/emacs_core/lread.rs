@@ -150,14 +150,14 @@ fn eval_forms_from_source_streaming(
                     symbol,
                     data,
                     raw_data,
-                } => super::error::Flow::Signal(super::error::SignalData {
+                } => super::error::Flow::Signal(Box::new(super::error::SignalData {
                     symbol,
                     data,
                     raw_data,
                     suppress_signal_hook: false,
                     selected_resume: None,
                     search_complete: false,
-                }),
+                })),
                 super::error::EvalError::UncaughtThrow { tag, value } => {
                     super::error::Flow::Throw { tag, value }
                 }
@@ -216,14 +216,14 @@ fn eval_forms_from_lisp_source_streaming(
                     symbol,
                     data,
                     raw_data,
-                } => super::error::Flow::Signal(super::error::SignalData {
+                } => super::error::Flow::Signal(Box::new(super::error::SignalData {
                     symbol,
                     data,
                     raw_data,
                     suppress_signal_hook: false,
                     selected_resume: None,
                     search_complete: false,
-                }),
+                })),
                 super::error::EvalError::UncaughtThrow { tag, value } => {
                     super::error::Flow::Throw { tag, value }
                 }
@@ -251,14 +251,14 @@ fn map_eval_error_to_flow(err: super::error::EvalError) -> Flow {
             symbol,
             data,
             raw_data,
-        } => Flow::Signal(super::error::SignalData {
+        } => Flow::Signal(Box::new(super::error::SignalData {
             symbol,
             data,
             raw_data,
             suppress_signal_hook: false,
             selected_resume: None,
             search_complete: false,
-        }),
+        })),
         super::error::EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
     }
 }

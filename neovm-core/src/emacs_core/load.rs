@@ -814,14 +814,14 @@ pub(crate) fn builtin_load_in_vm_runtime(
                     symbol,
                     data,
                     raw_data,
-                } => Flow::Signal(crate::emacs_core::error::SignalData {
+                } => Flow::Signal(Box::new(crate::emacs_core::error::SignalData {
                     symbol,
                     data,
                     raw_data,
                     suppress_signal_hook: false,
                     selected_resume: None,
                     search_complete: false,
-                }),
+                })),
                 EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
             });
             shared.restore_specpdl_roots(root_scope);

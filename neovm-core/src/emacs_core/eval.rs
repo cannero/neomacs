@@ -2359,12 +2359,12 @@ impl Context {
 
     pub(crate) fn dispatch_signal_if_needed(
         &mut self,
-        sig: SignalData,
-    ) -> Result<SignalData, Flow> {
+        sig: Box<SignalData>,
+    ) -> Result<Box<SignalData>, Flow> {
         if sig.search_complete {
             return Ok(sig);
         }
-        self.dispatch_signal(sig)
+        self.dispatch_signal(*sig).map(Box::new)
     }
 
     pub(crate) fn dispatch_signal_result_if_needed(&mut self, result: EvalResult) -> EvalResult {
@@ -2379,7 +2379,7 @@ impl Context {
 
     fn dispatch_signal(&mut self, mut sig: SignalData) -> Result<SignalData, Flow> {
         if sig.symbol == self.kill_emacs_symbol {
-            return Err(Flow::Signal(sig));
+            return Err(Flow::Signal(Box::new(sig)));
         }
         self.run_signal_hook(&sig)?;
         sig = self.canonicalize_signal_symbol(sig);
@@ -2452,7 +2452,8 @@ impl Context {
                             continue;
                         }
                         Err(Flow::Signal(next_sig)) => {
-                            let dispatched = self.dispatch_signal_if_needed(next_sig);
+                            let dispatched =
+                                self.dispatch_signal_if_needed(next_sig).map(|sig| *sig);
                             self.pop_condition_frame();
                             self.restore_specpdl_roots(specpdl_root_scope);
                             return dispatched;

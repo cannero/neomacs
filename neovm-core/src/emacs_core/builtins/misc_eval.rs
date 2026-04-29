@@ -511,14 +511,14 @@ fn eval_error_to_flow(e: super::error::EvalError) -> Flow {
             symbol,
             data,
             raw_data,
-        } => Flow::Signal(super::error::SignalData {
+        } => Flow::Signal(Box::new(super::error::SignalData {
             symbol,
             data,
             raw_data,
             suppress_signal_hook: false,
             selected_resume: None,
             search_complete: false,
-        }),
+        })),
         super::error::EvalError::UncaughtThrow { tag, value } => Flow::Throw { tag, value },
     }
 }
