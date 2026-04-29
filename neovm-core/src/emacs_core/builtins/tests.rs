@@ -12406,8 +12406,8 @@ fn boundp_and_symbol_value_see_dynamic_and_current_buffer_local_bindings() {
     eval.specbind(intern("vm-bound-dyn"), Value::fixnum(9));
 
     let current = eval.buffers.current_buffer_id().expect("current buffer");
-    let buffer = eval.buffers.get_mut(current).expect("current buffer");
-    buffer.set_buffer_local("vm-bound-buf", Value::fixnum(7));
+    eval.set_buffer_local_binding_by_id(current, intern("vm-bound-buf"), Value::fixnum(7))
+        .expect("buffer-local binding");
 
     let dyn_bound = builtin_boundp(&mut eval, vec![Value::symbol("vm-bound-dyn")])
         .expect("boundp should see dynamic binding");

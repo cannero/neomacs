@@ -8124,14 +8124,18 @@ fn vm_variable_lookup_builtins_use_shared_dynamic_and_buffer_local_state() {
                           (symbol-value 'vm-vm-base)))))"#,
             |eval| {
                 let current = eval.buffers.current_buffer_id().expect("current buffer");
-                let buffer = eval.buffers.get_mut(current).expect("current buffer");
-                buffer.set_buffer_local("vm-vm-base", Value::fixnum(3));
+                eval.set_buffer_local_binding_by_id(
+                    current,
+                    crate::emacs_core::intern::intern("vm-vm-base"),
+                    Value::fixnum(3),
+                )
+                .expect("buffer-local binding");
             },
         ),
-        // After the specbind refactor, `let` for a buffer-local variable
-        // writes to the obarray but `symbol-value` reads the buffer-local
-        // value, so the `let`-bound 9 is not visible here.
-        "OK (t nil t vm-vm-base 3 (t 3))"
+        // GNU `specbind` records SPECPDL_LET_LOCAL for a localized
+        // symbol with a current-buffer binding; `symbol-value` sees
+        // the let-bound value until unbind restores the local cell.
+        "OK (t nil t vm-vm-base 3 (t 9))"
     );
 }
 

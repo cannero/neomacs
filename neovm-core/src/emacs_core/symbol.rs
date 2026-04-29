@@ -1650,31 +1650,14 @@ impl Obarray {
     /// Mark a symbol as a buffer-local variable in the obarray.
     /// Preserves any existing default value from `Plain` or `BufferLocal`.
     ///
-    /// This updates the legacy `SymbolValue::BufferLocal` marker so
-    /// that callers of `is_buffer_local_id` still see the symbol as
-    /// buffer-local. If the symbol's new-shape redirect is already
-    /// `Localized` (because `make_symbol_localized` was called first),
-    /// the redirect + BLV pointer are left untouched — clobbering
-    /// them would orphan the BLV and break the Phase 9+ LOCALIZED
-    /// hot path in `vm.rs::lookup_var_id`.
+    /// Installs GNU-style `SYMBOL_LOCALIZED` state. If the symbol is
+    /// already localized, only the `local_if_set` flag is updated.
     pub fn make_buffer_local(&mut self, name: &str, local_if_set: bool) {
         let id = intern(name);
         self.mark_global_member(id);
-        let sym = self.ensure_symbol_id(id);
-        let already_localized = sym.flags.redirect() == SymbolRedirect::Localized;
-        if !already_localized {
-            // Preserve the current plain value as the new default.
-            // Phase F: read from val.plain (the authoritative field) rather
-            // than the legacy value enum which is no longer written.
-            let current = unsafe { sym.val.plain };
-            let old_default = if current == Value::UNBOUND {
-                Value::NIL
-            } else {
-                current
-            };
-            sym.flags.set_redirect(SymbolRedirect::Plainval);
-            sym.val = SymbolVal { plain: old_default };
-        }
+        let default = self.find_symbol_value(id).unwrap_or(Value::NIL);
+        self.make_symbol_localized(id, default);
+        self.set_blv_local_if_set(id, local_if_set);
     }
 
     /// Install a variable-alias edge: reading/writing `id` will redirect to `target`.

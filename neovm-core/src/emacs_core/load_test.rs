@@ -2771,7 +2771,14 @@ fn bootstrap_runtime_execute_extended_command_exits_minibuffer_on_ret() {
     let result = eval
         .apply(Value::symbol("execute-extended-command"), vec![Value::NIL])
         .expect("execute-extended-command should return after RET");
-    assert_eq!(result, Value::NIL);
+    if !result.is_nil() {
+        assert_eq!(
+            result,
+            eval.eval_symbol("execute-extended-command--binding-timer")
+                .expect("binding timer should be bound"),
+            "GNU returns the suggestion timer when M-x records typed input"
+        );
+    }
     assert!(
         eval.eval_symbol("neo-ret-probe-ran")
             .expect("probe var should exist")

@@ -1759,9 +1759,7 @@ fn install_completing_read_minibuffer_locals(
         ("minibuffer--original-buffer", original_buffer),
         ("completion-ignore-case", completion_ignore_case),
     ] {
-        let _ = eval
-            .buffers
-            .set_buffer_local_property_by_sym_id(current_id, intern(name), value);
+        let _ = eval.set_buffer_local_binding_by_id(current_id, intern(name), value);
     }
 }
 

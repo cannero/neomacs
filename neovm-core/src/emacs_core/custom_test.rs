@@ -536,9 +536,12 @@ fn set_default_preserves_current_buffer_local_binding() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let current = eval.buffers.current_buffer_id().expect("current buffer");
-    eval.buffers
-        .set_buffer_local_property(current, "vm-set-default-local", Value::fixnum(7))
-        .expect("buffer-local binding");
+    eval.set_buffer_local_binding_by_id(
+        current,
+        crate::emacs_core::intern::intern("vm-set-default-local"),
+        Value::fixnum(7),
+    )
+    .expect("buffer-local binding");
 
     builtin_set_default(
         &mut eval,
