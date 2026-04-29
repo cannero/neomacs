@@ -97,6 +97,30 @@ impl RuntimeMode {
     }
 }
 
+fn runtime_mode_from_program_name(program: &str) -> RuntimeMode {
+    let file_name = Path::new(program)
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new(program))
+        .to_string_lossy();
+    let file_name = file_name.strip_suffix(".exe").unwrap_or(&file_name);
+    match file_name {
+        "neomacs-temacs" => RuntimeMode::Raw,
+        "bootstrap-neomacs" => RuntimeMode::BootstrapUse,
+        _ => RuntimeMode::FinalRun,
+    }
+}
+
+fn runtime_mode_from_argv<I, S>(args: I) -> RuntimeMode
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args.into_iter()
+        .next()
+        .map(|arg| runtime_mode_from_program_name(arg.as_ref()))
+        .unwrap_or(RuntimeMode::FinalRun)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StartupOptions {
     frontend: FrontendKind,
@@ -2195,7 +2219,7 @@ fn run_temacs_dump_mode(dump_mode: LoadupDumpMode, startup: &StartupOptions) {
 
 #[allow(dead_code)]
 fn main() {
-    run(RuntimeMode::FinalRun);
+    run(runtime_mode_from_argv(std::env::args()));
 }
 
 // ---------------------------------------------------------------------------

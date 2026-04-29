@@ -44,7 +44,6 @@ struct PipelinePaths {
 #[derive(Debug)]
 struct ExecutableFingerprintImage {
     path: PathBuf,
-    file_name: OsString,
     normalized: Vec<u8>,
     slots: Vec<usize>,
 }
@@ -376,7 +375,8 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
         )?;
     }
 
-    patch_executable_fingerprints(options, &paths)?;
+    patch_primary_executable_fingerprint(options, &paths)?;
+    copy_executable_role_images(options, &paths)?;
 
     if !options.dry_run {
         ensure_binaries_exist(&paths)?;
@@ -1411,34 +1411,26 @@ fn ensure_binaries_exist(paths: &PipelinePaths) -> Result<()> {
     Ok(())
 }
 
-fn fresh_build_fingerprint_binaries(paths: &PipelinePaths) -> [&Path; 3] {
-    [
-        paths.temacs.as_path(),
-        paths.bootstrap.as_path(),
-        paths.final_bin.as_path(),
-    ]
-}
-
-fn patch_executable_fingerprints(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
-    // GNU Emacs hashes and patches the just-linked temacs image, then uses
-    // that same executable image as bootstrap-emacs/emacs. Neomacs currently
-    // builds three Rust binaries for those roles, so fresh-build gives the
-    // executable family one shared patched fingerprint.
-    let binaries = fresh_build_fingerprint_binaries(paths);
+fn patch_primary_executable_fingerprint(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+) -> Result<()> {
+    // GNU Emacs hashes and patches the just-linked temacs image, then copies
+    // that same executable image for bootstrap-emacs/emacs. Cargo links the
+    // user-facing neomacs binary, so treat it as the primary linked image and
+    // create the build-role executable names by copying it after patching.
     print_synthetic_step("patch executable pdump fingerprint");
     if options.dry_run {
-        for binary in binaries {
-            println!("  would patch: {}", binary.display());
-        }
+        println!("  would patch: {}", paths.final_bin.display());
         return Ok(());
     }
 
-    ensure_binaries_exist(paths)?;
-    let images = load_executable_fingerprint_images(&binaries)?;
-    let fingerprint = executable_family_fingerprint_from_images(&images);
-    for image in images {
-        patch_loaded_executable_fingerprint(image, &fingerprint)?;
+    if !paths.final_bin.exists() {
+        return Err(format!("missing required path: {}", paths.final_bin.display()).into());
     }
+    let image = load_executable_fingerprint_image(&paths.final_bin)?;
+    let fingerprint = executable_fingerprint_from_image(&image);
+    patch_loaded_executable_fingerprint(image, &fingerprint)?;
     println!(
         "  INFO  patched pdump fingerprint {}",
         uppercase_hex(&fingerprint)
@@ -1446,40 +1438,43 @@ fn patch_executable_fingerprints(options: &FreshBuildOptions, paths: &PipelinePa
     Ok(())
 }
 
-#[cfg(test)]
-fn executable_family_fingerprint(binaries: &[&Path]) -> Result<[u8; 32]> {
-    let images = load_executable_fingerprint_images(binaries)?;
-    Ok(executable_family_fingerprint_from_images(&images))
-}
-
-fn load_executable_fingerprint_images(
-    binaries: &[&Path],
-) -> Result<Vec<ExecutableFingerprintImage>> {
-    let loaded: Vec<std::result::Result<ExecutableFingerprintImage, String>> = binaries
-        .par_iter()
-        .map(|binary| load_executable_fingerprint_image(binary))
-        .collect();
-    let mut images = Vec::with_capacity(loaded.len());
-    for image in loaded {
-        match image {
-            Ok(image) => images.push(image),
-            Err(err) => return Err(err.into()),
+fn copy_executable_role_images(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    print_synthetic_step("copy executable role images");
+    for destination in [&paths.temacs, &paths.bootstrap] {
+        if options.dry_run {
+            println!(
+                "  would copy: {} -> {}",
+                paths.final_bin.display(),
+                destination.display()
+            );
+        } else {
+            copy_executable_role_image(&paths.final_bin, destination)?;
         }
     }
-    Ok(images)
+    Ok(())
 }
 
-fn load_executable_fingerprint_image(
-    binary: &Path,
-) -> std::result::Result<ExecutableFingerprintImage, String> {
-    let mut normalized =
-        fs::read(binary).map_err(|err| format!("failed to read {}: {err}", binary.display()))?;
+fn copy_executable_role_image(source: &Path, destination: &Path) -> Result<()> {
+    if source == destination {
+        return Ok(());
+    }
+    remove_file_if_exists(destination)?;
+    fs::copy(source, destination)?;
+    fs::set_permissions(destination, fs::metadata(source)?.permissions())?;
+    Ok(())
+}
+
+#[cfg(test)]
+fn executable_fingerprint(binary: &Path) -> Result<[u8; 32]> {
+    let image = load_executable_fingerprint_image(binary)?;
+    Ok(executable_fingerprint_from_image(&image))
+}
+
+fn load_executable_fingerprint_image(binary: &Path) -> Result<ExecutableFingerprintImage> {
+    let mut normalized = fs::read(binary)?;
     let slots = executable_fingerprint_slots(&normalized);
     if slots.is_empty() {
-        return Err(format!(
-            "missing pdump fingerprint record in {}",
-            binary.display()
-        ));
+        return Err(format!("missing pdump fingerprint record in {}", binary.display()).into());
     }
     for slot in &slots {
         normalized[*slot..*slot + FINGERPRINT_PLACEHOLDER.len()]
@@ -1488,21 +1483,14 @@ fn load_executable_fingerprint_image(
 
     Ok(ExecutableFingerprintImage {
         path: binary.to_path_buf(),
-        file_name: binary.file_name().unwrap_or_default().to_os_string(),
         normalized,
         slots,
     })
 }
 
-fn executable_family_fingerprint_from_images(images: &[ExecutableFingerprintImage]) -> [u8; 32] {
+fn executable_fingerprint_from_image(image: &ExecutableFingerprintImage) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"neomacs-executable-fingerprint-v1\0");
-    for image in images {
-        hasher.update(image.file_name.as_encoded_bytes());
-        hasher.update([0]);
-        hasher.update(&image.normalized);
-        hasher.update([0xff]);
-    }
+    hasher.update(&image.normalized);
 
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
@@ -2574,7 +2562,7 @@ Build the GNU-shaped Neomacs runtime pipeline:
   8. neomacs-temacs --temacs=pdump
 
 Options:
-  --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs
+  --bin-dir DIR       Directory containing neomacs and generated role copies
   --runtime-root DIR  Runtime root containing lisp/ and etc/
   --release           Build neomacs-bin in release mode and use target/release by default
   --dry-run           Print planned commands without running them

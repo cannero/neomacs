@@ -7,8 +7,8 @@ use super::{
     default_controlling_tty_name, face_height_to_pixels, maybe_install_tty_redisplay_callback,
     parse_startup_options, publish_gui_frame, raw_loadup_command_line, raw_loadup_startup_surface,
     render_fingerprint_text, render_help_text, render_startup_image_error, render_version_text,
-    run_gnu_startup, should_enable_live_tty_io, startup_dimensions, sync_live_gui_frame_titles,
-    sync_selected_gui_chrome_state,
+    run_gnu_startup, runtime_mode_from_program_name, should_enable_live_tty_io, startup_dimensions,
+    sync_live_gui_frame_titles, sync_selected_gui_chrome_state,
 };
 use neomacs_display_runtime::thread_comm::RenderCommand;
 use neovm_core::emacs_core::Context;
@@ -43,6 +43,26 @@ fn runtime_mode_binary_names_match_gnu_shaped_roles() {
     assert_eq!(RuntimeMode::Raw.binary_name(), "neomacs-temacs");
     assert_eq!(RuntimeMode::BootstrapUse.binary_name(), "bootstrap-neomacs");
     assert_eq!(RuntimeMode::FinalRun.binary_name(), "neomacs");
+}
+
+#[test]
+fn runtime_mode_comes_from_invoked_program_name() {
+    assert_eq!(
+        runtime_mode_from_program_name("/tmp/neomacs-temacs"),
+        RuntimeMode::Raw
+    );
+    assert_eq!(
+        runtime_mode_from_program_name("target/debug/bootstrap-neomacs"),
+        RuntimeMode::BootstrapUse
+    );
+    assert_eq!(
+        runtime_mode_from_program_name("target/debug/neomacs"),
+        RuntimeMode::FinalRun
+    );
+    assert_eq!(
+        runtime_mode_from_program_name("target/debug/neomacs.exe"),
+        RuntimeMode::FinalRun
+    );
 }
 
 #[test]

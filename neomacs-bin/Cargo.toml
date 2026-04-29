@@ -16,16 +16,6 @@ path = "src/main.rs"
 test = false
 
 [[bin]]
-name = "neomacs-temacs"
-path = "src/bin/neomacs-temacs.rs"
-test = false
-
-[[bin]]
-name = "bootstrap-neomacs"
-path = "src/bin/bootstrap-neomacs.rs"
-test = false
-
-[[bin]]
 name = "mock-display"
 path = "src/bin/mock-display.rs"
 test = false

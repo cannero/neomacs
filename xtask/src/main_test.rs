@@ -889,11 +889,11 @@ fn executable_fingerprint_patch_is_idempotent() {
     contents.extend_from_slice(b"suffix");
     fs::write(&binary, contents).unwrap();
 
-    let first = executable_family_fingerprint(&[binary.as_path()]).unwrap();
+    let first = executable_fingerprint(binary.as_path()).unwrap();
     patch_executable_fingerprint(&binary, &first).unwrap();
     let patched_once = fs::read(&binary).unwrap();
 
-    let second = executable_family_fingerprint(&[binary.as_path()]).unwrap();
+    let second = executable_fingerprint(binary.as_path()).unwrap();
     assert_eq!(first, second);
     patch_executable_fingerprint(&binary, &second).unwrap();
     assert_eq!(patched_once, fs::read(&binary).unwrap());
@@ -919,6 +919,39 @@ fn executable_fingerprint_patches_all_records() {
     for slot in executable_fingerprint_slots(&patched) {
         assert_eq!(&patched[slot..slot + 32], &fingerprint);
     }
+}
+
+#[test]
+fn executable_role_copy_replaces_existing_file() {
+    let tempdir = tempdir();
+    let source = tempdir.join("neomacs");
+    let destination = tempdir.join("neomacs-temacs");
+    fs::write(&source, b"primary executable").unwrap();
+    fs::write(&destination, b"stale role executable").unwrap();
+
+    copy_executable_role_image(&source, &destination).unwrap();
+
+    assert_eq!(fs::read(&destination).unwrap(), b"primary executable");
+}
+
+#[cfg(unix)]
+#[test]
+fn executable_role_copy_breaks_existing_hardlink() {
+    let tempdir = tempdir();
+    let source = tempdir.join("neomacs");
+    let cargo_dep_artifact = tempdir.join("deps-neomacs-temacs");
+    let destination = tempdir.join("neomacs-temacs");
+    fs::write(&source, b"primary executable").unwrap();
+    fs::write(&cargo_dep_artifact, b"old cargo artifact").unwrap();
+    fs::hard_link(&cargo_dep_artifact, &destination).unwrap();
+
+    copy_executable_role_image(&source, &destination).unwrap();
+
+    assert_eq!(fs::read(&destination).unwrap(), b"primary executable");
+    assert_eq!(
+        fs::read(&cargo_dep_artifact).unwrap(),
+        b"old cargo artifact"
+    );
 }
 
 #[test]
