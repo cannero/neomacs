@@ -8033,6 +8033,22 @@ fn load_file_single_line_shebang_signals_end_of_file() {
 }
 
 #[test]
+fn load_form_log_preview_elides_compiled_elisp_forms() {
+    let preview = load_form_log_preview(std::path::Path::new("eieio-core.elc"), || {
+        panic!("compiled .elc preview builder should not run")
+    });
+    assert_eq!(preview, COMPILED_ELISP_FORM_PREVIEW);
+}
+
+#[test]
+fn load_form_log_preview_keeps_source_elisp_forms() {
+    let preview = load_form_log_preview(std::path::Path::new("eieio-core.el"), || {
+        "(defalias 'visible #'ignore)".to_string()
+    });
+    assert_eq!(preview, "(defalias 'visible #'ignore)");
+}
+
+#[test]
 fn load_elc_is_supported() {
     crate::test_utils::init_test_tracing();
     // .elc files are now supported. A valid .elc with a simple setq should work.
