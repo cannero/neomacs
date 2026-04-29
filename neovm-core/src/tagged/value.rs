@@ -64,6 +64,38 @@ thread_local! {
     static STATIC_SUBR_OBJECTS: RefCell<Vec<Option<TaggedValue>>> = const { RefCell::new(Vec::new()) };
 }
 
+pub(crate) fn update_static_subr_object_entry(
+    sym_id: SymId,
+    function: Option<super::header::SubrFn>,
+    min_args: u16,
+    max_args: Option<u16>,
+    dispatch_kind: super::header::SubrDispatchKind,
+) {
+    STATIC_SUBR_OBJECTS.with(|objects| {
+        let Some(value) = objects
+            .borrow()
+            .get(sym_id.0 as usize)
+            .and_then(|value| *value)
+        else {
+            return;
+        };
+        if value.veclike_type() != Some(VecLikeType::Subr) {
+            return;
+        }
+
+        let ptr = value.as_veclike_ptr().unwrap() as *mut SubrObj;
+        // Static subr objects are leaked and never moved. `defsubr` is the
+        // single writer for their entry metadata, matching GNU's static
+        // `struct Lisp_Subr` initialization model.
+        unsafe {
+            (*ptr).function = function;
+            (*ptr).min_args = min_args;
+            (*ptr).max_args = max_args;
+            (*ptr).dispatch_kind = dispatch_kind;
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------
 // TaggedValue — the core type
 // ---------------------------------------------------------------------------

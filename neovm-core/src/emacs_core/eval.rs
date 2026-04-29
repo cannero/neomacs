@@ -39,7 +39,7 @@ use super::value::*;
 use crate::buffer::BufferManager;
 use crate::face::{Face as RuntimeFace, FaceTable, FontSlant, FontWeight, FontWidth};
 use crate::gc_trace::GcTrace;
-use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrFn};
+use crate::tagged::header::{CLOSURE_ARGLIST, SubrDispatchKind, SubrFn, SubrObj};
 use crate::window::FrameManager;
 
 const EVAL_STACK_RED_ZONE: usize = 128 * 1024;
@@ -186,11 +186,41 @@ pub(crate) fn register_global_subr_entry(sym_id: SymId, entry: SubrEntry) {
         }
         table[idx] = Some(entry);
     });
+    crate::tagged::value::update_static_subr_object_entry(
+        sym_id,
+        entry.function,
+        entry.min_args,
+        entry.max_args,
+        entry.dispatch_kind,
+    );
 }
 
 /// Look up a subr entry by SymId.
 pub(crate) fn lookup_global_subr_entry(sym_id: SymId) -> Option<SubrEntry> {
     GLOBAL_SUBR_TABLE.with(|table| table.borrow().get(sym_id.0 as usize).copied().flatten())
+}
+
+#[inline(always)]
+fn subr_entry_from_value(function: Value) -> Option<(SymId, SubrEntry)> {
+    let ptr = function.as_veclike_ptr()?;
+    let header = unsafe { &*ptr };
+    if header.type_tag != VecLikeType::Subr {
+        return None;
+    }
+    let subr = unsafe { &*(ptr as *const SubrObj) };
+    if subr.function.is_none() && subr.dispatch_kind == SubrDispatchKind::Builtin {
+        return None;
+    }
+    Some((
+        subr.sym_id,
+        SubrEntry {
+            function: subr.function,
+            min_args: subr.min_args,
+            max_args: subr.max_args,
+            dispatch_kind: subr.dispatch_kind,
+            name_id: subr.name,
+        },
+    ))
 }
 
 /// Access a subr entry by reference (avoids cloning).
@@ -6978,33 +7008,29 @@ impl Context {
         // evaluation and calls it directly. Preserve the SubrEntry we
         // resolved for the direct eval_sub arity check instead of
         // looking it up again after evaluating args.
-        let direct_subr_entry = if let Some(sym_id) = func.as_subr_id() {
-            if let Some(entry) = lookup_global_subr_entry(sym_id) {
-                if entry.dispatch_kind != SubrDispatchKind::SpecialForm {
-                    let numargs = match list_length(&original_args) {
-                        Some(n) => n,
-                        None => {
-                            return Err(signal(
-                                "wrong-type-argument",
-                                vec![Value::symbol("listp"), original_args],
-                            ));
-                        }
-                    };
-                    let min = entry.min_args as usize;
-                    let max_ok = match entry.max_args {
-                        Some(m) => numargs <= m as usize,
-                        None => true, // &rest / MANY
-                    };
-                    if numargs < min || !max_ok {
+        let direct_subr_entry = if let Some((sym_id, entry)) = subr_entry_from_value(func) {
+            if entry.dispatch_kind != SubrDispatchKind::SpecialForm {
+                let numargs = match list_length(&original_args) {
+                    Some(n) => n,
+                    None => {
                         return Err(signal(
-                            "wrong-number-of-arguments",
-                            vec![original_fun, Value::fixnum(numargs as i64)],
+                            "wrong-type-argument",
+                            vec![Value::symbol("listp"), original_args],
                         ));
                     }
-                    Some((sym_id, entry))
-                } else {
-                    None
+                };
+                let min = entry.min_args as usize;
+                let max_ok = match entry.max_args {
+                    Some(m) => numargs <= m as usize,
+                    None => true, // &rest / MANY
+                };
+                if numargs < min || !max_ok {
+                    return Err(signal(
+                        "wrong-number-of-arguments",
+                        vec![original_fun, Value::fixnum(numargs as i64)],
+                    ));
                 }
+                Some((sym_id, entry))
             } else {
                 None
             }
@@ -9955,8 +9981,7 @@ impl Context {
     /// registered (opt-out).
     #[inline]
     fn check_funcall_subr_arity_value(&self, function: Value, nargs: usize) -> Option<Flow> {
-        let sym_id = function.as_subr_id()?;
-        let entry = lookup_global_subr_entry(sym_id)?;
+        let (_, entry) = subr_entry_from_value(function)?;
         let min = entry.min_args as usize;
         let max = entry.max_args.map(|m| m as usize);
         // Opt-out: a subr registered with (0, None) has declared
@@ -9987,8 +10012,7 @@ impl Context {
         args: LispArgVec,
         wrong_arity_callee: Value,
     ) -> Option<EvalResult> {
-        let sym_id = function.as_subr_id()?;
-        let entry = lookup_global_subr_entry(sym_id)?;
+        let (_, entry) = subr_entry_from_value(function)?;
         self.dispatch_subr_entry_internal(entry, args, wrong_arity_callee)
     }
 
@@ -10111,10 +10135,7 @@ impl Context {
         args: LispArgVec,
         _rewrite_builtin_wrong_arity: bool,
     ) -> EvalResult {
-        let Some(sym_id) = function.as_subr_id() else {
-            return Err(signal("invalid-function", vec![function]));
-        };
-        let Some(entry) = lookup_global_subr_entry(sym_id) else {
+        let Some((sym_id, entry)) = subr_entry_from_value(function) else {
             return Err(signal("invalid-function", vec![function]));
         };
         self.apply_subr_object_with_entry(sym_id, function, args, entry)
@@ -10286,11 +10307,8 @@ impl Context {
                 result
             }
             NamedCallTarget::Subr(func) => {
-                let Some(sym_id) = func.as_subr_id() else {
+                let Some((sym_id, entry)) = subr_entry_from_value(func) else {
                     return Err(signal("invalid-function", vec![invalid_fn]));
-                };
-                let Some(entry) = lookup_global_subr_entry(sym_id) else {
-                    return Err(signal("void-function", vec![Value::from_sym_id(sym_id)]));
                 };
                 if entry.dispatch_kind == SubrDispatchKind::SpecialForm {
                     return Err(signal("invalid-function", vec![invalid_fn]));
