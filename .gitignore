@@ -138,6 +138,7 @@ lisp/cedet/semantic/grammar-wy.el
 lisp/eshell/esh-module-loaddefs.el
 lisp/eshell/esh-groups.el
 lisp/finder-inf.el
+lisp/subdirs.el
 lisp/leim/ja-dic/
 leim/small-ja-dic-option
 lisp/leim/leim-list.el
