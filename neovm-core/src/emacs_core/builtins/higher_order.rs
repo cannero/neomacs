@@ -205,9 +205,9 @@ pub(crate) fn builtin_mapcar_2(
     func: Value,
     seq: Value,
 ) -> EvalResult {
-    let roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(func);
-    eval.push_specpdl_root(seq);
+    let roots = eval.save_vm_roots();
+    eval.push_vm_frame_root(func);
+    eval.push_vm_frame_root(seq);
     let mut results = MapResultVec::new();
     // GNU fns.c Fmapcar computes SEQUENCE length before calling FUNCTION, then
     // reads each cons cdr after the callback.  If FUNCTION shortens the list,
@@ -235,7 +235,7 @@ pub(crate) fn builtin_mapcar_2(
             if !cursor.is_cons() {
                 break;
             }
-            eval.push_specpdl_root(cursor);
+            eval.push_vm_frame_root(cursor);
             let item = cursor.cons_car();
             let val = match apply1(eval, func, item) {
                 Ok(v) => v,
@@ -244,7 +244,7 @@ pub(crate) fn builtin_mapcar_2(
                     break;
                 }
             };
-            eval.push_specpdl_root(val);
+            eval.push_vm_frame_root(val);
             results.push(val);
             cursor = cursor.cons_cdr();
         }
@@ -252,12 +252,12 @@ pub(crate) fn builtin_mapcar_2(
     } else {
         for_each_sequence_element(&seq, |item| {
             let val = apply1(eval, func, item)?;
-            eval.push_specpdl_root(val);
+            eval.push_vm_frame_root(val);
             results.push(val);
             Ok(())
         })
     };
-    eval.restore_specpdl_roots(roots);
+    eval.restore_vm_roots(roots);
     map_result?;
     Ok(Value::list_from_slice(&results))
 }
@@ -277,9 +277,9 @@ pub(crate) fn builtin_mapc_2(
     func: Value,
     seq: Value,
 ) -> EvalResult {
-    let roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(func);
-    eval.push_specpdl_root(seq);
+    let roots = eval.save_vm_roots();
+    eval.push_vm_frame_root(func);
+    eval.push_vm_frame_root(seq);
     // For cons lists, root cursor at each step so our precise GC
     // (which doesn't scan the Rust stack) can find the remaining
     // chain even if a hook callback modifies the list.
@@ -294,7 +294,7 @@ pub(crate) fn builtin_mapc_2(
                     let item = pair_car;
                     cursor = pair_cdr;
                     // Root the remaining tail before calling the function.
-                    eval.push_specpdl_root(cursor);
+                    eval.push_vm_frame_root(cursor);
                     if let Err(e) = apply1(eval, func, item) {
                         break Err(e);
                     }
@@ -313,7 +313,7 @@ pub(crate) fn builtin_mapc_2(
             Ok(())
         })
     };
-    eval.restore_specpdl_roots(roots);
+    eval.restore_vm_roots(roots);
     result?;
     Ok(seq)
 }
@@ -326,17 +326,17 @@ pub(crate) fn builtin_mapconcat(eval: &mut super::eval::Context, args: Vec<Value
     let separator = args.get(2).copied().unwrap_or_else(|| Value::string(""));
 
     let mut parts = Vec::new();
-    let roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(func);
-    eval.push_specpdl_root(sequence);
-    eval.push_specpdl_root(separator);
+    let roots = eval.save_vm_roots();
+    eval.push_vm_frame_root(func);
+    eval.push_vm_frame_root(sequence);
+    eval.push_vm_frame_root(separator);
     let mapconcat_result = for_each_sequence_element(&sequence, |item| {
         let val = apply1(eval, func, item)?;
-        eval.push_specpdl_root(val);
+        eval.push_vm_frame_root(val);
         parts.push(val);
         Ok(())
     });
-    eval.restore_specpdl_roots(roots);
+    eval.restore_vm_roots(roots);
     mapconcat_result?;
 
     if parts.is_empty() {
@@ -363,16 +363,16 @@ pub(crate) fn builtin_mapcan(eval: &mut super::eval::Context, args: Vec<Value>) 
     let func = args[0];
     let sequence = args[1];
     let mut mapped = Vec::new();
-    let roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(func);
-    eval.push_specpdl_root(sequence);
+    let roots = eval.save_vm_roots();
+    eval.push_vm_frame_root(func);
+    eval.push_vm_frame_root(sequence);
     let mapcan_result = for_each_sequence_element(&sequence, |item| {
         let val = apply1(eval, func, item)?;
-        eval.push_specpdl_root(val);
+        eval.push_vm_frame_root(val);
         mapped.push(val);
         Ok(())
     });
-    eval.restore_specpdl_roots(roots);
+    eval.restore_vm_roots(roots);
     mapcan_result?;
     builtin_nconc(mapped)
 }
