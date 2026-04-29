@@ -10,7 +10,8 @@ use std::collections::HashSet;
 
 use super::builtins::{builtin_get_pos_property_impl, expect_integer_or_marker_in_buffers};
 use super::chartable::{
-    builtin_char_table_range, builtin_set_char_table_range, is_char_table, make_char_table_value,
+    builtin_char_table_range, builtin_set_char_table_range, char_table_ascii_cache_range,
+    char_table_data_start, is_char_table, make_char_table_value,
 };
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
@@ -2807,13 +2808,17 @@ fn copy_char_table_for_keymap(ct: &Value, depth: usize) -> Value {
     let old_vec = ct.as_vector_data().unwrap();
     let mut new_vec = old_vec.clone();
 
+    if let Some(cache_range) = char_table_ascii_cache_range(&new_vec) {
+        for i in cache_range {
+            let val = new_vec[i];
+            if is_list_keymap(&val) {
+                new_vec[i] = list_keymap_copy_impl(&val, depth + 1);
+            }
+        }
+    }
+
     // Walk the data pairs and recursively copy any keymap values.
-    // Char-table layout: [tag, default, parent, subtype, extra_count, ...extras..., ...data-pairs...]
-    // Data pairs start after extra slots (CT_EXTRA_START + n_extras),
-    // stored as consecutive (char-code, value) pairs.
-    let ct_extra_start = 5; // matches chartable.rs CT_EXTRA_START
-    let n_extras = new_vec.get(4).and_then(|v| v.as_fixnum()).unwrap_or(0) as usize;
-    let data_start = ct_extra_start + n_extras;
+    let data_start = char_table_data_start(&new_vec);
     let mut i = data_start;
     while i + 1 < new_vec.len() {
         // i is the char-code, i+1 is the value

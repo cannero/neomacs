@@ -159,6 +159,48 @@ fn parent_chain_lookup() {
 }
 
 #[test]
+fn ascii_cache_follows_latest_write_and_default_fallback() {
+    crate::test_utils::init_test_tracing();
+    let ct = make_char_table_value(Value::symbol("test"), Value::symbol("default"));
+
+    builtin_set_char_table_range(vec![ct, Value::fixnum('A' as i64), Value::symbol("first")])
+        .unwrap();
+    builtin_set_char_table_range(vec![ct, Value::fixnum('A' as i64), Value::symbol("second")])
+        .unwrap();
+    let val = builtin_char_table_range(vec![ct, Value::fixnum('A' as i64)]).unwrap();
+    assert!(val.is_symbol_named("second"));
+
+    builtin_set_char_table_range(vec![ct, Value::fixnum('A' as i64), Value::NIL]).unwrap();
+    let val = builtin_char_table_range(vec![ct, Value::fixnum('A' as i64)]).unwrap();
+    assert!(val.is_symbol_named("default"));
+}
+
+#[test]
+fn ascii_cache_falls_through_to_parent_when_local_value_is_nil() {
+    crate::test_utils::init_test_tracing();
+    let parent = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_range(vec![
+        parent,
+        Value::fixnum('A' as i64),
+        Value::symbol("parent"),
+    ])
+    .unwrap();
+
+    let child = make_char_table_value(Value::symbol("test"), Value::NIL);
+    builtin_set_char_table_parent(vec![child, parent]).unwrap();
+    builtin_set_char_table_range(vec![
+        child,
+        Value::fixnum('A' as i64),
+        Value::symbol("child"),
+    ])
+    .unwrap();
+    builtin_set_char_table_range(vec![child, Value::fixnum('A' as i64), Value::NIL]).unwrap();
+
+    let val = builtin_char_table_range(vec![child, Value::fixnum('A' as i64)]).unwrap();
+    assert!(val.is_symbol_named("parent"));
+}
+
+#[test]
 fn char_table_parent_get_set() {
     crate::test_utils::init_test_tracing();
     let ct = make_char_table_value(Value::symbol("test"), Value::NIL);

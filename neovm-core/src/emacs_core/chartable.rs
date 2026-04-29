@@ -5,10 +5,10 @@
 //!
 //! - **Char-table**: A `Value::Vector` whose first element is the tag symbol
 //!   `--char-table--`.  The layout is:
-//!   `[--char-table-- DEFAULT PARENT SUB-TYPE EXTRA-SLOTS-COUNT ...EXTRA-SLOTS... ...DATA-PAIRS...]`
+//!   `[--char-table-- DEFAULT PARENT SUB-TYPE EXTRA-SLOTS-COUNT ...EXTRA-SLOTS... ASCII-CACHE ...DATA-PAIRS...]`
 //!   where DATA-PAIRS are stored as consecutive `(char-code, value)` pairs
-//!   starting after the extra slots.  For efficiency, lookups walk the data
-//!   pairs linearly (fine for the typical sparse char-table).
+//!   starting after the optional ASCII cache.  The cache mirrors GNU Emacs'
+//!   `ascii` char-table slot for the hot 0..127 lookup path.
 //!
 //! - **Bool-vector**: A `Value::Vector` whose first element is the tag symbol
 //!   `--bool-vector--`.  The layout is:
@@ -39,6 +39,8 @@ const CT_EXTRA_START: usize = 5; // first extra slot (if any)
 const CT_LOGICAL_LENGTH: i64 = 0x3F_FFFF;
 /// Maximum valid Unicode code point.
 const MAX_CHAR: i64 = 0x3F_FFFF;
+const CT_ASCII_CACHE_LEN: usize = 128;
+const CT_ASCII_CACHE_MAGIC: i64 = -7_000_001;
 
 const GNU_CHAR_TABLE_STANDARD_SLOTS: usize = 4 + GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE;
 const GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE: usize = 64;
@@ -192,11 +194,55 @@ fn expect_wholenump(value: &Value) -> Result<i64, Flow> {
 
 /// Data-pairs region start index for a char-table vector.
 fn ct_data_start(vec: &[Value]) -> usize {
+    ct_ascii_cache_range(vec)
+        .map(|range| range.end)
+        .unwrap_or_else(|| ct_ascii_cache_start(vec))
+}
+
+pub(crate) fn char_table_data_start(vec: &[Value]) -> usize {
+    ct_data_start(vec)
+}
+
+fn ct_ascii_cache_start(vec: &[Value]) -> usize {
     let extra_count = match vec[CT_EXTRA_COUNT].kind() {
         ValueKind::Fixnum(n) => n as usize,
         _ => 0,
     };
     CT_EXTRA_START + extra_count
+}
+
+fn ct_ascii_cache_range(vec: &[Value]) -> Option<std::ops::Range<usize>> {
+    let start = ct_ascii_cache_start(vec);
+    let values_start = start + 1;
+    let values_end = values_start + CT_ASCII_CACHE_LEN;
+    if vec.len() >= values_end && vec[start].as_fixnum() == Some(CT_ASCII_CACHE_MAGIC) {
+        Some(values_start..values_end)
+    } else {
+        None
+    }
+}
+
+pub(crate) fn char_table_ascii_cache_range(vec: &[Value]) -> Option<std::ops::Range<usize>> {
+    ct_ascii_cache_range(vec)
+}
+
+fn append_ascii_cache(vec: &mut Vec<Value>) {
+    vec.push(Value::fixnum(CT_ASCII_CACHE_MAGIC));
+    vec.resize(vec.len() + CT_ASCII_CACHE_LEN, Value::NIL);
+}
+
+fn ct_update_ascii_cache(vec: &mut [Value], min: i64, max: i64, value: Value) {
+    if min > max || max < 0 || min >= CT_ASCII_CACHE_LEN as i64 {
+        return;
+    }
+    let Some(range) = ct_ascii_cache_range(vec) else {
+        return;
+    };
+    let start = min.max(0) as usize;
+    let end = max.min(CT_ASCII_CACHE_LEN as i64 - 1) as usize;
+    for ch in start..=end {
+        vec[range.start + ch] = value;
+    }
 }
 
 fn is_sub_char_table_literal(v: &Value) -> bool {
@@ -484,6 +530,7 @@ pub(crate) fn make_char_table_from_external_slots(items: &[Value]) -> Result<Val
         Value::fixnum(extra_count as i64),
     ];
     vec.extend_from_slice(&items[GNU_CHAR_TABLE_STANDARD_SLOTS..]);
+    append_ascii_cache(&mut vec);
 
     let is_uniprop = purpose.is_symbol_named("char-code-property-table") && extra_count == 5;
     for block in 0..GNU_CHAR_TABLE_CONTENT_BLOCKS_USIZE {
@@ -533,6 +580,7 @@ pub fn make_char_table_with_extra_slots(sub_type: Value, default: Value, n_extra
     for _ in 0..n_extras {
         vec.push(Value::NIL);
     }
+    append_ascii_cache(&mut vec);
     Value::vector(vec)
 }
 
@@ -643,6 +691,7 @@ pub(crate) fn builtin_set_char_table_range(args: Vec<Value>) -> EvalResult {
 
 /// Set a single character entry in the char-table's data pairs.
 fn ct_set_char(vec: &mut Vec<Value>, ch: i64, value: Value) {
+    ct_update_ascii_cache(vec, ch, ch, value);
     vec.push(Value::fixnum(ch));
     vec.push(value);
 }
@@ -650,6 +699,7 @@ fn ct_set_char(vec: &mut Vec<Value>, ch: i64, value: Value) {
 /// Set a range entry in the char-table's data pairs.
 /// The range is stored as a `Cons(min . max)` key.
 fn ct_set_range(vec: &mut Vec<Value>, min: i64, max: i64, value: Value) {
+    ct_update_ascii_cache(vec, min, max, value);
     vec.push(Value::cons(Value::fixnum(min), Value::fixnum(max)));
     vec.push(value);
 }
@@ -703,6 +753,37 @@ fn ct_get_char(vec: &[Value], ch: i64, is_uniprop: bool) -> Option<Value> {
     None
 }
 
+fn ct_lookup_ascii_cached(table: &Value, ch: i64) -> Option<Value> {
+    if !(0..CT_ASCII_CACHE_LEN as i64).contains(&ch) {
+        return None;
+    }
+
+    let ch = ch as usize;
+    let mut current = *table;
+    loop {
+        let vec_ref = current.as_vector_data()?;
+        let Some(cache_range) = ct_ascii_cache_range(vec_ref) else {
+            return None;
+        };
+
+        let value = vec_ref[cache_range.start + ch];
+        if !value.is_nil() {
+            return Some(value);
+        }
+
+        let default = vec_ref[CT_DEFAULT];
+        if !default.is_nil() {
+            return Some(default);
+        }
+
+        let parent = vec_ref[CT_PARENT];
+        if !is_char_table(&parent) {
+            return Some(Value::NIL);
+        }
+        current = parent;
+    }
+}
+
 /// `(char-table-range CHAR-TABLE RANGE)` -- look up a value.
 ///
 /// RANGE may be:
@@ -753,6 +834,9 @@ pub(crate) fn builtin_char_table_range(args: Vec<Value>) -> EvalResult {
 pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     if !table.is_vector() {
         return Err(wrong_type("char-table-p", table));
+    }
+    if let Some(value) = ct_lookup_ascii_cached(table, ch) {
+        return Ok(value);
     }
     // Borrow the Vec instead of cloning — the 115K clones/sec we used to
     // do in font-lock's syntax-ppss path each allocated a ~50+-entry Vec
