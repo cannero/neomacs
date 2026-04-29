@@ -23,11 +23,12 @@ use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
 use crate::tagged::header::{
-    BufferObj, ByteCodeObj, FloatObj, FrameObj, HashTableObj, LambdaObj, LispValueSlice, MacroObj,
-    MarkerObj, OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj, WindowObj,
+    BufferObj, ByteCodeObj, ConsCell, FloatObj, FrameObj, HashTableObj, LambdaObj, LispValueSlice,
+    MacroObj, MarkerObj, OverlayObj, RecordObj, StringObj, TimerObj, VecLikeHeader, VectorObj,
+    WindowObj,
 };
 use crate::tagged::mutate;
-use crate::tagged::value::TaggedValue;
+use crate::tagged::value::{TAG_BITS, TAG_MASK, TaggedValue};
 
 // ---------------------------------------------------------------------------
 // The Value type — now a tagged pointer
@@ -2017,31 +2018,27 @@ impl fmt::Display for TaggedValue {
 /// of the `(sym . val)` binding, or `None` if not found.
 pub fn lexenv_assq(lexenv: Value, sym_id: SymId) -> Option<Value> {
     let mut cursor = lexenv;
-    loop {
-        if cursor.is_cons() {
-            let car = cursor.cons_car();
-            if car.is_cons() {
-                let binding_sym = car.cons_car();
-                if let Some(s) = lexenv_binding_symbol_id(binding_sym) {
-                    if s == sym_id {
-                        return Some(car);
-                    }
-                }
+    while cursor.is_cons() {
+        // Mirrors GNU `Fassq`: after CONSP succeeds, use direct XCAR/XCDR
+        // style loads instead of re-running generic accessor checks.
+        let cursor_ptr = cons_ptr_unchecked(cursor);
+        let car = unsafe { cons_car_unchecked(cursor_ptr) };
+        if car.is_cons() {
+            let car_ptr = cons_ptr_unchecked(car);
+            let binding_sym = unsafe { cons_car_unchecked(car_ptr) };
+            if lexenv_binding_symbol_matches(binding_sym, sym_id) {
+                return Some(car);
             }
-            cursor = cursor.cons_cdr();
-        } else {
-            return None;
         }
+        cursor = unsafe { cons_cdr_unchecked(cursor_ptr) };
     }
+    None
 }
 
-fn lexenv_binding_symbol_id(value: Value) -> Option<SymId> {
-    match value.kind() {
-        ValueKind::Symbol(sym) => Some(sym),
-        ValueKind::T => Some(SymId(1)),
-        ValueKind::Nil => Some(SymId(0)),
-        _ => None,
-    }
+#[inline(always)]
+fn lexenv_binding_symbol_matches(value: Value, sym_id: SymId) -> bool {
+    let bits = value.bits();
+    bits != Value::UNBOUND.bits() && bits == (sym_id.0 as usize) << TAG_BITS
 }
 
 pub(crate) fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
@@ -2050,26 +2047,39 @@ pub(crate) fn lexenv_binding_symbol_value(sym_id: SymId) -> Value {
 
 /// Look up symbol value in a cons-alist lexenv.
 pub fn lexenv_lookup(lexenv: Value, sym_id: SymId) -> Option<Value> {
-    lexenv_assq(lexenv, sym_id).map(|cell| cell.cons_cdr())
+    let cell = lexenv_assq(lexenv, sym_id)?;
+    Some(unsafe { cons_cdr_unchecked(cons_ptr_unchecked(cell)) })
 }
 
 /// Return true if the lexical environment contains a bare-symbol declaration
 /// marking SYM_ID as locally special/dynamic.
 pub fn lexenv_declares_special(lexenv: Value, sym_id: SymId) -> bool {
     let mut cursor = lexenv;
-    loop {
-        if cursor.is_cons() {
-            let car = cursor.cons_car();
-            if let Some(id) = car.as_symbol_id() {
-                if id == sym_id {
-                    return true;
-                }
-            }
-            cursor = cursor.cons_cdr();
-        } else {
-            return false;
+    let target_bits = TaggedValue::from_sym_id(sym_id).bits();
+    while cursor.is_cons() {
+        let cursor_ptr = cons_ptr_unchecked(cursor);
+        let car = unsafe { cons_car_unchecked(cursor_ptr) };
+        if car.bits() == target_bits {
+            return true;
         }
+        cursor = unsafe { cons_cdr_unchecked(cursor_ptr) };
     }
+    false
+}
+
+#[inline(always)]
+fn cons_ptr_unchecked(value: Value) -> *const ConsCell {
+    (value.bits() & !TAG_MASK) as *const ConsCell
+}
+
+#[inline(always)]
+unsafe fn cons_car_unchecked(ptr: *const ConsCell) -> Value {
+    unsafe { std::ptr::addr_of!((*ptr).car).read() }
+}
+
+#[inline(always)]
+unsafe fn cons_cdr_unchecked(ptr: *const ConsCell) -> Value {
+    unsafe { std::ptr::addr_of!((*ptr).cdr_or_next.cdr).read() }
 }
 
 /// Mutate a binding in place: set cdr of the `(sym . val)` cons cell.

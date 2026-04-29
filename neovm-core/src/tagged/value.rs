@@ -46,8 +46,8 @@ pub(crate) fn reset_current_subrs() {
 // Tag constants
 // ---------------------------------------------------------------------------
 
-const TAG_BITS: usize = 3;
-const TAG_MASK: usize = 0b111;
+pub(crate) const TAG_BITS: usize = 3;
+pub(crate) const TAG_MASK: usize = 0b111;
 
 const TAG_SYMBOL: usize = 0b000;
 const TAG_CONS: usize = 0b011;
