@@ -2210,6 +2210,15 @@ fn parse_interactive_spec_from_form_value(form: &Value) -> Option<ParsedInteract
     }
 }
 
+fn stored_interactive_spec_value(spec: Value) -> Value {
+    if let Some(items) = spec.as_vector_data()
+        && let Some(first) = items.first()
+    {
+        return *first;
+    }
+    spec
+}
+
 /// Parse interactive spec from a Value (from LambdaData.interactive or bytecode).
 /// The value is the SPEC part (already extracted from `(interactive SPEC)`).
 fn parse_interactive_spec_from_value(spec: &Value) -> Option<ParsedInteractiveSpec> {
@@ -2590,7 +2599,8 @@ fn resolve_interactive_invocation_args(
         // This handles the case where cconv stripped (interactive ...) from the
         // body but preserved it in the iform parameter.
         if let Some(iform_val) = func.closure_interactive().flatten() {
-            let spec = parse_interactive_spec_from_value(&iform_val);
+            let spec_value = stored_interactive_spec_value(iform_val);
+            let spec = parse_interactive_spec_from_value(&spec_value);
             if let Some(spec) = spec {
                 let maybe_args = match spec {
                     ParsedInteractiveSpec::NoArgs => Some(Vec::new()),
@@ -2632,21 +2642,7 @@ fn resolve_interactive_invocation_args(
     // (mirrors GNU Emacs CLOSURE_INTERACTIVE handling in callint.c)
     if let Some(bc) = func.get_bytecode_data() {
         if bc.observable_closure_slot_count() > 5 {
-            let spec = bc.interactive.unwrap_or(Value::NIL);
-            // If it's a vector [spec, modes], extract just the spec
-            let spec_val = if spec.is_vector() {
-                if let Some(vec_data) = spec.as_vector_data() {
-                    if !vec_data.is_empty() {
-                        vec_data[0]
-                    } else {
-                        spec
-                    }
-                } else {
-                    spec
-                }
-            } else {
-                spec
-            };
+            let spec_val = stored_interactive_spec_value(bc.interactive.unwrap_or(Value::NIL));
             if let Some(s) = spec_val.as_lisp_string() {
                 // String interactive spec — parse as code letters
                 if let Some(args) = interactive_args_from_string_code(eval, s, kind, context)? {
@@ -2930,7 +2926,8 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     }
 
     if let Some(iform_val) = func.closure_interactive().flatten() {
-        let Some(spec) = parse_interactive_spec_from_value(&iform_val) else {
+        let spec_value = stored_interactive_spec_value(iform_val);
+        let Some(spec) = parse_interactive_spec_from_value(&spec_value) else {
             return Ok(Some((func, Vec::new())));
         };
         return match spec {
@@ -2975,20 +2972,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_state(
     if let Some(bc) = func.get_bytecode_data()
         && bc.observable_closure_slot_count() > 5
     {
-        let spec = bc.interactive.unwrap_or(Value::NIL);
-        let spec_val = if spec.is_vector() {
-            if let Some(vec_data) = spec.as_vector_data() {
-                if !vec_data.is_empty() {
-                    vec_data[0]
-                } else {
-                    spec
-                }
-            } else {
-                spec
-            }
-        } else {
-            spec
-        };
+        let spec_val = stored_interactive_spec_value(bc.interactive.unwrap_or(Value::NIL));
         if spec_val.is_nil() {
             return Ok(Some((func, Vec::new())));
         }
@@ -3057,7 +3041,8 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     }
 
     if let Some(iform_val) = func.closure_interactive().flatten() {
-        let Some(spec) = parse_interactive_spec_from_value(&iform_val) else {
+        let spec_value = stored_interactive_spec_value(iform_val);
+        let Some(spec) = parse_interactive_spec_from_value(&spec_value) else {
             return Ok(Some((func, Vec::new())));
         };
         return match spec {
@@ -3072,7 +3057,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
                 .map(|maybe_args| maybe_args.map(|args| (func, args)))
             }
             ParsedInteractiveSpec::Form(_) => {
-                eval_interactive_form_value_in_vm_runtime(shared, iform_val)
+                eval_interactive_form_value_in_vm_runtime(shared, spec_value)
                     .map(|args| Some((func, args)))
             }
         };
@@ -3104,20 +3089,7 @@ pub(crate) fn resolve_call_interactively_target_and_args_in_vm_runtime(
     if let Some(bc) = func.get_bytecode_data()
         && bc.observable_closure_slot_count() > 5
     {
-        let spec = bc.interactive.unwrap_or(Value::NIL);
-        let spec_val = if spec.is_vector() {
-            if let Some(vec_data) = spec.as_vector_data() {
-                if !vec_data.is_empty() {
-                    vec_data[0]
-                } else {
-                    spec
-                }
-            } else {
-                spec
-            }
-        } else {
-            spec
-        };
+        let spec_val = stored_interactive_spec_value(bc.interactive.unwrap_or(Value::NIL));
         if spec_val.is_nil() {
             return Ok(Some((func, Vec::new())));
         }

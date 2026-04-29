@@ -3177,6 +3177,39 @@ fn command_execute_calls_function() {
 }
 
 #[test]
+fn interactive_form_ignores_command_modes_tail_in_closure_slot() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = Context::new();
+    let results = eval_all_with(
+        &mut ev,
+        r#"(let ((cmd (lambda ()
+                       (interactive nil command-mode-tail-mode)
+                       'ok)))
+             (interactive-form cmd))"#,
+    );
+    assert_eq!(results[0], "OK (interactive nil)");
+}
+
+#[test]
+fn command_execute_ignores_command_modes_tail_in_interactive_spec() {
+    crate::test_utils::init_test_tracing();
+    let mut ev = gnu_simple_command_execute_eval();
+    let results = eval_all_with(
+        &mut ev,
+        r#"(progn
+           (defvar command-mode-tail-ran nil)
+           (defun command-mode-tail-cmd ()
+             (interactive nil command-mode-tail-mode)
+             (setq command-mode-tail-ran t))
+           (list
+            (commandp 'command-mode-tail-cmd)
+            (command-execute 'command-mode-tail-cmd)
+            command-mode-tail-ran))"#,
+    );
+    assert_eq!(results[0], "OK (t t t)");
+}
+
+#[test]
 fn command_execute_non_command_signals_commandp_error() {
     crate::test_utils::init_test_tracing();
     let mut ev = gnu_simple_command_execute_eval();

@@ -3275,19 +3275,20 @@ fn interactive_form_from_value_body(body: &[Value]) -> Option<Value> {
     None
 }
 
+fn stored_interactive_spec_value(spec: Value) -> Value {
+    if let Some(items) = spec.as_vector_data()
+        && let Some(first) = items.first()
+    {
+        return *first;
+    }
+    spec
+}
+
 fn interactive_form_from_stored_closure_spec(spec: Value) -> Value {
     if spec.is_cons() && spec.cons_car().as_symbol_name() == Some("interactive") {
         spec
-    } else if spec.is_vector() {
-        let items = spec
-            .as_vector_data()
-            .map(|items| items.to_vec())
-            .unwrap_or_default();
-        let mut list_items = Vec::with_capacity(items.len() + 1);
-        list_items.push(Value::symbol("interactive"));
-        list_items.extend(items);
-        Value::list(list_items)
     } else {
+        let spec = stored_interactive_spec_value(spec);
         Value::list(vec![Value::symbol("interactive"), spec])
     }
 }
@@ -3372,17 +3373,7 @@ fn interactive_form_from_bytecode_value(function: Value) -> Option<Value> {
     if bc.observable_closure_slot_count() <= 5 {
         return None;
     }
-    let spec = bc.interactive.unwrap_or(Value::NIL);
-    let spec_val = if spec.is_vector() {
-        let vec_data = spec.as_vector_data().unwrap();
-        if !vec_data.is_empty() {
-            vec_data[0]
-        } else {
-            spec
-        }
-    } else {
-        spec
-    };
+    let spec_val = stored_interactive_spec_value(bc.interactive.unwrap_or(Value::NIL));
     Some(Value::list(vec![Value::symbol("interactive"), spec_val]))
 }
 
