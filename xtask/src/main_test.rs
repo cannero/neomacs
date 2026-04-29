@@ -419,6 +419,99 @@ fn loaddefs_dirs_follow_gnu_subdirs_almost_filter() {
 }
 
 #[test]
+fn subdirs_update_dirs_follow_gnu_subdirs_subdirs_filter() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    for dir in [
+        "",
+        "cedet",
+        "cedet/semantic",
+        "cedet-extra",
+        "leim",
+        "leim/quail",
+        "leim-extra",
+        "org",
+        "org/sub",
+        "term",
+        "term/xterm",
+    ] {
+        fs::create_dir_all(lisp_root.join(dir)).unwrap();
+    }
+
+    let dirs = lisp_dirs_for_subdirs_update(&lisp_root)
+        .unwrap()
+        .into_iter()
+        .map(|path| path.strip_prefix(&lisp_root).unwrap().to_path_buf())
+        .collect::<Vec<_>>();
+
+    assert!(dirs.contains(&PathBuf::from("")));
+    assert!(dirs.contains(&PathBuf::from("org")));
+    assert!(dirs.contains(&PathBuf::from("org/sub")));
+    assert!(dirs.contains(&PathBuf::from("term")));
+    assert!(dirs.contains(&PathBuf::from("term/xterm")));
+    assert!(!dirs.contains(&PathBuf::from("cedet")));
+    assert!(!dirs.contains(&PathBuf::from("cedet/semantic")));
+    assert!(!dirs.contains(&PathBuf::from("cedet-extra")));
+    assert!(!dirs.contains(&PathBuf::from("leim")));
+    assert!(!dirs.contains(&PathBuf::from("leim/quail")));
+    assert!(!dirs.contains(&PathBuf::from("leim-extra")));
+}
+
+#[test]
+fn update_subdirs_file_matches_gnu_script_order_and_filters() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    fs::create_dir_all(&lisp_root).unwrap();
+    for dir in [
+        ".hidden",
+        "=scratch",
+        "CVS",
+        "Old",
+        "RCS",
+        "bad.orig",
+        "bad.rej",
+        "calc",
+        "calendar",
+        "compiled.elc",
+        "obsolete",
+        "source.el",
+        "term",
+        "vc",
+        "work~",
+    ] {
+        fs::create_dir_all(lisp_root.join(dir)).unwrap();
+    }
+
+    let change = update_subdirs_file(&lisp_root).unwrap();
+    assert_eq!(change, UpdateSubdirsChange::Written);
+    assert_eq!(
+        fs::read_to_string(lisp_root.join("subdirs.el")).unwrap(),
+        update_subdirs_contents("\"vc\" \"calendar\" \"calc\"  \"obsolete\"")
+    );
+    assert!(!lisp_root.join("subdirs.el~").exists());
+
+    let change = update_subdirs_file(&lisp_root).unwrap();
+    assert_eq!(change, UpdateSubdirsChange::Unchanged);
+    assert!(!lisp_root.join("subdirs.el~").exists());
+}
+
+#[test]
+fn update_subdirs_file_removes_stale_file_when_no_subdirs_remain() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    fs::create_dir_all(&lisp_root).unwrap();
+    fs::create_dir_all(lisp_root.join("term")).unwrap();
+    fs::write(lisp_root.join("subdirs.el"), "stale\n").unwrap();
+
+    let change = update_subdirs_file(&lisp_root).unwrap();
+    assert_eq!(change, UpdateSubdirsChange::Removed);
+    assert!(!lisp_root.join("subdirs.el").exists());
+
+    let change = update_subdirs_file(&lisp_root).unwrap();
+    assert_eq!(change, UpdateSubdirsChange::Unchanged);
+}
+
+#[test]
 fn compile_main_sources_follow_gnu_no_byte_compile_filter() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");

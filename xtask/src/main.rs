@@ -389,6 +389,10 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     remove_stale_lisp_bytecode(options, &paths)?;
     remove_stale_generated_leim_sources(options, &paths)?;
     remove_stale_generated_custom_finder_sources(options, &paths)?;
+    // GNU src/Makefile.in runs `make -C ../lisp update-subdirs` before
+    // bootstrap-emacs is dumped, so the bootstrap load path sees current
+    // generated subdirectory metadata.
+    run_update_subdirs(options, &paths)?;
 
     run_command(
         options,
@@ -1634,6 +1638,13 @@ fn lisp_dirs_for_finder_data(lisp_root: &Path) -> Result<Vec<PathBuf>> {
     })
 }
 
+fn lisp_dirs_for_subdirs_update(lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    lisp_dirs_matching_gnu_subdirs(lisp_root, |relative| {
+        let relative = relative.as_os_str().to_string_lossy();
+        !relative.starts_with("cedet") && !relative.starts_with("leim")
+    })
+}
+
 fn lisp_dirs_matching_gnu_subdirs(
     lisp_root: &Path,
     include_relative: impl Fn(&Path) -> bool,
@@ -1646,6 +1657,128 @@ fn lisp_dirs_matching_gnu_subdirs(
     });
     dirs.sort();
     Ok(dirs)
+}
+
+fn run_update_subdirs(options: &FreshBuildOptions, paths: &PipelinePaths) -> Result<()> {
+    print_synthetic_step("update subdirs.el files");
+    if options.dry_run {
+        return Ok(());
+    }
+
+    let mut scanned = 0;
+    let mut written = 0;
+    let mut removed = 0;
+    for dir in lisp_dirs_for_subdirs_update(&paths.lisp_root)? {
+        scanned += 1;
+        match update_subdirs_file(&dir)? {
+            UpdateSubdirsChange::Unchanged => {}
+            UpdateSubdirsChange::Written => written += 1,
+            UpdateSubdirsChange::Removed => removed += 1,
+        }
+    }
+
+    println!("  INFO  update-subdirs scanned {scanned} dirs, wrote {written}, removed {removed}");
+    Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpdateSubdirsChange {
+    Unchanged,
+    Written,
+    Removed,
+}
+
+fn update_subdirs_file(dir: &Path) -> Result<UpdateSubdirsChange> {
+    let subdirs = update_subdirs_expression(dir)?;
+    let target = dir.join("subdirs.el");
+    if subdirs.is_empty() {
+        match fs::remove_file(&target) {
+            Ok(()) => return Ok(UpdateSubdirsChange::Removed),
+            Err(err) if err.kind() == ErrorKind::NotFound => {
+                return Ok(UpdateSubdirsChange::Unchanged);
+            }
+            Err(err) => return Err(format!("remove {}: {err}", target.display()).into()),
+        }
+    }
+
+    let contents = update_subdirs_contents(&subdirs);
+    let temp = dir.join("subdirs.el~");
+    match fs::remove_file(&temp) {
+        Ok(()) => {}
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("remove {}: {err}", temp.display()).into()),
+    }
+    fs::write(&temp, contents.as_bytes())
+        .map_err(|err| format!("write {}: {err}", temp.display()))?;
+
+    let existing = fs::read(&target).ok();
+    if existing.as_deref() == Some(contents.as_bytes()) {
+        fs::remove_file(&temp).map_err(|err| format!("remove {}: {err}", temp.display()))?;
+        Ok(UpdateSubdirsChange::Unchanged)
+    } else {
+        fs::rename(&temp, &target)
+            .map_err(|err| format!("rename {} to {}: {err}", temp.display(), target.display()))?;
+        Ok(UpdateSubdirsChange::Written)
+    }
+}
+
+fn update_subdirs_expression(dir: &Path) -> Result<String> {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(String::new()),
+        Err(err) => return Err(format!("read {}: {err}", dir.display()).into()),
+    };
+    let mut entries = entries.collect::<std::io::Result<Vec<_>>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+
+    let mut subdirs = String::new();
+    for entry in entries {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name();
+        let name = name
+            .to_str()
+            .ok_or_else(|| format!("non-utf8 Lisp subdirectory under {}", dir.display()))?;
+        if update_subdirs_ignores_name(name) {
+            continue;
+        }
+
+        if name == "obsolete" {
+            write!(&mut subdirs, " \"{name}\"").expect("write to string");
+        } else {
+            subdirs = format!("\"{name}\" {subdirs}");
+        }
+    }
+
+    Ok(subdirs)
+}
+
+fn update_subdirs_ignores_name(name: &str) -> bool {
+    name.starts_with('.')
+        || name.ends_with(".elc")
+        || name.ends_with(".el")
+        || name == "term"
+        || name == "RCS"
+        || name == "CVS"
+        || name == "Old"
+        || name.starts_with('=')
+        || name.ends_with('~')
+        || name.ends_with(".orig")
+        || name.ends_with(".rej")
+}
+
+fn update_subdirs_contents(subdirs: &str) -> String {
+    format!(
+        ";; In load-path, after this directory should come  -*- lexical-binding: t -*-\n\
+;; certain of its subdirectories.  Here we specify them.\n\
+(normal-top-level-add-to-load-path '({subdirs}))\n\
+;; Local Variables:\n\
+;; version-control: never\n\
+;; no-byte-compile: t\n\
+;; no-update-autoloads: t\n\
+;; End:\n"
+    )
 }
 
 fn run_compile_main(
@@ -2345,12 +2478,13 @@ Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release
 
 Build the GNU-shaped Neomacs runtime pipeline:
   1. cargo build -p neomacs-bin [--release]
-  2. neomacs-temacs --temacs=pbootstrap
-  3. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
-  4. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
-  5. bootstrap-neomacs generates loaddefs / ldefs-boot
-  6. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
-  7. neomacs-temacs --temacs=pdump
+  2. regenerate GNU subdirs.el files
+  3. neomacs-temacs --temacs=pbootstrap
+  4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
+  5. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
+  6. bootstrap-neomacs generates loaddefs / ldefs-boot
+  7. bootstrap-neomacs byte-compiles the GNU compile-main Lisp set into .elc files
+  8. neomacs-temacs --temacs=pdump
 
 Options:
   --bin-dir DIR       Directory containing neomacs-temacs/bootstrap-neomacs/neomacs
