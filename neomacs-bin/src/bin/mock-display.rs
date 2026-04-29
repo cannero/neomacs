@@ -10,11 +10,11 @@
 //!   --dump      Dump grid as plain text (no terminal setup)
 //!
 //! Examples:
-//!   cargo run -p neomacs-bin --bin mock-display              # TTY single
-//!   cargo run -p neomacs-bin --bin mock-display -- vsplit     # TTY vsplit
-//!   cargo run -p neomacs-bin --bin mock-display -- --gui      # GUI single
-//!   cargo run -p neomacs-bin --bin mock-display -- --gui vsplit
-//!   cargo run -p neomacs-bin --bin mock-display -- --dump hsplit
+//!   cargo run -p neomacs --bin mock-display              # TTY single
+//!   cargo run -p neomacs --bin mock-display -- vsplit     # TTY vsplit
+//!   cargo run -p neomacs --bin mock-display -- --gui      # GUI single
+//!   cargo run -p neomacs --bin mock-display -- --gui vsplit
+//!   cargo run -p neomacs --bin mock-display -- --dump hsplit
 
 use neomacs_display_protocol::face::{Face, FaceAttributes};
 use neomacs_display_protocol::frame_glyphs::{CursorStyle, GlyphRowRole};

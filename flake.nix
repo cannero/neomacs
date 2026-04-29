@@ -128,7 +128,7 @@
             inherit pname version;
             src = cargoSrc;
             strictDeps = true;
-            cargoExtraArgs = "-p neomacs-bin";
+            cargoExtraArgs = "-p neomacs";
             nativeBuildInputs = commonNativeBuildInputsFor pkgs;
             buildInputs = runtimeLibs;
             doCheck = false;

@@ -77,7 +77,7 @@ fi
 
 if [[ ! -x "$BIN" ]]; then
     echo "missing editor binary: $BIN" >&2
-    echo "build it first with: cargo build -p neomacs-bin" >&2
+    echo "build it first with: cargo build -p neomacs" >&2
     exit 1
 fi
 

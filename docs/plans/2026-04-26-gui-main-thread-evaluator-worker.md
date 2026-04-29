@@ -170,8 +170,8 @@ fn gui_startup_does_not_wait_for_initial_frame_before_entering_gui_runtime() {
 ### Step 2: Run failing tests
 
 ```bash
-cargo nextest run -p neomacs-bin gui_worker_preflight_does_not_publish_frame_or_send_render_commands
-cargo nextest run -p neomacs-bin gui_startup_does_not_wait_for_initial_frame_before_entering_gui_runtime
+cargo nextest run -p neomacs gui_worker_preflight_does_not_publish_frame_or_send_render_commands
+cargo nextest run -p neomacs gui_startup_does_not_wait_for_initial_frame_before_entering_gui_runtime
 ```
 
 Expected: FAIL because the protocol helpers do not exist and current startup is
@@ -213,8 +213,8 @@ Protocol rules:
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_worker_preflight_does_not_publish_frame_or_send_render_commands
-cargo nextest run -p neomacs-bin gui_startup_does_not_wait_for_initial_frame_before_entering_gui_runtime
+cargo nextest run -p neomacs gui_worker_preflight_does_not_publish_frame_or_send_render_commands
+cargo nextest run -p neomacs gui_startup_does_not_wait_for_initial_frame_before_entering_gui_runtime
 ```
 
 Expected: PASS.
@@ -250,7 +250,7 @@ fn gui_evaluator_waits_for_frontend_ready_before_initial_publish() {
 ### Step 2: Run failing test
 
 ```bash
-cargo nextest run -p neomacs-bin gui_evaluator_waits_for_frontend_ready_before_initial_publish
+cargo nextest run -p neomacs gui_evaluator_waits_for_frontend_ready_before_initial_publish
 ```
 
 Expected: FAIL because the worker entrypoint does not exist.
@@ -300,7 +300,7 @@ Do not construct `Context` on the OS main thread and move it later.
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_evaluator_waits_for_frontend_ready_before_initial_publish
+cargo nextest run -p neomacs gui_evaluator_waits_for_frontend_ready_before_initial_publish
 ```
 
 Expected: PASS.
@@ -343,8 +343,8 @@ fn gui_frontend_ready_is_sent_from_winit_lifecycle() {
 ### Step 2: Run failing tests
 
 ```bash
-cargo nextest run -p neomacs-bin gui_startup_uses_current_thread_render_runtime
-cargo nextest run -p neomacs-bin gui_frontend_ready_is_sent_from_winit_lifecycle
+cargo nextest run -p neomacs gui_startup_uses_current_thread_render_runtime
+cargo nextest run -p neomacs gui_frontend_ready_is_sent_from_winit_lifecycle
 ```
 
 Expected: FAIL while GUI startup still uses `RenderThread::spawn`.
@@ -372,8 +372,8 @@ old model explicitly test-only with a comment.
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_startup_uses_current_thread_render_runtime
-cargo nextest run -p neomacs-bin gui_frontend_ready_is_sent_from_winit_lifecycle
+cargo nextest run -p neomacs gui_startup_uses_current_thread_render_runtime
+cargo nextest run -p neomacs gui_frontend_ready_is_sent_from_winit_lifecycle
 ```
 
 Expected: PASS.
@@ -412,8 +412,8 @@ fn gui_reply_requests_are_rejected_before_frontend_ready() {
 ### Step 2: Run failing tests
 
 ```bash
-cargo nextest run -p neomacs-bin gui_startup_main_thread_never_waits_while_worker_can_send_render_commands
-cargo nextest run -p neomacs-bin gui_reply_requests_are_rejected_before_frontend_ready
+cargo nextest run -p neomacs gui_startup_main_thread_never_waits_while_worker_can_send_render_commands
+cargo nextest run -p neomacs gui_reply_requests_are_rejected_before_frontend_ready
 ```
 
 Expected: FAIL until protocol state is explicit.
@@ -440,8 +440,8 @@ Requirements:
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_startup_main_thread_never_waits_while_worker_can_send_render_commands
-cargo nextest run -p neomacs-bin gui_reply_requests_are_rejected_before_frontend_ready
+cargo nextest run -p neomacs gui_startup_main_thread_never_waits_while_worker_can_send_render_commands
+cargo nextest run -p neomacs gui_reply_requests_are_rejected_before_frontend_ready
 ```
 
 Expected: PASS.
@@ -485,8 +485,8 @@ fn primary_window_close_waits_for_evaluator_shutdown_or_delete_frame() {
 ### Step 2: Run failing tests
 
 ```bash
-cargo nextest run -p neomacs-bin gui_window_close_is_delivered_to_evaluator_before_frontend_exit
-cargo nextest run -p neomacs-bin primary_window_close_waits_for_evaluator_shutdown_or_delete_frame
+cargo nextest run -p neomacs gui_window_close_is_delivered_to_evaluator_before_frontend_exit
+cargo nextest run -p neomacs primary_window_close_waits_for_evaluator_shutdown_or_delete_frame
 ```
 
 Expected: FAIL because current primary close exits the event loop immediately.
@@ -508,8 +508,8 @@ the command loop/Lisp frame policy decides what happens.
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_window_close_is_delivered_to_evaluator_before_frontend_exit
-cargo nextest run -p neomacs-bin primary_window_close_waits_for_evaluator_shutdown_or_delete_frame
+cargo nextest run -p neomacs gui_window_close_is_delivered_to_evaluator_before_frontend_exit
+cargo nextest run -p neomacs primary_window_close_waits_for_evaluator_shutdown_or_delete_frame
 ```
 
 Expected: PASS.
@@ -550,8 +550,8 @@ fn gui_input_still_interrupts_while_no_input_on_worker() {
 ### Step 2: Run failing tests
 
 ```bash
-cargo nextest run -p neomacs-bin gui_input_bridge_still_sets_quit_requested_for_worker_context
-cargo nextest run -p neomacs-bin gui_input_still_interrupts_while_no_input_on_worker
+cargo nextest run -p neomacs gui_input_bridge_still_sets_quit_requested_for_worker_context
+cargo nextest run -p neomacs gui_input_still_interrupts_while_no_input_on_worker
 ```
 
 Expected: FAIL until input bridge ownership points at the worker context.
@@ -568,8 +568,8 @@ Do not fold the bridge into the GUI thread in this refactor.
 ### Step 4: Verify
 
 ```bash
-cargo nextest run -p neomacs-bin gui_input_bridge_still_sets_quit_requested_for_worker_context
-cargo nextest run -p neomacs-bin gui_input_still_interrupts_while_no_input_on_worker
+cargo nextest run -p neomacs gui_input_bridge_still_sets_quit_requested_for_worker_context
+cargo nextest run -p neomacs gui_input_still_interrupts_while_no_input_on_worker
 cargo nextest run -p neovm-core quit_requested_atomic_is_drained_into_flag
 ```
 
@@ -636,7 +636,7 @@ git commit -m "docs: clarify gui and evaluator thread ownership"
 
 ```bash
 cargo nextest run -p neomacs-display-runtime
-cargo nextest run -p neomacs-bin
+cargo nextest run -p neomacs
 cargo nextest run -p neovm-core quit_requested_atomic_is_drained_into_flag
 ```
 

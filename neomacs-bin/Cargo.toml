@@ -1,5 +1,5 @@
 [package]
-name = "neomacs-bin"
+name = "neomacs"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

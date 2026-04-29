@@ -122,8 +122,8 @@ impl TuiSession {
         let bin = neomacs_binary_path(workspace);
         assert!(
             bin.exists(),
-            "neomacs binary not found at {}\nRun `cargo build -p neomacs-bin` for debug, \
-             `cargo build --release -p neomacs-bin` for release, or set NEOMACS_TUI_NEOMACS_BIN.",
+            "neomacs binary not found at {}\nRun `cargo build -p neomacs` for debug, \
+             `cargo build --release -p neomacs` for release, or set NEOMACS_TUI_NEOMACS_BIN.",
             bin.display()
         );
         let cmd = if extra_args.is_empty() {

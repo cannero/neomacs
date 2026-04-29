@@ -361,7 +361,7 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
             OsString::from("build"),
             OsString::from("--verbose"),
             OsString::from("-p"),
-            OsString::from("neomacs-bin"),
+            OsString::from("neomacs"),
         ];
         if options.release {
             cargo_args.push(OsString::from("--release"));
@@ -2552,7 +2552,7 @@ fn usage_text() -> &'static str {
 Usage: cargo xtask [fresh-build] [--bin-dir DIR] [--runtime-root DIR] [--release] [--dry-run] [--native-comp|--no-native-comp] [--skip-build]
 
 Build the GNU-shaped Neomacs runtime pipeline:
-  1. cargo build --verbose -p neomacs-bin [--release]
+  1. cargo build --verbose -p neomacs [--release]
   2. regenerate GNU subdirs.el files
   3. neomacs-temacs --temacs=pbootstrap
   4. bootstrap-neomacs byte-compiles the GNU COMPILE_FIRST set into .elc files
@@ -2564,11 +2564,11 @@ Build the GNU-shaped Neomacs runtime pipeline:
 Options:
   --bin-dir DIR       Directory containing neomacs and generated role copies
   --runtime-root DIR  Runtime root containing lisp/ and etc/
-  --release           Build neomacs-bin in release mode and use target/release by default
+  --release           Build neomacs in release mode and use target/release by default
   --dry-run           Print planned commands without running them
   --native-comp       Include native-comp-only COMPILE_FIRST entries
   --no-native-comp    Exclude native-comp-only COMPILE_FIRST entries
-  --skip-build        Skip the initial cargo build -p neomacs-bin stage
+  --skip-build        Skip the initial cargo build -p neomacs stage
 
 Environment:
   NEOMACS_NATIVE_COMP=yes

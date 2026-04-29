@@ -254,7 +254,7 @@ window: implement resize-mini-window-internal (GNU window.c parity)
 - [ ] **Step 1: Build neomacs**
 
 ```bash
-cargo build -p neomacs-bin
+cargo build -p neomacs
 ```
 
 - [ ] **Step 2: Run interactively**

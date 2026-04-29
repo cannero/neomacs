@@ -91,7 +91,7 @@ Between every numbered step:
 
 - [ ] `cargo check -p neomacs-layout-engine` clean
 - [ ] `cargo check -p neovm-core` clean
-- [ ] `cargo check -p neomacs-bin` clean
+- [ ] `cargo check -p neomacs` clean
 - [ ] `cargo nextest run -p neomacs-layout-engine` all green
 - [ ] `cargo nextest run -p neovm-core keymap::tests::store_in_keymap_preserves_string_prompt_when_prepending_binding` passes
 - [ ] TUI dashboard snapshot via `/tmp/drive_neomacs.py 200 60 95 0 "" /tmp/snap -- ./target/debug/neomacs -nw` still shows `SPC n a`, `SPC p p`, doom logo
