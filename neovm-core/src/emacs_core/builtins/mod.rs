@@ -975,7 +975,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         ctx,
         BuiltinRegistration::requires_eval_state("defvaralias", builtin_defvaralias, 2, Some(3)),
     );
-    ctx.defsubr("boundp", builtin_boundp, 1, Some(1));
+    ctx.defsubr_1("boundp", builtin_boundp_1, 1);
     ctx.defsubr("default-boundp", builtin_default_boundp, 1, Some(1));
     ctx.defsubr(
         "default-toplevel-value",
@@ -1009,10 +1009,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("fset", builtin_fset, 2, Some(2));
     ctx.defsubr("makunbound", builtin_makunbound, 1, Some(1));
     ctx.defsubr("fmakunbound", builtin_fmakunbound, 1, Some(1));
-    register_builtin(
-        ctx,
-        BuiltinRegistration::requires_eval_state("macroexpand", builtin_macroexpand, 1, Some(2)),
-    );
+    ctx.defsubr_slice("macroexpand", builtin_macroexpand_slice, 1, Some(2));
     ctx.defsubr_2("get", builtin_get_2, 2);
     ctx.defsubr_3("put", builtin_put_3, 3);
     register_builtin(
@@ -1317,7 +1314,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("re-search-backward", builtin_re_search_backward, 1, Some(4));
     ctx.defsubr("looking-at", builtin_looking_at, 1, Some(2));
     ctx.defsubr("posix-looking-at", builtin_posix_looking_at, 1, Some(2));
-    ctx.defsubr("string-match", builtin_string_match, 2, Some(4));
+    ctx.defsubr_slice("string-match", builtin_string_match_slice, 2, Some(4));
     ctx.defsubr("string-match-p", builtin_string_match_p, 0, None);
     ctx.defsubr("posix-string-match", builtin_posix_string_match, 2, Some(4));
     ctx.defsubr("match-beginning", builtin_match_beginning, 1, Some(1));
@@ -3624,10 +3621,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         2,
         Some(2),
     );
-    register_builtin(
-        ctx,
-        BuiltinRegistration::requires_eval_state("assoc", builtin_assoc, 2, Some(3)),
-    );
+    ctx.defsubr_slice("assoc", builtin_assoc_slice, 2, Some(3));
     register_builtin(
         ctx,
         BuiltinRegistration::requires_eval_state("plist-member", builtin_plist_member, 2, Some(3)),
@@ -7375,24 +7369,24 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     // -----------------------------------------------------------------------
 
     // -- Arithmetic --
-    ctx.defsubr("+", super::builtins::arithmetic::builtin_add, 0, None);
-    ctx.defsubr("-", super::builtins::arithmetic::builtin_sub, 0, None);
+    ctx.defsubr_slice("+", super::builtins::arithmetic::builtin_add_slice, 0, None);
+    ctx.defsubr_slice("-", super::builtins::arithmetic::builtin_sub_slice, 0, None);
     ctx.defsubr("*", |_ctx, args| builtin_mul(args), 0, None);
     ctx.defsubr("/", |_ctx, args| builtin_div(args), 1, None);
     ctx.defsubr("%", |_ctx, args| builtin_percent(args), 2, Some(2));
     ctx.defsubr("mod", |_ctx, args| builtin_mod(args), 2, Some(2));
-    ctx.defsubr("1+", |_ctx, args| builtin_add1(args), 1, Some(1));
+    ctx.defsubr_1("1+", builtin_add1_1, 1);
     ctx.defsubr_1("1-", builtin_sub1_1, 1);
-    ctx.defsubr("max", |ctx, args| builtin_max(ctx, args), 1, None);
-    ctx.defsubr("min", |ctx, args| builtin_min(ctx, args), 1, None);
+    ctx.defsubr_slice("max", builtin_max_slice, 1, None);
+    ctx.defsubr_slice("min", builtin_min_slice, 1, None);
     ctx.defsubr("abs", |_ctx, args| builtin_abs(args), 1, Some(1));
 
     // -- Logical / bitwise --
-    ctx.defsubr("logand", |_ctx, args| builtin_logand(args), 0, None);
-    ctx.defsubr("logior", |_ctx, args| builtin_logior(args), 0, None);
-    ctx.defsubr("logxor", |_ctx, args| builtin_logxor(args), 0, None);
+    ctx.defsubr_slice("logand", |_ctx, args| builtin_logand_slice(args), 0, None);
+    ctx.defsubr_slice("logior", |_ctx, args| builtin_logior_slice(args), 0, None);
+    ctx.defsubr_slice("logxor", |_ctx, args| builtin_logxor_slice(args), 0, None);
     ctx.defsubr("lognot", |_ctx, args| builtin_lognot(args), 1, Some(1));
-    ctx.defsubr("ash", |_ctx, args| builtin_ash(args), 2, Some(2));
+    ctx.defsubr_slice("ash", |_ctx, args| builtin_ash_slice(args), 2, Some(2));
 
     // -- Numeric comparisons --
     ctx.defsubr_slice("=", builtin_num_eq_slice, 1, None);
@@ -7690,9 +7684,9 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr_slice("vconcat", |_ctx, args| builtin_vconcat_slice(args), 0, None);
 
     // -- Hash table --
-    ctx.defsubr(
+    ctx.defsubr_slice(
         "make-hash-table",
-        |_ctx, args| builtin_make_hash_table(args),
+        |_ctx, args| builtin_make_hash_table_slice(args),
         0,
         None,
     );

@@ -3857,7 +3857,7 @@ impl<'a> Vm<'a> {
     }
 
     fn builtin_macroexpand_shared(&mut self, args: &[Value]) -> EvalResult {
-        crate::emacs_core::builtins::symbols::builtin_macroexpand_with_runtime(self, args.to_vec())
+        crate::emacs_core::builtins::symbols::builtin_macroexpand_slice_with_runtime(self, args)
     }
 
     fn builtin_mapatoms_shared(&mut self, args: &[Value]) -> EvalResult {

@@ -221,9 +221,13 @@ pub(crate) fn would_create_variable_alias_cycle_in_obarray(
 }
 
 pub(crate) fn builtin_boundp(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    let obarray = eval.obarray();
     expect_args("boundp", &args, 1)?;
-    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&args[0])?)?;
+    builtin_boundp_1(eval, args[0])
+}
+
+pub(crate) fn builtin_boundp_1(eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    let obarray = eval.obarray();
+    let resolved = resolve_variable_alias_id_in_obarray(obarray, expect_symbol_id(&arg)?)?;
     // specbind writes directly to obarray, so no dynamic stack lookup needed.
     let resolved_name = resolve_sym(resolved);
     if let Some(buf) = eval.buffers.current_buffer() {
@@ -1083,7 +1087,14 @@ pub(crate) fn builtin_macroexpand_with_runtime<R: MacroexpandRuntime>(
     runtime: &mut R,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("macroexpand", &args, 1, 2)?;
+    builtin_macroexpand_slice_with_runtime(runtime, &args)
+}
+
+pub(crate) fn builtin_macroexpand_slice_with_runtime<R: MacroexpandRuntime>(
+    runtime: &mut R,
+    args: &[Value],
+) -> EvalResult {
+    expect_range_args("macroexpand", args, 1, 2)?;
     let mut form = args[0];
     let environment = args.get(1);
     loop {
@@ -1096,7 +1107,14 @@ pub(crate) fn builtin_macroexpand_with_runtime<R: MacroexpandRuntime>(
 }
 
 pub(crate) fn builtin_macroexpand(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    builtin_macroexpand_with_runtime(eval, args)
+    builtin_macroexpand_slice(eval, &args)
+}
+
+pub(crate) fn builtin_macroexpand_slice(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    builtin_macroexpand_slice_with_runtime(eval, args)
 }
 
 pub(crate) fn builtin_indirect_function(

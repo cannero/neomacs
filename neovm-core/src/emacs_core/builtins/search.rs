@@ -844,6 +844,13 @@ pub(crate) fn builtin_string_match(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    builtin_string_match_slice(eval, &args)
+}
+
+pub(crate) fn builtin_string_match_slice(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
     let case_fold = dynamic_or_global_symbol_value(eval, "case-fold-search")
         .map(|v| !v.is_nil())
         .unwrap_or(true);
@@ -854,7 +861,7 @@ pub(crate) fn builtin_string_match(
     } else {
         &mut eval.match_data
     };
-    let result = builtin_string_match_with_state(case_fold, md_slot, &args);
+    let result = builtin_string_match_with_state(case_fold, md_slot, args);
     // Promote a TLS-detected quit (see `builtin_re_search_forward`).
     eval.maybe_quit()?;
     result

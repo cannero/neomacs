@@ -393,6 +393,10 @@ pub(crate) fn builtin_define_hash_table_test(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_make_hash_table(args: Vec<Value>) -> EvalResult {
+    builtin_make_hash_table_slice(&args)
+}
+
+pub(crate) fn builtin_make_hash_table_slice(args: &[Value]) -> EvalResult {
     let mut test = HashTableTest::Eql;
     let mut test_name: Option<SymId> = None;
     let mut size: i64 = 0;

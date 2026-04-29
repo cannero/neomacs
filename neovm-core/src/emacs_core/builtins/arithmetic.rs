@@ -65,9 +65,16 @@ fn rug_from_value(eval: &super::eval::Context, value: &Value) -> Result<rug::Int
 /// through `Value::make_integer`, which decides between fixnum and
 /// bignum just like GNU `make_int` (`src/lisp.h`).
 pub(crate) fn builtin_add(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
-    if has_float(&args) {
+    builtin_add_slice(eval, &args)
+}
+
+pub(crate) fn builtin_add_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
+    if has_float(args) {
         let mut sum = 0.0f64;
-        for a in &args {
+        for a in args {
             sum += expect_number_or_marker_f64_eval(eval, a)?;
         }
         return Ok(Value::make_float(sum));
@@ -116,6 +123,13 @@ fn continue_bignum_add(
 /// * 1 arg  → negation (with bignum promotion for `MIN_FIXNUM`)
 /// * N args → arith_driver in subtract mode
 pub(crate) fn builtin_sub(eval: &mut super::super::eval::Context, args: Vec<Value>) -> EvalResult {
+    builtin_sub_slice(eval, &args)
+}
+
+pub(crate) fn builtin_sub_slice(
+    eval: &mut super::super::eval::Context,
+    args: &[Value],
+) -> EvalResult {
     if args.is_empty() {
         return Ok(Value::fixnum(0));
     }
@@ -457,19 +471,27 @@ fn bignum_or_int_to_rug(value: &Value) -> Result<rug::Integer, Flow> {
 /// Promotes to bignum on `MOST_POSITIVE_FIXNUM + 1`.
 pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
     expect_args("1+", &args, 1)?;
-    match args[0].kind() {
+    add1_value(args[0])
+}
+
+pub(crate) fn builtin_add1_1(_eval: &mut super::eval::Context, arg: Value) -> EvalResult {
+    add1_value(arg)
+}
+
+fn add1_value(arg: Value) -> EvalResult {
+    match arg.kind() {
         ValueKind::Fixnum(n) => match n.checked_add(1) {
             // Even non-overflowing i64 results may exceed fixnum range
             // (62-bit) — funnel through make_integer.
             Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
             None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
         },
-        ValueKind::Float => Ok(Value::make_float(args[0].xfloat() + 1.0)),
-        ValueKind::Veclike(VecLikeType::Bignum) => Ok(Value::make_integer(
-            args[0].as_bignum().unwrap().clone() + 1,
-        )),
-        _ if args[0].is_marker() => {
-            let n = super::marker::marker_position_as_int(&args[0])?;
+        ValueKind::Float => Ok(Value::make_float(arg.xfloat() + 1.0)),
+        ValueKind::Veclike(VecLikeType::Bignum) => {
+            Ok(Value::make_integer(arg.as_bignum().unwrap().clone() + 1))
+        }
+        _ if arg.is_marker() => {
+            let n = super::marker::marker_position_as_int(&arg)?;
             match n.checked_add(1) {
                 Some(s) => Ok(Value::make_integer(rug::Integer::from(s))),
                 None => Ok(Value::make_integer(rug::Integer::from(n) + 1)),
@@ -477,7 +499,7 @@ pub(crate) fn builtin_add1(args: Vec<Value>) -> EvalResult {
         }
         _ => Err(signal(
             "wrong-type-argument",
-            vec![Value::symbol("number-or-marker-p"), args[0]],
+            vec![Value::symbol("number-or-marker-p"), arg],
         )),
     }
 }
@@ -518,7 +540,11 @@ fn sub1_value(arg: Value) -> EvalResult {
 }
 
 pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    expect_min_args("max", &args, 1)?;
+    builtin_max_slice(eval, &args)
+}
+
+pub(crate) fn builtin_max_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    expect_min_args("max", args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
     for a in &args[1..] {
@@ -540,7 +566,11 @@ pub(crate) fn builtin_max(eval: &mut super::eval::Context, args: Vec<Value>) -> 
 }
 
 pub(crate) fn builtin_min(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    expect_min_args("min", &args, 1)?;
+    builtin_min_slice(eval, &args)
+}
+
+pub(crate) fn builtin_min_slice(eval: &mut super::eval::Context, args: &[Value]) -> EvalResult {
+    expect_min_args("min", args, 1)?;
     let mut best_num = expect_number_or_marker_f64_eval(eval, &args[0])?;
     let mut best_value = args[0];
     for a in &args[1..] {
@@ -600,33 +630,45 @@ pub(crate) fn builtin_abs(args: Vec<Value>) -> EvalResult {
 /// → -1` is fine, but `(logand most-positive-fixnum #x7fffffffffffffff)`
 /// could exceed fixnum range). Funnel through `make_integer`.
 pub(crate) fn builtin_logand(args: Vec<Value>) -> EvalResult {
-    if has_bignum(&args) {
-        return bignum_logop(&args, BignumLogop::And);
+    builtin_logand_slice(&args)
+}
+
+pub(crate) fn builtin_logand_slice(args: &[Value]) -> EvalResult {
+    if has_bignum(args) {
+        return bignum_logop(args, BignumLogop::And);
     }
     let mut acc = -1i64;
-    for a in &args {
+    for a in args {
         acc &= expect_integer_or_marker_after_number_check(a)?;
     }
     Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
 pub(crate) fn builtin_logior(args: Vec<Value>) -> EvalResult {
-    if has_bignum(&args) {
-        return bignum_logop(&args, BignumLogop::Or);
+    builtin_logior_slice(&args)
+}
+
+pub(crate) fn builtin_logior_slice(args: &[Value]) -> EvalResult {
+    if has_bignum(args) {
+        return bignum_logop(args, BignumLogop::Or);
     }
     let mut acc = 0i64;
-    for a in &args {
+    for a in args {
         acc |= expect_integer_or_marker_after_number_check(a)?;
     }
     Ok(Value::make_integer(rug::Integer::from(acc)))
 }
 
 pub(crate) fn builtin_logxor(args: Vec<Value>) -> EvalResult {
-    if has_bignum(&args) {
-        return bignum_logop(&args, BignumLogop::Xor);
+    builtin_logxor_slice(&args)
+}
+
+pub(crate) fn builtin_logxor_slice(args: &[Value]) -> EvalResult {
+    if has_bignum(args) {
+        return bignum_logop(args, BignumLogop::Xor);
     }
     let mut acc = 0i64;
-    for a in &args {
+    for a in args {
         acc ^= expect_integer_or_marker_after_number_check(a)?;
     }
     Ok(Value::make_integer(rug::Integer::from(acc)))
@@ -673,7 +715,11 @@ pub(crate) fn builtin_lognot(args: Vec<Value>) -> EvalResult {
 /// shifts that exceed fixnum range — most importantly `(ash 1 100)`
 /// must return 2^100, not 0 (audit §2.7).
 pub(crate) fn builtin_ash(args: Vec<Value>) -> EvalResult {
-    expect_args("ash", &args, 2)?;
+    builtin_ash_slice(&args)
+}
+
+pub(crate) fn builtin_ash_slice(args: &[Value]) -> EvalResult {
+    expect_args("ash", args, 2)?;
     let value = &args[0];
     let count_val = &args[1];
 
