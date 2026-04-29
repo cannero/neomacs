@@ -192,6 +192,90 @@ fn compile_main_dependency_waves_follow_gnu_cc_mode_rules() {
 }
 
 #[test]
+fn compile_main_rebuild_closure_follows_gnu_make_prerequisites() {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let lisp_root = repo_root.join("lisp");
+    let contents = fs::read_to_string(lisp_root.join("Makefile.in")).unwrap();
+    let deps = parse_compile_main_dependencies_from_str(&contents, &lisp_root);
+    let source = |rel: &str| lisp_root.join(rel);
+    let sources = vec![
+        source("progmodes/cc-bytecomp.el"),
+        source("progmodes/cc-defs.el"),
+        source("progmodes/cc-vars.el"),
+        source("progmodes/cc-langs.el"),
+        source("progmodes/cc-engine.el"),
+        source("progmodes/cc-align.el"),
+        source("progmodes/cc-cmds.el"),
+        source("progmodes/cc-fonts.el"),
+        source("progmodes/cc-menus.el"),
+        source("progmodes/cc-styles.el"),
+        source("progmodes/cc-mode.el"),
+        source("progmodes/js.el"),
+    ];
+
+    let rebuild = compile_main_rebuild_closure(
+        &sources,
+        &deps,
+        BTreeSet::from([source("progmodes/cc-vars.el")]),
+    );
+
+    for rel in [
+        "progmodes/cc-vars.el",
+        "progmodes/cc-langs.el",
+        "progmodes/cc-engine.el",
+        "progmodes/cc-align.el",
+        "progmodes/cc-cmds.el",
+        "progmodes/cc-fonts.el",
+        "progmodes/cc-styles.el",
+        "progmodes/cc-mode.el",
+        "progmodes/js.el",
+    ] {
+        assert!(
+            rebuild.contains(&source(rel)),
+            "{rel} should rebuild after cc-vars.elc changes"
+        );
+    }
+
+    assert!(!rebuild.contains(&source("progmodes/cc-bytecomp.el")));
+    assert!(!rebuild.contains(&source("progmodes/cc-defs.el")));
+    assert!(!rebuild.contains(&source("progmodes/cc-menus.el")));
+}
+
+#[test]
+fn compile_main_sources_needing_rebuild_follows_newer_prerequisite_elc() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    let progmodes = lisp_root.join("progmodes");
+    fs::create_dir_all(&progmodes).unwrap();
+
+    let source = |name: &str| progmodes.join(format!("{name}.el"));
+    let dep = source("dep");
+    let target = source("target");
+    let downstream = source("downstream");
+    for source in [&dep, &target, &downstream] {
+        fs::write(source, ";;; source\n").unwrap();
+    }
+
+    fs::write(target.with_extension("elc"), "target\n").unwrap();
+    write_elc_newer_than(&downstream, &target.with_extension("elc"));
+    write_elc_newer_than(&dep, &downstream.with_extension("elc"));
+
+    let deps = BTreeMap::from([
+        (target.clone(), BTreeSet::from([dep.clone()])),
+        (downstream.clone(), BTreeSet::from([target.clone()])),
+    ]);
+    let rebuild = compile_main_sources_needing_rebuild(
+        vec![dep.clone(), target.clone(), downstream.clone()],
+        &deps,
+    );
+
+    assert_eq!(rebuild, vec![target, downstream]);
+}
+
+#[test]
 fn generated_lisp_bytecode_files_collects_nested_elc_files() {
     let tempdir = tempdir();
     let lisp_root = tempdir.join("lisp");
@@ -729,4 +813,22 @@ fn tempdir() -> PathBuf {
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn write_elc_newer_than(source: &Path, older: &Path) {
+    let older_mtime = fs::metadata(older).unwrap().modified().unwrap();
+    let elc = source.with_extension("elc");
+    for attempt in 0..200 {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        fs::write(&elc, format!("elc {attempt}\n")).unwrap();
+        let elc_mtime = fs::metadata(&elc).unwrap().modified().unwrap();
+        if elc_mtime > older_mtime {
+            return;
+        }
+    }
+    panic!(
+        "{} did not become newer than {}",
+        elc.display(),
+        older.display()
+    );
 }

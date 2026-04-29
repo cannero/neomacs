@@ -1694,15 +1694,13 @@ fn run_compile_main(
         }
         push_compile_main_source(source, &mut seen, &mut general)?;
     }
+    let dependencies = parse_compile_main_dependencies(&paths.makefile_in, &paths.lisp_root)?;
 
     let main_first = main_first
         .into_iter()
         .filter(|source| compile_main_needs_rebuild(source))
         .collect::<Vec<_>>();
-    let general = general
-        .into_iter()
-        .filter(|source| compile_main_needs_rebuild(source))
-        .collect::<Vec<_>>();
+    let general = compile_main_sources_needing_rebuild(general, &dependencies);
 
     if main_first.is_empty() && general.is_empty() {
         return Ok(());
@@ -1732,7 +1730,6 @@ fn run_compile_main(
     }
 
     if !general.is_empty() {
-        let dependencies = parse_compile_main_dependencies(&paths.makefile_in, &paths.lisp_root)?;
         println!(
             "  INFO  byte-compiling {} general .el files with {jobs} parallel jobs",
             general.len()
@@ -1845,6 +1842,79 @@ fn compile_main_dependency_waves(
     }
 
     Ok(waves)
+}
+
+fn compile_main_sources_needing_rebuild(
+    sources: Vec<PathBuf>,
+    dependencies: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+) -> Vec<PathBuf> {
+    let initial_rebuild = sources
+        .iter()
+        .filter(|source| {
+            compile_main_needs_rebuild(source)
+                || compile_main_dependency_bytecode_newer(source, dependencies)
+        })
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let rebuild = compile_main_rebuild_closure(&sources, dependencies, initial_rebuild);
+
+    sources
+        .into_iter()
+        .filter(|source| rebuild.contains(source))
+        .collect()
+}
+
+fn compile_main_rebuild_closure(
+    sources: &[PathBuf],
+    dependencies: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+    mut rebuild: BTreeSet<PathBuf>,
+) -> BTreeSet<PathBuf> {
+    let source_set = sources.iter().cloned().collect::<BTreeSet<_>>();
+
+    loop {
+        let mut changed = false;
+        for source in sources {
+            if rebuild.contains(source) {
+                continue;
+            }
+            let dependency_will_rebuild = dependencies.get(source).is_some_and(|deps| {
+                deps.iter()
+                    .any(|dep| source_set.contains(dep) && rebuild.contains(dep))
+            });
+            if dependency_will_rebuild {
+                changed |= rebuild.insert(source.clone());
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+
+    rebuild
+}
+
+fn compile_main_dependency_bytecode_newer(
+    source: &Path,
+    dependencies: &BTreeMap<PathBuf, BTreeSet<PathBuf>>,
+) -> bool {
+    let Some(deps) = dependencies.get(source) else {
+        return false;
+    };
+    let target_elc = source.with_extension("elc");
+    let Ok(target_mtime) = fs::metadata(&target_elc).and_then(|metadata| metadata.modified())
+    else {
+        return true;
+    };
+
+    deps.iter().any(|dep| {
+        let dep_elc = dep.with_extension("elc");
+        fs::metadata(&dep_elc)
+            .and_then(|metadata| metadata.modified())
+            .map_or_else(
+                |_| dep.is_file() && compile_main_needs_rebuild(dep),
+                |dep_mtime| dep_mtime > target_mtime,
+            )
+    })
 }
 
 fn run_compile_main_source(
