@@ -727,8 +727,45 @@ impl Obarray {
     /// legacy `value` enum field.
     #[inline(always)]
     pub fn symbol_value_id_copied(&self, id: SymId) -> Option<Value> {
-        let mut current = id;
-        for _ in 0..50 {
+        let sym = match self.symbols.get(Self::slot_index(id)) {
+            Some(Some(sym)) => sym,
+            _ => return None,
+        };
+        match sym.flags.redirect() {
+            SymbolRedirect::Plainval => {
+                // Safety: redirect=Plainval guarantees val.plain is
+                // the live value field. UNBOUND sentinel = unbound.
+                let value = unsafe { sym.val.plain };
+                if value == Value::UNBOUND {
+                    None
+                } else {
+                    Some(value)
+                }
+            }
+            SymbolRedirect::Varalias => {
+                let current = unsafe { sym.val.alias };
+                self.symbol_value_id_copied_slow(current, 49)
+            }
+            SymbolRedirect::Localized => {
+                let value = self.blv(id)?.defcell.cons_cdr();
+                if value == Value::UNBOUND {
+                    None
+                } else {
+                    Some(value)
+                }
+            }
+            SymbolRedirect::Forwarded => None,
+        }
+    }
+
+    #[cold]
+    fn symbol_value_id_copied_slow(
+        &self,
+        mut current: SymId,
+        mut remaining: usize,
+    ) -> Option<Value> {
+        while remaining > 0 {
+            remaining -= 1;
             let sym = match self.symbols.get(Self::slot_index(current)) {
                 Some(Some(sym)) => sym,
                 _ => return None,

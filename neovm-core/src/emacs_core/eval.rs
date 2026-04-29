@@ -11110,7 +11110,6 @@ impl Context {
             let binding = self.specpdl.pop().unwrap();
             match binding {
                 SpecBinding::Let { sym_id, old_value } => {
-                    let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(sym_id) {
                         let restore_val = old_value.unwrap_or(Value::NIL);
                         let _ = self.run_variable_watchers_by_id(
@@ -11143,7 +11142,6 @@ impl Context {
                     old_value,
                     buffer_id,
                 } => {
-                    let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(sym_id) {
                         let _ = self.run_variable_watchers_by_id(
                             sym_id,
@@ -11198,7 +11196,6 @@ impl Context {
                 }
                 SpecBinding::LetDefault { sym_id, old_value } => {
                     // Restore the default value (GNU: set_default_internal)
-                    let name = resolve_sym(sym_id);
                     if self.watchers.has_watchers(sym_id) {
                         let restore_val = old_value.unwrap_or(Value::NIL);
                         let _ = self.run_variable_watchers_by_id(
