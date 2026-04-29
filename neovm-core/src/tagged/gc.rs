@@ -533,6 +533,13 @@ pub struct TaggedHeap {
     cons_blocks: Vec<ConsBlock>,
     /// Base-address lookup for O(1) cons block ownership and marking.
     cons_block_index_by_base: FxHashMap<usize, usize>,
+    /// Last ordinary cons block used by the mark phase.
+    ///
+    /// GNU's cons marker derives the block directly from the pointer and has a
+    /// special fast path for successive list cells.  Keep Neomacs's explicit
+    /// ownership map, but avoid probing it repeatedly while the mark queue is
+    /// walking cells from the same block.
+    mark_cons_block_cache: Option<(usize, usize)>,
 
     /// Intrusive linked list of all non-cons heap objects.
     /// Points to the GcHeader of the first object; follow `next` to traverse.
@@ -621,6 +628,7 @@ impl TaggedHeap {
         Self {
             cons_blocks: Vec::new(),
             cons_block_index_by_base: FxHashMap::default(),
+            mark_cons_block_cache: None,
             all_objects: std::ptr::null_mut(),
             non_cons_object_addrs: FxHashSet::default(),
             allocated_count: 0,
@@ -1402,6 +1410,7 @@ impl TaggedHeap {
 
         // -- Seed gray queue from roots --
         self.gray_queue.clear();
+        self.mark_cons_block_cache = None;
         self.seed_internal_runtime_roots();
     }
 
@@ -1567,14 +1576,20 @@ impl TaggedHeap {
 
     /// Mark a cons cell. Returns true if newly marked (not previously marked).
     fn mark_cons(&mut self, ptr: *const ConsCell) -> bool {
-        if !self.owns_cons_ptr(ptr) {
+        if ptr.is_null() || !ConsBlock::ptr_is_cell_aligned(ptr) {
             return self.mark_mapped_cons(ptr);
         }
         let block_base = ConsBlock::block_base_for_ptr(ptr);
-        let block_index = *self
-            .cons_block_index_by_base
-            .get(&block_base)
-            .expect("owned cons pointer should resolve to a block");
+        let block_index = match self.mark_cons_block_cache {
+            Some((cached_base, cached_index)) if cached_base == block_base => cached_index,
+            _ => {
+                let Some(&block_index) = self.cons_block_index_by_base.get(&block_base) else {
+                    return self.mark_mapped_cons(ptr);
+                };
+                self.mark_cons_block_cache = Some((block_base, block_index));
+                block_index
+            }
+        };
         let block = &mut self.cons_blocks[block_index];
         if block.is_marked_ptr(ptr) {
             return false;
@@ -1875,15 +1890,6 @@ impl TaggedHeap {
 
     fn owns_non_cons_object(&self, ptr: *const u8) -> bool {
         !ptr.is_null() && self.non_cons_object_addrs.contains(&(ptr as usize))
-    }
-
-    #[inline]
-    fn owns_cons_ptr(&self, ptr: *const ConsCell) -> bool {
-        if ptr.is_null() || !ConsBlock::ptr_is_cell_aligned(ptr) {
-            return false;
-        }
-        self.cons_block_index_by_base
-            .contains_key(&ConsBlock::block_base_for_ptr(ptr))
     }
 
     /// Debug verification: after marking, check that every marked non-cons
