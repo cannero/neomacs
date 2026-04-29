@@ -3344,9 +3344,13 @@ impl Context {
         obarray.set_symbol_value("command-history", Value::NIL);
         obarray.set_symbol_value("extended-command-history", Value::NIL);
         obarray.set_symbol_value("completion-ignore-case", Value::NIL);
+        obarray.make_special("completion-ignore-case");
         obarray.set_symbol_value("read-buffer-completion-ignore-case", Value::NIL);
+        obarray.make_special("read-buffer-completion-ignore-case");
         obarray.set_symbol_value("read-file-name-completion-ignore-case", Value::NIL);
+        obarray.make_special("read-file-name-completion-ignore-case");
         obarray.set_symbol_value("completion-regexp-list", Value::NIL);
+        obarray.make_special("completion-regexp-list");
         obarray.set_symbol_value("completion--all-sorted-completions-location", Value::NIL);
         obarray.set_symbol_value("completion--capf-misbehave-funs", Value::NIL);
         obarray.set_symbol_value("completion--capf-safe-funs", Value::NIL);
@@ -3547,6 +3551,7 @@ impl Context {
         obarray.set_symbol_value("read-extended-command-mode-hook", Value::NIL);
         obarray.set_symbol_value("read-extended-command-predicate", Value::NIL);
         obarray.set_symbol_value("read-hide-char", Value::NIL);
+        obarray.set_symbol_value("inhibit-interaction", Value::NIL);
         obarray.set_symbol_value("read-mail-command", Value::symbol("rmail"));
         obarray.set_symbol_value("read-minibuffer-restore-windows", Value::T);
         obarray.set_symbol_value("read-only-mode-hook", Value::NIL);
@@ -3637,6 +3642,26 @@ impl Context {
         obarray.set_symbol_value("minibuffer-message-timer", Value::NIL);
         obarray.set_symbol_value("minibuffer-lazy-count-format", Value::string("%s "));
         obarray.set_symbol_value("minibuffer-text-before-history", Value::NIL);
+        // GNU src/minibuf.c declares these with DEFVAR_LISP/DEFVAR_BOOL.
+        // They must be special so lexical-binding Lisp sees dynamic
+        // minibuffer/completion bindings inside byte-compiled functions.
+        for name in [
+            "minibuffer-auto-raise",
+            "minibuffer-completion-table",
+            "minibuffer-completion-predicate",
+            "minibuffer-completion-confirm",
+            "minibuffer-completing-file-name",
+            "minibuffer-help-form",
+            "minibuffer-history-variable",
+            "minibuffer-history-position",
+            "minibuffer-allow-text-properties",
+            "minibuffer-prompt-properties",
+            "read-hide-char",
+            "inhibit-interaction",
+            "read-minibuffer-restore-windows",
+        ] {
+            obarray.make_special(name);
+        }
         obarray.set_symbol_value(
             "minibuffer-prompt-properties",
             Value::list(vec![
