@@ -259,7 +259,8 @@ pub(crate) fn signal_before_change(
         run_named_hook_reset_on_error(ctx, "before-change-functions", &hook_args)?;
 
         if !overlay_hooks.is_empty() {
-            let overlay_arg = Value::T; // `t` signals "before change" to overlay hooks
+            // GNU passes `nil` for AFTER in the before-change phase.
+            let overlay_arg = Value::NIL;
             let roots = ctx.save_specpdl_roots();
             for (func, ov_val) in &overlay_hooks {
                 ctx.push_specpdl_root(*func);
@@ -455,7 +456,7 @@ fn run_overlay_after_change_hooks(
         return Ok(());
     }
 
-    let after_flag = Value::NIL; // nil signals "after change" to overlay hooks
+    let after_flag = Value::T; // GNU passes `t` for AFTER in the after-change phase
     let roots = ctx.save_specpdl_roots();
     for (func, ov_val, _) in &hooks {
         ctx.push_specpdl_root(*func);
