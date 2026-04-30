@@ -11090,7 +11090,7 @@ fn insert_string_converts_props_from_multibyte_source_to_unibyte_buffer() {
     let intervals = props.intervals_snapshot();
     assert_eq!(intervals.len(), 1);
     assert_eq!(intervals[0].start, 0);
-    assert_eq!(intervals[0].end, 1);
+    assert_eq!(intervals[0].end, 2);
     assert_eq!(
         intervals[0].properties.get(&Value::symbol("face")),
         Some(&Value::symbol("bold"))
@@ -11208,7 +11208,7 @@ fn insert_unibyte_string_converts_props_into_multibyte_buffer() {
     let intervals = props.intervals_snapshot();
     assert_eq!(intervals.len(), 1);
     assert_eq!(intervals[0].start, 0);
-    assert_eq!(intervals[0].end, 2);
+    assert_eq!(intervals[0].end, 1);
     assert_eq!(
         intervals[0].properties.get(&Value::symbol("face")),
         Some(&Value::symbol("bold"))

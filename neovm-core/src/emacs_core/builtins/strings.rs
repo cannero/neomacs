@@ -271,9 +271,12 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
             Ok(())
         }
 
-        fn push_concat_element(result: &mut Vec<u8>, value: &Value) -> Result<(), Flow> {
+        fn push_concat_element(result: &mut Vec<u8>, value: &Value) -> Result<usize, Flow> {
             match value.kind() {
-                ValueKind::Fixnum(c) => push_concat_int(result, c),
+                ValueKind::Fixnum(c) => {
+                    push_concat_int(result, c)?;
+                    Ok(1)
+                }
                 _ => Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("characterp"), *value],
@@ -309,15 +312,17 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
             _ => acc,
         });
         let mut result: Vec<u8> = Vec::with_capacity(preallocated_len);
-        // Track string sources with their byte offsets for property preservation
+        let mut result_chars = 0usize;
+        // Track string sources with their character offsets for property preservation.
         let mut string_sources: Vec<(Value, usize)> = Vec::new();
 
         for arg in args {
             match arg.kind() {
                 ValueKind::String => {
-                    let offset = result.len();
+                    let offset = result_chars;
                     if let Some(ls) = arg.as_lisp_string() {
                         result.extend_from_slice(ls.as_bytes());
+                        result_chars += ls.schars();
                     }
                     string_sources.push((*arg, offset));
                 }
@@ -330,7 +335,7 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
                             ValueKind::Cons => {
                                 let pair_car = cursor.cons_car();
                                 let pair_cdr = cursor.cons_cdr();
-                                push_concat_element(&mut result, &pair_car)?;
+                                result_chars += push_concat_element(&mut result, &pair_car)?;
                                 cursor = pair_cdr;
                             }
                             _tail => {
@@ -345,7 +350,7 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
                 ValueKind::Veclike(VecLikeType::Vector) => {
                     let items = arg.as_vector_data().unwrap().clone();
                     for item in items.iter() {
-                        push_concat_element(&mut result, item)?;
+                        result_chars += push_concat_element(&mut result, item)?;
                     }
                 }
                 _ => {
@@ -1377,6 +1382,9 @@ fn apply_format_prop_spans(result: Value, args: &[Value], spans: &[FormatPropSpa
     if spans.is_empty() {
         return;
     }
+    let Some(result_string) = result.as_lisp_string() else {
+        return;
+    };
     let mut table = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
         .unwrap_or_else(crate::buffer::text_props::TextPropertyTable::new);
     let mut touched = false;
@@ -1384,20 +1392,35 @@ fn apply_format_prop_spans(result: Value, args: &[Value], spans: &[FormatPropSpa
         let Some(arg) = args.get(span.arg_idx) else {
             continue;
         };
+        let Some(arg_string) = arg.as_lisp_string() else {
+            continue;
+        };
         let Some(src_table) =
             crate::emacs_core::value::get_string_text_properties_table_for_value(*arg)
         else {
             continue;
         };
-        let sliced = src_table.slice(span.arg_byte_start, span.arg_byte_end);
+        let arg_char_start = lisp_string_byte_to_char_pos(arg_string, span.arg_byte_start);
+        let arg_char_end = lisp_string_byte_to_char_pos(arg_string, span.arg_byte_end);
+        let result_char_start = lisp_string_byte_to_char_pos(result_string, span.result_byte_start);
+        let sliced = src_table.slice(arg_char_start, arg_char_end);
         if sliced.intervals_snapshot().iter().next().is_none() {
             continue;
         }
-        table.append_shifted(&sliced, span.result_byte_start);
+        table.append_shifted(&sliced, result_char_start);
         touched = true;
     }
     if touched {
         crate::emacs_core::value::set_string_text_properties_table_for_value(result, table);
+    }
+}
+
+fn lisp_string_byte_to_char_pos(string: &crate::heap_types::LispString, byte_pos: usize) -> usize {
+    let clamped = byte_pos.min(string.sbytes());
+    if string.is_multibyte() {
+        crate::emacs_core::emacs_char::byte_to_char_pos(string.as_bytes(), clamped)
+    } else {
+        clamped
     }
 }
 

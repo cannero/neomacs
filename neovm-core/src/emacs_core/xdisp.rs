@@ -20,7 +20,6 @@ use super::error::{EvalResult, Flow, signal};
 use super::intern::intern;
 use super::value::*;
 use crate::buffer::{Buffer, BufferId, TextPropertyTable};
-use crate::encoding::char_to_byte_pos;
 use crate::window::{DisplayPointSnapshot, FrameId, Window, WindowId};
 
 // ---------------------------------------------------------------------------
@@ -865,20 +864,20 @@ impl ModeLineRendered {
     }
 
     fn append_rendered(&mut self, other: &Self) {
-        let byte_offset = self.text.len();
+        let char_offset = self.char_len();
         self.text.push_str(&other.text);
         self.text_props
-            .append_shifted(&other.text_props, byte_offset);
+            .append_shifted(&other.text_props, char_offset);
     }
 
     fn append_string_value_preserving_props(&mut self, value: &Value) {
         match value.as_lisp_string() {
             Some(string) => {
                 let text = crate::emacs_core::builtins::runtime_string_from_lisp_string(string);
-                let byte_offset = self.text.len();
+                let char_offset = self.char_len();
                 self.text.push_str(&text);
                 if let Some(props) = get_string_text_properties_table_for_value(*value) {
-                    self.text_props.append_shifted(&props, byte_offset);
+                    self.text_props.append_shifted(&props, char_offset);
                 }
             }
             None => {
@@ -910,9 +909,7 @@ impl ModeLineRendered {
         match value.as_lisp_string() {
             Some(string) => {
                 let text = crate::emacs_core::builtins::runtime_string_from_lisp_string(string);
-                let byte_start = char_to_byte_pos(&text, start_char);
-                let byte_end = char_to_byte_pos(&text, end_char);
-                let byte_offset = self.text.len();
+                let char_offset = self.char_len();
                 self.text.push_str(
                     &text
                         .chars()
@@ -922,16 +919,14 @@ impl ModeLineRendered {
                 );
                 if let Some(props) = get_string_text_properties_table_for_value(*value) {
                     self.text_props
-                        .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+                        .append_shifted(&props.slice(start_char, end_char), char_offset);
                 }
             }
             None => {
                 let Some(text) = value.as_utf8_str() else {
                     return;
                 };
-                let byte_start = char_to_byte_pos(text, start_char);
-                let byte_end = char_to_byte_pos(text, end_char);
-                let byte_offset = self.text.len();
+                let char_offset = self.char_len();
                 self.text.push_str(
                     &text
                         .chars()
@@ -942,7 +937,7 @@ impl ModeLineRendered {
                 if value.is_string() {
                     if let Some(props) = get_string_text_properties_table_for_value(*value) {
                         self.text_props
-                            .append_shifted(&props.slice(byte_start, byte_end), byte_offset);
+                            .append_shifted(&props.slice(start_char, end_char), char_offset);
                     }
                 }
             }
@@ -958,10 +953,9 @@ impl ModeLineRendered {
     }
 
     fn slice_chars(&self, precision: usize) -> Self {
-        let byte_end = char_to_byte_pos(&self.text, precision);
         Self {
             text: self.text.chars().take(precision).collect(),
-            text_props: self.text_props.slice(0, byte_end),
+            text_props: self.text_props.slice(0, precision),
         }
     }
 
@@ -994,7 +988,7 @@ impl ModeLineRendered {
                 continue;
             }
             self.text_props
-                .put_property(0, self.text.len(), chunk[0], chunk[1]);
+                .put_property(0, self.char_len(), chunk[0], chunk[1]);
         }
     }
 
@@ -1004,7 +998,7 @@ impl ModeLineRendered {
         }
         for (name, value) in props {
             self.text_props
-                .put_property(0, self.text.len(), name, value);
+                .put_property(0, self.char_len(), name, value);
         }
     }
 
@@ -1013,7 +1007,7 @@ impl ModeLineRendered {
             return;
         }
 
-        let end = self.text.len();
+        let end = self.char_len();
         let intervals = self.text_props.intervals_snapshot();
         let mut cursor = 0;
 
@@ -1952,7 +1946,7 @@ fn expand_mode_line_percent_in_state(
 
         let props_at_percent = if value.is_string() {
             get_string_text_properties_table_for_value(*value)
-                .map(|table| table.get_properties(char_to_byte_pos(fmt_str, percent_char_pos)))
+                .map(|table| table.get_properties(percent_char_pos))
                 .unwrap_or_default()
         } else {
             Default::default()
