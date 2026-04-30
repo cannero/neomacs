@@ -1649,11 +1649,7 @@ fn dump_lisp_string(string: &LispString) -> DumpLispString {
     DumpLispString {
         data: string.as_bytes().to_vec(),
         size: string.schars(),
-        size_byte: if string.is_multibyte() {
-            string.sbytes() as i64
-        } else {
-            -1
-        },
+        size_byte: string.size_byte(),
     }
 }
 
@@ -1902,11 +1898,7 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
             DumpHeapObject::Str {
                 data: DumpByteData::owned(string.as_bytes().to_vec()),
                 size: string.schars(),
-                size_byte: if string.is_multibyte() {
-                    string.sbytes() as i64
-                } else {
-                    -1
-                },
+                size_byte: string.size_byte(),
                 text_props: get_string_text_properties_for_value(value)
                     .unwrap_or_default()
                     .into_iter()
@@ -2934,11 +2926,7 @@ pub(crate) fn dump_register_manager(
                         RegisterContent::Text(s) => DumpRegisterContent::Text {
                             data: s.as_bytes().to_vec(),
                             size: s.schars(),
-                            size_byte: if s.is_multibyte() {
-                                s.sbytes() as i64
-                            } else {
-                                -1
-                            },
+                            size_byte: s.size_byte(),
                         },
                         RegisterContent::Number(n) => DumpRegisterContent::Number(*n),
                         RegisterContent::Marker(v) => {

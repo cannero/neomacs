@@ -191,6 +191,30 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
 }
 
 #[test]
+fn file_pdump_preserves_immovable_string_size_byte() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let mut string = LispString::from_unibyte(vec![0xC0, 0x87]);
+    string.pin_immovable();
+    eval.obarray
+        .set_symbol_value("test-pdump-immovable-string", Value::heap_string(string));
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("immovable-string.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-immovable-string")
+        .expect("restored string symbol");
+    let string = value.as_lisp_string().expect("restored string");
+    assert_eq!(string.as_bytes(), &[0xC0, 0x87]);
+    assert_eq!(string.size_byte(), -3);
+    assert!(string.is_immovable());
+}
+
+#[test]
 fn file_pdump_loads_string_text_props_from_mmap_object() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

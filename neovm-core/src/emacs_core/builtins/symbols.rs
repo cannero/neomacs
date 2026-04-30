@@ -4673,8 +4673,20 @@ fn make_byte_code_from_parts_with_slots(
 ) -> EvalResult {
     use crate::emacs_core::bytecode::ByteCodeFunction;
     use crate::emacs_core::bytecode::decode::{
-        decode_gnu_bytecode_with_offset_map, parse_arglist_value, string_value_to_bytes,
+        decode_gnu_bytecode_with_offset_map, parse_arglist_value,
     };
+
+    if !valid_closure_arglist(*arglist)
+        || !bytecode_str.is_string()
+        || bytecode_str.string_is_multibyte()
+        || !constants_vec.is_vector()
+        || !valid_bytecode_stack_depth(*maxdepth)
+    {
+        return Err(signal(
+            "error",
+            vec![Value::string("Invalid byte-code object")],
+        ));
+    }
 
     // 1. Parse arglist
     let params = parse_arglist_value(arglist);
@@ -4683,10 +4695,13 @@ fn make_byte_code_from_parts_with_slots(
     // Bytecode strings are unibyte and may contain arbitrary byte values
     // (including non-UTF-8), so we must access the raw bytes directly
     // rather than going through as_str() which requires valid UTF-8.
-    let gnu_bytecode_bytes = bytecode_str
+    let raw_bytes = bytecode_str
         .as_lisp_string()
-        .map(|ls| ls.as_bytes().to_vec());
-    let raw_bytes = gnu_bytecode_bytes.clone().unwrap_or_default();
+        .expect("validated bytecode string")
+        .as_bytes()
+        .to_vec();
+    let gnu_bytecode_bytes = Some(raw_bytes.clone());
+    let _ = bytecode_str.with_lisp_string_mut(|string| string.pin_immovable());
 
     // 3. Extract constants from vector
     let mut constants: Vec<Value> = match constants_vec.kind() {

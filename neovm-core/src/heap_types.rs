@@ -17,7 +17,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// `as_str()` return `None` for those strings.
 ///
 /// - **Multibyte:** `size_byte >= 0`.  `size` = char count, `size_byte` = byte count.
-/// - **Unibyte:**   `size_byte == -1`. `size` = byte count (each byte is one char).
+/// - **Unibyte:**   `size_byte < 0`. `size` = byte count (each byte is one char).
+///   GNU distinguishes `-1` normally allocated, `-2` rodata, and `-3`
+///   immovable bytecode storage.
 pub struct LispString {
     /// Character count (cached).
     size: usize,
@@ -34,6 +36,10 @@ pub struct LispString {
     data: *const u8,
     storage: LispStringStorage,
 }
+
+const SIZE_BYTE_UNIBYTE_NORMAL: i64 = -1;
+const SIZE_BYTE_UNIBYTE_RODATA: i64 = -2;
+const SIZE_BYTE_UNIBYTE_IMMOVABLE: i64 = -3;
 
 enum LispStringStorage {
     Owned(Vec<u8>),
@@ -106,6 +112,16 @@ impl LispString {
     // -- Constructors --------------------------------------------------------
 
     fn from_storage(storage: LispStringStorage, size: usize, size_byte: i64) -> Self {
+        debug_assert!(
+            size_byte >= 0
+                || matches!(
+                    size_byte,
+                    SIZE_BYTE_UNIBYTE_NORMAL
+                        | SIZE_BYTE_UNIBYTE_RODATA
+                        | SIZE_BYTE_UNIBYTE_IMMOVABLE
+                ),
+            "invalid GNU Lisp_String size_byte {size_byte}"
+        );
         let data = storage.ptr();
         Self {
             size,
@@ -165,7 +181,28 @@ impl LispString {
     /// Create a unibyte string.  Each byte is one character; `size_byte` = -1.
     pub fn from_unibyte(data: Vec<u8>) -> Self {
         let size = data.len();
-        Self::from_storage(LispStringStorage::Owned(data), size, -1)
+        Self::from_storage(
+            LispStringStorage::Owned(data),
+            size,
+            SIZE_BYTE_UNIBYTE_NORMAL,
+        )
+    }
+
+    /// Create a unibyte string whose bytes live in static read-only storage.
+    ///
+    /// This mirrors GNU's `size_byte == -2` state for C string constants.  If
+    /// later mutated, Neomacs copies the data and demotes it to ordinary
+    /// unibyte storage because it no longer points at rodata.
+    pub fn from_rodata_unibyte(data: &'static [u8]) -> Self {
+        let size = data.len();
+        Self::from_storage(
+            LispStringStorage::Mapped {
+                ptr: data.as_ptr(),
+                len: data.len(),
+            },
+            size,
+            SIZE_BYTE_UNIBYTE_RODATA,
+        )
     }
 
     /// Create a multibyte string from valid UTF-8.
@@ -220,6 +257,34 @@ impl LispString {
         self.size_byte >= 0
     }
 
+    /// Raw GNU `Lisp_String.u.s.size_byte` value.
+    pub fn size_byte(&self) -> i64 {
+        self.size_byte
+    }
+
+    /// True for GNU's `size_byte == -2`: unibyte bytes in read-only storage.
+    pub fn is_rodata(&self) -> bool {
+        self.size_byte == SIZE_BYTE_UNIBYTE_RODATA
+    }
+
+    /// True for GNU's `size_byte == -3`: unibyte bytes that must not move.
+    pub fn is_immovable(&self) -> bool {
+        self.size_byte == SIZE_BYTE_UNIBYTE_IMMOVABLE
+    }
+
+    /// Mirror GNU `pin_string`: mark a unibyte string as immovable bytecode
+    /// storage.  Multibyte strings cannot be pinned this way.
+    pub fn pin_immovable(&mut self) {
+        debug_assert!(
+            !self.is_multibyte(),
+            "GNU pin_string only accepts unibyte strings"
+        );
+        self.storage.ensure_owned();
+        self.size = self.storage.as_slice().len();
+        self.size_byte = SIZE_BYTE_UNIBYTE_IMMOVABLE;
+        self.refresh_data_ptr();
+    }
+
     /// Text-property interval tree attached to this string, like GNU's
     /// `Lisp_String.u.s.intervals`.
     pub fn intervals(&self) -> &TextPropertyTable {
@@ -252,6 +317,9 @@ impl LispString {
     /// After mutation the caller MUST call `recompute_size()` to keep the
     /// cached `size` / `size_byte` consistent.
     pub fn data_mut(&mut self) -> &mut Vec<u8> {
+        if self.is_rodata() {
+            self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
+        }
         let data = self.storage.ensure_owned();
         self.data = data.as_ptr();
         data
@@ -281,6 +349,9 @@ impl LispString {
         // compat path).
         let old = std::mem::replace(&mut self.storage, LispStringStorage::Owned(Vec::new()))
             .into_owned_bytes();
+        if self.is_rodata() {
+            self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
+        }
         self.refresh_data_ptr();
         let s = String::from_utf8(old).unwrap_or_else(|e| {
             // Fallback: lossy conversion for non-UTF-8 data
@@ -322,6 +393,9 @@ impl LispString {
     /// multibyte/unibyte flag.
     pub fn set_from_str(&mut self, s: &str) {
         self.storage = LispStringStorage::Owned(s.as_bytes().to_vec());
+        if self.is_rodata() {
+            self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
+        }
         self.recompute_size();
     }
 }
@@ -392,7 +466,7 @@ impl Eq for LispString {}
 impl std::hash::Hash for LispString {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.as_bytes().hash(state);
-        self.size_byte.hash(state);
+        self.is_multibyte().hash(state);
     }
 }
 
@@ -453,6 +527,57 @@ mod tests {
 
         drop(bytes);
         assert_eq!(cloned.as_bytes(), b"abc");
+    }
+
+    #[test]
+    fn gnu_unibyte_size_byte_states_are_distinct() {
+        let normal = LispString::from_unibyte(b"abc".to_vec());
+        assert_eq!(normal.size_byte(), -1);
+        assert!(!normal.is_multibyte());
+        assert!(!normal.is_rodata());
+        assert!(!normal.is_immovable());
+
+        let rodata = LispString::from_rodata_unibyte(b"abc");
+        assert_eq!(rodata.size_byte(), -2);
+        assert!(!rodata.is_multibyte());
+        assert!(rodata.is_rodata());
+        assert!(!rodata.is_immovable());
+
+        let mut immovable = LispString::from_unibyte(b"abc".to_vec());
+        immovable.pin_immovable();
+        assert_eq!(immovable.size_byte(), -3);
+        assert!(!immovable.is_multibyte());
+        assert!(!immovable.is_rodata());
+        assert!(immovable.is_immovable());
+    }
+
+    #[test]
+    fn rodata_unibyte_demotes_to_normal_on_mutation() {
+        let mut string = LispString::from_rodata_unibyte(b"abc");
+        string.data_mut()[0] = b'X';
+        string.recompute_size();
+
+        assert_eq!(string.as_bytes(), b"Xbc");
+        assert_eq!(string.size_byte(), -1);
+        assert!(!string.is_rodata());
+    }
+
+    #[test]
+    fn equal_unibyte_storage_classes_hash_identically() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let normal = LispString::from_unibyte(b"abc".to_vec());
+        let mut immovable = LispString::from_unibyte(b"abc".to_vec());
+        immovable.pin_immovable();
+
+        assert_eq!(normal, immovable);
+
+        let mut normal_hash = DefaultHasher::new();
+        normal.hash(&mut normal_hash);
+        let mut immovable_hash = DefaultHasher::new();
+        immovable.hash(&mut immovable_hash);
+        assert_eq!(normal_hash.finish(), immovable_hash.finish());
     }
 }
 

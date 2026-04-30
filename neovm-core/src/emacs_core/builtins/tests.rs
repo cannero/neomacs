@@ -6515,6 +6515,65 @@ fn pure_dispatch_make_placeholder_cluster_matches_compat_contracts() {
 }
 
 #[test]
+fn make_byte_code_pins_bytecode_string_like_gnu() {
+    crate::test_utils::init_test_tracing();
+
+    let bytecode = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        0xC0, 0x87,
+    ]));
+    assert!(
+        !bytecode
+            .as_lisp_string()
+            .expect("bytecode string")
+            .is_immovable()
+    );
+
+    let value = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            Value::fixnum(0),
+            bytecode,
+            Value::vector(vec![]),
+            Value::fixnum(1),
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect("builtin make-byte-code should evaluate");
+    assert!(value.is_bytecode());
+    assert!(
+        bytecode
+            .as_lisp_string()
+            .expect("bytecode string")
+            .is_immovable()
+    );
+}
+
+#[test]
+fn make_byte_code_rejects_multibyte_bytecode_string_like_gnu() {
+    crate::test_utils::init_test_tracing();
+
+    let err = dispatch_builtin_pure(
+        "make-byte-code",
+        vec![
+            Value::fixnum(0),
+            Value::multibyte_string("lambda"),
+            Value::vector(vec![]),
+            Value::fixnum(1),
+        ],
+    )
+    .expect("builtin make-byte-code should resolve")
+    .expect_err("multibyte bytecode string should fail");
+
+    match err {
+        Flow::Signal(sig) => {
+            assert_eq!(sig.symbol_name(), "error");
+            assert_eq!(sig.data, vec![Value::string("Invalid byte-code object")]);
+        }
+        other => panic!("expected error signal, got {other:?}"),
+    }
+}
+
+#[test]
 fn make_byte_code_preserves_gnu_arg_slot_zero() {
     crate::test_utils::init_test_tracing();
 
