@@ -92,9 +92,11 @@ impl MappedHeapView {
 
     pub(crate) fn bytes(self, data: &DumpByteData) -> Result<MappedBytes, DumpError> {
         match data {
-            DumpByteData::Owned(_) => Err(DumpError::ImageFormatError(
-                "owned byte payload requested from mapped heap view".to_string(),
-            )),
+            DumpByteData::Owned(_) | DumpByteData::StaticRoData { .. } => {
+                Err(DumpError::ImageFormatError(
+                    "owned byte payload requested from mapped heap view".to_string(),
+                ))
+            }
             DumpByteData::Mapped(span) => {
                 let start = usize::try_from(span.offset).map_err(|_| {
                     DumpError::ImageFormatError("mapped heap offset overflows usize".into())
@@ -510,6 +512,7 @@ pub(crate) fn rebuild_heap_metadata(heap: &mut DumpTaggedHeap) -> Result<(), Dum
                         )));
                     }
                 }
+                DumpByteData::StaticRoData { .. } => {}
             }
         }
 
@@ -604,10 +607,13 @@ fn extract_tagged_heap_payloads(heap: &mut DumpTaggedHeap) -> MappedHeapPayload 
                 offset: span.offset,
                 len: span.len,
             });
-            if let DumpByteData::Owned(bytes) = data {
-                let owned = std::mem::take(bytes);
-                let span = builder.push_bytes(&owned);
-                *data = DumpByteData::mapped(span.offset, span.len);
+            match data {
+                DumpByteData::Owned(bytes) => {
+                    let owned = std::mem::take(bytes);
+                    let span = builder.push_bytes(&owned);
+                    *data = DumpByteData::mapped(span.offset, span.len);
+                }
+                DumpByteData::Mapped(_) | DumpByteData::StaticRoData { .. } => {}
             }
         }
 

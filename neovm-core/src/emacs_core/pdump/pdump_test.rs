@@ -198,6 +198,42 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
 }
 
 #[test]
+fn mapped_pdump_string_bytes_copy_only_on_mutation() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.obarray.set_symbol_value(
+        "test-pdump-copy-on-mutation",
+        Value::string("mapped-before-mutation"),
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("copy-on-mutation.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-copy-on-mutation")
+        .expect("restored string symbol");
+    let string = value.as_lisp_string().expect("restored string");
+    assert!(
+        loaded.pdump_image_contains_ptr(string.as_bytes().as_ptr()),
+        "before mutation, string bytes should be borrowed from the mmap image"
+    );
+
+    let _ = value.with_lisp_string_mut(|string| {
+        string.mutate_bytes(|bytes| bytes.extend_from_slice(b"!"));
+    });
+    let string = value.as_lisp_string().expect("mutated string");
+    assert_eq!(string.as_bytes(), b"mapped-before-mutation!");
+    assert!(
+        !loaded.pdump_image_contains_ptr(string.as_bytes().as_ptr()),
+        "after mutation, string bytes should copy out of the mmap image"
+    );
+    assert!(string.has_trailing_nul());
+}
+
+#[test]
 fn file_pdump_preserves_immovable_string_size_byte() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
@@ -222,7 +258,7 @@ fn file_pdump_preserves_immovable_string_size_byte() {
 }
 
 #[test]
-fn file_pdump_demotes_rodata_string_when_dumping_copied_bytes() {
+fn file_pdump_preserves_rodata_string_with_static_relocation() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();
     let string = LispString::from_rodata_unibyte(b"rodata\0");
@@ -240,9 +276,13 @@ fn file_pdump_demotes_rodata_string_when_dumping_copied_bytes() {
         .expect("restored string symbol");
     let string = value.as_lisp_string().expect("restored string");
     assert_eq!(string.as_bytes(), b"rodata");
-    assert_eq!(string.size_byte(), -1);
-    assert!(!string.is_rodata());
+    assert_eq!(string.size_byte(), -2);
+    assert!(string.is_rodata());
     assert!(string.has_trailing_nul());
+    assert!(
+        !loaded.pdump_image_contains_ptr(string.as_bytes().as_ptr()),
+        "rodata string bytes should point at registered static storage, not copied heap image bytes"
+    );
 }
 
 #[test]

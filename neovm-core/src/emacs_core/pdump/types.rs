@@ -64,6 +64,7 @@ pub struct DumpVecLikeSpan {
 pub enum DumpByteData {
     Owned(Vec<u8>),
     Mapped(DumpByteSpan),
+    StaticRoData { key: u64, len: u64 },
 }
 
 impl DumpByteData {
@@ -75,10 +76,14 @@ impl DumpByteData {
         Self::Mapped(DumpByteSpan { offset, len })
     }
 
+    pub fn static_rodata(key: u64, len: u64) -> Self {
+        Self::StaticRoData { key, len }
+    }
+
     pub fn as_owned_bytes(&self) -> Option<&[u8]> {
         match self {
             Self::Owned(data) => Some(data),
-            Self::Mapped(_) => None,
+            Self::Mapped(_) | Self::StaticRoData { .. } => None,
         }
     }
 }

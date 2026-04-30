@@ -121,6 +121,7 @@ pub(crate) fn write_heap_object(
 
 const BYTE_OWNED: u8 = 0;
 const BYTE_MAPPED: u8 = 1;
+const BYTE_STATIC_RODATA: u8 = 2;
 
 fn write_byte_data(out: &mut Vec<u8>, data: &DumpByteData) -> Result<(), DumpError> {
     match data {
@@ -132,6 +133,11 @@ fn write_byte_data(out: &mut Vec<u8>, data: &DumpByteData) -> Result<(), DumpErr
             write_u8(out, BYTE_MAPPED);
             write_u64(out, span.offset);
             write_u64(out, span.len);
+        }
+        DumpByteData::StaticRoData { key, len } => {
+            write_u8(out, BYTE_STATIC_RODATA);
+            write_u64(out, *key);
+            write_u64(out, *len);
         }
     }
     Ok(())
@@ -890,6 +896,10 @@ impl<'a> Cursor<'a> {
                 self.read_u64("mapped byte offset")?,
                 self.read_u64("mapped byte length")?,
             )),
+            BYTE_STATIC_RODATA => Ok(DumpByteData::static_rodata(
+                self.read_u64("static rodata key")?,
+                self.read_u64("static rodata length")?,
+            )),
             other => Err(DumpError::ImageFormatError(format!(
                 "unknown byte data tag {other}"
             ))),
@@ -1428,6 +1438,12 @@ mod tests {
                     end: 1,
                     plist: DumpValue::Symbol(DumpSymId(7)),
                 }],
+            },
+            DumpHeapObject::Str {
+                data: DumpByteData::static_rodata(0xfeed_beef, 6),
+                size: 6,
+                size_byte: -2,
+                text_props: Vec::new(),
             },
             DumpHeapObject::Cons {
                 car: DumpValue::Int(42),

@@ -652,6 +652,23 @@ impl<'a> LoadDecoder<'a> {
                 let bytes = mapped_heap.bytes(data)?;
                 Ok(unsafe { LispString::from_mapped_bytes(bytes.ptr, bytes.len, size, size_byte) })
             }
+            DumpByteData::StaticRoData { key, len } => {
+                if size_byte != -2 {
+                    return Err(DumpError::ImageFormatError(format!(
+                        "static rodata string has non-rodata size_byte {size_byte}"
+                    )));
+                }
+                let len = usize::try_from(*len).map_err(|_| {
+                    DumpError::ImageFormatError(
+                        "static rodata string length overflows usize".into(),
+                    )
+                })?;
+                LispString::from_registered_rodata_unibyte(*key, len, size).ok_or_else(|| {
+                    DumpError::ImageFormatError(format!(
+                        "static rodata string key {key:#x} length {len} is not registered"
+                    ))
+                })
+            }
         }
     }
 
@@ -1895,19 +1912,21 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
         },
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
-            let size_byte = if string.is_rodata() {
-                // GNU preserves -2 only by relocating a pointer into the Emacs
-                // executable's rodata. Neomacs does not yet dump executable
-                // rodata relocations, so copied dump bytes become ordinary
-                // unibyte string data.
-                -1
+            let data = if string.is_rodata() {
+                let key = string
+                    .rodata_key()
+                    .expect("rodata strings must carry a static rodata key");
+                DumpByteData::static_rodata(
+                    key,
+                    u64::try_from(string.sbytes()).expect("string byte length should fit into u64"),
+                )
             } else {
-                string.size_byte()
+                DumpByteData::owned(string.as_bytes().to_vec())
             };
             DumpHeapObject::Str {
-                data: DumpByteData::owned(string.as_bytes().to_vec()),
+                data,
                 size: string.schars(),
-                size_byte,
+                size_byte: string.size_byte(),
                 text_props: get_string_text_properties_for_value(value)
                     .unwrap_or_default()
                     .into_iter()

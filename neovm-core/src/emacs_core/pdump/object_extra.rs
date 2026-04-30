@@ -24,7 +24,7 @@ use super::{DumpError, types::*};
 use crate::tagged::header::VecLikeType;
 
 const OBJECT_EXTRA_MAGIC: [u8; 16] = *b"NEOOBJEXTRA\0\0\0\0\0";
-const OBJECT_EXTRA_FORMAT_VERSION: u32 = 4;
+const OBJECT_EXTRA_FORMAT_VERSION: u32 = 5;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -144,6 +144,11 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
                     object_value_codec::write_u8(out, 1);
                     write_dump_u64(out, span.offset, "string mapped offset")?;
                     write_dump_u64(out, span.len, "string mapped length")?;
+                }
+                DumpByteData::StaticRoData { key, len } => {
+                    object_value_codec::write_u8(out, 2);
+                    object_value_codec::write_u64(out, *key);
+                    object_value_codec::write_u64(out, *len);
                 }
             }
             write_text_property_runs(out, text_props)?;
@@ -387,14 +392,27 @@ fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectEx
             let size = read_dump_usize(cursor, "string size")?;
             let size_byte = read_dump_i32(cursor, "string size_byte")?;
             let byte_data_tag = cursor.read_u8("string byte data tag")?;
-            let byte_data = if byte_data_tag == 0 {
-                let len = read_dump_usize(cursor, "string owned len")?;
-                let bytes = cursor.read_bytes_fixed(len)?;
-                DumpByteData::owned(bytes)
-            } else {
-                let offset = read_dump_u64(cursor, "string mapped offset")?;
-                let len = read_dump_u64(cursor, "string mapped len")?;
-                DumpByteData::mapped(offset, len)
+            let byte_data = match byte_data_tag {
+                0 => {
+                    let len = read_dump_usize(cursor, "string owned len")?;
+                    let bytes = cursor.read_bytes_fixed(len)?;
+                    DumpByteData::owned(bytes)
+                }
+                1 => {
+                    let offset = read_dump_u64(cursor, "string mapped offset")?;
+                    let len = read_dump_u64(cursor, "string mapped len")?;
+                    DumpByteData::mapped(offset, len)
+                }
+                2 => {
+                    let key = cursor.read_u64("string static rodata key")?;
+                    let len = cursor.read_u64("string static rodata len")?;
+                    DumpByteData::static_rodata(key, len)
+                }
+                other => {
+                    return Err(DumpError::ImageFormatError(format!(
+                        "unknown string byte data tag {other}"
+                    )));
+                }
             };
             let text_props = read_text_property_runs(cursor)?;
             Ok(ObjectExtra::String {
@@ -632,6 +650,28 @@ mod tests {
 
         assert!(matches!(objects[0], DumpHeapObject::Cons { .. }));
         assert!(matches!(objects[1], DumpHeapObject::Free));
+    }
+
+    #[test]
+    fn object_extra_round_trips_static_rodata_string_descriptor() {
+        let objects = vec![DumpHeapObject::Str {
+            data: DumpByteData::static_rodata(0x1234_5678, 7),
+            size: 7,
+            size_byte: -2,
+            text_props: Vec::new(),
+        }];
+        let bytes = build_object_extra(&objects).expect("build object extra");
+        let extras = load_object_extra(&bytes).expect("load object extra");
+
+        assert!(matches!(
+            &extras[0],
+            ObjectExtra::String {
+                size: 7,
+                size_byte: -2,
+                byte_data: DumpByteData::StaticRoData { key: 0x1234_5678, len: 7 },
+                text_props,
+            } if text_props.is_empty()
+        ));
     }
 
     #[test]

@@ -8,6 +8,8 @@ use crate::buffer::{BufferId, TextPropertyTable};
 use crate::emacs_core::emacs_char;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 /// A Lisp string.
 ///
@@ -21,6 +23,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// - **Unibyte:**   `size_byte < 0`. `size` = byte count (each byte is one char).
 ///   GNU distinguishes `-1` normally allocated, `-2` rodata, and `-3`
 ///   immovable bytecode storage.
+#[repr(C)]
 pub struct LispString {
     /// Character count (cached).
     size: usize,
@@ -31,11 +34,11 @@ pub struct LispString {
     intervals: TextPropertyTable,
     /// Direct string byte pointer, like GNU's `Lisp_String.u.s.data`.
     ///
-    /// Neomacs still keeps Rust ownership metadata in `storage`, but ordinary
-    /// reads go through this pointer and `sbytes`, matching GNU's SDATA/SBYTES
-    /// access model.
     data: *const u8,
-    storage: LispStringStorage,
+    /// Sidecar ownership metadata. GNU's logical Lisp_String fields above stay
+    /// first in the layout; this pointer is Neomacs runtime bookkeeping for
+    /// owned/mapped/static byte storage.
+    storage: Box<LispStringStorage>,
 }
 
 const SIZE_BYTE_UNIBYTE_NORMAL: i64 = -1;
@@ -48,7 +51,11 @@ enum LispStringStorage {
     Owned(Vec<u8>),
     /// Bytes in Rust/Emacs read-only storage.  This is the only storage class
     /// that may carry GNU's `size_byte == -2` rodata marker.
-    Static { ptr: *const u8, len: usize },
+    Static {
+        key: u64,
+        ptr: *const u8,
+        len: usize,
+    },
     /// Bytes owned by a mapped pdump image.  Mutation first copies these bytes
     /// into ordinary Rust storage, matching GNU's writable object header plus
     /// cold string-data split in pdumper.c.
@@ -64,6 +71,65 @@ unsafe impl Sync for LispStringStorage {}
 // requires `&mut self`.
 unsafe impl Send for LispString {}
 unsafe impl Sync for LispString {}
+
+#[derive(Clone, Copy)]
+struct StaticRoDataEntry {
+    ptr: usize,
+    len: usize,
+}
+
+fn static_rodata_registry() -> &'static Mutex<HashMap<u64, StaticRoDataEntry>> {
+    static REGISTRY: OnceLock<Mutex<HashMap<u64, StaticRoDataEntry>>> = OnceLock::new();
+    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn static_rodata_key(bytes_with_nul: &[u8]) -> u64 {
+    // Stable FNV-1a over the exact executable rodata bytes, including GNU's
+    // trailing NUL.
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes_with_nul {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+fn register_static_rodata(data_with_nul: &'static [u8]) -> u64 {
+    let key = static_rodata_key(data_with_nul);
+    let len = data_with_nul.len() - 1;
+    let mut registry = static_rodata_registry()
+        .lock()
+        .expect("static rodata registry poisoned");
+    if let Some(existing) = registry.get(&key) {
+        let existing_bytes =
+            unsafe { std::slice::from_raw_parts(existing.ptr as *const u8, existing.len + 1) };
+        assert_eq!(
+            existing_bytes, data_with_nul,
+            "static rodata string key collision"
+        );
+    } else {
+        registry.insert(
+            key,
+            StaticRoDataEntry {
+                ptr: data_with_nul.as_ptr() as usize,
+                len,
+            },
+        );
+    }
+    key
+}
+
+fn lookup_static_rodata(key: u64, len: usize) -> Option<*const u8> {
+    let registry = static_rodata_registry()
+        .lock()
+        .expect("static rodata registry poisoned");
+    let entry = registry.get(&key)?;
+    if entry.len == len {
+        Some(entry.ptr as *const u8)
+    } else {
+        None
+    }
+}
 
 impl LispStringStorage {
     fn owned_from_payload(mut data: Vec<u8>) -> Self {
@@ -98,7 +164,7 @@ impl LispStringStorage {
                     .expect("owned LispString storage must include trailing NUL");
                 &data[..len]
             }
-            Self::Static { ptr, len } => {
+            Self::Static { ptr, len, .. } => {
                 if *len == 0 {
                     &[]
                 } else {
@@ -128,27 +194,15 @@ impl LispStringStorage {
         }
     }
 
-    fn into_owned_bytes(self) -> Vec<u8> {
-        match self {
-            Self::Owned(data) => {
-                let len = data
-                    .len()
-                    .checked_sub(1)
-                    .expect("owned LispString storage must include trailing NUL");
-                data[..len].to_vec()
-            }
-            Self::Static { ptr, len } | Self::Mapped { ptr, len } => {
-                if len == 0 {
-                    Vec::new()
-                } else {
-                    unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
-                }
-            }
-        }
-    }
-
     fn is_static_rodata(&self) -> bool {
         matches!(self, Self::Static { .. })
+    }
+
+    fn static_rodata_key(&self) -> Option<u64> {
+        match self {
+            Self::Static { key, .. } => Some(*key),
+            _ => None,
+        }
     }
 
     fn has_trailing_nul(&self) -> bool {
@@ -198,7 +252,7 @@ impl LispString {
             size_byte,
             intervals: TextPropertyTable::new(),
             data,
-            storage,
+            storage: Box::new(storage),
         }
     }
 
@@ -269,14 +323,32 @@ impl LispString {
             "GNU rodata strings must include the trailing NUL"
         );
         let size = data_with_nul.len() - 1;
+        let key = register_static_rodata(data_with_nul);
         Self::from_storage(
             LispStringStorage::Static {
+                key,
                 ptr: data_with_nul.as_ptr(),
                 len: size,
             },
             size,
             SIZE_BYTE_UNIBYTE_RODATA,
         )
+    }
+
+    pub(crate) fn from_registered_rodata_unibyte(
+        key: u64,
+        len: usize,
+        size: usize,
+    ) -> Option<Self> {
+        if size != len {
+            return None;
+        }
+        let ptr = lookup_static_rodata(key, len)?;
+        Some(Self::from_storage(
+            LispStringStorage::Static { key, ptr, len },
+            size,
+            SIZE_BYTE_UNIBYTE_RODATA,
+        ))
     }
 
     /// Create a multibyte string from valid UTF-8.
@@ -334,6 +406,10 @@ impl LispString {
     /// Raw GNU `Lisp_String.u.s.size_byte` value.
     pub fn size_byte(&self) -> i64 {
         self.size_byte
+    }
+
+    pub(crate) fn rodata_key(&self) -> Option<u64> {
+        self.storage.static_rodata_key()
     }
 
     /// True for GNU's `size_byte == -2`: unibyte bytes in read-only storage.
@@ -423,32 +499,6 @@ impl LispString {
         self.refresh_data_ptr();
     }
 
-    /// Backward-compat shim that returns a `&mut String`-like interface.
-    /// This wraps the bytes in a temporary `String` and writes it back.
-    /// IMPORTANT: This only works when the data is valid UTF-8.
-    pub fn make_mut(&mut self) -> StringMutGuard<'_> {
-        // Build a String from the current bytes (must be valid UTF-8 for this
-        // compat path).
-        let old = std::mem::replace(
-            &mut self.storage,
-            LispStringStorage::owned_from_payload(Vec::new()),
-        )
-        .into_owned_bytes();
-        if self.is_rodata() {
-            self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
-        }
-        self.refresh_data_ptr();
-        let s = String::from_utf8(old).unwrap_or_else(|e| {
-            // Fallback: lossy conversion for non-UTF-8 data
-            let bytes = e.into_bytes();
-            String::from_utf8_lossy(&bytes).into_owned()
-        });
-        StringMutGuard {
-            string: s,
-            owner: self,
-        }
-    }
-
     /// Byte-index slice (returns None if out of bounds).
     pub fn slice(&self, start: usize, end: usize) -> Option<Self> {
         if end > self.as_bytes().len() || start > end {
@@ -477,7 +527,7 @@ impl LispString {
     /// Replace the entire contents with a UTF-8 string, preserving the
     /// multibyte/unibyte flag.
     pub fn set_from_str(&mut self, s: &str) {
-        self.storage = LispStringStorage::owned_from_payload(s.as_bytes().to_vec());
+        *self.storage = LispStringStorage::owned_from_payload(s.as_bytes().to_vec());
         if self.is_rodata() {
             self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
         }
@@ -489,34 +539,6 @@ impl LispString {
     }
 }
 
-/// Guard that allows `&mut String` operations and writes back to `LispString`
-/// on drop.  This is the backward-compat shim for `make_mut()`.
-pub struct StringMutGuard<'a> {
-    string: String,
-    owner: &'a mut LispString,
-}
-
-impl std::ops::Deref for StringMutGuard<'_> {
-    type Target = String;
-    fn deref(&self) -> &String {
-        &self.string
-    }
-}
-
-impl std::ops::DerefMut for StringMutGuard<'_> {
-    fn deref_mut(&mut self) -> &mut String {
-        &mut self.string
-    }
-}
-
-impl Drop for StringMutGuard<'_> {
-    fn drop(&mut self) {
-        self.owner.storage =
-            LispStringStorage::owned_from_payload(std::mem::take(&mut self.string).into_bytes());
-        self.owner.recompute_size();
-    }
-}
-
 impl Clone for LispString {
     fn clone(&self) -> Self {
         let mut cloned = Self {
@@ -524,7 +546,9 @@ impl Clone for LispString {
             size_byte: self.size_byte,
             intervals: self.intervals.clone(),
             data: std::ptr::null(),
-            storage: LispStringStorage::owned_from_payload(self.as_bytes().to_vec()),
+            storage: Box::new(LispStringStorage::owned_from_payload(
+                self.as_bytes().to_vec(),
+            )),
         };
         cloned.refresh_data_ptr();
         cloned
@@ -592,6 +616,26 @@ impl<'de> Deserialize<'de> for LispString {
 #[cfg(test)]
 mod tests {
     use super::LispString;
+
+    #[test]
+    fn lisp_string_layout_keeps_gnu_fields_before_storage_sidecar() {
+        assert_eq!(std::mem::offset_of!(LispString, size), 0);
+        assert!(
+            std::mem::offset_of!(LispString, size_byte) > std::mem::offset_of!(LispString, size)
+        );
+        assert!(
+            std::mem::offset_of!(LispString, intervals)
+                > std::mem::offset_of!(LispString, size_byte)
+        );
+        assert!(
+            std::mem::offset_of!(LispString, data) > std::mem::offset_of!(LispString, intervals)
+        );
+        assert!(std::mem::offset_of!(LispString, storage) > std::mem::offset_of!(LispString, data));
+        assert_eq!(
+            std::mem::size_of::<Box<super::LispStringStorage>>(),
+            std::mem::size_of::<usize>()
+        );
+    }
 
     #[test]
     fn mapped_lisp_string_borrows_until_mutation() {
