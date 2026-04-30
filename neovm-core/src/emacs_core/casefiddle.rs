@@ -487,15 +487,28 @@ fn replace_current_buffer_region_in_buffers(
     replacement: &LispString,
     restore_point: bool,
 ) -> EvalResult {
-    let buf = buffers
-        .current_buffer_mut()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let saved_pt = buf.point();
-    buf.delete_region(beg, end);
-    buf.goto_char(beg);
-    buf.insert_lisp_string(replacement);
+    let (buffer_id, saved_pt) = {
+        let buf = buffers
+            .current_buffer()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        (
+            buffers
+                .current_buffer_id()
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
+            buf.point(),
+        )
+    };
+    super::fns::replace_buffer_region_lisp_string_in_manager(
+        buffers,
+        buffer_id,
+        beg,
+        end,
+        replacement,
+    )?;
     if restore_point {
-        buf.goto_char(saved_pt.min(buf.point_max()));
+        if let Some(buf) = buffers.current_buffer_mut() {
+            buf.goto_char(saved_pt.min(buf.point_max()));
+        }
     }
     Ok(Value::NIL)
 }
