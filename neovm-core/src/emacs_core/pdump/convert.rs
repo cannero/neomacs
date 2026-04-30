@@ -8,6 +8,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::DumpError;
 use super::mapped_heap::MappedHeapView;
+use super::object_starts::{LoadedObjectSpan, LoadedSpans};
 use super::types::*;
 use super::value_fixups::{self, RawValueFixup};
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType};
@@ -202,11 +203,7 @@ impl DumpEncoder {
 
 pub(crate) struct TaggedLoadState {
     objects: Vec<DumpHeapObject>,
-    mapped_cons: Vec<Option<DumpConsSpan>>,
-    mapped_floats: Vec<Option<DumpFloatSpan>>,
-    mapped_strings: Vec<Option<DumpStringSpan>>,
-    mapped_veclikes: Vec<Option<DumpVecLikeSpan>>,
-    mapped_slots: Vec<Option<DumpSlotSpan>>,
+    spans: LoadedSpans,
     value_fixups: Vec<RawValueFixup>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -235,11 +232,7 @@ impl TaggedLoadState {
         let len = heap.objects.len();
         Self {
             objects: heap.objects.clone(),
-            mapped_cons: heap.mapped_cons.clone(),
-            mapped_floats: heap.mapped_floats.clone(),
-            mapped_strings: heap.mapped_strings.clone(),
-            mapped_veclikes: heap.mapped_veclikes.clone(),
-            mapped_slots: heap.mapped_slots.clone(),
+            spans: LoadedSpans::from_heap(heap),
             value_fixups,
             values: vec![None; len],
             populated: vec![false; len],
@@ -257,14 +250,21 @@ impl TaggedLoadState {
         mapped_heap: Option<MappedHeapView>,
         value_fixups: Vec<RawValueFixup>,
     ) -> Self {
-        let len = heap.objects.len();
+        let spans = LoadedSpans::from_heap(&heap);
+        Self::from_objects_and_spans(heap.objects, spans, mapped_heap, value_fixups)
+    }
+
+    fn from_objects_and_spans(
+        objects: Vec<DumpHeapObject>,
+        spans: LoadedSpans,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
+        let len = objects.len();
+        debug_assert_eq!(spans.len(), len);
         Self {
-            objects: heap.objects,
-            mapped_cons: heap.mapped_cons,
-            mapped_floats: heap.mapped_floats,
-            mapped_strings: heap.mapped_strings,
-            mapped_veclikes: heap.mapped_veclikes,
-            mapped_slots: heap.mapped_slots,
+            objects,
+            spans,
             value_fixups,
             values: vec![None; len],
             populated: vec![false; len],
@@ -311,6 +311,22 @@ impl LoadDecoder {
     ) -> Self {
         Self {
             state: TaggedLoadState::from_tagged_heap(heap, mapped_heap, value_fixups),
+        }
+    }
+
+    pub(crate) fn from_objects_and_spans_with_mapped_heap_and_fixups(
+        objects: Vec<DumpHeapObject>,
+        spans: LoadedSpans,
+        mapped_heap: Option<MappedHeapView>,
+        value_fixups: Vec<RawValueFixup>,
+    ) -> Self {
+        Self {
+            state: TaggedLoadState::from_objects_and_spans(
+                objects,
+                spans,
+                mapped_heap,
+                value_fixups,
+            ),
         }
     }
 
@@ -371,8 +387,8 @@ impl LoadDecoder {
 
     fn register_mapped_string_objects(&self) -> Result<(), DumpError> {
         let mapped_heap = self.state.mapped_heap;
-        for (index, span) in self.state.mapped_strings.iter().enumerate() {
-            let Some(span) = *span else {
+        for (index, record) in self.state.spans.iter() {
+            let LoadedObjectSpan::String(span) = record else {
                 continue;
             };
             if !matches!(&self.state.objects[index], DumpHeapObject::Str { .. }) {
@@ -396,8 +412,8 @@ impl LoadDecoder {
 
     fn register_mapped_veclike_objects(&self) -> Result<(), DumpError> {
         let mapped_heap = self.state.mapped_heap;
-        for (index, span) in self.state.mapped_veclikes.iter().enumerate() {
-            let Some(span) = *span else {
+        for (index, record) in self.state.spans.iter() {
+            let LoadedObjectSpan::Vectorlike { object: span, .. } = record else {
                 continue;
             };
             let mapped_heap = mapped_heap.ok_or_else(|| {
@@ -456,10 +472,12 @@ impl LoadDecoder {
     fn register_mapped_float_ranges(&self) -> Result<(), DumpError> {
         self.register_mapped_offset_runs(
             self.state
-                .mapped_floats
+                .spans
                 .iter()
-                .flatten()
-                .map(|span| span.offset),
+                .filter_map(|(_, record)| match record {
+                    LoadedObjectSpan::Float(span) => Some(span.offset),
+                    _ => None,
+                }),
             std::mem::size_of::<FloatObj>() as u64,
             "float",
             |mapped_heap, offset| mapped_heap.float_obj_mut(DumpFloatSpan { offset }),
@@ -472,10 +490,12 @@ impl LoadDecoder {
     fn register_mapped_cons_ranges(&self) -> Result<(), DumpError> {
         self.register_mapped_offset_runs(
             self.state
-                .mapped_cons
+                .spans
                 .iter()
-                .flatten()
-                .map(|span| span.offset),
+                .filter_map(|(_, record)| match record {
+                    LoadedObjectSpan::Cons(span) => Some(span.offset),
+                    _ => None,
+                }),
             std::mem::size_of::<ConsCell>() as u64,
             "cons",
             |mapped_heap, offset| mapped_heap.cons_cell_mut(DumpConsSpan { offset }),
@@ -641,13 +661,7 @@ impl LoadDecoder {
         id: TaggedHeapRef,
         fallback_len: usize,
     ) -> Result<usize, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_slots
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.slots(id.index as usize) else {
             return Ok(fallback_len);
         };
         usize::try_from(span.len).map_err(|_| {
@@ -660,13 +674,7 @@ impl LoadDecoder {
         id: TaggedHeapRef,
         expected_len: usize,
     ) -> Result<Option<*mut TaggedValue>, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_slots
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.slots(id.index as usize) else {
             return Ok(None);
         };
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
@@ -681,13 +689,7 @@ impl LoadDecoder {
         &self,
         id: TaggedHeapRef,
     ) -> Result<Option<*mut ConsCell>, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_cons
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.cons(id.index as usize) else {
             return Ok(None);
         };
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
@@ -702,13 +704,7 @@ impl LoadDecoder {
         &self,
         id: TaggedHeapRef,
     ) -> Result<Option<*mut FloatObj>, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_floats
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.float(id.index as usize) else {
             return Ok(None);
         };
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
@@ -723,13 +719,7 @@ impl LoadDecoder {
         &self,
         id: TaggedHeapRef,
     ) -> Result<Option<*mut StringObj>, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_strings
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.string(id.index as usize) else {
             return Ok(None);
         };
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
@@ -745,13 +735,7 @@ impl LoadDecoder {
         id: TaggedHeapRef,
         label: &'static str,
     ) -> Result<Option<*mut T>, DumpError> {
-        let Some(span) = self
-            .state
-            .mapped_veclikes
-            .get(id.index as usize)
-            .copied()
-            .flatten()
-        else {
+        let Some(span) = self.state.spans.vectorlike(id.index as usize) else {
             return Ok(None);
         };
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
@@ -811,31 +795,15 @@ impl LoadDecoder {
     fn mapped_raw_word_available(&self, value: &DumpValue) -> bool {
         match value {
             DumpValue::Nil | DumpValue::True | DumpValue::Int(_) | DumpValue::Unbound => true,
-            DumpValue::Cons(id) => self
-                .state
-                .mapped_cons
-                .get(id.index as usize)
-                .is_some_and(|span| span.is_some()),
-            DumpValue::Float(id) => self
-                .state
-                .mapped_floats
-                .get(id.index as usize)
-                .is_some_and(|span| span.is_some()),
-            DumpValue::Str(id) => self
-                .state
-                .mapped_strings
-                .get(id.index as usize)
-                .is_some_and(|span| span.is_some()),
+            DumpValue::Cons(id) => self.state.spans.cons(id.index as usize).is_some(),
+            DumpValue::Float(id) => self.state.spans.float(id.index as usize).is_some(),
+            DumpValue::Str(id) => self.state.spans.string(id.index as usize).is_some(),
             DumpValue::Vector(id)
             | DumpValue::Record(id)
             | DumpValue::Lambda(id)
             | DumpValue::Macro(id)
             | DumpValue::Marker(id)
-            | DumpValue::Overlay(id) => self
-                .state
-                .mapped_veclikes
-                .get(id.index as usize)
-                .is_some_and(|span| span.is_some()),
+            | DumpValue::Overlay(id) => self.state.spans.vectorlike(id.index as usize).is_some(),
             DumpValue::Symbol(_)
             | DumpValue::Subr(_)
             | DumpValue::HashTable(_)
@@ -863,17 +831,11 @@ impl LoadDecoder {
         // If a mapped cons span exists, the HeapImage bytes are the
         // source of truth (set by relocation).  The placeholder car/cdr
         // DumpValue is irrelevant for Category A objects.
-        self.state
-            .mapped_cons
-            .get(id.index as usize)
-            .is_some_and(|span| span.is_some())
+        self.state.spans.cons(id.index as usize).is_some()
     }
 
     fn mapped_slots_exist(&self, id: TaggedHeapRef) -> bool {
-        self.state
-            .mapped_slots
-            .get(id.index as usize)
-            .is_some_and(|span| span.is_some())
+        self.state.spans.slots(id.index as usize).is_some()
     }
 
     fn populate_from_mapped_heap_without_descriptor_clone(
@@ -883,12 +845,7 @@ impl LoadDecoder {
     ) -> Result<bool, DumpError> {
         match &self.state.objects[id.index as usize] {
             DumpHeapObject::Cons { .. } => {
-                if self
-                    .state
-                    .mapped_cons
-                    .get(id.index as usize)
-                    .is_some_and(|span| span.is_some())
-                {
+                if self.state.spans.cons(id.index as usize).is_some() {
                     return Ok(true);
                 }
             }

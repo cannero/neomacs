@@ -38,7 +38,7 @@ use std::sync::OnceLock;
 use self::convert::*;
 use self::mmap_image::{DumpSectionKind, ImageSection};
 use self::runtime::*;
-use self::types::{DumpContextState, DumpTaggedHeap};
+use self::types::{DumpContextState, DumpHeapObject, DumpTaggedHeap};
 use crate::emacs_core::charset::{
     CharsetRegistrySnapshot, restore_charset_registry, snapshot_charset_registry,
 };
@@ -452,14 +452,14 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let object_extra_payload = image
         .section(DumpSectionKind::ObjectExtra)
         .ok_or_else(|| DumpError::ImageFormatError("missing object-extra section".into()))?;
-    let tagged_heap = DumpTaggedHeap {
-        objects: object_extra::load_compact_heap_objects_from_object_extra(object_extra_payload)?,
-        mapped_cons: spans.mapped_cons,
-        mapped_floats: spans.mapped_floats,
-        mapped_strings: spans.mapped_strings,
-        mapped_veclikes: spans.mapped_veclikes,
-        mapped_slots: spans.mapped_slots,
-    };
+    let objects = object_extra::load_compact_heap_objects_from_object_extra(object_extra_payload)?;
+    if spans.len() != objects.len() {
+        return Err(DumpError::ImageFormatError(format!(
+            "object-starts count {} does not match object-extra count {}",
+            spans.len(),
+            objects.len()
+        )));
+    }
     let obarray_payload = image
         .section(DumpSectionKind::Obarray)
         .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
@@ -507,9 +507,10 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .map(mapped_heap::MappedHeapView::from_mut_slice);
     let value_fixups_section = image.section(DumpSectionKind::ValueRelocations);
 
-    let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap(
+    let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(
         &state,
-        tagged_heap,
+        objects,
+        spans,
         mapped_heap,
         value_fixups_section,
     )?;
@@ -618,6 +619,26 @@ fn reconstruct_evaluator_after_symbol_table_with_tagged_heap(
 ) -> Result<Context, DumpError> {
     let decoder = LoadDecoder::from_tagged_heap_with_mapped_heap_and_fixups(
         tagged_heap_state,
+        mapped_heap,
+        Vec::new(),
+    );
+    reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(
+        state,
+        decoder,
+        value_fixups_section,
+    )
+}
+
+fn reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(
+    state: &DumpContextState,
+    objects: Vec<DumpHeapObject>,
+    spans: object_starts::LoadedSpans,
+    mapped_heap: Option<mapped_heap::MappedHeapView>,
+    value_fixups_section: Option<&[u8]>,
+) -> Result<Context, DumpError> {
+    let decoder = LoadDecoder::from_objects_and_spans_with_mapped_heap_and_fixups(
+        objects,
+        spans,
         mapped_heap,
         Vec::new(),
     );
