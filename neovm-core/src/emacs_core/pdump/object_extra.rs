@@ -1,7 +1,7 @@
 //! Compact ObjectExtra section: per-object extra data for Category B/C objects.
 //!
 //! Category A objects (cons, float, vector, lambda, macro, record) are fully
-//! in HeapImage after relocation and need no extra data.
+//! in HeapImage/ObjectStarts after relocation and need no extra data.
 //!
 //! Category B objects (string, overlay, marker) have mapped HeapImage spans
 //! but need a small descriptor for fields that can't be raw bytes.
@@ -20,7 +20,7 @@ use super::object_value_codec;
 use super::{DumpError, types::*};
 
 const OBJECT_EXTRA_MAGIC: [u8; 16] = *b"NEOOBJEXTRA\0\0\0\0\0";
-const OBJECT_EXTRA_FORMAT_VERSION: u32 = 1;
+const OBJECT_EXTRA_FORMAT_VERSION: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -61,14 +61,14 @@ pub(crate) enum ObjectExtra {
     Cons,
     /// Category A: float (data in HeapImage).
     Float,
-    /// Category A: vector with slot count (data in HeapImage).
-    Vector(usize),
-    /// Category A: lambda with slot count (data in HeapImage).
-    Lambda(usize),
-    /// Category A: macro with slot count (data in HeapImage).
-    Macro(usize),
-    /// Category A: record with slot count (data in HeapImage).
-    Record(usize),
+    /// Category A: vector (object and slot count are in HeapImage/ObjectStarts).
+    Vector,
+    /// Category A: lambda (object and slot count are in HeapImage/ObjectStarts).
+    Lambda,
+    /// Category A: macro (object and slot count are in HeapImage/ObjectStarts).
+    Macro,
+    /// Category A: record (object and slot count are in HeapImage/ObjectStarts).
+    Record,
     /// Category B: string needs size, size_byte, byte data span, and text_props.
     String {
         size: usize,
@@ -127,28 +127,25 @@ pub(crate) fn build_object_extra(objects: &[DumpHeapObject]) -> Result<Vec<u8>, 
 
 fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), DumpError> {
     match obj {
-        // Category A: just the type tag + slot count for vectorlikes.
+        // Category A: just the type tag. GNU pdumper keeps vector length in
+        // the mapped object/slot layout, not in side metadata.
         DumpHeapObject::Cons { .. } => {
             object_value_codec::write_u8(out, EXTRA_CONS);
         }
         DumpHeapObject::Float(_) => {
             object_value_codec::write_u8(out, EXTRA_FLOAT);
         }
-        DumpHeapObject::Vector(slots) => {
+        DumpHeapObject::Vector(_) => {
             object_value_codec::write_u8(out, EXTRA_VECTOR);
-            object_value_codec::write_u64(out, slots.len() as u64);
         }
-        DumpHeapObject::Lambda(slots) => {
+        DumpHeapObject::Lambda(_) => {
             object_value_codec::write_u8(out, EXTRA_LAMBDA);
-            object_value_codec::write_u64(out, slots.len() as u64);
         }
-        DumpHeapObject::Macro(slots) => {
+        DumpHeapObject::Macro(_) => {
             object_value_codec::write_u8(out, EXTRA_MACRO);
-            object_value_codec::write_u64(out, slots.len() as u64);
         }
-        DumpHeapObject::Record(slots) => {
+        DumpHeapObject::Record(_) => {
             object_value_codec::write_u8(out, EXTRA_RECORD);
-            object_value_codec::write_u64(out, slots.len() as u64);
         }
         // Category B: partial extra data.
         DumpHeapObject::Str {
@@ -340,10 +337,10 @@ fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
             cdr: DumpValue::Nil,
         },
         ObjectExtra::Float => DumpHeapObject::Float(0.0),
-        ObjectExtra::Vector(count) => DumpHeapObject::Vector(vec![DumpValue::Nil; count]),
-        ObjectExtra::Lambda(count) => DumpHeapObject::Lambda(vec![DumpValue::Nil; count]),
-        ObjectExtra::Macro(count) => DumpHeapObject::Macro(vec![DumpValue::Nil; count]),
-        ObjectExtra::Record(count) => DumpHeapObject::Record(vec![DumpValue::Nil; count]),
+        ObjectExtra::Vector => DumpHeapObject::Vector(Vec::new()),
+        ObjectExtra::Lambda => DumpHeapObject::Lambda(Vec::new()),
+        ObjectExtra::Macro => DumpHeapObject::Macro(Vec::new()),
+        ObjectExtra::Record => DumpHeapObject::Record(Vec::new()),
         ObjectExtra::String {
             size,
             size_byte,
@@ -378,10 +375,10 @@ fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
 
 fn object_extra_into_compact_heap_object(extra: ObjectExtra) -> DumpHeapObject {
     match extra {
-        ObjectExtra::Vector(_) => DumpHeapObject::Vector(Vec::new()),
-        ObjectExtra::Lambda(_) => DumpHeapObject::Lambda(Vec::new()),
-        ObjectExtra::Macro(_) => DumpHeapObject::Macro(Vec::new()),
-        ObjectExtra::Record(_) => DumpHeapObject::Record(Vec::new()),
+        ObjectExtra::Vector => DumpHeapObject::Vector(Vec::new()),
+        ObjectExtra::Lambda => DumpHeapObject::Lambda(Vec::new()),
+        ObjectExtra::Macro => DumpHeapObject::Macro(Vec::new()),
+        ObjectExtra::Record => DumpHeapObject::Record(Vec::new()),
         other => object_extra_into_heap_object(other),
     }
 }
@@ -391,22 +388,10 @@ fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectEx
     match tag {
         EXTRA_CONS => Ok(ObjectExtra::Cons),
         EXTRA_FLOAT => Ok(ObjectExtra::Float),
-        EXTRA_VECTOR => {
-            let count = cursor.read_u64("vector slot count")? as usize;
-            Ok(ObjectExtra::Vector(count))
-        }
-        EXTRA_LAMBDA => {
-            let count = cursor.read_u64("lambda slot count")? as usize;
-            Ok(ObjectExtra::Lambda(count))
-        }
-        EXTRA_MACRO => {
-            let count = cursor.read_u64("macro slot count")? as usize;
-            Ok(ObjectExtra::Macro(count))
-        }
-        EXTRA_RECORD => {
-            let count = cursor.read_u64("record slot count")? as usize;
-            Ok(ObjectExtra::Record(count))
-        }
+        EXTRA_VECTOR => Ok(ObjectExtra::Vector),
+        EXTRA_LAMBDA => Ok(ObjectExtra::Lambda),
+        EXTRA_MACRO => Ok(ObjectExtra::Macro),
+        EXTRA_RECORD => Ok(ObjectExtra::Record),
         EXTRA_STRING => {
             let size = cursor.read_u64("string size")? as usize;
             let size_byte = cursor.read_u64("string size_byte")? as i64;
@@ -575,7 +560,7 @@ mod tests {
 
         let extras = load_object_extra(&bytes).expect("load object extra");
         assert!(matches!(extras[0], ObjectExtra::Cons));
-        assert!(matches!(extras[1], ObjectExtra::Vector(2)));
+        assert!(matches!(extras[1], ObjectExtra::Vector));
         assert!(matches!(extras[2], ObjectExtra::Free));
     }
 
@@ -595,7 +580,7 @@ mod tests {
             load_heap_objects_from_object_extra(&bytes).expect("load heap objects from extra");
 
         assert!(matches!(objects[0], DumpHeapObject::Cons { .. }));
-        assert!(matches!(objects[1], DumpHeapObject::Vector(ref slots) if slots.len() == 2));
+        assert!(matches!(objects[1], DumpHeapObject::Vector(ref slots) if slots.is_empty()));
         assert!(matches!(objects[2], DumpHeapObject::Free));
     }
 

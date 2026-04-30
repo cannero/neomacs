@@ -131,7 +131,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   values such as subrs and non-mapped heap objects.
 // v50: ObjectStarts span offsets and lengths use checked 32-bit dump offsets,
 //   matching GNU pdumper's dump_off instead of serializing every field as u64.
-const FORMAT_VERSION: u32 = 50;
+// v51: ObjectExtra no longer duplicates mapped vectorlike slot counts; mapped
+//   ObjectStarts slot spans are the source of truth, like GNU's mapped objects.
+const FORMAT_VERSION: u32 = 51;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 
