@@ -988,7 +988,6 @@ impl<'a> LoadDecoder<'a> {
                             StringObj {
                                 header: GcHeader::new(HeapObjectKind::String),
                                 data: string,
-                                text_props: TextPropertyTable::new(),
                             },
                         );
                         Value::from_string_ptr(ptr)

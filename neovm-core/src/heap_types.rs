@@ -4,7 +4,7 @@
 //! dump/load code share the same payload structs without reviving old heap
 //! module boundaries.
 
-use crate::buffer::BufferId;
+use crate::buffer::{BufferId, TextPropertyTable};
 use crate::emacs_core::emacs_char;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -24,6 +24,9 @@ pub struct LispString {
     size: usize,
     /// Byte count for multibyte strings, or -1 for unibyte.
     size_byte: i64,
+    /// GNU Lisp_String-compatible interval ownership: string text properties
+    /// belong to the string object, not to a side table.
+    intervals: TextPropertyTable,
 }
 
 enum LispStringStorage {
@@ -105,6 +108,7 @@ impl LispString {
             data: LispStringStorage::Owned(data),
             size,
             size_byte,
+            intervals: TextPropertyTable::new(),
         }
     }
 
@@ -116,6 +120,7 @@ impl LispString {
             data: LispStringStorage::Owned(data),
             size,
             size_byte,
+            intervals: TextPropertyTable::new(),
         }
     }
 
@@ -135,6 +140,7 @@ impl LispString {
             data: LispStringStorage::Mapped { ptr, len },
             size,
             size_byte,
+            intervals: TextPropertyTable::new(),
         }
     }
 
@@ -145,6 +151,7 @@ impl LispString {
             data: LispStringStorage::Owned(data),
             size,
             size_byte: -1,
+            intervals: TextPropertyTable::new(),
         }
     }
 
@@ -158,6 +165,7 @@ impl LispString {
             data: LispStringStorage::Owned(data),
             size,
             size_byte,
+            intervals: TextPropertyTable::new(),
         }
     }
 
@@ -193,6 +201,17 @@ impl LispString {
     /// Whether this is a multibyte string (`size_byte >= 0`).
     pub fn is_multibyte(&self) -> bool {
         self.size_byte >= 0
+    }
+
+    /// Text-property interval tree attached to this string, like GNU's
+    /// `Lisp_String.u.s.intervals`.
+    pub fn intervals(&self) -> &TextPropertyTable {
+        &self.intervals
+    }
+
+    /// Mutable text-property interval tree attached to this string.
+    pub fn intervals_mut(&mut self) -> &mut TextPropertyTable {
+        &mut self.intervals
     }
 
     /// Backward-compat accessor matching the old `pub multibyte` field.
@@ -319,6 +338,7 @@ impl Clone for LispString {
             data: LispStringStorage::Owned(self.as_bytes().to_vec()),
             size: self.size,
             size_byte: self.size_byte,
+            intervals: self.intervals.clone(),
         }
     }
 }

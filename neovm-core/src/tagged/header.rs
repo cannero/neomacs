@@ -12,7 +12,6 @@
 //! macros, bytecode, buffers, markers, overlays, records, etc.
 
 use super::value::TaggedValue;
-use crate::buffer::text_props::TextPropertyTable;
 
 // ---------------------------------------------------------------------------
 // ConsCell — no header, minimal size
@@ -109,8 +108,6 @@ impl GcHeader {
 pub struct StringObj {
     pub header: GcHeader,
     pub data: crate::heap_types::LispString,
-    /// GNU-compatible ownership: string text properties live on the string.
-    pub text_props: TextPropertyTable,
 }
 
 /// Heap-allocated float object.

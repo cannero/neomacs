@@ -21,7 +21,6 @@
 
 use super::header::*;
 use super::value::TaggedValue;
-use crate::buffer::text_props::TextPropertyTable;
 use crate::emacs_core::intern::SymId;
 use crate::gc_trace::GcTrace;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -1042,7 +1041,6 @@ impl TaggedHeap {
         let obj = Box::new(StringObj {
             header: GcHeader::new(HeapObjectKind::String),
             data: s,
-            text_props: TextPropertyTable::new(),
         });
         let ptr = Box::into_raw(obj);
         self.link_object(unsafe { &mut (*ptr).header });
@@ -1518,8 +1516,9 @@ impl TaggedHeap {
             if !self.owns_non_cons_object(ptr as *const u8) {
                 if self.mark_mapped_string(ptr) {
                     unsafe {
-                        if !(*ptr).text_props.is_empty() {
-                            (*ptr).text_props.for_each_root(|root| {
+                        let intervals = (*ptr).data.intervals();
+                        if !intervals.is_empty() {
+                            intervals.for_each_root(|root| {
                                 if root.is_heap_object() {
                                     self.gray_queue.push(root);
                                 }
@@ -1534,8 +1533,9 @@ impl TaggedHeap {
                     return;
                 }
                 (*ptr).header.marked = true;
-                if !(*ptr).text_props.is_empty() {
-                    (*ptr).text_props.for_each_root(|root| {
+                let intervals = (*ptr).data.intervals();
+                if !intervals.is_empty() {
+                    intervals.for_each_root(|root| {
                         if root.is_heap_object() {
                             self.gray_queue.push(root);
                         }

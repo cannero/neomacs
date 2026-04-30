@@ -270,7 +270,7 @@ fn as_neovm_int(value: u64) -> i64 {
 
 fn string_text_props(value: Value) -> Option<&'static TextPropertyTable> {
     let ptr = value.as_string_ptr()? as *const StringObj;
-    Some(unsafe { &(*ptr).text_props })
+    Some(unsafe { (*ptr).data.intervals() })
 }
 
 /// String text properties now live on the string object itself.

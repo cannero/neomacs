@@ -177,7 +177,7 @@ pub fn with_string_text_props_mut<R>(
 ) -> Option<R> {
     let ptr = value.as_string_ptr()? as *mut StringObj;
     note_heap_write(value, HeapWriteKind::StringTextProps);
-    Some(f(unsafe { &mut (*ptr).text_props }))
+    Some(f(unsafe { (*ptr).data.intervals_mut() }))
 }
 
 #[inline]
