@@ -474,7 +474,7 @@ impl<'a> LoadDecoder<'a> {
         let mut cons_run = MappedOffsetRun::new(std::mem::size_of::<ConsCell>() as u64, "cons");
         let mut float_run = MappedOffsetRun::new(std::mem::size_of::<FloatObj>() as u64, "float");
 
-        for (index, record) in self.state.spans.iter() {
+        for (_index, record) in self.state.spans.iter() {
             match record {
                 LoadedObjectSpan::Cons(span) => {
                     cons_run.push(span.offset, |run_start, run_len| {
@@ -507,12 +507,6 @@ impl<'a> LoadDecoder<'a> {
                     })?;
                 }
                 LoadedObjectSpan::String(span) => {
-                    if !matches!(&self.state.objects[index], DumpHeapObject::Str { .. }) {
-                        return Err(DumpError::ImageFormatError(format!(
-                            "mapped string span attached to non-string object: {:?}",
-                            self.state.objects[index]
-                        )));
-                    }
                     let mapped_heap = mapped_heap.ok_or_else(|| {
                         DumpError::ImageFormatError(
                             "dump reserves mapped string objects but image has no heap section"
@@ -531,49 +525,12 @@ impl<'a> LoadDecoder<'a> {
                                 .into(),
                         )
                     })?;
-                    let (ptr, byte_len) = match &self.state.objects[index] {
-                        DumpHeapObject::Vector(_) => (
-                            mapped_heap
-                                .typed_object_mut::<VectorObj>(span, "vector")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<VectorObj>(),
-                        ),
-                        DumpHeapObject::Lambda(_) => (
-                            mapped_heap
-                                .typed_object_mut::<LambdaObj>(span, "lambda")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<LambdaObj>(),
-                        ),
-                        DumpHeapObject::Macro(_) => (
-                            mapped_heap
-                                .typed_object_mut::<MacroObj>(span, "macro")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<MacroObj>(),
-                        ),
-                        DumpHeapObject::Record(_) => (
-                            mapped_heap
-                                .typed_object_mut::<RecordObj>(span, "record")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<RecordObj>(),
-                        ),
-                        DumpHeapObject::Marker(_) => (
-                            mapped_heap
-                                .typed_object_mut::<MarkerObj>(span, "marker")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<MarkerObj>(),
-                        ),
-                        DumpHeapObject::Overlay(_) => (
-                            mapped_heap
-                                .typed_object_mut::<OverlayObj>(span, "overlay")?
-                                .cast::<VecLikeHeader>(),
-                            std::mem::size_of::<OverlayObj>(),
-                        ),
-                        other => {
-                            return Err(DumpError::ImageFormatError(format!(
-                                "mapped vectorlike span attached to non-vectorlike object: {other:?}"
-                            )));
-                        }
-                    };
+                    let ptr = mapped_heap.veclike_header_mut(span)?;
+                    let byte_len = usize::try_from(span.len).map_err(|_| {
+                        DumpError::ImageFormatError(
+                            "mapped vectorlike span length overflows usize".into(),
+                        )
+                    })?;
                     with_tagged_heap(|heap| unsafe {
                         heap.register_mapped_veclike_object(ptr, byte_len)
                     });

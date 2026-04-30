@@ -15,7 +15,7 @@ use super::types::{
 use super::value_fixups::RawValueFixup;
 use crate::tagged::header::{
     ConsCell, FloatObj, GcHeader, HeapObjectKind, LambdaObj, MacroObj, MarkerObj, OverlayObj,
-    RecordObj, StringObj, VectorObj,
+    RecordObj, StringObj, VecLikeHeader, VectorObj,
 };
 use crate::tagged::value::TaggedValue;
 use bytemuck::{Pod, Zeroable};
@@ -255,6 +255,45 @@ impl MappedHeapView {
             )));
         }
         Ok(unsafe { self.ptr.add(start).cast::<T>() })
+    }
+
+    pub(crate) fn veclike_header_mut(
+        self,
+        span: DumpVecLikeSpan,
+    ) -> Result<*mut VecLikeHeader, DumpError> {
+        if !self.writable {
+            return Err(DumpError::ImageFormatError(
+                "mapped heap view is not writable".to_string(),
+            ));
+        }
+        let start = usize::try_from(span.offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped vectorlike span offset overflows usize".into())
+        })?;
+        let len = usize::try_from(span.len).map_err(|_| {
+            DumpError::ImageFormatError("mapped vectorlike span length overflows usize".into())
+        })?;
+        if len < std::mem::size_of::<VecLikeHeader>() {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped vectorlike span length {len} is smaller than header size {}",
+                std::mem::size_of::<VecLikeHeader>()
+            )));
+        }
+        let end = start.checked_add(len).ok_or_else(|| {
+            DumpError::ImageFormatError("mapped vectorlike span range overflow".into())
+        })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped vectorlike span {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<VecLikeHeader>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped vectorlike span offset {start} is not {}-byte aligned",
+                std::mem::align_of::<VecLikeHeader>()
+            )));
+        }
+        Ok(unsafe { self.ptr.add(start).cast::<VecLikeHeader>() })
     }
 
     pub(crate) fn string_obj_mut(self, span: DumpStringSpan) -> Result<*mut StringObj, DumpError> {
@@ -961,6 +1000,8 @@ mod tests {
         assert!(span.offset as usize >= std::mem::size_of::<VectorObj>());
         assert_eq!(span.len, 2);
         let view = MappedHeapView::from_mut_slice(&mut heap.bytes);
+        let header = view.veclike_header_mut(object_span).unwrap();
+        assert_eq!(header.cast::<u8>(), heap.bytes.as_mut_ptr());
         let ptr = view
             .typed_object_mut::<VectorObj>(object_span, "vector")
             .unwrap();
