@@ -39,6 +39,7 @@
 //!   defined in `subr.el`.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::buffer::{Buffer, BufferId};
 use crate::emacs_core::casefiddle::apply_replace_match_case;
@@ -102,7 +103,7 @@ fn buffer_match_data_from_registers(regs: &MatchRegisters, base_emacs_byte: usiz
 #[derive(Clone)]
 enum CompiledSearchPattern {
     /// GNU-translated engine (primary path for all patterns).
-    Emacs(CompiledPattern),
+    Emacs(Rc<CompiledPattern>),
     /// Simple literal search (no regex engine needed).
     Literal(String),
 }
@@ -149,7 +150,7 @@ thread_local! {
     static SEARCH_PATTERN_CACHE: RefCell<Vec<(bool, bool, String, CompiledSearchPattern)>> =
         const { RefCell::new(Vec::new()) };
 
-    static LISP_REGEX_PATTERN_CACHE: RefCell<Vec<(bool, bool, bool, Vec<u8>, CompiledPattern)>> =
+    static LISP_REGEX_PATTERN_CACHE: RefCell<Vec<(bool, bool, bool, bool, Vec<u8>, Rc<CompiledPattern>)>> =
         const { RefCell::new(Vec::new()) };
 }
 
@@ -802,6 +803,7 @@ fn compile_search_pattern_with_posix(
                 Ok(CompiledSearchPattern::Literal(literal))
             } else {
                 regex_emacs::regex_compile(pattern, posix, case_fold)
+                    .map(Rc::new)
                     .map(CompiledSearchPattern::Emacs)
                     .map_err(|e| format!("Invalid regexp: {}", e.message))
             }
@@ -824,28 +826,34 @@ fn compile_lisp_pattern_with_posix(
     case_fold: bool,
     posix: bool,
     target_multibyte: bool,
-) -> Result<CompiledPattern, String> {
+) -> Result<Rc<CompiledPattern>, String> {
     if let Some(cached) = crate::emacs_core::perf_trace::time_op(
         crate::emacs_core::perf_trace::HotpathOp::RegexCompileHit,
         || {
             LISP_REGEX_PATTERN_CACHE.with(|cache| {
                 let mut cache = cache.borrow_mut();
                 let index = cache.iter().position(
-                    |(cached_posix, cached_case_fold, cached_multibyte, cached_pattern, _)| {
+                    |(
+                        cached_posix,
+                        cached_case_fold,
+                        cached_pattern_multibyte,
+                        cached_target_multibyte,
+                        cached_pattern,
+                        _,
+                    )| {
                         *cached_posix == posix
                             && *cached_case_fold == case_fold
-                            && *cached_multibyte == pattern.is_multibyte()
+                            && *cached_pattern_multibyte == pattern.is_multibyte()
+                            && *cached_target_multibyte == target_multibyte
                             && cached_pattern.as_slice() == pattern.as_bytes()
                     },
                 )?;
                 let entry = cache.remove(index);
                 cache.insert(0, entry.clone());
-                Some(entry.4)
+                Some(entry.5)
             })
         },
     ) {
-        let mut cached = cached;
-        cached.target_multibyte = target_multibyte;
         return Ok(cached);
     }
 
@@ -857,6 +865,7 @@ fn compile_lisp_pattern_with_posix(
         },
     )?;
     compiled.target_multibyte = target_multibyte;
+    let compiled = Rc::new(compiled);
 
     LISP_REGEX_PATTERN_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
@@ -866,6 +875,7 @@ fn compile_lisp_pattern_with_posix(
                 posix,
                 case_fold,
                 pattern.is_multibyte(),
+                target_multibyte,
                 pattern.as_bytes().to_vec(),
                 compiled.clone(),
             ),
@@ -1506,13 +1516,19 @@ pub fn re_search_forward_with_posix(
         }
         CompiledSearchPattern::Emacs(cp) => {
             let range = (limit_rel - start_rel) as isize;
-            regex_emacs::re_search(&cp, &text[..limit_rel], start_rel, range, &syn, start_rel).map(
-                |(_pos, regs)| {
-                    let mut md = buffer_match_data_from_registers(&regs, region_start);
-                    md.searched_buffer = Some(buffer_id);
-                    md
-                },
+            regex_emacs::re_search(
+                cp.as_ref(),
+                &text[..limit_rel],
+                start_rel,
+                range,
+                &syn,
+                start_rel,
             )
+            .map(|(_pos, regs)| {
+                let mut md = buffer_match_data_from_registers(&regs, region_start);
+                md.searched_buffer = Some(buffer_id);
+                md
+            })
         }
     });
 
@@ -1598,7 +1614,7 @@ pub fn re_search_backward_with_posix(
         CompiledSearchPattern::Emacs(cp) => {
             // Backward search: negative range means search backward
             let range = -((start_rel - limit_rel) as isize);
-            regex_emacs::re_search(&cp, &text, start_rel, range, &syn, start_rel).map(
+            regex_emacs::re_search(cp.as_ref(), &text, start_rel, range, &syn, start_rel).map(
                 |(_pos, regs)| {
                     let mut md = buffer_match_data_from_registers(&regs, region_start);
                     md.searched_buffer = Some(buffer_id);
@@ -1653,7 +1669,7 @@ pub(crate) fn re_search_forward_lisp_with_posix(
 
     if let Some((_pos, regs)) = with_buffer_emacs_bytes(buf, region_start, buf.zv_byte, |text| {
         regex_emacs::re_search(
-            &compiled,
+            compiled.as_ref(),
             &text[..limit_rel],
             start_rel,
             (limit_rel - start_rel) as isize,
@@ -1706,7 +1722,7 @@ pub(crate) fn re_search_backward_lisp_with_posix(
 
     if let Some((_pos, regs)) = with_buffer_emacs_bytes(buf, region_start, buf.zv_byte, |text| {
         regex_emacs::re_search(
-            &compiled,
+            compiled.as_ref(),
             text,
             start_rel,
             -((start_rel - limit_rel) as isize),
@@ -1785,7 +1801,7 @@ pub fn looking_at_with_posix(
         }
         CompiledSearchPattern::Emacs(cp) => {
             if let Some((_end, regs)) =
-                regex_emacs::re_match(&cp, &text, start_rel, text.len(), &syn, start_rel)
+                regex_emacs::re_match(cp.as_ref(), &text, start_rel, text.len(), &syn, start_rel)
             {
                 let mut md = buffer_match_data_from_registers(&regs, region_start);
                 md.searched_buffer = Some(buffer_id);
@@ -1830,7 +1846,14 @@ pub(crate) fn looking_at_lisp_with_posix(
     };
 
     if let Some((_end, regs)) = with_buffer_emacs_bytes(buf, region_start, buf.zv_byte, |text| {
-        regex_emacs::re_match(&compiled, text, start_rel, text.len(), &syn, start_rel)
+        regex_emacs::re_match(
+            compiled.as_ref(),
+            text,
+            start_rel,
+            text.len(),
+            &syn,
+            start_rel,
+        )
     }) {
         let mut md = buffer_match_data_from_registers(&regs, region_start);
         md.searched_buffer = Some(buffer_id);
@@ -1869,7 +1892,7 @@ pub fn looking_at_string(
             let syn = DefaultSyntaxLookup;
             let text_bytes = string.as_bytes();
             if let Some((_end, regs)) =
-                regex_emacs::re_match(&cp, text_bytes, 0, text_bytes.len(), &syn, 0)
+                regex_emacs::re_match(cp.as_ref(), text_bytes, 0, text_bytes.len(), &syn, 0)
             {
                 let byte_md = match_data_from_registers(&regs, 0);
                 *match_data = Some(string_char_match_data(
@@ -1985,7 +2008,7 @@ pub(crate) fn string_match_full_with_case_fold_source_lisp_pattern_posix(
     let text_bytes = string.as_bytes();
     let range = (text_bytes.len() - start) as isize;
     if let Some((_pos, regs)) =
-        regex_emacs::re_search(&compiled, text_bytes, start, range, &syn, start)
+        regex_emacs::re_search(compiled.as_ref(), text_bytes, start, range, &syn, start)
     {
         let byte_md = match_data_from_registers(&regs, 0);
         let char_md = string_char_match_data(searched_string, byte_md);
@@ -2068,7 +2091,7 @@ fn string_match_full_with_case_fold_source_compiled(
             let text_bytes = string.as_bytes();
             let range = (text_bytes.len() - start) as isize;
             if let Some((_pos, regs)) =
-                regex_emacs::re_search(&cp, text_bytes, start, range, &syn, start)
+                regex_emacs::re_search(cp.as_ref(), text_bytes, start, range, &syn, start)
             {
                 let byte_md = match_data_from_registers(&regs, 0);
                 let char_md = string_char_match_data(searched_string, byte_md);
