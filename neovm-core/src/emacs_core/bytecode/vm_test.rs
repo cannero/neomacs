@@ -904,6 +904,27 @@ fn vm_sort_uses_shared_runtime_callbacks_and_semantics() {
 }
 
 #[test]
+fn vm_sort_lisp_predicate_uses_gnu_one_way_lessp() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        vm_eval_str(
+            "(let ((n 0)
+                   (i 0)
+                   xs)
+               (while (<= i 127)
+                 (setq xs (cons (list i (% i 8) (% i 3)) xs))
+                 (setq i (1+ i)))
+               (sort xs (lambda (a b)
+                          (setq n (1+ n))
+                          (and (= (nth 1 a) (nth 1 b))
+                               (< (nth 2 a) (nth 2 b)))))
+               n)"
+        ),
+        "OK 127"
+    );
+}
+
+#[test]
 fn vm_primitive_bytecode_ops_ignore_later_function_cell_overrides() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

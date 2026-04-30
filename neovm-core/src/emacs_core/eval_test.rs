@@ -4983,6 +4983,27 @@ fn sort_legacy_form_remains_in_place() {
 }
 
 #[test]
+fn sort_lisp_predicate_uses_gnu_one_way_lessp() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(let ((n 0)
+                   (i 0)
+                   xs)
+               (while (<= i 127)
+                 (setq xs (cons (list i (% i 8) (% i 3)) xs))
+                 (setq i (1+ i)))
+               (sort xs (lambda (a b)
+                          (setq n (1+ n))
+                          (and (= (nth 1 a) (nth 1 b))
+                               (< (nth 2 a) (nth 2 b)))))
+               n)"
+        ),
+        "OK 127"
+    );
+}
+
+#[test]
 fn format_function() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

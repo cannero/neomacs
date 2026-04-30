@@ -477,11 +477,7 @@ pub fn char_string(mut c: u32, buf: &mut [u8]) -> usize {
         let resolved = char_resolve_modifier_mask(c as i64);
         c = (resolved as u32) & !CHAR_MODIFIER_MASK;
     }
-    debug_assert!(
-        c <= MAX_CHAR,
-        "char_string: invalid character 0x{:X}",
-        c
-    );
+    debug_assert!(c <= MAX_CHAR, "char_string: invalid character 0x{:X}", c);
     if c < 0x80 {
         // ASCII
         buf[0] = c as u8;

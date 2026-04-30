@@ -428,7 +428,9 @@ fn multibyte_length_ascii_is_one() {
 fn multibyte_length_round_trip_unicode() {
     // Encode every code point boundary, then validate length matches.
     let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
-    for c in [0x80u32, 0x7FF, 0x800, 0xFFFF, 0x1_0000, 0x1F_FFFF, 0x20_0000, 0x3F_FF7F] {
+    for c in [
+        0x80u32, 0x7FF, 0x800, 0xFFFF, 0x1_0000, 0x1F_FFFF, 0x20_0000, 0x3F_FF7F,
+    ] {
         let n = char_string(c, &mut buf);
         assert_eq!(
             multibyte_length(&buf[..n], false),
@@ -649,7 +651,13 @@ fn string_count_byte8_unibyte() {
 fn string_count_byte8_multibyte() {
     let mut input = Vec::new();
     let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
-    for c in [b'A' as u32, 0x4E2D, byte8_to_char(0xFF), byte8_to_char(0x80), b'B' as u32] {
+    for c in [
+        b'A' as u32,
+        0x4E2D,
+        byte8_to_char(0xFF),
+        byte8_to_char(0x80),
+        b'B' as u32,
+    ] {
         let n = char_string(c, &mut tmp);
         input.extend_from_slice(&tmp[..n]);
     }
