@@ -7,7 +7,7 @@
 //! mark bits.
 
 use super::DumpError;
-use super::mmap_image::{DumpSectionKind, ImageRelocation};
+use super::mmap_image::ImageRelocation;
 use super::types::{
     DumpByteData, DumpConsSpan, DumpContextState, DumpFloatSpan, DumpHeapObject, DumpSlotSpan,
     DumpStringSpan, DumpTaggedHeap, DumpValue, DumpVecLikeSpan,
@@ -785,13 +785,13 @@ impl MappedHeapBuilder {
             _ => {
                 let (target_offset, tag) = mapped_heap_ref_target(value, heap)?;
                 self.relocations.push(ImageRelocation {
-                    location_section: DumpSectionKind::HeapImage,
                     location_offset,
-                    target_section: DumpSectionKind::HeapImage,
-                    target_offset,
-                    addend: tag,
+                    addend: tag as u8,
                 });
-                Some(tag as usize)
+                Some(
+                    usize::try_from(target_offset)
+                        .expect("mapped heap relocation target offset should fit in a word"),
+                )
             }
         }
     }
@@ -1048,20 +1048,11 @@ mod tests {
         let string_span = tagged_heap.mapped_strings[0].expect("mapped string");
 
         assert_eq!(heap.relocations.len(), 1);
-        assert_eq!(
-            heap.relocations[0].location_section,
-            DumpSectionKind::HeapImage
-        );
         assert_eq!(heap.relocations[0].location_offset, cons_span.offset);
-        assert_eq!(
-            heap.relocations[0].target_section,
-            DumpSectionKind::HeapImage
-        );
-        assert_eq!(heap.relocations[0].target_offset, string_span.offset);
-        assert_eq!(heap.relocations[0].addend, TAG_STRING);
+        assert_eq!(heap.relocations[0].addend, TAG_STRING as u8);
         assert_eq!(
             read_usize(&heap.bytes, cons_span.offset as usize),
-            TAG_STRING as usize
+            string_span.offset as usize
         );
     }
 

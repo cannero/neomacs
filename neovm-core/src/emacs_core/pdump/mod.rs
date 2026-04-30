@@ -122,7 +122,10 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   object bytes, ObjectStarts records exact mapped object starts/types, and
 //   ValueRelocations patches mapped value words whose value cannot be a plain
 //   heap-image pointer relocation.
-const FORMAT_VERSION: u32 = 47;
+// v48: HeapImage pointer relocations match GNU pdumper's dump_reloc shape more
+//   closely: the dump word stores the target heap offset, while compact
+//   relocation metadata stores only the location offset and Lisp tag.
+const FORMAT_VERSION: u32 = 48;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 
