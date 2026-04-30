@@ -620,20 +620,27 @@ pub(crate) fn builtin_beginning_of_line(
     } else {
         expect_int(&args[0])?
     };
-    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let (text, begv, zv, pt) = {
-        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_bytes(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
+    // GNU `Fbeginning_of_line` (cmds.c:148) is literally
+    // `SET_PT (XFIXNUM (Fline_beginning_position (n)))`. Delegate to our
+    // line-beginning-position builtin so field constraints
+    // (`Fconstrain_to_field`) apply uniformly.
+    let constrained =
+        builtin_line_beginning_position(eval, vec![Value::fixnum(n)])?;
+    let target_char = match constrained.kind() {
+        ValueKind::Fixnum(v) => v,
+        _ => return Ok(Value::NIL),
     };
-    let old_byte = pt;
-    let mut pos = pt;
-    if n != 1 {
-        let delta = n - 1;
-        let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
-        pos = new_pos;
-    }
-    let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    let adjusted = adjust_for_intangible(eval, bol, -1);
+    let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
+    let target_byte = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let zero_based = (target_char - 1).max(0) as usize;
+        buf.text.char_to_emacs_byte(zero_based)
+    };
+    let old_byte = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        buf.pt_byte
+    };
+    let adjusted = adjust_for_intangible(eval, target_byte, -1);
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::NIL)
@@ -646,28 +653,25 @@ pub(crate) fn builtin_end_of_line(eval: &mut super::eval::Context, args: Vec<Val
     } else {
         expect_int(&args[0])?
     };
+    // GNU `Fend_of_line` (cmds.c:172) calls `Fline_end_position` (which
+    // applies field constraints) then SET_PTs to that, looping over
+    // intangible-then-newline corner cases. Mirror that pattern.
     let current_id = eval.buffers.current_buffer_id().ok_or_else(no_buffer)?;
-    let (text, begv, zv, pt) = {
+    let old_byte = {
         let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
-        (buffer_bytes(buf), buf.begv_byte, buf.zv_byte, buf.pt_byte)
+        buf.pt_byte
     };
-    let old_byte = pt;
-    let mut pos = pt;
-    let mut moved = 0;
-    if n != 1 {
-        let delta = n - 1;
-        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
-        pos = new_pos;
-        moved = actual_moved;
-    }
-    if n != 1 && moved != n - 1 && pos == begv {
-        let adjusted = adjust_for_intangible(eval, begv, -1);
-        let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
-        check_point_motion_hooks(eval, old_byte, adjusted)?;
-        return Ok(Value::NIL);
-    }
-    let eol = line_end_byte_narrowed(&text, pos, zv);
-    let adjusted = adjust_for_intangible(eval, eol, 1);
+    let constrained = builtin_line_end_position(eval, vec![Value::fixnum(n)])?;
+    let target_char = match constrained.kind() {
+        ValueKind::Fixnum(v) => v,
+        _ => return Ok(Value::NIL),
+    };
+    let target_byte = {
+        let buf = eval.buffers.get(current_id).ok_or_else(no_buffer)?;
+        let zero_based = (target_char - 1).max(0) as usize;
+        buf.text.char_to_emacs_byte(zero_based)
+    };
+    let adjusted = adjust_for_intangible(eval, target_byte, 1);
     let _ = eval.buffers.goto_buffer_byte(current_id, adjusted);
     check_point_motion_hooks(eval, old_byte, adjusted)?;
     Ok(Value::NIL)
