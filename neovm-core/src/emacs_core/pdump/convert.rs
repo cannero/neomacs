@@ -672,6 +672,47 @@ impl<'a> LoadDecoder<'a> {
         }
     }
 
+    fn install_mapped_string_sidecars(
+        &self,
+        ptr: *mut StringObj,
+        data: &DumpByteData,
+    ) -> Result<(), DumpError> {
+        match data {
+            DumpByteData::Mapped(_) => {
+                let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+                    DumpError::ImageFormatError(
+                        "dump references mapped heap bytes but image has no heap section".into(),
+                    )
+                })?;
+                let bytes = mapped_heap.bytes(data)?;
+                unsafe {
+                    (*ptr)
+                        .data
+                        .install_mapped_storage_sidecar(bytes.ptr, bytes.len)
+                        .map_err(DumpError::ImageFormatError)?;
+                }
+                Ok(())
+            }
+            DumpByteData::StaticRoData { key, len } => {
+                let len = usize::try_from(*len).map_err(|_| {
+                    DumpError::ImageFormatError(
+                        "static rodata string length overflows usize".into(),
+                    )
+                })?;
+                unsafe {
+                    (*ptr)
+                        .data
+                        .install_registered_rodata_sidecar(*key, len)
+                        .map_err(DumpError::ImageFormatError)?;
+                }
+                Ok(())
+            }
+            DumpByteData::Owned(_) => Err(DumpError::ImageFormatError(
+                "mapped string object still references owned byte data".into(),
+            )),
+        }
+    }
+
     fn mapped_slots_for_object(
         &self,
         id: TaggedHeapRef,
@@ -997,19 +1038,16 @@ impl<'a> LoadDecoder<'a> {
                 size_byte,
                 ..
             } => {
-                let string = self.load_dump_string(data, *size, *size_byte)?;
                 if let Some(ptr) = self.mapped_string_obj_for_object(id)? {
                     unsafe {
-                        std::ptr::write(
-                            ptr,
-                            StringObj {
-                                header: GcHeader::new(HeapObjectKind::String),
-                                data: string,
-                            },
-                        );
-                        Value::from_string_ptr(ptr)
+                        debug_assert!(matches!((*ptr).header.kind, HeapObjectKind::String));
+                        debug_assert_eq!((*ptr).data.schars(), *size);
+                        debug_assert_eq!((*ptr).data.size_byte(), *size_byte);
                     }
+                    self.install_mapped_string_sidecars(ptr, data)?;
+                    unsafe { Value::from_string_ptr(ptr) }
                 } else {
+                    let string = self.load_dump_string(data, *size, *size_byte)?;
                     Value::heap_string(string)
                 }
             }

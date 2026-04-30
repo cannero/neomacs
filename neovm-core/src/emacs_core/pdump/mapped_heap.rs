@@ -13,6 +13,7 @@ use super::types::{
     DumpStringSpan, DumpTaggedHeap, DumpValue, DumpVecLikeSpan,
 };
 use super::value_fixups::RawValueFixup;
+use crate::heap_types::LispString;
 use crate::tagged::header::{
     ConsCell, FloatObj, GcHeader, HeapObjectKind, LambdaObj, MacroObj, MarkerObj, OverlayObj,
     RecordObj, StringObj, VecLikeHeader, VecLikeType, VectorObj,
@@ -55,6 +56,17 @@ struct RawVecLikeHeader {
     header: RawGcHeader,
     type_tag: u8,
     padding: [u8; 7],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct RawStringObj {
+    header: RawGcHeader,
+    size: usize,
+    size_byte: i64,
+    intervals: usize,
+    data: usize,
+    storage: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -841,6 +853,16 @@ impl MappedHeapBuilder {
                         self.write_raw_veclike_header(span.offset as usize, type_tag);
                     }
                 }
+                DumpHeapObject::Str {
+                    data,
+                    size,
+                    size_byte,
+                    ..
+                } => {
+                    if let Some(span) = heap.mapped_strings.get(index).copied().flatten() {
+                        self.write_raw_string_obj(span.offset as usize, *size, *size_byte, data);
+                    }
+                }
                 _ => {}
             }
         }
@@ -871,6 +893,14 @@ impl MappedHeapBuilder {
             std::mem::align_of::<RawVecLikeHeader>(),
             std::mem::align_of::<VecLikeHeader>()
         );
+        debug_assert_eq!(
+            std::mem::size_of::<RawStringObj>(),
+            std::mem::size_of::<StringObj>()
+        );
+        debug_assert_eq!(
+            std::mem::align_of::<RawStringObj>(),
+            std::mem::align_of::<StringObj>()
+        );
     }
 
     fn write_raw_float_obj(&mut self, offset: usize, value: f64) {
@@ -896,6 +926,46 @@ impl MappedHeapBuilder {
             },
             type_tag: type_tag as u8,
             padding: [0; 7],
+        };
+        self.write_bytes(offset, bytemuck::bytes_of(&raw));
+    }
+
+    fn write_raw_string_obj(
+        &mut self,
+        offset: usize,
+        size: usize,
+        size_byte: i64,
+        data: &DumpByteData,
+    ) {
+        let data_word = match data {
+            DumpByteData::Mapped(span) => {
+                let data_field_offset = offset
+                    + std::mem::offset_of!(StringObj, data)
+                    + LispString::data_field_offset();
+                self.relocations.push(ImageRelocation {
+                    location_offset: data_field_offset as u64,
+                    addend: 0,
+                });
+                usize::try_from(span.offset)
+                    .expect("mapped string byte offset should fit in a word")
+            }
+            DumpByteData::StaticRoData { .. } => 0,
+            DumpByteData::Owned(_) => {
+                unreachable!("owned string bytes should be extracted before raw heap population")
+            }
+        };
+        let raw = RawStringObj {
+            header: RawGcHeader {
+                marked: 0,
+                kind: HeapObjectKind::String as u8,
+                padding: [0; 6],
+                next: 0,
+            },
+            size,
+            size_byte,
+            intervals: 0,
+            data: data_word,
+            storage: 0,
         };
         self.write_bytes(offset, bytemuck::bytes_of(&raw));
     }
@@ -1049,6 +1119,36 @@ mod tests {
         let mapped_bytes = unsafe { std::slice::from_raw_parts(mapped.ptr, mapped.len) };
         assert_eq!(mapped_bytes, b"abc");
         assert_eq!(unsafe { *mapped.ptr.add(mapped.len) }, 0);
+
+        let object_offset = string_span.offset as usize;
+        let data_field_offset = object_offset + std::mem::offset_of!(RawStringObj, data);
+        assert_eq!(heap.bytes[object_offset + 1], HeapObjectKind::String as u8);
+        assert_eq!(
+            read_usize(
+                &heap.bytes,
+                object_offset + std::mem::offset_of!(RawStringObj, size)
+            ),
+            3
+        );
+        assert_eq!(
+            read_i64(
+                &heap.bytes,
+                object_offset + std::mem::offset_of!(RawStringObj, size_byte)
+            ),
+            3
+        );
+        assert_eq!(
+            read_usize(&heap.bytes, data_field_offset),
+            mapped.ptr as usize - heap.bytes.as_ptr() as usize
+        );
+        assert!(
+            heap.relocations
+                .iter()
+                .any(
+                    |relocation| relocation.location_offset == data_field_offset as u64
+                        && relocation.addend == 0
+                )
+        );
     }
 
     #[test]
@@ -1222,9 +1322,12 @@ mod tests {
         let cons_span = tagged_heap.mapped_cons[1].expect("mapped cons");
         let string_span = tagged_heap.mapped_strings[0].expect("mapped string");
 
-        assert_eq!(heap.relocations.len(), 1);
-        assert_eq!(heap.relocations[0].location_offset, cons_span.offset);
-        assert_eq!(heap.relocations[0].addend, TAG_STRING as u8);
+        assert!(
+            heap.relocations
+                .iter()
+                .any(|relocation| relocation.location_offset == cons_span.offset
+                    && relocation.addend == TAG_STRING as u8)
+        );
         assert_eq!(
             read_usize(&heap.bytes, cons_span.offset as usize),
             string_span.offset as usize
@@ -1373,6 +1476,14 @@ mod tests {
     fn read_usize(bytes: &[u8], offset: usize) -> usize {
         usize::from_ne_bytes(
             bytes[offset..offset + std::mem::size_of::<usize>()]
+                .try_into()
+                .unwrap(),
+        )
+    }
+
+    fn read_i64(bytes: &[u8], offset: usize) -> i64 {
+        i64::from_ne_bytes(
+            bytes[offset..offset + std::mem::size_of::<i64>()]
                 .try_into()
                 .unwrap(),
         )

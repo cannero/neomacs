@@ -29,16 +29,17 @@ pub struct LispString {
     size: usize,
     /// Byte count for multibyte strings, or GNU's negative unibyte marker.
     size_byte: i64,
-    /// GNU Lisp_String-compatible interval ownership: string text properties
-    /// belong to the string object, not to a side table.
-    intervals: TextPropertyTable,
+    /// GNU Lisp_String-compatible interval pointer.  A null pointer in GNU
+    /// means no interval tree; `None` is also what a raw mapped string object
+    /// contains before load installs Neomacs sidecars.
+    intervals: Option<Box<TextPropertyTable>>,
     /// Direct string byte pointer, like GNU's `Lisp_String.u.s.data`.
     ///
     data: *const u8,
     /// Sidecar ownership metadata. GNU's logical Lisp_String fields above stay
     /// first in the layout; this pointer is Neomacs runtime bookkeeping for
     /// owned/mapped/static byte storage.
-    storage: Box<LispStringStorage>,
+    storage: Option<Box<LispStringStorage>>,
 }
 
 const SIZE_BYTE_UNIBYTE_NORMAL: i64 = -1;
@@ -250,14 +251,32 @@ impl LispString {
         Self {
             size,
             size_byte,
-            intervals: TextPropertyTable::new(),
+            intervals: Some(Box::new(TextPropertyTable::new())),
             data,
-            storage: Box::new(storage),
+            storage: Some(Box::new(storage)),
         }
     }
 
+    fn storage(&self) -> &LispStringStorage {
+        self.storage
+            .as_deref()
+            .expect("LispString storage sidecar must be installed")
+    }
+
+    fn storage_mut(&mut self) -> &mut LispStringStorage {
+        self.storage
+            .as_deref_mut()
+            .expect("LispString storage sidecar must be installed")
+    }
+
+    fn ensure_intervals(&mut self) -> &mut TextPropertyTable {
+        self.intervals
+            .get_or_insert_with(|| Box::new(TextPropertyTable::new()))
+            .as_mut()
+    }
+
     fn refresh_data_ptr(&mut self) {
-        self.data = self.storage.ptr();
+        self.data = self.storage().ptr();
     }
 
     /// Backward-compat shim: create from a Rust `String` + multibyte flag.
@@ -351,6 +370,74 @@ impl LispString {
         ))
     }
 
+    /// Install runtime ownership metadata for a raw string object loaded from
+    /// a mapped pdump image.  The GNU-visible fields (`size`, `size_byte`,
+    /// `data`) are expected to already have come from the mapped object image.
+    ///
+    /// # Safety
+    /// `ptr..ptr+len+1` must remain mapped and immutable for the lifetime of
+    /// this string, with `ptr[len] == 0`.
+    pub(crate) unsafe fn install_mapped_storage_sidecar(
+        &mut self,
+        ptr: *const u8,
+        len: usize,
+    ) -> Result<(), String> {
+        self.validate_storage_install(ptr, len)?;
+        self.storage = Some(Box::new(LispStringStorage::Mapped { ptr, len }));
+        self.ensure_intervals();
+        Ok(())
+    }
+
+    /// Install runtime ownership metadata for a raw rodata string object
+    /// loaded from a mapped pdump image.
+    pub(crate) fn install_registered_rodata_sidecar(
+        &mut self,
+        key: u64,
+        len: usize,
+    ) -> Result<(), String> {
+        if self.size_byte != SIZE_BYTE_UNIBYTE_RODATA {
+            return Err(format!(
+                "static rodata string has non-rodata size_byte {}",
+                self.size_byte
+            ));
+        }
+        let ptr = lookup_static_rodata(key, len).ok_or_else(|| {
+            format!("static rodata string key {key:#x} length {len} is not registered")
+        })?;
+        self.validate_storage_install(ptr, len)?;
+        self.data = ptr;
+        self.storage = Some(Box::new(LispStringStorage::Static { key, ptr, len }));
+        self.ensure_intervals();
+        Ok(())
+    }
+
+    fn validate_storage_install(&self, ptr: *const u8, len: usize) -> Result<(), String> {
+        if ptr.is_null() {
+            return Err("LispString storage pointer is null".into());
+        }
+        if len != self.sbytes() {
+            return Err(format!(
+                "LispString storage length {len} does not match SBYTES {}",
+                self.sbytes()
+            ));
+        }
+        if !self.data.is_null() && self.data != ptr {
+            return Err(format!(
+                "LispString data pointer {:p} does not match sidecar pointer {:p}",
+                self.data, ptr
+            ));
+        }
+        let trailing_nul = unsafe { *ptr.add(len) };
+        if trailing_nul != 0 {
+            return Err("GNU Lisp_String data is not NUL-terminated after SBYTES".into());
+        }
+        Ok(())
+    }
+
+    pub(crate) const fn data_field_offset() -> usize {
+        std::mem::offset_of!(LispString, data)
+    }
+
     /// Create a multibyte string from valid UTF-8.
     /// Standard Unicode == Emacs encoding, so just copy the bytes.
     pub fn from_utf8(s: &str) -> Self {
@@ -409,7 +496,7 @@ impl LispString {
     }
 
     pub(crate) fn rodata_key(&self) -> Option<u64> {
-        self.storage.static_rodata_key()
+        self.storage().static_rodata_key()
     }
 
     /// True for GNU's `size_byte == -2`: unibyte bytes in read-only storage.
@@ -429,8 +516,8 @@ impl LispString {
             !self.is_multibyte(),
             "GNU pin_string only accepts unibyte strings"
         );
-        self.storage.ensure_owned();
-        self.size = self.storage.as_slice().len();
+        self.storage_mut().ensure_owned();
+        self.size = self.storage().as_slice().len();
         self.size_byte = SIZE_BYTE_UNIBYTE_IMMOVABLE;
         self.refresh_data_ptr();
     }
@@ -438,12 +525,14 @@ impl LispString {
     /// Text-property interval tree attached to this string, like GNU's
     /// `Lisp_String.u.s.intervals`.
     pub fn intervals(&self) -> &TextPropertyTable {
-        &self.intervals
+        self.intervals
+            .as_deref()
+            .expect("LispString intervals sidecar must be installed")
     }
 
     /// Mutable text-property interval tree attached to this string.
     pub fn intervals_mut(&mut self) -> &mut TextPropertyTable {
-        &mut self.intervals
+        self.ensure_intervals()
     }
 
     /// Backward-compat accessor matching the old `pub multibyte` field.
@@ -470,7 +559,7 @@ impl LispString {
         if self.is_rodata() {
             self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
         }
-        let data = self.storage.ensure_owned();
+        let data = self.storage_mut().ensure_owned();
         debug_assert_eq!(
             data.last().copied(),
             Some(0),
@@ -487,14 +576,14 @@ impl LispString {
     fn recompute_size(&mut self) {
         if self.size_byte >= 0 {
             // multibyte
-            let data = self.storage.as_slice();
+            let data = self.storage().as_slice();
             let size = emacs_char::chars_in_multibyte(data);
             let size_byte = data.len() as i64;
             self.size = size;
             self.size_byte = size_byte;
         } else {
             // unibyte
-            self.size = self.storage.as_slice().len();
+            self.size = self.storage().as_slice().len();
         }
         self.refresh_data_ptr();
     }
@@ -527,7 +616,7 @@ impl LispString {
     /// Replace the entire contents with a UTF-8 string, preserving the
     /// multibyte/unibyte flag.
     pub fn set_from_str(&mut self, s: &str) {
-        *self.storage = LispStringStorage::owned_from_payload(s.as_bytes().to_vec());
+        *self.storage_mut() = LispStringStorage::owned_from_payload(s.as_bytes().to_vec());
         if self.is_rodata() {
             self.size_byte = SIZE_BYTE_UNIBYTE_NORMAL;
         }
@@ -535,7 +624,7 @@ impl LispString {
     }
 
     pub(crate) fn has_trailing_nul(&self) -> bool {
-        self.storage.has_trailing_nul()
+        self.storage().has_trailing_nul()
     }
 }
 
@@ -544,11 +633,11 @@ impl Clone for LispString {
         let mut cloned = Self {
             size: self.size,
             size_byte: self.size_byte,
-            intervals: self.intervals.clone(),
+            intervals: Some(Box::new(self.intervals().clone())),
             data: std::ptr::null(),
-            storage: Box::new(LispStringStorage::owned_from_payload(
+            storage: Some(Box::new(LispStringStorage::owned_from_payload(
                 self.as_bytes().to_vec(),
-            )),
+            ))),
         };
         cloned.refresh_data_ptr();
         cloned
@@ -632,7 +721,11 @@ mod tests {
         );
         assert!(std::mem::offset_of!(LispString, storage) > std::mem::offset_of!(LispString, data));
         assert_eq!(
-            std::mem::size_of::<Box<super::LispStringStorage>>(),
+            std::mem::size_of::<Option<Box<super::LispStringStorage>>>(),
+            std::mem::size_of::<usize>()
+        );
+        assert_eq!(
+            std::mem::size_of::<Option<Box<crate::buffer::TextPropertyTable>>>(),
             std::mem::size_of::<usize>()
         );
     }
