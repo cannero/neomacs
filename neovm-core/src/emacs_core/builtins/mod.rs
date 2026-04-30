@@ -5630,7 +5630,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "translate-region-internal",
-        |_ctx, args| builtin_translate_region_internal(args),
+        |ctx, args| crate::emacs_core::editfns::builtin_translate_region_internal(ctx, args),
         3,
         Some(3),
     );

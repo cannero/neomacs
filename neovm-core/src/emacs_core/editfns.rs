@@ -1075,6 +1075,237 @@ fn read_load_average() -> Option<[f64; 3]> {
 fn read_load_average() -> Option<[f64; 3]> {
     None
 }
+// ---------------------------------------------------------------------------
+// translate-region-internal (mirrors GNU editfns.c:2506)
+// ---------------------------------------------------------------------------
+
+/// `(translate-region-internal START END TABLE)`
+///
+/// Translate every character between START and END through TABLE.
+/// TABLE may be a string (Nth char in TABLE is the mapping for char N) or
+/// a char-table whose `purpose` is `translation-table`.
+///
+/// Returns the number of characters changed.
+///
+/// Mirrors GNU `Ftranslate_region_internal` (editfns.c:2506) using a
+/// whole-region read/translate/replace strategy (rather than GNU's
+/// in-place gap mutation). The behaviour for simple char→char and
+/// char→string/vector mappings matches GNU. The multi-character
+/// `(([FROM-CHAR ...] . TO) ...)` form is currently treated as identity
+/// (no lookahead) — this is a known pragmatic deviation, marked TODO.
+pub(crate) fn builtin_translate_region_internal(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    use super::chartable::{ct_lookup, is_char_table};
+    use super::emacs_char::{
+        MAX_CHAR, MAX_MULTIBYTE_LENGTH, byte8_to_char, char_string, chars_in_multibyte,
+        string_char_advance,
+    };
+
+    expect_args("translate-region-internal", &args, 3)?;
+    let table = &args[2];
+
+    // ----- Validate TABLE ----------------------------------------------------
+    let table_str = table.as_lisp_string();
+    let is_str_table = table_str.is_some();
+    let is_ct_table = is_char_table(table);
+    if !is_str_table && !is_ct_table {
+        return Err(signal(
+            "error",
+            vec![Value::string("Not a translation table")],
+        ));
+    }
+    if is_ct_table {
+        let vec = table.as_vector_data().unwrap();
+        // CT_SUBTYPE slot is the `purpose' symbol (chartab.c:528).
+        let purpose = vec[3];
+        let translation_sym = Value::symbol("translation-table");
+        if !super::value::eq_value(&purpose, &translation_sym) {
+            return Err(signal(
+                "error",
+                vec![Value::string("Not a translation table")],
+            ));
+        }
+    }
+
+    // ----- Resolve region in the current buffer ------------------------------
+    let (buffer_id, start_byte, end_byte) =
+        super::fns::normalize_current_buffer_region_bounds_in_manager(
+            &eval.buffers,
+            &args[0],
+            &args[1],
+        )?;
+    if start_byte == end_byte {
+        return Ok(Value::fixnum(0));
+    }
+    let multibyte = eval
+        .buffers
+        .get(buffer_id)
+        .map(|b| b.get_multibyte())
+        .unwrap_or(true);
+
+    // Read the whole region up front (whole-region replace strategy).
+    let source = super::fns::read_buffer_region_bytes_in_manager(
+        &eval.buffers,
+        buffer_id,
+        start_byte,
+        end_byte,
+    )?;
+
+    // ----- String-table prep -------------------------------------------------
+    let table_string_info: Option<(Vec<u8>, bool)> = table_str.map(|s| {
+        let mut bytes = s.as_bytes().to_vec();
+        let mut mb = s.is_multibyte();
+        // GNU: if buffer is unibyte but table is multibyte, convert table to
+        // unibyte (string_make_unibyte). Our mapping below indexes by byte
+        // for unibyte tables; flatten by taking the byte view, which already
+        // happens for unibyte-only tables. For a multibyte table on a unibyte
+        // buffer we set mb=false and let the byte index lookup take over.
+        if !multibyte && mb {
+            mb = false;
+        }
+        // In the unibyte-buffer × multibyte-table case, leave bytes alone:
+        // the unibyte-source path indexes by byte so it stays consistent.
+        let _ = &mut bytes;
+        (bytes, mb)
+    });
+    let translatable_chars: i64 = if let Some((bytes, _)) = table_string_info.as_ref() {
+        std::cmp::min(MAX_CHAR as i64 + 1, bytes.len() as i64)
+    } else {
+        MAX_CHAR as i64 + 1
+    };
+
+    // ----- Walk the region, build the translated bytes -----------------------
+    let mut out: Vec<u8> = Vec::with_capacity(source.len());
+    let mut characters_changed: i64 = 0;
+    let mut p: usize = 0;
+    while p < source.len() {
+        let (oc, len) = if multibyte {
+            let mut q = p;
+            let c = string_char_advance(&source, &mut q);
+            (c as i64, q - p)
+        } else {
+            (source[p] as i64, 1)
+        };
+
+        // Default: no translation.
+        let mut nc: i64 = oc;
+        let mut new_bytes: Option<Vec<u8>> = None;
+
+        if oc < translatable_chars {
+            if let Some((tt, table_mb)) = table_string_info.as_ref() {
+                if *table_mb {
+                    // Find char index `oc` within the multibyte table bytes.
+                    let mut bp = 0usize;
+                    let mut idx: i64 = 0;
+                    while idx < oc && bp < tt.len() {
+                        let (_c, l) = super::emacs_char::string_char(&tt[bp..]);
+                        bp += l.max(1);
+                        idx += 1;
+                    }
+                    if bp < tt.len() {
+                        let mut qq = bp;
+                        let c = string_char_advance(tt, &mut qq);
+                        nc = c as i64;
+                        new_bytes = Some(tt[bp..qq].to_vec());
+                    }
+                } else if (oc as usize) < tt.len() {
+                    let b = tt[oc as usize];
+                    nc = b as i64;
+                    if b >= 0x80 && multibyte {
+                        // BYTE8_STRING: encode raw byte as a 2-byte multibyte.
+                        let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+                        let n = char_string(byte8_to_char(b), &mut buf);
+                        new_bytes = Some(buf[..n].to_vec());
+                    } else {
+                        new_bytes = Some(vec![b]);
+                    }
+                }
+            } else {
+                // char-table case.
+                let val = ct_lookup(table, oc)?;
+                if let Some(c) = val.as_fixnum() {
+                    if (0..=MAX_CHAR as i64).contains(&c) {
+                        nc = c;
+                        let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+                        let n = char_string(c as u32, &mut buf);
+                        new_bytes = Some(buf[..n].to_vec());
+                    }
+                } else if val.is_vector() {
+                    // [TO_CHAR ...] — concatenate the chars.
+                    nc = -1;
+                    if let Some(items) = val.as_vector_data() {
+                        let mut bytes = Vec::new();
+                        for ch in items.iter() {
+                            if let Some(c) = ch.as_fixnum() {
+                                if (0..=MAX_CHAR as i64).contains(&c) {
+                                    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+                                    let n = char_string(c as u32, &mut buf);
+                                    bytes.extend_from_slice(&buf[..n]);
+                                }
+                            }
+                        }
+                        new_bytes = Some(bytes);
+                    }
+                } else if val.is_cons() {
+                    // (([FROM-CHAR ...] . TO) ...) — multi-char source
+                    // pattern. Lookahead-based matching not yet implemented;
+                    // skip translation (identity).
+                    // TODO: port `check_translation` (editfns.c:2448).
+                    nc = oc;
+                    new_bytes = None;
+                }
+            }
+        }
+
+        if nc != oc && nc >= 0 {
+            // Single-char-to-something replacement.
+            if let Some(b) = new_bytes {
+                out.extend_from_slice(&b);
+            } else {
+                out.extend_from_slice(&source[p..p + len]);
+            }
+            characters_changed += 1;
+        } else if nc < 0 {
+            // Vector form: char(s) → multiple chars.
+            if let Some(b) = new_bytes {
+                let added = if multibyte {
+                    chars_in_multibyte(&b) as i64
+                } else {
+                    b.len() as i64
+                };
+                out.extend_from_slice(&b);
+                characters_changed += added;
+            } else {
+                out.extend_from_slice(&source[p..p + len]);
+            }
+        } else {
+            // Identity.
+            out.extend_from_slice(&source[p..p + len]);
+        }
+        p += len.max(1);
+    }
+
+    // ----- Write back if anything changed ------------------------------------
+    if characters_changed > 0 {
+        let replacement = if multibyte {
+            crate::heap_types::LispString::from_emacs_bytes(out)
+        } else {
+            crate::heap_types::LispString::from_unibyte(out)
+        };
+        super::fns::replace_buffer_region_lisp_string(
+            eval,
+            buffer_id,
+            start_byte,
+            end_byte,
+            &replacement,
+        )?;
+    }
+
+    Ok(Value::fixnum(characters_changed))
+}
+
 #[cfg(test)]
 #[path = "editfns_test.rs"]
 mod tests;

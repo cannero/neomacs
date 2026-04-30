@@ -377,7 +377,7 @@ pub(crate) fn replace_buffer_region_lisp_string_in_manager(
     Ok(())
 }
 
-fn replace_buffer_region_lisp_string(
+pub(crate) fn replace_buffer_region_lisp_string(
     eval: &mut super::eval::Context,
     buffer_id: crate::buffer::BufferId,
     start_byte: usize,
