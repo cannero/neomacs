@@ -249,7 +249,7 @@ pub(crate) fn signal_before_change(
         .buffers
         .get(current_id)
         .is_some_and(|buf| buf.modified_state_value().is_nil());
-    let overlay_hooks = collect_overlay_modification_hooks(ctx, beg, end);
+    let overlay_hooks = collect_overlay_change_hooks(ctx, beg, end, beg == end);
     let specpdl_count = ctx.specpdl.len();
     ctx.specbind(intern("inhibit-modification-hooks"), Value::T);
     let result = (|| -> Result<(), Flow> {
@@ -350,12 +350,19 @@ pub(crate) fn signal_after_change(
     result
 }
 
-/// Collect `modification-hooks` property functions from overlays overlapping
-/// the region `[beg, end)`.  Returns `(hook_function, overlay_as_value)` pairs.
-fn collect_overlay_modification_hooks(
+/// GNU `report_overlay_modification` (buffer.c:4119) collection step.
+/// Walks overlays touching the change region and returns (hook_function,
+/// overlay) pairs in the order GNU records them: per-overlay
+/// `insert-in-front-hooks` (insertions only), then `insert-behind-hooks`
+/// (insertions only), then `modification-hooks`.
+///
+/// `insertion` mirrors GNU's local: true when this change is a pure
+/// insertion (start == end before, or old_len == 0 after).
+fn collect_overlay_change_hooks(
     ctx: &crate::emacs_core::eval::Context,
     beg: usize,
     end: usize,
+    insertion: bool,
 ) -> Vec<(Value, Value)> {
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Vec::new();
@@ -364,16 +371,53 @@ fn collect_overlay_modification_hooks(
         return Vec::new();
     };
 
-    let search_end = if beg == end { end + 1 } else { end };
-    let overlay_ids = buf.overlays.overlays_in(beg, search_end);
+    // GNU widens the search by one on each side for insertions so that
+    // overlays whose endpoints touch the insertion point are included.
+    let search_beg = if insertion && beg > 0 { beg - 1 } else { beg };
+    let search_end = if insertion { end + 1 } else { end.max(beg) };
+    let overlay_ids = buf.overlays.overlays_in(search_beg, search_end);
+
     let mut result = Vec::new();
     for ov_id in overlay_ids {
-        if let Some(hooks_val) = buf
-            .overlays
-            .overlay_get_named(ov_id, Value::symbol("modification-hooks"))
-        {
-            for func in value_list_iter(hooks_val) {
-                result.push((func, ov_id));
+        let ov_start = match buf.overlays.overlay_start(ov_id) {
+            Some(s) => s,
+            None => continue,
+        };
+        let ov_end = match buf.overlays.overlay_end(ov_id) {
+            Some(e) => e,
+            None => continue,
+        };
+
+        if insertion && (beg == ov_start || end == ov_start) {
+            if let Some(hook_val) = buf
+                .overlays
+                .overlay_get_named(ov_id, Value::symbol("insert-in-front-hooks"))
+            {
+                for func in value_list_iter(hook_val) {
+                    result.push((func, ov_id));
+                }
+            }
+        }
+        if insertion && (beg == ov_end || end == ov_end) {
+            if let Some(hook_val) = buf
+                .overlays
+                .overlay_get_named(ov_id, Value::symbol("insert-behind-hooks"))
+            {
+                for func in value_list_iter(hook_val) {
+                    result.push((func, ov_id));
+                }
+            }
+        }
+        // GNU intersection test (open interval):
+        //   end > obegin && begin < oend
+        if end > ov_start && beg < ov_end {
+            if let Some(hook_val) = buf
+                .overlays
+                .overlay_get_named(ov_id, Value::symbol("modification-hooks"))
+            {
+                for func in value_list_iter(hook_val) {
+                    result.push((func, ov_id));
+                }
             }
         }
     }
@@ -381,7 +425,8 @@ fn collect_overlay_modification_hooks(
 }
 
 /// Run overlay `insert-in-front-hooks`, `insert-behind-hooks`, and
-/// `modification-hooks` after a change.
+/// `modification-hooks` after a change.  Mirrors GNU
+/// `report_overlay_modification` (buffer.c:4119) for the AFTER phase.
 fn run_overlay_after_change_hooks(
     ctx: &mut crate::emacs_core::eval::Context,
     beg: usize,
@@ -390,67 +435,9 @@ fn run_overlay_after_change_hooks(
     lisp_end: i64,
     lisp_old_len: i64,
 ) -> Result<(), Flow> {
-    let Some(current_id) = ctx.buffers.current_buffer_id() else {
-        return Ok(());
-    };
-
-    // Collect all overlay hooks we need to run, then release the borrow on ctx.
-    let hooks: Vec<(Value, Value, &'static str)> = {
-        let Some(buf) = ctx.buffers.get(current_id) else {
-            return Ok(());
-        };
-        let mut hooks = Vec::new();
-
-        // insert-in-front-hooks: overlays starting at beg
-        let front_overlays = buf.overlays.overlays_at(beg);
-        for ov_id in &front_overlays {
-            let ov_start = buf.overlays.overlay_start(*ov_id);
-            if ov_start == Some(beg) {
-                if let Some(hook_val) = buf
-                    .overlays
-                    .overlay_get_named(*ov_id, Value::symbol("insert-in-front-hooks"))
-                {
-                    for func in value_list_iter(hook_val) {
-                        hooks.push((func, *ov_id, "front"));
-                    }
-                }
-            }
-        }
-
-        // insert-behind-hooks: overlays ending at beg
-        let search_end = if beg == end { end + 1 } else { end };
-        let region_overlays = buf
-            .overlays
-            .overlays_in(if beg > 0 { beg - 1 } else { 0 }, search_end);
-        for ov_id in &region_overlays {
-            let ov_end = buf.overlays.overlay_end(*ov_id);
-            if ov_end == Some(beg) {
-                if let Some(hook_val) = buf
-                    .overlays
-                    .overlay_get_named(*ov_id, Value::symbol("insert-behind-hooks"))
-                {
-                    for func in value_list_iter(hook_val) {
-                        hooks.push((func, *ov_id, "behind"));
-                    }
-                }
-            }
-        }
-
-        // modification-hooks: overlays covering [beg, end)
-        let mod_overlays = buf.overlays.overlays_in(beg, search_end);
-        for ov_id in &mod_overlays {
-            if let Some(hook_val) = buf
-                .overlays
-                .overlay_get_named(*ov_id, Value::symbol("modification-hooks"))
-            {
-                for func in value_list_iter(hook_val) {
-                    hooks.push((func, *ov_id, "mod"));
-                }
-            }
-        }
-
-        hooks
-    };
+    // GNU: `insertion = (after ? XFIXNAT (arg3) == 0 : BASE_EQ (start, end))`.
+    let insertion = lisp_old_len == 0;
+    let hooks = collect_overlay_change_hooks(ctx, beg, end, insertion);
 
     if hooks.is_empty() {
         return Ok(());
@@ -458,12 +445,12 @@ fn run_overlay_after_change_hooks(
 
     let after_flag = Value::T; // GNU passes `t` for AFTER in the after-change phase
     let roots = ctx.save_specpdl_roots();
-    for (func, ov_val, _) in &hooks {
+    for (func, ov_val) in &hooks {
         ctx.push_specpdl_root(*func);
         ctx.push_specpdl_root(*ov_val);
     }
     let apply_result = (|| -> Result<(), Flow> {
-        for (func, ov_val, _) in &hooks {
+        for (func, ov_val) in &hooks {
             ctx.apply(
                 *func,
                 vec![
