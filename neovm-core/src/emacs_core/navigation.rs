@@ -421,6 +421,64 @@ pub(crate) fn builtin_eolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
 // ===========================================================================
 
 /// (line-beginning-position &optional N)
+/// Compute the unconstrained beginning-of-line position for the current
+/// buffer's point after moving `n - 1` lines. Returns `(bol_charpos,
+/// orig_charpos, lines_moved)` mirroring GNU's static `bol` helper
+/// (editfns.c) plus the original PT used as anchor for field constraint.
+pub(crate) fn pos_bol_compute(
+    ctx: &super::eval::Context,
+    n: i64,
+) -> Result<(i64, i64, i64), Flow> {
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
+    let text = buffer_bytes(buf);
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
+    let mut pos = buf.pt_byte;
+    let mut moved: i64 = 0;
+    if n != 1 {
+        let delta = n - 1;
+        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
+        pos = new_pos;
+        moved = actual_moved;
+    }
+    let bol = line_beginning_byte_narrowed(&text, pos, begv);
+    Ok((
+        byte_to_char_pos(buf, bol),
+        byte_to_char_pos(buf, buf.pt_byte),
+        moved,
+    ))
+}
+
+/// Compute the unconstrained end-of-line position for the current buffer's
+/// point after moving `n - 1` lines. Returns `(eol_charpos, orig_charpos)`,
+/// mirroring GNU's static `eol` helper (editfns.c).
+pub(crate) fn pos_eol_compute(
+    ctx: &super::eval::Context,
+    n: i64,
+) -> Result<(i64, i64), Flow> {
+    let buf = current_buffer_in_manager(&ctx.buffers)?;
+    let text = buffer_bytes(buf);
+    let begv = buf.begv_byte;
+    let zv = buf.zv_byte;
+    let mut pos = buf.pt_byte;
+    let mut moved = 0;
+    if n != 1 {
+        let delta = n - 1;
+        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
+        pos = new_pos;
+        moved = actual_moved;
+    }
+    let eol = if n != 1 && moved != n - 1 && pos == begv {
+        begv
+    } else {
+        line_end_byte_narrowed(&text, pos, zv)
+    };
+    Ok((
+        byte_to_char_pos(buf, eol),
+        byte_to_char_pos(buf, buf.pt_byte),
+    ))
+}
+
 pub(crate) fn builtin_line_beginning_position(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
@@ -431,18 +489,20 @@ pub(crate) fn builtin_line_beginning_position(
     } else {
         expect_int(&args[0])?
     };
-    let buf = current_buffer_in_manager(&ctx.buffers)?;
-    let text = buffer_bytes(buf);
-    let begv = buf.begv_byte;
-    let zv = buf.zv_byte;
-    let mut pos = buf.pt_byte;
-    if n != 1 {
-        let delta = n - 1;
-        let (new_pos, _) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
-        pos = new_pos;
-    }
-    let bol = line_beginning_byte_narrowed(&text, pos, begv);
-    Ok(Value::fixnum(byte_to_char_pos(buf, bol)))
+    let (bol_charpos, orig_charpos, count) = pos_bol_compute(ctx, n)?;
+    // GNU `Fline_beginning_position` (editfns.c:700) constrains the result to
+    // the current input field. ESCAPE-FROM-EDGE is t when any lines were
+    // scanned (count != 0), nil otherwise; ONLY-IN-LINE is always t.
+    crate::emacs_core::builtins::builtin_constrain_to_field(
+        ctx,
+        vec![
+            Value::fixnum(bol_charpos),
+            Value::fixnum(orig_charpos),
+            if count != 0 { Value::T } else { Value::NIL },
+            Value::T,
+            Value::NIL,
+        ],
+    )
 }
 
 /// (line-end-position &optional N)
@@ -456,23 +516,19 @@ pub(crate) fn builtin_line_end_position(
     } else {
         expect_int(&args[0])?
     };
-    let buf = current_buffer_in_manager(&ctx.buffers)?;
-    let text = buffer_bytes(buf);
-    let begv = buf.begv_byte;
-    let zv = buf.zv_byte;
-    let mut pos = buf.pt_byte;
-    let mut moved = 0;
-    if n != 1 {
-        let delta = n - 1;
-        let (new_pos, actual_moved) = move_by_lines_narrowed(&text, pos, delta, begv, zv);
-        pos = new_pos;
-        moved = actual_moved;
-    }
-    if n != 1 && moved != n - 1 && pos == begv {
-        return Ok(Value::fixnum(byte_to_char_pos(buf, begv)));
-    }
-    let eol = line_end_byte_narrowed(&text, pos, zv);
-    Ok(Value::fixnum(byte_to_char_pos(buf, eol)))
+    let (eol_charpos, orig_charpos) = pos_eol_compute(ctx, n)?;
+    // GNU `Fline_end_position` (editfns.c:755): constrain to current input
+    // field with ESCAPE-FROM-EDGE = nil and ONLY-IN-LINE = t.
+    crate::emacs_core::builtins::builtin_constrain_to_field(
+        ctx,
+        vec![
+            Value::fixnum(eol_charpos),
+            Value::fixnum(orig_charpos),
+            Value::NIL,
+            Value::T,
+            Value::NIL,
+        ],
+    )
 }
 
 /// (line-number-at-pos &optional POS ABSOLUTE)

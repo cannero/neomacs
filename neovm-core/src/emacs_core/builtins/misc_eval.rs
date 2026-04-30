@@ -117,12 +117,28 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 
 pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("pos-bol", &args, 1)?;
-    super::navigation::builtin_line_beginning_position(eval, args)
+    let n = if args.is_empty() || args[0].is_nil() {
+        1
+    } else {
+        super::expect_int(&args[0])?
+    };
+    // GNU `Fpos_bol` (editfns.c:684) returns the unconstrained line-beginning
+    // position; only `Fline_beginning_position` adds field constraints.
+    let (bol_charpos, _orig, _count) = super::navigation::pos_bol_compute(eval, n)?;
+    Ok(Value::fixnum(bol_charpos))
 }
 
 pub(crate) fn builtin_pos_eol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     expect_max_args("pos-eol", &args, 1)?;
-    super::navigation::builtin_line_end_position(eval, args)
+    let n = if args.is_empty() || args[0].is_nil() {
+        1
+    } else {
+        super::expect_int(&args[0])?
+    };
+    // GNU `Fpos_eol` (editfns.c:740) returns the unconstrained line-end
+    // position; only `Fline_end_position` adds field constraints.
+    let (eol_charpos, _orig) = super::navigation::pos_eol_compute(eval, n)?;
+    Ok(Value::fixnum(eol_charpos))
 }
 
 pub(crate) fn builtin_previous_property_change(
