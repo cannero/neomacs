@@ -503,11 +503,125 @@ fn ordered_pairs_to_plist(pairs: &[(Value, Value)]) -> Value {
 // Text property builtins
 // ===========================================================================
 
+/// GNU `verify_interval_modification` (textprop.c:2184), restricted to the
+/// read-only check.  Walks intervals overlapping `[byte_start, byte_end)`
+/// in BUF_ID and signals `text-read-only` if any interval has a non-nil
+/// `read-only` property that is not silenced by either the
+/// `inhibit-read-only` interval property or the dynamic
+/// `inhibit-read-only` variable.
+fn verify_text_read_only_in_state(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    buf_id: BufferId,
+    byte_start: usize,
+    byte_end: usize,
+) -> Result<(), Flow> {
+    if byte_start >= byte_end {
+        return Ok(());
+    }
+    let Some(buf) = buffers.get(buf_id) else {
+        return Ok(());
+    };
+    let inhibit = buf.get_buffer_local("inhibit-read-only").unwrap_or_else(|| {
+        obarray
+            .symbol_value("inhibit-read-only")
+            .copied()
+            .unwrap_or(Value::NIL)
+    });
+    // INTERVAL_GENERALLY_WRITABLE_P: when inhibit-read-only is non-nil
+    // and not a list, every interval is writable regardless of its
+    // read-only property.  GNU intervals.h:210.
+    if !inhibit.is_nil() && !inhibit.is_cons() {
+        return Ok(());
+    }
+    let read_only_sym = Value::symbol("read-only");
+    let inhibit_sym = Value::symbol("inhibit-read-only");
+    for iv in buf.text.text_props_intervals_snapshot() {
+        if iv.end <= byte_start {
+            continue;
+        }
+        if iv.start >= byte_end {
+            break;
+        }
+        let read_only = iv
+            .properties
+            .get(&read_only_sym)
+            .copied()
+            .unwrap_or(Value::NIL);
+        if read_only.is_nil() {
+            continue;
+        }
+        // INTERVAL_EXPRESSLY_WRITABLE_P (intervals.h:217).
+        let express_inhibit = iv
+            .properties
+            .get(&inhibit_sym)
+            .copied()
+            .unwrap_or(Value::NIL);
+        if !express_inhibit.is_nil() {
+            continue;
+        }
+        if inhibit.is_cons() && value_in_list(read_only, inhibit) {
+            continue;
+        }
+        let args = if read_only.is_string() {
+            vec![read_only]
+        } else {
+            vec![]
+        };
+        return Err(signal("text-read-only", args));
+    }
+    Ok(())
+}
+
+fn value_in_list(needle: Value, list: Value) -> bool {
+    let mut cursor = list;
+    while cursor.is_cons() {
+        if eq_value(&cursor.cons_car(), &needle) {
+            return true;
+        }
+        cursor = cursor.cons_cdr();
+    }
+    false
+}
+
+/// Resolve OBJECT-arg to a buffer and verify text-read-only over the
+/// `[BEG, END)` byte range.  No-op if OBJECT is a string (text properties
+/// on strings have no read-only enforcement in GNU either).
+fn verify_property_change_read_only(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+    object_arg_idx: usize,
+) -> Result<(), Flow> {
+    if is_string_object(args.get(object_arg_idx)).is_some() {
+        return Ok(());
+    }
+    if args.len() < 2 {
+        return Ok(());
+    }
+    let beg = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&eval.buffers, &args[1])?;
+    let buf_id = resolve_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
+    let (byte_beg, byte_end) = {
+        let buf = eval
+            .buffers
+            .get(buf_id)
+            .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
+        let mut a = elisp_pos_to_byte(buf, beg);
+        let mut b = elisp_pos_to_byte(buf, end);
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        (a, b)
+    };
+    verify_text_read_only_in_state(&eval.obarray, &eval.buffers, buf_id, byte_beg, byte_end)
+}
+
 /// (put-text-property BEG END PROP VAL &optional OBJECT)
 pub(crate) fn builtin_put_text_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 4)?;
     builtin_put_text_property_in_buffers(&mut eval.buffers, args)
 }
 
@@ -669,6 +783,7 @@ pub(crate) fn builtin_add_text_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 3)?;
     builtin_add_text_properties_in_buffers(&mut eval.buffers, args)
 }
 
@@ -745,6 +860,7 @@ pub(crate) fn builtin_add_face_text_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 4)?;
     builtin_add_face_text_property_in_buffers(&mut eval.buffers, args)
 }
 
@@ -812,6 +928,7 @@ pub(crate) fn builtin_remove_text_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 3)?;
     builtin_remove_text_properties_in_buffers(&mut eval.buffers, args)
 }
 
@@ -866,6 +983,7 @@ pub(crate) fn builtin_set_text_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 3)?;
     builtin_set_text_properties_in_buffers(&mut eval.buffers, args)
 }
 
@@ -918,6 +1036,7 @@ pub(crate) fn builtin_remove_list_of_text_properties(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
+    verify_property_change_read_only(eval, &args, 3)?;
     builtin_remove_list_of_text_properties_in_buffers(&mut eval.buffers, args)
 }
 
