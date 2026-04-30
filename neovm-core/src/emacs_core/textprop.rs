@@ -925,6 +925,12 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
     Ok(if any_changed { Value::T } else { Value::NIL })
 }
 
+fn is_anonymous_face_plist(v: &Value) -> bool {
+    // GNU treats a cons whose car is a keyword as an anonymous face plist
+    // (e.g. (:foreground "red")), not a list of faces.
+    v.is_cons() && v.cons_car().is_keyword()
+}
+
 fn merge_face_property(existing: Option<Value>, new_face: Value, append: bool) -> Value {
     let Some(existing_value) = existing else {
         return new_face;
@@ -933,14 +939,18 @@ fn merge_face_property(existing: Option<Value>, new_face: Value, append: bool) -
         return new_face;
     }
 
-    if let Some(mut items) = list_to_vec(&existing_value) {
-        if append {
-            items.push(new_face);
-        } else {
-            items.insert(0, new_face);
+    if existing_value.is_cons() && !is_anonymous_face_plist(&existing_value) {
+        if let Some(mut items) = list_to_vec(&existing_value) {
+            if append {
+                items.push(new_face);
+            } else {
+                items.insert(0, new_face);
+            }
+            return Value::list(items);
         }
-        Value::list(items)
-    } else if append {
+    }
+
+    if append {
         Value::list(vec![existing_value, new_face])
     } else {
         Value::list(vec![new_face, existing_value])
@@ -978,9 +988,21 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
         let char_beg = string_elisp_pos_to_char(s, beg);
         let char_end = string_elisp_pos_to_char(s, end);
-        let existing = table.get_property(char_beg, Value::symbol("face")).cloned();
-        let merged = merge_face_property(existing, new_face, append);
-        table.put_property(char_beg, char_end, Value::symbol("face"), merged);
+        // GNU iterates intervals in [beg, end); per interval, fetch its existing
+        // face value and merge. Walk the range segment-by-segment.
+        let mut seg_start = char_beg;
+        while seg_start < char_end {
+            let seg_end = match table.next_property_change(seg_start) {
+                Some(p) if p < char_end => p,
+                _ => char_end,
+            };
+            let existing = table
+                .get_property(seg_start, Value::symbol("face"))
+                .cloned();
+            let merged = merge_face_property(existing, new_face, append);
+            table.put_property(seg_start, seg_end, Value::symbol("face"), merged);
+            seg_start = seg_end;
+        }
         save_string_props_for_value(str_val, table);
         return Ok(Value::NIL);
     }
@@ -1008,12 +1030,27 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
     let byte_beg = elisp_pos_to_byte(buf, beg);
     let byte_end = elisp_pos_to_byte(buf, end);
-    let existing = buf
-        .text
-        .text_props_get_property(byte_beg, Value::symbol("face"));
-    let merged = merge_face_property(existing, new_face, append);
-    let _ =
-        buffers.put_buffer_text_property(buf_id, byte_beg, byte_end, Value::symbol("face"), merged);
+    // GNU iterates intervals in [beg, end); per interval, fetch its existing
+    // face value and merge. Walk the range segment-by-segment to preserve any
+    // heterogeneous face properties already present.
+    let mut segments: Vec<(usize, usize, Value)> = Vec::new();
+    let mut seg_start = byte_beg;
+    while seg_start < byte_end {
+        let seg_end = match buf.text.text_props_next_change(seg_start) {
+            Some(p) if p < byte_end => p,
+            _ => byte_end,
+        };
+        let existing = buf
+            .text
+            .text_props_get_property(seg_start, Value::symbol("face"));
+        let merged = merge_face_property(existing, new_face, append);
+        segments.push((seg_start, seg_end, merged));
+        seg_start = seg_end;
+    }
+    for (s, e, merged) in segments {
+        let _ =
+            buffers.put_buffer_text_property(buf_id, s, e, Value::symbol("face"), merged);
+    }
     Ok(Value::NIL)
 }
 
