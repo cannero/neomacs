@@ -636,6 +636,25 @@ impl LoadDecoder {
         }))
     }
 
+    fn mapped_slot_count_or(
+        &self,
+        id: TaggedHeapRef,
+        fallback_len: usize,
+    ) -> Result<usize, DumpError> {
+        let Some(span) = self
+            .state
+            .mapped_slots
+            .get(id.index as usize)
+            .copied()
+            .flatten()
+        else {
+            return Ok(fallback_len);
+        };
+        usize::try_from(span.len).map_err(|_| {
+            DumpError::ImageFormatError("mapped slot span length overflows usize".into())
+        })
+    }
+
     fn mapped_slots_ptr_for_object(
         &self,
         id: TaggedHeapRef,
@@ -863,10 +882,11 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Vector(items) => {
+                let len = self.mapped_slot_count_or(id, items.len())?;
                 if let Some(ptr) = self.mapped_typed_object_for_object::<VectorObj>(id, "vector")? {
                     let data = self
-                        .mapped_slots_for_object_without_copy(id, items.len())?
-                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; items.len()]));
+                        .mapped_slots_for_object_without_copy(id, len)?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
                             ptr,
@@ -878,7 +898,7 @@ impl LoadDecoder {
                         Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
                     }
                 } else {
-                    Value::make_vector(vec![Value::NIL; items.len()])
+                    Value::make_vector(vec![Value::NIL; len])
                 }
             }
             DumpHeapObject::HashTable(ht) => with_tagged_heap(|heap| {
@@ -924,10 +944,11 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Lambda(slots) => {
-                let len = slots.len().max(CLOSURE_MIN_SLOTS);
+                let slot_count = self.mapped_slot_count_or(id, slots.len())?;
+                let len = slot_count.max(CLOSURE_MIN_SLOTS);
                 if let Some(ptr) = self.mapped_typed_object_for_object::<LambdaObj>(id, "lambda")? {
                     let data = self
-                        .mapped_slots_for_object_without_copy(id, slots.len())?
+                        .mapped_slots_for_object_without_copy(id, slot_count)?
                         .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
@@ -945,10 +966,11 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Macro(slots) => {
-                let len = slots.len().max(CLOSURE_MIN_SLOTS);
+                let slot_count = self.mapped_slot_count_or(id, slots.len())?;
+                let len = slot_count.max(CLOSURE_MIN_SLOTS);
                 if let Some(ptr) = self.mapped_typed_object_for_object::<MacroObj>(id, "macro")? {
                     let data = self
-                        .mapped_slots_for_object_without_copy(id, slots.len())?
+                        .mapped_slots_for_object_without_copy(id, slot_count)?
                         .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
@@ -982,10 +1004,11 @@ impl LoadDecoder {
                 extra_slots: Vec::new(),
             }),
             DumpHeapObject::Record(items) => {
+                let len = self.mapped_slot_count_or(id, items.len())?;
                 if let Some(ptr) = self.mapped_typed_object_for_object::<RecordObj>(id, "record")? {
                     let data = self
-                        .mapped_slots_for_object_without_copy(id, items.len())?
-                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; items.len()]));
+                        .mapped_slots_for_object_without_copy(id, len)?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
                             ptr,
@@ -997,7 +1020,7 @@ impl LoadDecoder {
                         Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
                     }
                 } else {
-                    Value::make_record(vec![Value::NIL; items.len()])
+                    Value::make_record(vec![Value::NIL; len])
                 }
             }
             DumpHeapObject::Marker(marker) => {
@@ -1099,7 +1122,8 @@ impl LoadDecoder {
                 }
             }
             DumpHeapObject::Vector(items) => {
-                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, items.len())? {
+                let len = self.mapped_slot_count_or(id, items.len())?;
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, len)? {
                     let _ = Self::install_mapped_vector_slots(value, storage);
                 } else {
                     let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
@@ -1153,7 +1177,8 @@ impl LoadDecoder {
             }
             DumpHeapObject::Float(_) => {}
             DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
-                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, slots.len())? {
+                let len = self.mapped_slot_count_or(id, slots.len())?;
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, len)? {
                     let _ = Self::install_mapped_closure_slots(value, storage);
                 } else {
                     let slots: Vec<_> = slots.iter().map(|slot| self.load_value(slot)).collect();
@@ -1173,7 +1198,8 @@ impl LoadDecoder {
                     .transpose()?;
             }
             DumpHeapObject::Record(items) => {
-                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, items.len())? {
+                let len = self.mapped_slot_count_or(id, items.len())?;
+                if let Some(storage) = self.mapped_slots_for_object_without_copy(id, len)? {
                     let _ = Self::install_mapped_record_slots(value, storage);
                 } else {
                     let slots: Vec<_> = items.iter().map(|item| self.load_value(item)).collect();
@@ -1475,6 +1501,44 @@ mod tests {
         let value = decoder.load_value(&DumpValue::Vector(DumpHeapRef { index: 0 }));
         let slots = value.as_vector_data().unwrap();
         assert_eq!(slots.as_slice(), &[Value::fixnum(77), Value::fixnum(88)]);
+    }
+
+    #[test]
+    fn mapped_vector_slot_count_comes_from_span_for_compact_descriptors() {
+        crate::test_utils::init_test_tracing();
+        let mut runtime_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
+        crate::tagged::gc::set_tagged_heap(&mut runtime_heap);
+
+        let slot_offset = std::mem::size_of::<VectorObj>();
+        let heap = DumpTaggedHeap {
+            objects: vec![DumpHeapObject::Vector(Vec::new())],
+            mapped_cons: Vec::new(),
+            mapped_floats: Vec::new(),
+            mapped_strings: Vec::new(),
+            mapped_veclikes: vec![Some(DumpVecLikeSpan {
+                offset: 0,
+                len: std::mem::size_of::<VectorObj>() as u64,
+            })],
+            mapped_slots: vec![Some(DumpSlotSpan {
+                offset: slot_offset as u64,
+                len: 2,
+            })],
+        };
+        let mut bytes = vec![0u8; slot_offset + 2 * std::mem::size_of::<TaggedValue>()];
+        write_raw_word(&mut bytes, slot_offset, Value::fixnum(177).bits());
+        write_raw_word(
+            &mut bytes,
+            slot_offset + std::mem::size_of::<TaggedValue>(),
+            Value::fixnum(188).bits(),
+        );
+
+        let mapped = MappedHeapView::from_mut_slice(&mut bytes);
+        let mut decoder = LoadDecoder::new_with_mapped_heap(&heap, Some(mapped));
+        decoder.preload_tagged_heap().unwrap();
+
+        let value = decoder.load_value(&DumpValue::Vector(DumpHeapRef { index: 0 }));
+        let slots = value.as_vector_data().unwrap();
+        assert_eq!(slots.as_slice(), &[Value::fixnum(177), Value::fixnum(188)]);
     }
 
     fn write_raw_word(bytes: &mut [u8], offset: usize, word: usize) {

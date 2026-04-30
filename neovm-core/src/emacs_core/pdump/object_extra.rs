@@ -271,12 +271,34 @@ pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, Dump
 pub(crate) fn load_heap_objects_from_object_extra(
     section: &[u8],
 ) -> Result<Vec<DumpHeapObject>, DumpError> {
+    load_heap_objects_from_object_extra_with(section, object_extra_into_heap_object)
+}
+
+/// Load ObjectExtra for the file pdump path without expanding mapped
+/// vectorlike objects into large nil-filled placeholder slot vectors.
+///
+/// GNU's pdumper does not rebuild vector slots from a semantic descriptor: the
+/// slots already live in the mapped heap image. Neomacs still needs a
+/// per-object descriptor vector while the loader is transitional, but for
+/// Category A vectorlike objects that descriptor only needs the variant. The
+/// authoritative slot count is read from ObjectStarts' mapped slot span during
+/// load.
+pub(crate) fn load_compact_heap_objects_from_object_extra(
+    section: &[u8],
+) -> Result<Vec<DumpHeapObject>, DumpError> {
+    load_heap_objects_from_object_extra_with(section, object_extra_into_compact_heap_object)
+}
+
+fn load_heap_objects_from_object_extra_with(
+    section: &[u8],
+    mut convert: impl FnMut(ObjectExtra) -> DumpHeapObject,
+) -> Result<Vec<DumpHeapObject>, DumpError> {
     let (count, payload) = object_extra_payload(section)?;
     let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
     let mut objects = Vec::with_capacity(count);
     for _ in 0..count {
         let extra = read_object_extra(&mut cursor)?;
-        objects.push(object_extra_into_heap_object(extra));
+        objects.push(convert(extra));
     }
     Ok(objects)
 }
@@ -351,6 +373,16 @@ fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
         ObjectExtra::Overlay(overlay) => DumpHeapObject::Overlay(overlay),
         ObjectExtra::Marker(marker) => DumpHeapObject::Marker(marker),
         ObjectExtra::Free => DumpHeapObject::Free,
+    }
+}
+
+fn object_extra_into_compact_heap_object(extra: ObjectExtra) -> DumpHeapObject {
+    match extra {
+        ObjectExtra::Vector(_) => DumpHeapObject::Vector(Vec::new()),
+        ObjectExtra::Lambda(_) => DumpHeapObject::Lambda(Vec::new()),
+        ObjectExtra::Macro(_) => DumpHeapObject::Macro(Vec::new()),
+        ObjectExtra::Record(_) => DumpHeapObject::Record(Vec::new()),
+        other => object_extra_into_heap_object(other),
     }
 }
 
@@ -565,6 +597,25 @@ mod tests {
         assert!(matches!(objects[0], DumpHeapObject::Cons { .. }));
         assert!(matches!(objects[1], DumpHeapObject::Vector(ref slots) if slots.len() == 2));
         assert!(matches!(objects[2], DumpHeapObject::Free));
+    }
+
+    #[test]
+    fn compact_object_extra_keeps_mapped_vectorlike_descriptors_small() {
+        let bytes = build_object_extra(&[
+            DumpHeapObject::Vector(vec![DumpValue::Nil, DumpValue::True]),
+            DumpHeapObject::Lambda(vec![DumpValue::Nil, DumpValue::True]),
+            DumpHeapObject::Macro(vec![DumpValue::Nil, DumpValue::True]),
+            DumpHeapObject::Record(vec![DumpValue::Nil, DumpValue::True]),
+        ])
+        .expect("build object extra");
+
+        let objects = load_compact_heap_objects_from_object_extra(&bytes)
+            .expect("load compact heap objects from extra");
+
+        assert!(matches!(objects[0], DumpHeapObject::Vector(ref slots) if slots.is_empty()));
+        assert!(matches!(objects[1], DumpHeapObject::Lambda(ref slots) if slots.is_empty()));
+        assert!(matches!(objects[2], DumpHeapObject::Macro(ref slots) if slots.is_empty()));
+        assert!(matches!(objects[3], DumpHeapObject::Record(ref slots) if slots.is_empty()));
     }
 
     #[test]

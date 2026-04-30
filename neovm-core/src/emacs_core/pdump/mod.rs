@@ -453,7 +453,7 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::ObjectExtra)
         .ok_or_else(|| DumpError::ImageFormatError("missing object-extra section".into()))?;
     let tagged_heap = DumpTaggedHeap {
-        objects: object_extra::load_heap_objects_from_object_extra(object_extra_payload)?,
+        objects: object_extra::load_compact_heap_objects_from_object_extra(object_extra_payload)?,
         mapped_cons: spans.mapped_cons,
         mapped_floats: spans.mapped_floats,
         mapped_strings: spans.mapped_strings,
