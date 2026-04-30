@@ -400,22 +400,18 @@ pub(crate) fn signal_after_change(
 /// `before-change-functions` is either nil or the well-known
 /// `(t syntax-ppss-flush-cache)` special case.
 fn combine_after_change_calls_active(ctx: &crate::emacs_core::eval::Context) -> bool {
-    let combine_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-        ctx,
-        "combine-after-change-calls",
-    );
-    let combine_val = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym)
-        .unwrap_or(Value::NIL);
+    let combine_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, "combine-after-change-calls");
+    let combine_val =
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym).unwrap_or(Value::NIL);
     if combine_val.is_nil() {
         return false;
     }
 
-    let before_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-        ctx,
-        "before-change-functions",
-    );
-    let before_val = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, before_sym)
-        .unwrap_or(Value::NIL);
+    let before_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, "before-change-functions");
+    let before_val =
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, before_sym).unwrap_or(Value::NIL);
     if before_val.is_nil() {
         return true;
     }
@@ -515,12 +511,10 @@ pub(crate) fn execute_combined_after_change(
     ctx.combine_after_change_buffer = None;
 
     // GNU temporarily clears `combine-after-change-calls` while replaying.
-    let combine_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
-        ctx,
-        "combine-after-change-calls",
-    );
-    let saved_combine = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym)
-        .unwrap_or(Value::NIL);
+    let combine_sym =
+        crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, "combine-after-change-calls");
+    let saved_combine =
+        crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym).unwrap_or(Value::NIL);
     let specpdl_count = ctx.specpdl.len();
     ctx.specbind(intern("combine-after-change-calls"), Value::NIL);
 

@@ -522,12 +522,14 @@ fn verify_text_read_only_in_state(
     let Some(buf) = buffers.get(buf_id) else {
         return Ok(());
     };
-    let inhibit = buf.get_buffer_local("inhibit-read-only").unwrap_or_else(|| {
-        obarray
-            .symbol_value("inhibit-read-only")
-            .copied()
-            .unwrap_or(Value::NIL)
-    });
+    let inhibit = buf
+        .get_buffer_local("inhibit-read-only")
+        .unwrap_or_else(|| {
+            obarray
+                .symbol_value("inhibit-read-only")
+                .copied()
+                .unwrap_or(Value::NIL)
+        });
     // INTERVAL_GENERALLY_WRITABLE_P: when inhibit-read-only is non-nil
     // and not a list, every interval is writable regardless of its
     // read-only property.  GNU intervals.h:210.
@@ -1048,8 +1050,7 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
         seg_start = seg_end;
     }
     for (s, e, merged) in segments {
-        let _ =
-            buffers.put_buffer_text_property(buf_id, s, e, Value::symbol("face"), merged);
+        let _ = buffers.put_buffer_text_property(buf_id, s, e, Value::symbol("face"), merged);
     }
     Ok(Value::NIL)
 }
@@ -2026,13 +2027,11 @@ pub(crate) fn builtin_overlays_at_in_buffers(
         // whose `window` property is a window distinct from W are dropped.
         if let Some(target_window_id) = sorted.as_window_id() {
             let window_sym = Value::symbol("window");
-            ids.retain(|ov| {
-                match buf.overlays.overlay_get_named(*ov, window_sym) {
-                    Some(prop) => prop
-                        .as_window_id()
-                        .is_none_or(|wid| wid == target_window_id),
-                    None => true,
-                }
+            ids.retain(|ov| match buf.overlays.overlay_get_named(*ov, window_sym) {
+                Some(prop) => prop
+                    .as_window_id()
+                    .is_none_or(|wid| wid == target_window_id),
+                None => true,
             });
         }
         buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);

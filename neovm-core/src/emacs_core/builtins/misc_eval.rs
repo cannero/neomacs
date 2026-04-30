@@ -94,10 +94,8 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 
     // GNU: temp = next-overlay-change(POS); if LIMIT < temp, temp = LIMIT;
     // return next-property-change(POS, nil, temp).
-    let overlay_next = super::textprop::builtin_next_overlay_change_in_buffers(
-        buffers,
-        vec![args[0]],
-    )?;
+    let overlay_next =
+        super::textprop::builtin_next_overlay_change_in_buffers(buffers, vec![args[0]])?;
     let mut temp = overlay_next;
     if let Some(limit) = args.get(1) {
         if !limit.is_nil() {
@@ -292,10 +290,8 @@ pub(crate) fn builtin_previous_char_property_change_in_buffers(
 
     // GNU: temp = previous-overlay-change(POS); if LIMIT > temp, temp = LIMIT;
     // return previous-property-change(POS, nil, temp).
-    let overlay_prev = super::textprop::builtin_previous_overlay_change_in_buffers(
-        buffers,
-        vec![args[0]],
-    )?;
+    let overlay_prev =
+        super::textprop::builtin_previous_overlay_change_in_buffers(buffers, vec![args[0]])?;
     let mut temp = overlay_prev;
     if let Some(limit) = args.get(1) {
         if !limit.is_nil() {
@@ -307,10 +303,7 @@ pub(crate) fn builtin_previous_char_property_change_in_buffers(
             }
         }
     }
-    builtin_previous_property_change_in_buffers(
-        buffers,
-        vec![args[0], Value::NIL, temp],
-    )
+    builtin_previous_property_change_in_buffers(buffers, vec![args[0], Value::NIL, temp])
 }
 
 pub(crate) fn builtin_next_single_char_property_change(

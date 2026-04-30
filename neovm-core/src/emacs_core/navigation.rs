@@ -425,10 +425,7 @@ pub(crate) fn builtin_eolp(ctx: &mut super::eval::Context, args: Vec<Value>) -> 
 /// buffer's point after moving `n - 1` lines. Returns `(bol_charpos,
 /// orig_charpos, lines_moved)` mirroring GNU's static `bol` helper
 /// (editfns.c) plus the original PT used as anchor for field constraint.
-pub(crate) fn pos_bol_compute(
-    ctx: &super::eval::Context,
-    n: i64,
-) -> Result<(i64, i64, i64), Flow> {
+pub(crate) fn pos_bol_compute(ctx: &super::eval::Context, n: i64) -> Result<(i64, i64, i64), Flow> {
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_bytes(buf);
     let begv = buf.begv_byte;
@@ -452,10 +449,7 @@ pub(crate) fn pos_bol_compute(
 /// Compute the unconstrained end-of-line position for the current buffer's
 /// point after moving `n - 1` lines. Returns `(eol_charpos, orig_charpos)`,
 /// mirroring GNU's static `eol` helper (editfns.c).
-pub(crate) fn pos_eol_compute(
-    ctx: &super::eval::Context,
-    n: i64,
-) -> Result<(i64, i64), Flow> {
+pub(crate) fn pos_eol_compute(ctx: &super::eval::Context, n: i64) -> Result<(i64, i64), Flow> {
     let buf = current_buffer_in_manager(&ctx.buffers)?;
     let text = buffer_bytes(buf);
     let begv = buf.begv_byte;
@@ -624,8 +618,7 @@ pub(crate) fn builtin_beginning_of_line(
     // `SET_PT (XFIXNUM (Fline_beginning_position (n)))`. Delegate to our
     // line-beginning-position builtin so field constraints
     // (`Fconstrain_to_field`) apply uniformly.
-    let constrained =
-        builtin_line_beginning_position(eval, vec![Value::fixnum(n)])?;
+    let constrained = builtin_line_beginning_position(eval, vec![Value::fixnum(n)])?;
     let target_char = match constrained.kind() {
         ValueKind::Fixnum(v) => v,
         _ => return Ok(Value::NIL),
