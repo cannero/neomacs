@@ -1087,6 +1087,112 @@ fn read_load_average() -> Option<[f64; 3]> {
 ///
 /// Returns the number of characters changed.
 ///
+/// Helper for `translate-region-internal`: scan a `(([FROM-CHAR ...] . TO) ...)`
+/// alist looking for the first element whose FROM-CHAR vector matches the
+/// character sequence at byte offset `p` in `source`. Returns
+/// `(consumed_bytes, consumed_chars, TO)` on a successful match. Mirrors GNU
+/// `check_translation` (editfns.c:2448).
+fn check_translation(
+    source: &[u8],
+    p: usize,
+    multibyte: bool,
+    val: &Value,
+) -> Option<(usize, usize, Value)> {
+    use super::emacs_char::string_char_advance;
+
+    // Cache decoded chars and their byte lengths.
+    let mut buf_chars: Vec<i64> = Vec::with_capacity(8);
+    let mut buf_lens: Vec<usize> = Vec::with_capacity(8);
+    let mut scan = p;
+
+    let mut cur = *val;
+    while cur.is_cons() {
+        let elt = cur.cons_car();
+        cur = cur.cons_cdr();
+        if !elt.is_cons() {
+            continue;
+        }
+        let from_vec = elt.cons_car();
+        let items = match from_vec.as_vector_data() {
+            Some(v) => v,
+            None => continue,
+        };
+        let need = items.len();
+        // Decode enough chars from source.
+        while buf_chars.len() < need {
+            if scan >= source.len() {
+                break;
+            }
+            let start = scan;
+            let c = if multibyte {
+                let mut q = scan;
+                let c = string_char_advance(source, &mut q);
+                scan = q;
+                c as i64
+            } else {
+                let b = source[scan] as i64;
+                scan += 1;
+                b
+            };
+            buf_chars.push(c);
+            buf_lens.push(scan - start);
+        }
+        if buf_chars.len() < need {
+            continue;
+        }
+        let mut all_match = true;
+        for (i, item) in items.iter().enumerate() {
+            match item.as_fixnum() {
+                Some(n) if n == buf_chars[i] => {}
+                _ => {
+                    all_match = false;
+                    break;
+                }
+            }
+        }
+        if all_match {
+            let consumed_bytes: usize = buf_lens[..need].iter().sum();
+            return Some((consumed_bytes, need, elt.cons_cdr()));
+        }
+    }
+    None
+}
+
+/// Encode the TO half of a `(([FROM ...] . TO) ...)` element as bytes for
+/// the destination buffer's encoding. TO is either a character (fixnum) or a
+/// vector of characters.
+fn encode_translation_to(to: &Value, multibyte: bool) -> Vec<u8> {
+    use super::emacs_char::{MAX_CHAR, MAX_MULTIBYTE_LENGTH, char_string};
+
+    let mut bytes = Vec::new();
+    if let Some(c) = to.as_fixnum() {
+        if (0..=MAX_CHAR as i64).contains(&c) {
+            if multibyte {
+                let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+                let n = char_string(c as u32, &mut buf);
+                bytes.extend_from_slice(&buf[..n]);
+            } else {
+                bytes.push((c & 0xff) as u8);
+            }
+        }
+    } else if let Some(items) = to.as_vector_data() {
+        for ch in items.iter() {
+            if let Some(c) = ch.as_fixnum() {
+                if (0..=MAX_CHAR as i64).contains(&c) {
+                    if multibyte {
+                        let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+                        let n = char_string(c as u32, &mut buf);
+                        bytes.extend_from_slice(&buf[..n]);
+                    } else {
+                        bytes.push((c & 0xff) as u8);
+                    }
+                }
+            }
+        }
+    }
+    bytes
+}
+
 /// Mirrors GNU `Ftranslate_region_internal` (editfns.c:2506) using a
 /// whole-region read/translate/replace strategy (rather than GNU's
 /// in-place gap mutation). The behaviour for simple char→char and
@@ -1250,9 +1356,25 @@ pub(crate) fn builtin_translate_region_internal(
                     }
                 } else if val.is_cons() {
                     // (([FROM-CHAR ...] . TO) ...) — multi-char source
-                    // pattern. Lookahead-based matching not yet implemented;
-                    // skip translation (identity).
-                    // TODO: port `check_translation` (editfns.c:2448).
+                    // pattern. Mirror GNU `check_translation` (editfns.c:2448).
+                    if let Some((consumed_bytes, consumed_chars, to_val)) =
+                        check_translation(&source, p, multibyte, &val)
+                    {
+                        let to_bytes = encode_translation_to(&to_val, multibyte);
+                        out.extend_from_slice(&to_bytes);
+                        let added_chars = if multibyte {
+                            chars_in_multibyte(&to_bytes) as i64
+                        } else {
+                            to_bytes.len() as i64
+                        };
+                        characters_changed += added_chars;
+                        // Net change of characters; for our whole-region
+                        // replacement strategy this contributes only to the
+                        // final byte stream — no `end_pos` adjustment needed.
+                        let _ = consumed_chars;
+                        p += consumed_bytes.max(1);
+                        continue;
+                    }
                     nc = oc;
                     new_bytes = None;
                 }

@@ -2747,11 +2747,6 @@ pub(crate) fn builtin_tool_bar_pixel_width(args: Vec<Value>) -> EvalResult {
     Ok(Value::fixnum(0))
 }
 
-pub(crate) fn builtin_translate_region_internal(args: Vec<Value>) -> EvalResult {
-    expect_args("translate-region-internal", &args, 3)?;
-    Ok(Value::NIL)
-}
-
 pub(crate) fn builtin_transpose_regions(args: Vec<Value>) -> EvalResult {
     expect_range_args("transpose-regions", &args, 4, 5)?;
     Ok(Value::NIL)
