@@ -6145,6 +6145,46 @@ fn named_call_cache_invalidates_on_function_cell_mutation() {
 }
 
 #[test]
+fn compiler_function_overrides_cache_tracks_dynamic_binding() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(progn
+                 (fset 'neomacs--override-target (lambda () 'base))
+                 (list (neomacs--override-target)
+                       (let ((internal--compiler-function-overrides
+                              (list (cons 'neomacs--override-target
+                                          (lambda () 'override)))))
+                         (list (neomacs--override-target)
+                               (funcall 'neomacs--override-target)))
+                       (neomacs--override-target)))"#
+        ),
+        "OK (base (override override) base)"
+    );
+}
+
+#[test]
+fn compiler_function_overrides_cache_tracks_default_assignment() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            r#"(progn
+                 (fset 'neomacs--default-override-target (lambda () 'base))
+                 (set-default-toplevel-value
+                  'internal--compiler-function-overrides
+                  (list (cons 'neomacs--default-override-target
+                              (lambda () 'override))))
+                 (let ((during (list (neomacs--default-override-target)
+                                     (funcall 'neomacs--default-override-target))))
+                   (set-default-toplevel-value
+                    'internal--compiler-function-overrides nil)
+                   (list during (neomacs--default-override-target))))"#
+        ),
+        "OK ((override override) base)"
+    );
+}
+
+#[test]
 fn funcall_builtin_wrong_arity_uses_subr_object_payload() {
     crate::test_utils::init_test_tracing();
     assert_eq!(

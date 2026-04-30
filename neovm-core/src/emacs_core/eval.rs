@@ -243,13 +243,9 @@ pub(crate) fn clear_global_subr_table() {
 
 /// Cached SymId for `internal--compiler-function-overrides`.
 ///
-/// `compiler_function_overrides_active_in_obarray` is called from
-/// `resolve_named_call_target_by_id` on every funcall.  The previous
-/// implementation re-interned the string each call, which acquires the
-/// global interner write lock — even after `parking_lot::RwLock`, that
-/// is many extra atomic ops per call and shows up as the dominant cost
-/// in debug-build batch-byte-compile profiles.  Cache the SymId once
-/// and use the `_id`-suffixed obarray accessor that bypasses intern.
+/// Hot evaluator and bytecode dispatch paths cache whether this variable has a
+/// cons value. Keep the SymId cached as well so the mutation paths can refresh
+/// that flag without re-interning the string.
 fn internal_compiler_function_overrides_sym() -> SymId {
     static SYM: OnceLock<SymId> = OnceLock::new();
     *SYM.get_or_init(|| intern(INTERNAL_COMPILER_FUNCTION_OVERRIDES))
@@ -299,11 +295,6 @@ pub(crate) fn compiler_function_override_in_obarray(
         }
     }
     None
-}
-
-pub(crate) fn compiler_function_overrides_active_in_obarray(obarray: &Obarray) -> bool {
-    let overrides_sym = internal_compiler_function_overrides_sym();
-    obarray.symbol_value_id_or_nil(overrides_sym).is_cons()
 }
 
 #[derive(Clone, Debug)]
@@ -1040,6 +1031,7 @@ fn cons_head_symbol_id(value: &Value) -> Option<SymId> {
 
 struct CoreEvalSymbols {
     internal_interpreter_environment_symbol: SymId,
+    compiler_function_overrides_symbol: SymId,
     quit_flag_symbol: SymId,
     inhibit_quit_symbol: SymId,
     throw_on_input_symbol: SymId,
@@ -1054,6 +1046,8 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
     let internal_interpreter_environment_symbol = hidden_internal_interpreter_environment_symbol();
     obarray.set_symbol_value_id(internal_interpreter_environment_symbol, Value::NIL);
     obarray.make_special_id(internal_interpreter_environment_symbol);
+
+    let compiler_function_overrides_symbol = internal_compiler_function_overrides_sym();
 
     let quit_flag_symbol = intern("quit-flag");
     if reset_runtime_values {
@@ -1080,6 +1074,7 @@ fn install_core_eval_symbols(obarray: &mut Obarray, reset_runtime_values: bool) 
 
     CoreEvalSymbols {
         internal_interpreter_environment_symbol,
+        compiler_function_overrides_symbol,
         quit_flag_symbol,
         inhibit_quit_symbol,
         throw_on_input_symbol,
@@ -1690,6 +1685,14 @@ pub struct Context {
     next_resume_id: u64,
     /// GNU `pending_funcalls` equivalent for internal no-Lisp teardown paths.
     pub(crate) pending_safe_funcalls: Vec<PendingSafeFuncall>,
+    /// Cached truth of `internal--compiler-function-overrides`.
+    ///
+    /// GNU's hot evaluator path reads the function cell directly. Neomacs only
+    /// needs the override alist during compiler/macro machinery, so keep the
+    /// nil/common case as a cached flag and refresh it through the same runtime
+    /// binding paths that already maintain `quit-flag` and `noninteractive`.
+    compiler_function_overrides_symbol: SymId,
+    compiler_function_overrides_active: bool,
     /// Hot cache for named callable resolution in `funcall`/`apply`.
     /// Keyed by symbol id; entries are validated against the obarray's
     /// `function_epoch` so that any `defalias` / `fset` / autoload
@@ -4249,6 +4252,9 @@ impl Context {
         let print_symbols_bare = obarray
             .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
+        let compiler_function_overrides_active = obarray
+            .symbol_value_id_or_nil(core_eval_symbols.compiler_function_overrides_symbol)
+            .is_cons();
         let quit_flag = obarray.symbol_value_id_or_nil(core_eval_symbols.quit_flag_symbol);
         let inhibit_quit = obarray.symbol_value_id_or_nil(core_eval_symbols.inhibit_quit_symbol);
 
@@ -4334,6 +4340,9 @@ impl Context {
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
+            compiler_function_overrides_symbol: core_eval_symbols
+                .compiler_function_overrides_symbol,
+            compiler_function_overrides_active,
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: LexenvAssqCache::default(),
             lexenv_special_cache: LexenvSpecialCache::default(),
@@ -4402,6 +4411,9 @@ impl Context {
         let print_symbols_bare = obarray
             .symbol_value_id_or_nil(core_eval_symbols.print_symbols_bare_symbol)
             .is_truthy();
+        let compiler_function_overrides_active = obarray
+            .symbol_value_id_or_nil(core_eval_symbols.compiler_function_overrides_symbol)
+            .is_cons();
         let quit_flag = obarray.symbol_value_id_or_nil(core_eval_symbols.quit_flag_symbol);
         let inhibit_quit = obarray.symbol_value_id_or_nil(core_eval_symbols.inhibit_quit_symbol);
 
@@ -4487,6 +4499,9 @@ impl Context {
             condition_stack: Vec::new(),
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
+            compiler_function_overrides_symbol: core_eval_symbols
+                .compiler_function_overrides_symbol,
+            compiler_function_overrides_active,
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
             lexenv_assq_cache: LexenvAssqCache::default(),
             lexenv_special_cache: LexenvSpecialCache::default(),
@@ -6428,11 +6443,13 @@ impl Context {
     }
 
     #[inline]
-    fn sync_cached_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
+    pub(crate) fn sync_cached_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
         if sym_id == self.quit_flag_symbol {
             self.quit_flag = value;
         } else if sym_id == self.inhibit_quit_symbol {
             self.inhibit_quit = value;
+        } else if sym_id == self.compiler_function_overrides_symbol {
+            self.compiler_function_overrides_active = value.is_cons();
         } else if sym_id == self.noninteractive_symbol {
             self.noninteractive = value.is_truthy();
         } else if sym_id == self.symbols_with_pos_enabled_symbol {
@@ -6440,6 +6457,11 @@ impl Context {
         } else if sym_id == self.print_symbols_bare_symbol {
             self.print_symbols_bare = value.is_truthy();
         }
+    }
+
+    #[inline(always)]
+    pub(crate) fn compiler_function_overrides_active(&self) -> bool {
+        self.compiler_function_overrides_active
     }
 
     fn sync_keyboard_runtime_binding_by_id(&mut self, sym_id: SymId, value: Value) {
@@ -7020,8 +7042,10 @@ impl Context {
 
         // Resolve function value
         let func = if let Some(sym_id) = sym_id {
-            if let Some(override_func) =
-                compiler_function_override_in_obarray(&self.obarray, sym_id)
+            if let Some(override_func) = self
+                .compiler_function_overrides_active()
+                .then(|| compiler_function_override_in_obarray(&self.obarray, sym_id))
+                .flatten()
             {
                 override_func
             } else {
@@ -7222,8 +7246,6 @@ impl Context {
                 self.set_backtrace_args_evalled_owned(outer_bt_count, args);
                 self.unbind_to(args_roots_base);
 
-                self.maybe_gc_and_quit()?;
-
                 return self.maybe_grow_eval_stack(|ctx| {
                     ctx.dispatch_subr_entry_from_backtrace_unchecked(entry, outer_bt_count)
                         .unwrap_or_else(|| {
@@ -7235,8 +7257,6 @@ impl Context {
 
         self.set_backtrace_args_evalled(outer_bt_count, &args);
         self.unbind_to(args_roots_base);
-
-        self.maybe_gc_and_quit()?;
 
         if let Some((sym_id, entry)) = direct_subr_entry {
             return self.maybe_grow_eval_stack(|ctx| {
@@ -10442,8 +10462,7 @@ impl Context {
 
     #[inline]
     fn resolve_named_call_target_by_id(&mut self, sym_id: SymId) -> NamedCallTarget {
-        let compiler_overrides_active =
-            compiler_function_overrides_active_in_obarray(&self.obarray);
+        let compiler_overrides_active = self.compiler_function_overrides_active();
         let function_epoch = self.obarray.function_epoch();
         if !compiler_overrides_active {
             // Fast path: a HashMap lookup that returns the cached target

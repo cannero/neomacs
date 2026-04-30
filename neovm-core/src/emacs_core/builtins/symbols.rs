@@ -358,6 +358,7 @@ pub(crate) fn set_default_toplevel_value_impl(
         value,
     ) {
         ctx.obarray.set_symbol_value_id(resolved, value);
+        ctx.sync_cached_runtime_binding_by_id(resolved, value);
     }
     ctx.refresh_gc_runtime_settings_after_change_by_id(resolved);
     Ok(Value::NIL)

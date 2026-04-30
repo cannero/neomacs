@@ -1756,8 +1756,7 @@ impl<'a> Vm<'a> {
     }
 
     fn named_builtin_fast_path_allowed_id(&self, id: SymId) -> bool {
-        if crate::emacs_core::eval::compiler_function_overrides_active_in_obarray(&self.ctx.obarray)
-        {
+        if self.ctx.compiler_function_overrides_active() {
             return false;
         }
         match self.ctx.obarray.symbol_function_id(id) {
