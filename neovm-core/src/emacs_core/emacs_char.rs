@@ -1053,11 +1053,25 @@ pub fn blankp(cat: i64) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Count the number of characters in a multibyte byte sequence.
+///
+/// Mirrors GNU `multibyte_chars_in_text` (character.c:519). Each step uses
+/// `multibyte_length(allow_8bit=true)` and a 0-length result triggers
+/// `emacs_abort` in GNU. We assert in debug builds and fall back to a 1-byte
+/// advance in release builds so a malformed buffer does not crash production.
 pub fn chars_in_multibyte(bytes: &[u8]) -> usize {
     let mut count = 0usize;
     let mut pos = 0usize;
     while pos < bytes.len() {
-        let (_, len) = string_char(&bytes[pos..]);
+        let len = match multibyte_length(&bytes[pos..], true) {
+            Some(n) if n > 0 => n,
+            _ => {
+                debug_assert!(
+                    false,
+                    "chars_in_multibyte: invalid multibyte sequence at offset {pos}"
+                );
+                1
+            }
+        };
         pos += len;
         count += 1;
     }
