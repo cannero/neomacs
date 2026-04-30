@@ -469,13 +469,35 @@ fn set_current_case_table_for_buffer_in_state(
 /// Return `true` if `v` is a case table (char-table with `case-table` subtype).
 pub fn is_case_table(v: &Value) -> bool {
     use super::chartable::is_char_table;
-    use crate::emacs_core::value::ValueKind;
     if !is_char_table(v) {
         return false;
     }
-    if v.is_vector() {
-        let vec = v.as_vector_data().unwrap().clone();
-        vec.len() > CT_SUBTYPE && vec[CT_SUBTYPE].is_symbol_named("case-table")
+
+    let Some(vec) = v.as_vector_data() else {
+        return false;
+    };
+    if vec.len() <= CT_EXTRA_START + 2 || !vec[CT_SUBTYPE].is_symbol_named("case-table") {
+        return false;
+    }
+    let ValueKind::Fixnum(extra_count) = vec[CT_EXTRA_COUNT].kind() else {
+        return false;
+    };
+    if extra_count < 3 || vec.len() < CT_EXTRA_START + extra_count as usize {
+        return false;
+    }
+
+    let up = vec[CT_EXTRA_START];
+    let canon = vec[CT_EXTRA_START + 1];
+    let eqv = vec[CT_EXTRA_START + 2];
+
+    if !up.is_nil() && !is_char_table(&up) {
+        return false;
+    }
+
+    if canon.is_nil() && eqv.is_nil() {
+        true
+    } else if is_char_table(&canon) {
+        eqv.is_nil() || is_char_table(&eqv)
     } else {
         false
     }

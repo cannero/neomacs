@@ -380,6 +380,33 @@ fn is_case_table_wrong_subtype() {
 }
 
 #[test]
+fn is_case_table_rejects_missing_extra_slots() {
+    crate::test_utils::init_test_tracing();
+    let v = build_char_table("case-table", &[], Value::NIL, &[]);
+    assert!(!is_case_table(&v));
+}
+
+#[test]
+fn is_case_table_rejects_invalid_extra_slots() {
+    crate::test_utils::init_test_tracing();
+    let invalid_upcase = build_char_table(
+        "case-table",
+        &[Value::fixnum(1), Value::NIL, Value::NIL],
+        Value::NIL,
+        &[],
+    );
+    assert!(!is_case_table(&invalid_upcase));
+
+    let eqv_without_canon = build_char_table(
+        "case-table",
+        &[Value::NIL, Value::NIL, make_case_table_value()],
+        Value::NIL,
+        &[],
+    );
+    assert!(!is_case_table(&eqv_without_canon));
+}
+
+#[test]
 fn standard_case_table_is_char_table() {
     crate::test_utils::init_test_tracing();
     use super::super::chartable::is_char_table;
