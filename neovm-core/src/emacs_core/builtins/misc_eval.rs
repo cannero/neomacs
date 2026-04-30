@@ -91,22 +91,28 @@ pub(crate) fn builtin_next_char_property_change_in_buffers(
 ) -> EvalResult {
     expect_min_args("next-char-property-change", &args, 1)?;
     expect_max_args("next-char-property-change", &args, 2)?;
-    let result = match args.len() {
-        1 => super::textprop::builtin_next_property_change_in_buffers(buffers, args)?,
-        2 => super::textprop::builtin_next_property_change_in_buffers(
-            buffers,
-            vec![args[0], Value::NIL, args[1]],
-        )?,
-        _ => unreachable!(),
-    };
-    if !result.is_nil() {
-        return Ok(result);
-    }
 
-    let buf = buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::fixnum(buf.point_max_char() as i64 + 1))
+    // GNU: temp = next-overlay-change(POS); if LIMIT < temp, temp = LIMIT;
+    // return next-property-change(POS, nil, temp).
+    let overlay_next = super::textprop::builtin_next_overlay_change_in_buffers(
+        buffers,
+        vec![args[0]],
+    )?;
+    let mut temp = overlay_next;
+    if let Some(limit) = args.get(1) {
+        if !limit.is_nil() {
+            let lim_int = expect_integer_or_marker(limit)?;
+            if let Some(temp_int) = (|| temp.as_fixnum())() {
+                if lim_int < temp_int {
+                    temp = Value::fixnum(lim_int);
+                }
+            }
+        }
+    }
+    super::textprop::builtin_next_property_change_in_buffers(
+        buffers,
+        vec![args[0], Value::NIL, temp],
+    )
 }
 
 pub(crate) fn builtin_pos_bol(eval: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
@@ -268,19 +274,27 @@ pub(crate) fn builtin_previous_char_property_change_in_buffers(
     expect_min_args("previous-char-property-change", &args, 1)?;
     expect_max_args("previous-char-property-change", &args, 2)?;
 
-    let mut forwarded = vec![args[0], Value::NIL];
+    // GNU: temp = previous-overlay-change(POS); if LIMIT > temp, temp = LIMIT;
+    // return previous-property-change(POS, nil, temp).
+    let overlay_prev = super::textprop::builtin_previous_overlay_change_in_buffers(
+        buffers,
+        vec![args[0]],
+    )?;
+    let mut temp = overlay_prev;
     if let Some(limit) = args.get(1) {
-        forwarded.push(*limit);
+        if !limit.is_nil() {
+            let lim_int = expect_integer_or_marker(limit)?;
+            if let Some(temp_int) = temp.as_fixnum() {
+                if lim_int > temp_int {
+                    temp = Value::fixnum(lim_int);
+                }
+            }
+        }
     }
-    let result = builtin_previous_property_change_in_buffers(buffers, forwarded)?;
-    if !result.is_nil() {
-        return Ok(result);
-    }
-
-    let buf = buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    Ok(Value::fixnum(buf.point_min_char() as i64 + 1))
+    builtin_previous_property_change_in_buffers(
+        buffers,
+        vec![args[0], Value::NIL, temp],
+    )
 }
 
 pub(crate) fn builtin_next_single_char_property_change(
