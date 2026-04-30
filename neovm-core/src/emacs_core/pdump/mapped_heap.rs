@@ -15,7 +15,7 @@ use super::types::{
 use super::value_fixups::RawValueFixup;
 use crate::tagged::header::{
     ConsCell, FloatObj, GcHeader, HeapObjectKind, LambdaObj, MacroObj, MarkerObj, OverlayObj,
-    RecordObj, StringObj, VecLikeHeader, VectorObj,
+    RecordObj, StringObj, VecLikeHeader, VecLikeType, VectorObj,
 };
 use crate::tagged::value::TaggedValue;
 use bytemuck::{Pod, Zeroable};
@@ -47,6 +47,14 @@ struct RawGcHeader {
 struct RawFloatObj {
     header: RawGcHeader,
     value: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct RawVecLikeHeader {
+    header: RawGcHeader,
+    type_tag: u8,
+    padding: [u8; 7],
 }
 
 #[derive(Clone, Copy)]
@@ -294,6 +302,33 @@ impl MappedHeapView {
             )));
         }
         Ok(unsafe { self.ptr.add(start).cast::<VecLikeHeader>() })
+    }
+
+    pub(crate) fn veclike_type(self, span: DumpVecLikeSpan) -> Result<VecLikeType, DumpError> {
+        let start = usize::try_from(span.offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped vectorlike span offset overflows usize".into())
+        })?;
+        let len = usize::try_from(span.len).map_err(|_| {
+            DumpError::ImageFormatError("mapped vectorlike span length overflows usize".into())
+        })?;
+        if len < std::mem::size_of::<VecLikeHeader>() {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped vectorlike span length {len} is smaller than header size {}",
+                std::mem::size_of::<VecLikeHeader>()
+            )));
+        }
+        let end = start.checked_add(len).ok_or_else(|| {
+            DumpError::ImageFormatError("mapped vectorlike span range overflow".into())
+        })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped vectorlike span {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        let tag_offset = start + std::mem::size_of::<GcHeader>();
+        let tag = unsafe { *self.ptr.add(tag_offset) };
+        veclike_type_from_tag(tag)
     }
 
     pub(crate) fn string_obj_mut(self, span: DumpStringSpan) -> Result<*mut StringObj, DumpError> {
@@ -776,12 +811,32 @@ impl MappedHeapBuilder {
                 | DumpHeapObject::Lambda(slots)
                 | DumpHeapObject::Macro(slots)
                 | DumpHeapObject::Record(slots) => {
+                    if let Some(span) = heap.mapped_veclikes.get(index).copied().flatten() {
+                        let type_tag = match object {
+                            DumpHeapObject::Vector(_) => VecLikeType::Vector,
+                            DumpHeapObject::Lambda(_) => VecLikeType::Lambda,
+                            DumpHeapObject::Macro(_) => VecLikeType::Macro,
+                            DumpHeapObject::Record(_) => VecLikeType::Record,
+                            _ => unreachable!(),
+                        };
+                        self.write_raw_veclike_header(span.offset as usize, type_tag);
+                    }
                     if let Some(span) = heap.mapped_slots.get(index).copied().flatten() {
                         let mut offset = span.offset as usize;
                         for slot in slots {
                             self.write_dump_value_word(offset, slot, heap);
                             offset += std::mem::size_of::<TaggedValue>();
                         }
+                    }
+                }
+                DumpHeapObject::Marker(_) | DumpHeapObject::Overlay(_) => {
+                    if let Some(span) = heap.mapped_veclikes.get(index).copied().flatten() {
+                        let type_tag = match object {
+                            DumpHeapObject::Marker(_) => VecLikeType::Marker,
+                            DumpHeapObject::Overlay(_) => VecLikeType::Overlay,
+                            _ => unreachable!(),
+                        };
+                        self.write_raw_veclike_header(span.offset as usize, type_tag);
                     }
                 }
                 _ => {}
@@ -806,6 +861,14 @@ impl MappedHeapBuilder {
             std::mem::align_of::<RawFloatObj>(),
             std::mem::align_of::<FloatObj>()
         );
+        debug_assert_eq!(
+            std::mem::size_of::<RawVecLikeHeader>(),
+            std::mem::size_of::<VecLikeHeader>()
+        );
+        debug_assert_eq!(
+            std::mem::align_of::<RawVecLikeHeader>(),
+            std::mem::align_of::<VecLikeHeader>()
+        );
     }
 
     fn write_raw_float_obj(&mut self, offset: usize, value: f64) {
@@ -817,6 +880,20 @@ impl MappedHeapBuilder {
                 next: 0,
             },
             value,
+        };
+        self.write_bytes(offset, bytemuck::bytes_of(&raw));
+    }
+
+    fn write_raw_veclike_header(&mut self, offset: usize, type_tag: VecLikeType) {
+        let raw = RawVecLikeHeader {
+            header: RawGcHeader {
+                marked: 0,
+                kind: HeapObjectKind::VecLike as u8,
+                padding: [0; 6],
+                next: 0,
+            },
+            type_tag: type_tag as u8,
+            padding: [0; 7],
         };
         self.write_bytes(offset, bytemuck::bytes_of(&raw));
     }
@@ -904,6 +981,29 @@ fn mapped_heap_ref_target(value: &DumpValue, heap: &DumpTaggedHeap) -> Option<(u
             .flatten()
             .map(|span| (span.offset, TAG_VECLIKE)),
         _ => None,
+    }
+}
+
+fn veclike_type_from_tag(tag: u8) -> Result<VecLikeType, DumpError> {
+    match tag {
+        0 => Ok(VecLikeType::Vector),
+        1 => Ok(VecLikeType::HashTable),
+        2 => Ok(VecLikeType::Lambda),
+        3 => Ok(VecLikeType::Macro),
+        4 => Ok(VecLikeType::ByteCode),
+        5 => Ok(VecLikeType::Record),
+        6 => Ok(VecLikeType::Overlay),
+        7 => Ok(VecLikeType::Marker),
+        8 => Ok(VecLikeType::Buffer),
+        9 => Ok(VecLikeType::Window),
+        10 => Ok(VecLikeType::Frame),
+        11 => Ok(VecLikeType::Timer),
+        12 => Ok(VecLikeType::Subr),
+        13 => Ok(VecLikeType::Bignum),
+        14 => Ok(VecLikeType::SymbolWithPos),
+        other => Err(DumpError::ImageFormatError(format!(
+            "unknown mapped vectorlike type tag {other}"
+        ))),
     }
 }
 
@@ -1002,6 +1102,7 @@ mod tests {
         let view = MappedHeapView::from_mut_slice(&mut heap.bytes);
         let header = view.veclike_header_mut(object_span).unwrap();
         assert_eq!(header.cast::<u8>(), heap.bytes.as_mut_ptr());
+        assert_eq!(view.veclike_type(object_span).unwrap(), VecLikeType::Vector);
         let ptr = view
             .typed_object_mut::<VectorObj>(object_span, "vector")
             .unwrap();

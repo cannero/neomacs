@@ -135,7 +135,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   ObjectStarts slot spans are the source of truth, like GNU's mapped objects.
 // v52: ObjectExtra string metadata uses checked 32-bit dump fields for sizes,
 //   spans, and text-property run bounds, matching GNU pdumper's dump_off model.
-const FORMAT_VERSION: u32 = 52;
+// v53: ObjectExtra is sparse: category-A mapped objects come from ObjectStarts
+//   and mapped heap headers instead of one semantic descriptor tag per object.
+const FORMAT_VERSION: u32 = 53;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 
@@ -462,10 +464,17 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .section(DumpSectionKind::ObjectStarts)
         .ok_or_else(|| DumpError::ImageFormatError("missing object-starts section".into()))?;
     let spans = object_starts::load_object_starts(object_starts_payload)?;
+    let mapped_heap = image
+        .section_mut_ptr(DumpSectionKind::HeapImage)
+        .map(|(ptr, len)| unsafe { mapped_heap::MappedHeapView::from_raw_parts(ptr, len, true) });
     let object_extra_payload = image
         .section(DumpSectionKind::ObjectExtra)
         .ok_or_else(|| DumpError::ImageFormatError("missing object-extra section".into()))?;
-    let objects = object_extra::load_compact_heap_objects_from_object_extra(object_extra_payload)?;
+    let objects = object_extra::load_compact_heap_objects_from_object_extra(
+        object_extra_payload,
+        &spans,
+        mapped_heap,
+    )?;
     if spans.len() != objects.len() {
         return Err(DumpError::ImageFormatError(format!(
             "object-starts count {} does not match object-extra count {}",
@@ -515,9 +524,6 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     runtime_managers_image::load_runtime_managers_section(runtime_managers_payload)?
         .install_into(&mut state);
 
-    let mapped_heap = image
-        .section_mut_ptr(DumpSectionKind::HeapImage)
-        .map(|(ptr, len)| unsafe { mapped_heap::MappedHeapView::from_raw_parts(ptr, len, true) });
     let value_fixups_section = image.section(DumpSectionKind::ValueRelocations);
 
     let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(

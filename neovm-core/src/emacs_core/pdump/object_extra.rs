@@ -1,4 +1,4 @@
-//! Compact ObjectExtra section: per-object extra data for Category B/C objects.
+//! Compact ObjectExtra section: sparse extra data for objects not fully mapped.
 //!
 //! Category A objects (cons, float, vector, lambda, macro, record) are fully
 //! in HeapImage/ObjectStarts after relocation and need no extra data.
@@ -9,18 +9,22 @@
 //! Category C objects (hash-table, bytecode, subr, buffer, window, frame,
 //! timer, free) have no HeapImage representation and need a full descriptor.
 //!
-//! Serialization strategy: the extra tag byte identifies the variant, then
-//! the payload uses the same encoding as `object_value_codec::write_heap_object`
-//! for complex types. On read, we delegate to `Cursor::read_heap_object` and
-//! extract the relevant fields from the returned `DumpHeapObject`.
+//! Serialization strategy: each sparse record starts with the object index, then
+//! the extra tag byte identifies the variant. Complex payloads use the same
+//! encoding as `object_value_codec::write_heap_object`; on read, we delegate to
+//! `Cursor::read_heap_object` and extract the relevant fields from the returned
+//! `DumpHeapObject`.
 
 use bytemuck::{Pod, Zeroable};
 
+use super::mapped_heap::MappedHeapView;
+use super::object_starts::{LoadedObjectSpan, LoadedSpans};
 use super::object_value_codec;
 use super::{DumpError, types::*};
+use crate::tagged::header::VecLikeType;
 
 const OBJECT_EXTRA_MAGIC: [u8; 16] = *b"NEOOBJEXTRA\0\0\0\0\0";
-const OBJECT_EXTRA_FORMAT_VERSION: u32 = 3;
+const OBJECT_EXTRA_FORMAT_VERSION: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -36,12 +40,6 @@ struct ObjectExtraHeader {
 const HEADER_SIZE: usize = std::mem::size_of::<ObjectExtraHeader>();
 
 // Variant tags — kept distinct from HEAP_* tags in object_value_codec.rs.
-const EXTRA_CONS: u8 = 112;
-const EXTRA_FLOAT: u8 = 113;
-const EXTRA_VECTOR: u8 = 114;
-const EXTRA_LAMBDA: u8 = 115;
-const EXTRA_MACRO: u8 = 116;
-const EXTRA_RECORD: u8 = 117;
 const EXTRA_STRING: u8 = 101;
 const EXTRA_HASH_TABLE: u8 = 102;
 const EXTRA_BYTE_CODE: u8 = 103;
@@ -57,18 +55,6 @@ const EXTRA_FREE: u8 = 111;
 /// Per-object extra data needed during load.
 #[derive(Debug, Clone)]
 pub(crate) enum ObjectExtra {
-    /// Category A: cons cell (data in HeapImage).
-    Cons,
-    /// Category A: float (data in HeapImage).
-    Float,
-    /// Category A: vector (object and slot count are in HeapImage/ObjectStarts).
-    Vector,
-    /// Category A: lambda (object and slot count are in HeapImage/ObjectStarts).
-    Lambda,
-    /// Category A: macro (object and slot count are in HeapImage/ObjectStarts).
-    Macro,
-    /// Category A: record (object and slot count are in HeapImage/ObjectStarts).
-    Record,
     /// Category B: string needs size, size_byte, byte data span, and text_props.
     String {
         size: usize,
@@ -109,7 +95,11 @@ pub(crate) enum ObjectExtra {
 /// Build the ObjectExtra section bytes from dump heap objects.
 pub(crate) fn build_object_extra(objects: &[DumpHeapObject]) -> Result<Vec<u8>, DumpError> {
     let mut bytes = vec![0u8; HEADER_SIZE];
-    for obj in objects {
+    for (index, obj) in objects.iter().enumerate() {
+        if !object_needs_extra(obj) {
+            continue;
+        }
+        write_dump_usize(&mut bytes, index, "object-extra object index")?;
         write_object_extra(&mut bytes, obj)?;
     }
     let payload_len = bytes.len() - HEADER_SIZE;
@@ -127,26 +117,12 @@ pub(crate) fn build_object_extra(objects: &[DumpHeapObject]) -> Result<Vec<u8>, 
 
 fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), DumpError> {
     match obj {
-        // Category A: just the type tag. GNU pdumper keeps vector length in
-        // the mapped object/slot layout, not in side metadata.
-        DumpHeapObject::Cons { .. } => {
-            object_value_codec::write_u8(out, EXTRA_CONS);
-        }
-        DumpHeapObject::Float(_) => {
-            object_value_codec::write_u8(out, EXTRA_FLOAT);
-        }
-        DumpHeapObject::Vector(_) => {
-            object_value_codec::write_u8(out, EXTRA_VECTOR);
-        }
-        DumpHeapObject::Lambda(_) => {
-            object_value_codec::write_u8(out, EXTRA_LAMBDA);
-        }
-        DumpHeapObject::Macro(_) => {
-            object_value_codec::write_u8(out, EXTRA_MACRO);
-        }
-        DumpHeapObject::Record(_) => {
-            object_value_codec::write_u8(out, EXTRA_RECORD);
-        }
+        DumpHeapObject::Cons { .. }
+        | DumpHeapObject::Float(_)
+        | DumpHeapObject::Vector(_)
+        | DumpHeapObject::Lambda(_)
+        | DumpHeapObject::Macro(_)
+        | DumpHeapObject::Record(_) => {}
         // Category B: partial extra data.
         DumpHeapObject::Str {
             data,
@@ -225,79 +201,86 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
     Ok(())
 }
 
+fn object_needs_extra(obj: &DumpHeapObject) -> bool {
+    !matches!(
+        obj,
+        DumpHeapObject::Cons { .. }
+            | DumpHeapObject::Float(_)
+            | DumpHeapObject::Vector(_)
+            | DumpHeapObject::Lambda(_)
+            | DumpHeapObject::Macro(_)
+            | DumpHeapObject::Record(_)
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Load (load path)
 // ---------------------------------------------------------------------------
 
-/// Reconstruct a `Vec<DumpHeapObject>` from ObjectExtra + span tables.
-///
-/// Compatibility helper for tests and older callers. The main pdump load path
-/// uses `load_heap_objects_from_object_extra` to avoid building this
-/// intermediate vector.
-///
-/// Category A objects get placeholder data (the actual data comes from
-/// HeapImage via relocations). Category B/C objects get their full
-/// descriptor from ObjectExtra.
-pub(crate) fn reconstruct_heap_objects(extras: &[ObjectExtra]) -> Vec<DumpHeapObject> {
-    extras
-        .iter()
-        .cloned()
-        .map(object_extra_into_heap_object)
-        .collect()
-}
-
-/// Load the ObjectExtra section into per-object descriptors.
+/// Load the sparse ObjectExtra section into the present extra records.
 pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, DumpError> {
-    let (count, payload) = object_extra_payload(section)?;
+    let (_count, payload) = object_extra_payload(section)?;
     let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
-    let mut extras = Vec::with_capacity(count);
-    for _ in 0..count {
-        let extra = read_object_extra(&mut cursor)?;
-        extras.push(extra);
+    let mut extras = Vec::new();
+    while !cursor.is_empty() {
+        let _index = read_dump_usize(&mut cursor, "object-extra object index")?;
+        extras.push(read_object_extra(&mut cursor)?);
     }
     Ok(extras)
-}
-
-/// Load the ObjectExtra section directly into the object descriptors expected by
-/// `LoadDecoder`.
-///
-/// This keeps the transitional descriptor vector that the current decoder still
-/// requires, but skips the previous `Vec<ObjectExtra>` allocation and the clone
-/// pass. GNU pdumper walks mapped metadata in place; this is a smaller step in
-/// that direction while the decoder is still being retired.
-pub(crate) fn load_heap_objects_from_object_extra(
-    section: &[u8],
-) -> Result<Vec<DumpHeapObject>, DumpError> {
-    load_heap_objects_from_object_extra_with(section, object_extra_into_heap_object)
 }
 
 /// Load ObjectExtra for the file pdump path without expanding mapped
 /// vectorlike objects into large nil-filled placeholder slot vectors.
 ///
-/// GNU's pdumper does not rebuild vector slots from a semantic descriptor: the
-/// slots already live in the mapped heap image. Neomacs still needs a
-/// per-object descriptor vector while the loader is transitional, but for
-/// Category A vectorlike objects that descriptor only needs the variant. The
-/// authoritative slot count is read from ObjectStarts' mapped slot span during
-/// load.
+/// GNU's pdumper does not serialize semantic descriptors for objects already in
+/// the mapped image. Neomacs still needs a per-object descriptor vector while
+/// the loader is transitional, but Category A descriptors are synthesized from
+/// ObjectStarts and mapped heap headers.
 pub(crate) fn load_compact_heap_objects_from_object_extra(
     section: &[u8],
-) -> Result<Vec<DumpHeapObject>, DumpError> {
-    load_heap_objects_from_object_extra_with(section, object_extra_into_compact_heap_object)
-}
-
-fn load_heap_objects_from_object_extra_with(
-    section: &[u8],
-    mut convert: impl FnMut(ObjectExtra) -> DumpHeapObject,
+    spans: &LoadedSpans<'_>,
+    mapped_heap: Option<MappedHeapView>,
 ) -> Result<Vec<DumpHeapObject>, DumpError> {
     let (count, payload) = object_extra_payload(section)?;
-    let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
-    let mut objects = Vec::with_capacity(count);
-    for _ in 0..count {
-        let extra = read_object_extra(&mut cursor)?;
-        objects.push(convert(extra));
+    if spans.len() != count {
+        return Err(DumpError::ImageFormatError(format!(
+            "object-extra count {count} does not match object-starts count {}",
+            spans.len()
+        )));
     }
-    Ok(objects)
+    let mut objects = Vec::with_capacity(count);
+    for index in 0..count {
+        objects.push(mapped_object_from_span(spans.get(index), mapped_heap)?);
+    }
+
+    let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
+    while !cursor.is_empty() {
+        let index = read_dump_usize(&mut cursor, "object-extra object index")?;
+        if index >= count {
+            return Err(DumpError::ImageFormatError(format!(
+                "object-extra index {index} is outside object count {count}"
+            )));
+        }
+        if objects[index].is_some() {
+            return Err(DumpError::ImageFormatError(format!(
+                "object-extra has duplicate or unnecessary record for mapped object {index}"
+            )));
+        }
+        let extra = read_object_extra(&mut cursor)?;
+        objects[index] = Some(object_extra_into_heap_object(extra));
+    }
+
+    objects
+        .into_iter()
+        .enumerate()
+        .map(|(index, object)| {
+            object.ok_or_else(|| {
+                DumpError::ImageFormatError(format!(
+                    "object-extra has no descriptor for object {index}"
+                ))
+            })
+        })
+        .collect()
 }
 
 fn object_extra_payload(section: &[u8]) -> Result<(usize, &[u8]), DumpError> {
@@ -332,15 +315,6 @@ fn object_extra_payload(section: &[u8]) -> Result<(usize, &[u8]), DumpError> {
 
 fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
     match extra {
-        ObjectExtra::Cons => DumpHeapObject::Cons {
-            car: DumpValue::Nil,
-            cdr: DumpValue::Nil,
-        },
-        ObjectExtra::Float => DumpHeapObject::Float(0.0),
-        ObjectExtra::Vector => DumpHeapObject::Vector(Vec::new()),
-        ObjectExtra::Lambda => DumpHeapObject::Lambda(Vec::new()),
-        ObjectExtra::Macro => DumpHeapObject::Macro(Vec::new()),
-        ObjectExtra::Record => DumpHeapObject::Record(Vec::new()),
         ObjectExtra::String {
             size,
             size_byte,
@@ -373,25 +347,42 @@ fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
     }
 }
 
-fn object_extra_into_compact_heap_object(extra: ObjectExtra) -> DumpHeapObject {
-    match extra {
-        ObjectExtra::Vector => DumpHeapObject::Vector(Vec::new()),
-        ObjectExtra::Lambda => DumpHeapObject::Lambda(Vec::new()),
-        ObjectExtra::Macro => DumpHeapObject::Macro(Vec::new()),
-        ObjectExtra::Record => DumpHeapObject::Record(Vec::new()),
-        other => object_extra_into_heap_object(other),
+fn mapped_object_from_span(
+    span: LoadedObjectSpan,
+    mapped_heap: Option<MappedHeapView>,
+) -> Result<Option<DumpHeapObject>, DumpError> {
+    match span {
+        LoadedObjectSpan::Cons(_) => Ok(Some(DumpHeapObject::Cons {
+            car: DumpValue::Nil,
+            cdr: DumpValue::Nil,
+        })),
+        LoadedObjectSpan::Float(_) => Ok(Some(DumpHeapObject::Float(0.0))),
+        LoadedObjectSpan::Vectorlike { object, .. } => {
+            let mapped_heap = mapped_heap.ok_or_else(|| {
+                DumpError::ImageFormatError(
+                    "mapped vectorlike span requires a heap image section".into(),
+                )
+            })?;
+            match mapped_heap.veclike_type(object)? {
+                VecLikeType::Vector => Ok(Some(DumpHeapObject::Vector(Vec::new()))),
+                VecLikeType::Lambda => Ok(Some(DumpHeapObject::Lambda(Vec::new()))),
+                VecLikeType::Macro => Ok(Some(DumpHeapObject::Macro(Vec::new()))),
+                VecLikeType::Record => Ok(Some(DumpHeapObject::Record(Vec::new()))),
+                VecLikeType::Marker | VecLikeType::Overlay => Ok(None),
+                other => Err(DumpError::ImageFormatError(format!(
+                    "unexpected mapped vectorlike type {other:?} in object-starts"
+                ))),
+            }
+        }
+        LoadedObjectSpan::None | LoadedObjectSpan::String(_) | LoadedObjectSpan::Unmapped => {
+            Ok(None)
+        }
     }
 }
 
 fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectExtra, DumpError> {
     let tag = cursor.read_u8("object extra tag")?;
     match tag {
-        EXTRA_CONS => Ok(ObjectExtra::Cons),
-        EXTRA_FLOAT => Ok(ObjectExtra::Float),
-        EXTRA_VECTOR => Ok(ObjectExtra::Vector),
-        EXTRA_LAMBDA => Ok(ObjectExtra::Lambda),
-        EXTRA_MACRO => Ok(ObjectExtra::Macro),
-        EXTRA_RECORD => Ok(ObjectExtra::Record),
         EXTRA_STRING => {
             let size = read_dump_usize(cursor, "string size")?;
             let size_byte = read_dump_i32(cursor, "string size_byte")?;
@@ -597,9 +588,10 @@ impl DumpHeapObject {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tagged::header::{GcHeader, LambdaObj, MacroObj, RecordObj, VectorObj};
 
     #[test]
-    fn object_extra_round_trips_category_a_and_free_descriptors() {
+    fn object_extra_is_sparse_for_category_a_descriptors() {
         let bytes = build_object_extra(&[
             DumpHeapObject::Cons {
                 car: DumpValue::Nil,
@@ -611,43 +603,78 @@ mod tests {
         .expect("build object extra");
 
         let extras = load_object_extra(&bytes).expect("load object extra");
-        assert!(matches!(extras[0], ObjectExtra::Cons));
-        assert!(matches!(extras[1], ObjectExtra::Vector));
-        assert!(matches!(extras[2], ObjectExtra::Free));
+        assert_eq!(extras.len(), 1);
+        assert!(matches!(extras[0], ObjectExtra::Free));
     }
 
     #[test]
-    fn object_extra_loads_heap_objects_without_intermediate_extra_vector() {
-        let bytes = build_object_extra(&[
+    fn object_extra_loads_sparse_heap_objects_from_spans() {
+        let objects = vec![
             DumpHeapObject::Cons {
                 car: DumpValue::True,
                 cdr: DumpValue::Nil,
             },
-            DumpHeapObject::Vector(vec![DumpValue::Nil, DumpValue::True]),
             DumpHeapObject::Free,
-        ])
-        .expect("build object extra");
+        ];
+        let bytes = build_object_extra(&objects).expect("build object extra");
+        let heap = DumpTaggedHeap {
+            objects,
+            mapped_cons: vec![Some(DumpConsSpan { offset: 0 }), None],
+            mapped_floats: vec![None, None],
+            mapped_strings: vec![None, None],
+            mapped_veclikes: vec![None, None],
+            mapped_slots: vec![None, None],
+        };
+        let spans = LoadedSpans::from_heap(&heap);
 
-        let objects =
-            load_heap_objects_from_object_extra(&bytes).expect("load heap objects from extra");
+        let objects = load_compact_heap_objects_from_object_extra(&bytes, &spans, None)
+            .expect("load heap objects from sparse extra");
 
         assert!(matches!(objects[0], DumpHeapObject::Cons { .. }));
-        assert!(matches!(objects[1], DumpHeapObject::Vector(ref slots) if slots.is_empty()));
-        assert!(matches!(objects[2], DumpHeapObject::Free));
+        assert!(matches!(objects[1], DumpHeapObject::Free));
     }
 
     #[test]
-    fn compact_object_extra_keeps_mapped_vectorlike_descriptors_small() {
-        let bytes = build_object_extra(&[
+    fn compact_object_extra_infers_mapped_vectorlike_descriptors_from_headers() {
+        let objects = vec![
             DumpHeapObject::Vector(vec![DumpValue::Nil, DumpValue::True]),
             DumpHeapObject::Lambda(vec![DumpValue::Nil, DumpValue::True]),
             DumpHeapObject::Macro(vec![DumpValue::Nil, DumpValue::True]),
             DumpHeapObject::Record(vec![DumpValue::Nil, DumpValue::True]),
-        ])
-        .expect("build object extra");
+        ];
+        let bytes = build_object_extra(&objects).expect("build object extra");
+        assert_eq!(bytes.len(), HEADER_SIZE);
 
-        let objects = load_compact_heap_objects_from_object_extra(&bytes)
-            .expect("load compact heap objects from extra");
+        let mut offset = 0u64;
+        let vector_span = reserve_test_object::<VectorObj>(&mut offset);
+        let lambda_span = reserve_test_object::<LambdaObj>(&mut offset);
+        let macro_span = reserve_test_object::<MacroObj>(&mut offset);
+        let record_span = reserve_test_object::<RecordObj>(&mut offset);
+        let mut heap_bytes = vec![0u8; offset as usize];
+        write_test_veclike_type(&mut heap_bytes, vector_span, VecLikeType::Vector);
+        write_test_veclike_type(&mut heap_bytes, lambda_span, VecLikeType::Lambda);
+        write_test_veclike_type(&mut heap_bytes, macro_span, VecLikeType::Macro);
+        write_test_veclike_type(&mut heap_bytes, record_span, VecLikeType::Record);
+
+        let heap = DumpTaggedHeap {
+            objects,
+            mapped_cons: vec![None; 4],
+            mapped_floats: vec![None; 4],
+            mapped_strings: vec![None; 4],
+            mapped_veclikes: vec![
+                Some(vector_span),
+                Some(lambda_span),
+                Some(macro_span),
+                Some(record_span),
+            ],
+            mapped_slots: vec![None; 4],
+        };
+        let spans = LoadedSpans::from_heap(&heap);
+        let mapped_heap = MappedHeapView::from_mut_slice(&mut heap_bytes);
+
+        let objects =
+            load_compact_heap_objects_from_object_extra(&bytes, &spans, Some(mapped_heap))
+                .expect("load compact heap objects from extra");
 
         assert!(matches!(objects[0], DumpHeapObject::Vector(ref slots) if slots.is_empty()));
         assert!(matches!(objects[1], DumpHeapObject::Lambda(ref slots) if slots.is_empty()));
@@ -658,9 +685,22 @@ mod tests {
     #[test]
     fn object_extra_rejects_removed_none_tag() {
         let mut bytes = build_object_extra(&[DumpHeapObject::Free]).expect("build object extra");
-        bytes[HEADER_SIZE] = 100;
+        bytes[HEADER_SIZE + 4] = 100;
 
         let err = load_object_extra(&bytes).expect_err("removed NONE tag should be rejected");
         assert!(matches!(err, DumpError::ImageFormatError(_)));
+    }
+
+    fn reserve_test_object<T>(offset: &mut u64) -> DumpVecLikeSpan {
+        let span = DumpVecLikeSpan {
+            offset: *offset,
+            len: std::mem::size_of::<T>() as u64,
+        };
+        *offset += span.len;
+        span
+    }
+
+    fn write_test_veclike_type(bytes: &mut [u8], span: DumpVecLikeSpan, type_tag: VecLikeType) {
+        bytes[span.offset as usize + std::mem::size_of::<GcHeader>()] = type_tag as u8;
     }
 }
