@@ -571,12 +571,42 @@ fn syntax_char_from_code(code: u32) -> char {
     super::builtins::character_code_to_rust_char(code as i64).unwrap_or('\u{FFFD}')
 }
 
+fn syntax_chars_from_emacs_bytes(bytes: &[u8], multibyte: bool) -> Vec<char> {
+    if !multibyte {
+        return bytes
+            .iter()
+            .map(|&byte| syntax_char_from_code(byte as u32))
+            .collect();
+    }
+
+    let mut chars = Vec::with_capacity(bytes.len());
+    let mut pos = 0;
+    while pos < bytes.len() {
+        let byte = bytes[pos];
+        if byte < 0x80 {
+            chars.push(byte as char);
+            pos += 1;
+            continue;
+        }
+
+        let (code, len) = super::emacs_char::string_char_unchecked(&bytes[pos..]);
+        chars.push(syntax_char_from_code(code));
+        pos += len;
+    }
+    chars
+}
+
 fn buffer_chars_in_range(buf: &Buffer, start: usize, end: usize) -> Vec<char> {
-    let string = buf.buffer_substring_lisp_string(start, end);
-    crate::emacs_core::builtins::lisp_string_char_codes(&string)
-        .into_iter()
-        .map(syntax_char_from_code)
-        .collect()
+    let multibyte = buf.get_multibyte();
+    if let Some(chars) = buf.with_contiguous_emacs_bytes(start, end, |bytes| {
+        syntax_chars_from_emacs_bytes(bytes, multibyte)
+    }) {
+        return chars;
+    }
+
+    let mut bytes = Vec::new();
+    buf.copy_emacs_bytes_to(start, end, &mut bytes);
+    syntax_chars_from_emacs_bytes(&bytes, multibyte)
 }
 
 fn forward_word_with_options(
