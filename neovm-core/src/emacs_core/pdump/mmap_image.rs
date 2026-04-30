@@ -161,12 +161,58 @@ impl LoadedMmapImage {
                 reloc_section.len()
             )));
         }
+        let heap_image_bounds = self
+            .section_bounds(DumpSectionKind::HeapImage)
+            .ok()
+            .map(|range| (range.start, range.end));
+        let heap_image_kind = DumpSectionKind::HeapImage as u32;
 
         for relocation_offset in (reloc_section.start..reloc_section.end).step_by(RELOCATION_SIZE) {
             let relocation = *bytemuck::from_bytes::<DumpImageRelocation>(
                 &self.mmap[relocation_offset..relocation_offset + RELOCATION_SIZE],
             );
-            self.apply_relocation(relocation)?;
+            if relocation.location_section == heap_image_kind
+                && relocation.target_section == heap_image_kind
+            {
+                let (heap_start, heap_end) = heap_image_bounds.ok_or_else(|| {
+                    DumpError::ImageFormatError(
+                        "heap-image relocation requires HeapImage section".into(),
+                    )
+                })?;
+                self.apply_heap_image_relocation(relocation, heap_start, heap_end)?;
+            } else {
+                self.apply_relocation(relocation)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_heap_image_relocation(
+        &mut self,
+        relocation: DumpImageRelocation,
+        heap_start: usize,
+        heap_end: usize,
+    ) -> Result<(), DumpError> {
+        let location_start =
+            checked_end(heap_start, relocation.location_offset as usize, heap_end)?;
+        let location_end = checked_end(location_start, std::mem::size_of::<usize>(), heap_end)?;
+        let target_start = checked_end(heap_start, relocation.target_offset as usize, heap_end)?;
+        let addend = usize::try_from(relocation.addend)
+            .map_err(|_| DumpError::ImageFormatError("relocation addend overflows usize".into()))?;
+        let target_ptr = (self.mmap.as_mut_ptr() as usize)
+            .checked_add(target_start)
+            .and_then(|ptr| ptr.checked_add(addend))
+            .ok_or_else(|| {
+                DumpError::ImageFormatError("relocation target pointer overflow".into())
+            })?;
+
+        debug_assert_eq!(location_end - location_start, std::mem::size_of::<usize>());
+        unsafe {
+            self.mmap
+                .as_mut_ptr()
+                .add(location_start)
+                .cast::<usize>()
+                .write_unaligned(target_ptr);
         }
         Ok(())
     }
@@ -194,7 +240,14 @@ impl LoadedMmapImage {
                 DumpError::ImageFormatError("relocation target pointer overflow".into())
             })?;
 
-        self.mmap[location_start..location_end].copy_from_slice(&target_ptr.to_ne_bytes());
+        debug_assert_eq!(location_end - location_start, std::mem::size_of::<usize>());
+        unsafe {
+            self.mmap
+                .as_mut_ptr()
+                .add(location_start)
+                .cast::<usize>()
+                .write_unaligned(target_ptr);
+        }
         Ok(())
     }
 
@@ -642,6 +695,47 @@ mod tests {
             usize::from_ne_bytes(heap[..std::mem::size_of::<usize>()].try_into().unwrap());
         let metadata = image.section(DumpSectionKind::Metadata).unwrap();
         let expected = metadata.as_ptr() as usize + 0b011;
+        assert_eq!(patched, expected);
+    }
+
+    #[test]
+    fn heap_to_heap_relocations_patch_mapped_pointers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("image.pdump");
+        let mut heap_bytes = vec![0u8; 2 * std::mem::size_of::<usize>()];
+        heap_bytes[std::mem::size_of::<usize>()..].copy_from_slice(&0xfeedusize.to_ne_bytes());
+        let relocations = relocation_section_bytes(&[ImageRelocation {
+            location_section: DumpSectionKind::HeapImage,
+            location_offset: 0,
+            target_section: DumpSectionKind::HeapImage,
+            target_offset: std::mem::size_of::<usize>() as u64,
+            addend: 0b011,
+        }]);
+
+        write_image(
+            &path,
+            &[
+                ImageSection {
+                    kind: DumpSectionKind::HeapImage,
+                    flags: 0,
+                    bytes: &heap_bytes,
+                },
+                ImageSection {
+                    kind: DumpSectionKind::Relocations,
+                    flags: 0,
+                    bytes: &relocations,
+                },
+            ],
+        )
+        .unwrap();
+
+        let mut image = load_image(&path).unwrap();
+        image.apply_relocations().unwrap();
+
+        let heap = image.section(DumpSectionKind::HeapImage).unwrap();
+        let patched =
+            usize::from_ne_bytes(heap[..std::mem::size_of::<usize>()].try_into().unwrap());
+        let expected = unsafe { heap.as_ptr().add(std::mem::size_of::<usize>()) as usize } + 0b011;
         assert_eq!(patched, expected);
     }
 
