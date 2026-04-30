@@ -152,7 +152,7 @@ impl LoadedMmapImage {
     }
 
     pub(crate) fn apply_relocations(&mut self) -> Result<(), DumpError> {
-        let Some(reloc_section) = self.section(DumpSectionKind::Relocations) else {
+        let Ok(reloc_section) = self.section_bounds(DumpSectionKind::Relocations) else {
             return Ok(());
         };
         if !reloc_section.len().is_multiple_of(RELOCATION_SIZE) {
@@ -162,38 +162,39 @@ impl LoadedMmapImage {
             )));
         }
 
-        let relocations: Vec<DumpImageRelocation> = reloc_section
-            .chunks_exact(RELOCATION_SIZE)
-            .map(|chunk| *bytemuck::from_bytes::<DumpImageRelocation>(chunk))
-            .collect();
-
-        for relocation in relocations {
-            let location_kind = DumpSectionKind::from_raw(relocation.location_section)?;
-            let target_kind = DumpSectionKind::from_raw(relocation.target_section)?;
-            let location = self.section_bounds(location_kind)?;
-            let target = self.section_bounds(target_kind)?;
-
-            let location_start = checked_end(
-                location.start,
-                relocation.location_offset as usize,
-                location.end,
-            )?;
-            let location_end =
-                checked_end(location_start, std::mem::size_of::<usize>(), location.end)?;
-            let target_start =
-                checked_end(target.start, relocation.target_offset as usize, target.end)?;
-            let addend = usize::try_from(relocation.addend).map_err(|_| {
-                DumpError::ImageFormatError("relocation addend overflows usize".into())
-            })?;
-            let target_ptr = (self.mmap.as_mut_ptr() as usize)
-                .checked_add(target_start)
-                .and_then(|ptr| ptr.checked_add(addend))
-                .ok_or_else(|| {
-                    DumpError::ImageFormatError("relocation target pointer overflow".into())
-                })?;
-
-            self.mmap[location_start..location_end].copy_from_slice(&target_ptr.to_ne_bytes());
+        for relocation_offset in (reloc_section.start..reloc_section.end).step_by(RELOCATION_SIZE) {
+            let relocation = *bytemuck::from_bytes::<DumpImageRelocation>(
+                &self.mmap[relocation_offset..relocation_offset + RELOCATION_SIZE],
+            );
+            self.apply_relocation(relocation)?;
         }
+        Ok(())
+    }
+
+    fn apply_relocation(&mut self, relocation: DumpImageRelocation) -> Result<(), DumpError> {
+        let location_kind = DumpSectionKind::from_raw(relocation.location_section)?;
+        let target_kind = DumpSectionKind::from_raw(relocation.target_section)?;
+        let location = self.section_bounds(location_kind)?;
+        let target = self.section_bounds(target_kind)?;
+
+        let location_start = checked_end(
+            location.start,
+            relocation.location_offset as usize,
+            location.end,
+        )?;
+        let location_end = checked_end(location_start, std::mem::size_of::<usize>(), location.end)?;
+        let target_start =
+            checked_end(target.start, relocation.target_offset as usize, target.end)?;
+        let addend = usize::try_from(relocation.addend)
+            .map_err(|_| DumpError::ImageFormatError("relocation addend overflows usize".into()))?;
+        let target_ptr = (self.mmap.as_mut_ptr() as usize)
+            .checked_add(target_start)
+            .and_then(|ptr| ptr.checked_add(addend))
+            .ok_or_else(|| {
+                DumpError::ImageFormatError("relocation target pointer overflow".into())
+            })?;
+
+        self.mmap[location_start..location_end].copy_from_slice(&target_ptr.to_ne_bytes());
         Ok(())
     }
 

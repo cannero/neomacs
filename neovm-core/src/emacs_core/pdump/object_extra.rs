@@ -234,9 +234,9 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
 
 /// Reconstruct a `Vec<DumpHeapObject>` from ObjectExtra + span tables.
 ///
-/// This is used on the load path to build the in-memory object vector
-/// that the existing LoadDecoder expects, without needing the removed
-/// monolithic HeapObjects section on disk.
+/// Compatibility helper for tests and older callers. The main pdump load path
+/// uses `load_heap_objects_from_object_extra` to avoid building this
+/// intermediate vector.
 ///
 /// Category A objects get placeholder data (the actual data comes from
 /// HeapImage via relocations). Category B/C objects get their full
@@ -244,51 +244,44 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
 pub(crate) fn reconstruct_heap_objects(extras: &[ObjectExtra]) -> Vec<DumpHeapObject> {
     extras
         .iter()
-        .map(|extra| match extra {
-            ObjectExtra::Cons => DumpHeapObject::Cons {
-                car: DumpValue::Nil,
-                cdr: DumpValue::Nil,
-            },
-            ObjectExtra::Float => DumpHeapObject::Float(0.0),
-            ObjectExtra::Vector(count) => DumpHeapObject::Vector(vec![DumpValue::Nil; *count]),
-            ObjectExtra::Lambda(count) => DumpHeapObject::Lambda(vec![DumpValue::Nil; *count]),
-            ObjectExtra::Macro(count) => DumpHeapObject::Macro(vec![DumpValue::Nil; *count]),
-            ObjectExtra::Record(count) => DumpHeapObject::Record(vec![DumpValue::Nil; *count]),
-            ObjectExtra::String {
-                size,
-                size_byte,
-                byte_data,
-                text_props,
-            } => DumpHeapObject::Str {
-                data: byte_data.clone(),
-                size: *size,
-                size_byte: *size_byte,
-                text_props: text_props.clone(),
-            },
-            ObjectExtra::HashTable(table) => DumpHeapObject::HashTable(table.clone()),
-            ObjectExtra::ByteCode(function) => DumpHeapObject::ByteCode(function.clone()),
-            ObjectExtra::Subr {
-                name,
-                min_args,
-                max_args,
-            } => DumpHeapObject::Subr {
-                name: *name,
-                min_args: *min_args,
-                max_args: *max_args,
-            },
-            ObjectExtra::Buffer(id) => DumpHeapObject::Buffer(*id),
-            ObjectExtra::Window(id) => DumpHeapObject::Window(*id),
-            ObjectExtra::Frame(id) => DumpHeapObject::Frame(*id),
-            ObjectExtra::Timer(id) => DumpHeapObject::Timer(*id),
-            ObjectExtra::Overlay(overlay) => DumpHeapObject::Overlay(overlay.clone()),
-            ObjectExtra::Marker(marker) => DumpHeapObject::Marker(marker.clone()),
-            ObjectExtra::Free => DumpHeapObject::Free,
-        })
+        .cloned()
+        .map(object_extra_into_heap_object)
         .collect()
 }
 
 /// Load the ObjectExtra section into per-object descriptors.
 pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, DumpError> {
+    let (count, payload) = object_extra_payload(section)?;
+    let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
+    let mut extras = Vec::with_capacity(count);
+    for _ in 0..count {
+        let extra = read_object_extra(&mut cursor)?;
+        extras.push(extra);
+    }
+    Ok(extras)
+}
+
+/// Load the ObjectExtra section directly into the object descriptors expected by
+/// `LoadDecoder`.
+///
+/// This keeps the transitional descriptor vector that the current decoder still
+/// requires, but skips the previous `Vec<ObjectExtra>` allocation and the clone
+/// pass. GNU pdumper walks mapped metadata in place; this is a smaller step in
+/// that direction while the decoder is still being retired.
+pub(crate) fn load_heap_objects_from_object_extra(
+    section: &[u8],
+) -> Result<Vec<DumpHeapObject>, DumpError> {
+    let (count, payload) = object_extra_payload(section)?;
+    let mut cursor = object_value_codec::Cursor::new_at(payload, 0);
+    let mut objects = Vec::with_capacity(count);
+    for _ in 0..count {
+        let extra = read_object_extra(&mut cursor)?;
+        objects.push(object_extra_into_heap_object(extra));
+    }
+    Ok(objects)
+}
+
+fn object_extra_payload(section: &[u8]) -> Result<(usize, &[u8]), DumpError> {
     if section.len() < HEADER_SIZE {
         return Err(DumpError::ImageFormatError(
             "object-extra section too small for header".into(),
@@ -315,13 +308,50 @@ pub(crate) fn load_object_extra(section: &[u8]) -> Result<Vec<ObjectExtra>, Dump
         ));
     }
 
-    let mut cursor = object_value_codec::Cursor::new_at(&section[payload_start..payload_end], 0);
-    let mut extras = Vec::with_capacity(count);
-    for _ in 0..count {
-        let extra = read_object_extra(&mut cursor)?;
-        extras.push(extra);
+    Ok((count, &section[payload_start..payload_end]))
+}
+
+fn object_extra_into_heap_object(extra: ObjectExtra) -> DumpHeapObject {
+    match extra {
+        ObjectExtra::Cons => DumpHeapObject::Cons {
+            car: DumpValue::Nil,
+            cdr: DumpValue::Nil,
+        },
+        ObjectExtra::Float => DumpHeapObject::Float(0.0),
+        ObjectExtra::Vector(count) => DumpHeapObject::Vector(vec![DumpValue::Nil; count]),
+        ObjectExtra::Lambda(count) => DumpHeapObject::Lambda(vec![DumpValue::Nil; count]),
+        ObjectExtra::Macro(count) => DumpHeapObject::Macro(vec![DumpValue::Nil; count]),
+        ObjectExtra::Record(count) => DumpHeapObject::Record(vec![DumpValue::Nil; count]),
+        ObjectExtra::String {
+            size,
+            size_byte,
+            byte_data,
+            text_props,
+        } => DumpHeapObject::Str {
+            data: byte_data,
+            size,
+            size_byte,
+            text_props,
+        },
+        ObjectExtra::HashTable(table) => DumpHeapObject::HashTable(table),
+        ObjectExtra::ByteCode(function) => DumpHeapObject::ByteCode(function),
+        ObjectExtra::Subr {
+            name,
+            min_args,
+            max_args,
+        } => DumpHeapObject::Subr {
+            name,
+            min_args,
+            max_args,
+        },
+        ObjectExtra::Buffer(id) => DumpHeapObject::Buffer(id),
+        ObjectExtra::Window(id) => DumpHeapObject::Window(id),
+        ObjectExtra::Frame(id) => DumpHeapObject::Frame(id),
+        ObjectExtra::Timer(id) => DumpHeapObject::Timer(id),
+        ObjectExtra::Overlay(overlay) => DumpHeapObject::Overlay(overlay),
+        ObjectExtra::Marker(marker) => DumpHeapObject::Marker(marker),
+        ObjectExtra::Free => DumpHeapObject::Free,
     }
-    Ok(extras)
 }
 
 fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectExtra, DumpError> {
@@ -515,6 +545,26 @@ mod tests {
         assert!(matches!(extras[0], ObjectExtra::Cons));
         assert!(matches!(extras[1], ObjectExtra::Vector(2)));
         assert!(matches!(extras[2], ObjectExtra::Free));
+    }
+
+    #[test]
+    fn object_extra_loads_heap_objects_without_intermediate_extra_vector() {
+        let bytes = build_object_extra(&[
+            DumpHeapObject::Cons {
+                car: DumpValue::True,
+                cdr: DumpValue::Nil,
+            },
+            DumpHeapObject::Vector(vec![DumpValue::Nil, DumpValue::True]),
+            DumpHeapObject::Free,
+        ])
+        .expect("build object extra");
+
+        let objects =
+            load_heap_objects_from_object_extra(&bytes).expect("load heap objects from extra");
+
+        assert!(matches!(objects[0], DumpHeapObject::Cons { .. }));
+        assert!(matches!(objects[1], DumpHeapObject::Vector(ref slots) if slots.len() == 2));
+        assert!(matches!(objects[2], DumpHeapObject::Free));
     }
 
     #[test]
