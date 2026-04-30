@@ -634,3 +634,51 @@ fn parse_str_as_multibyte_counts() {
     assert_eq!(chars, 2);
     assert_eq!(nbytes, 1 + 2);
 }
+
+// -----------------------------------------------------------------------
+// string_count_byte8 / string_escape_byte8 / strwidth
+// -----------------------------------------------------------------------
+
+#[test]
+fn string_count_byte8_unibyte() {
+    assert_eq!(string_count_byte8(b"abc", false), 0);
+    assert_eq!(string_count_byte8(&[b'a', 0x80, 0xFF], false), 2);
+}
+
+#[test]
+fn string_count_byte8_multibyte() {
+    let mut input = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, 0x4E2D, byte8_to_char(0xFF), byte8_to_char(0x80), b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        input.extend_from_slice(&tmp[..n]);
+    }
+    assert_eq!(string_count_byte8(&input, true), 2);
+}
+
+#[test]
+fn string_escape_byte8_unibyte() {
+    let out = string_escape_byte8(&[b'a', 0xFF, b'b'], false);
+    assert_eq!(out, b"a\\377b");
+}
+
+#[test]
+fn string_escape_byte8_multibyte() {
+    let mut input = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, byte8_to_char(0xFF), b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        input.extend_from_slice(&tmp[..n]);
+    }
+    let out = string_escape_byte8(&input, true);
+    assert_eq!(out, b"A\\377B");
+}
+
+#[test]
+fn strwidth_basic() {
+    assert_eq!(strwidth(b"abc", false), 3);
+    // CJK char (3 bytes UTF-8) is double-width.
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    let n = char_string(0x4E2D, &mut buf);
+    assert_eq!(strwidth(&buf[..n], true), 2);
+}

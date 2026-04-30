@@ -865,6 +865,102 @@ pub fn str_as_unibyte(src: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
+// Eight-bit byte counting and escaping (mirrors GNU character.c:742..839).
+// ---------------------------------------------------------------------------
+
+/// Count eight-bit raw-byte characters in `bytes`.
+///
+/// Mirrors GNU `string_count_byte8` (character.c:742). `multibyte`
+/// indicates whether the buffer is multibyte; in unibyte mode, every
+/// byte ≥ 0x80 counts; in multibyte mode, only `byte8`-leading code
+/// units count.
+pub fn string_count_byte8(bytes: &[u8], multibyte: bool) -> usize {
+    if !multibyte {
+        return bytes.iter().filter(|&&b| b >= 0x80).count();
+    }
+    let mut count = 0usize;
+    let mut p = 0usize;
+    while p < bytes.len() {
+        let lead = bytes[p];
+        let len = bytes_by_char_head(lead);
+        if char_byte8_head_p(lead) {
+            count += 1;
+        }
+        p += len.min(bytes.len() - p);
+    }
+    count
+}
+
+/// Replace eight-bit raw-byte characters in `bytes` with `\NNN` octal
+/// escapes. ASCII and other multibyte characters are passed through.
+///
+/// Mirrors GNU `string_escape_byte8` (character.c:772) for the byte
+/// payload only — the GNU version returns a new Lisp string with the
+/// updated `nchars`/`nbytes`. Callers wanting char/byte counts can
+/// recompute via [`chars_in_text`] on the result.
+pub fn string_escape_byte8(bytes: &[u8], multibyte: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(bytes.len());
+    if !multibyte {
+        for &b in bytes {
+            if b >= 0x80 {
+                let _ = write_octal(&mut out, b as u32);
+            } else {
+                out.push(b);
+            }
+        }
+        return out;
+    }
+    let mut p = 0usize;
+    while p < bytes.len() {
+        let lead = bytes[p];
+        let len = bytes_by_char_head(lead).min(bytes.len() - p);
+        if char_byte8_head_p(lead) {
+            let (c, n) = string_char_unchecked(&bytes[p..]);
+            let _ = write_octal(&mut out, char_to_byte8(c) as u32);
+            p += n;
+        } else {
+            out.extend_from_slice(&bytes[p..p + len]);
+            p += len;
+        }
+    }
+    out
+}
+
+fn write_octal(out: &mut Vec<u8>, b: u32) -> usize {
+    let s = format!("\\{:03o}", b & 0xFF);
+    let n = s.len();
+    out.extend_from_slice(s.as_bytes());
+    n
+}
+
+/// Display width of a buffer of multibyte (or unibyte) text.
+///
+/// Mirrors GNU `strwidth` / `c_string_width` (character.c:290) — the
+/// simplified form without precision cap or display-table consultation.
+/// Sums [`crate::encoding::char_width`] over decoded code points.
+pub fn strwidth(bytes: &[u8], multibyte: bool) -> usize {
+    let mut total = 0usize;
+    if !multibyte {
+        for &b in bytes {
+            total += crate::encoding::char_width(b as char);
+        }
+        return total;
+    }
+    let mut p = 0usize;
+    while p < bytes.len() {
+        let (c, len) = string_char(&bytes[p..]);
+        if let Some(ch) = char::from_u32(c) {
+            total += crate::encoding::char_width(ch);
+        } else {
+            // Raw-byte / extended char: width 4 (octal display).
+            total += 4;
+        }
+        p += len.max(1);
+    }
+    total
+}
+
+// ---------------------------------------------------------------------------
 // Higher-level utilities
 // ---------------------------------------------------------------------------
 
