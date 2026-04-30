@@ -687,7 +687,7 @@ fn set_backtrace_args_evalled_mutates_in_place() {
         super::super::eval::SpecBinding::Backtrace { function, args, .. } => {
             assert!(!args.is_unevalled(), "flag cleared after promotion");
             assert_eq!(*function, Value::symbol("my-func"), "function preserved");
-            let got: Vec<Value> = args.as_slice().iter().copied().collect();
+            let got: Vec<Value> = eval.backtrace_args_values(args).into_iter().collect();
             assert_eq!(got, evaluated, "args replaced with evaluated values");
         }
         other => panic!("expected Backtrace, got {other:?}"),

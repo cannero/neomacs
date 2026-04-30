@@ -381,21 +381,13 @@ pub(crate) enum SpecBinding {
 #[derive(Clone, Debug)]
 pub(crate) enum BacktraceArgs {
     Unevalled(Value),
-    Evaluated(LispArgVec),
+    Evaluated(usize),
 }
 
 impl BacktraceArgs {
     #[inline]
     pub(crate) fn is_unevalled(&self) -> bool {
         matches!(self, Self::Unevalled(_))
-    }
-
-    #[inline]
-    pub(crate) fn as_slice(&self) -> &[Value] {
-        match self {
-            Self::Unevalled(value) => std::slice::from_ref(value),
-            Self::Evaluated(args) => args.as_slice(),
-        }
     }
 }
 
@@ -1632,6 +1624,10 @@ pub struct Context {
     /// single save/truncate side vector by keeping VM dynamic roots in explicit
     /// nested frames.
     vm_root_frames: Vec<VmRootFrame>,
+    /// Evaluated arguments for active backtrace frames. GNU backtrace entries
+    /// store an argument pointer/count; keep Neomacs' hot specpdl entry
+    /// similarly compact while this side stack owns the exact-GC roots.
+    backtrace_args_stack: Vec<LispArgVec>,
     /// Contiguous bytecode stack buffer, matching GNU Emacs's bc_thread_state.
     /// All bytecode frames share this single buffer. GC scans it directly.
     pub(crate) bc_buf: Vec<Value>,
@@ -2271,6 +2267,7 @@ impl Context {
         ev.obarray
             .set_symbol_value("most-negative-fixnum", Value::fixnum(-(i64::MAX >> 2) - 1));
         ev.specpdl.clear();
+        ev.backtrace_args_stack.clear();
         ev.lexenv = Value::NIL;
         ev.features.clear();
         ev.require_stack.clear();
@@ -4280,6 +4277,7 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             vm_root_frames: Vec::new(),
+            backtrace_args_stack: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             condition_stack: Vec::new(),
@@ -4429,6 +4427,7 @@ impl Context {
             gc_stress: false,
             gc_runtime_settings_cache: GcRuntimeSettingsCache::default(),
             vm_root_frames: Vec::new(),
+            backtrace_args_stack: Vec::new(),
             bc_buf: Vec::with_capacity(4096),
             bc_frames: Vec::new(),
             condition_stack: Vec::new(),
@@ -4537,9 +4536,7 @@ impl Context {
                 SpecBinding::GcRoot { value } => visit(*value),
                 SpecBinding::Backtrace { function, args, .. } => {
                     visit(*function);
-                    for arg in args.as_slice().iter().copied() {
-                        visit(arg);
-                    }
+                    self.trace_backtrace_args(args, visit);
                 }
                 SpecBinding::UnwindProtect { forms, lexenv } => {
                     visit(*forms);
@@ -9540,17 +9537,19 @@ impl Context {
     }
 
     pub(crate) fn push_backtrace_frame(&mut self, function: Value, args: &[Value]) {
+        let args_index = self.store_backtrace_args(args.iter().copied().collect());
         self.specpdl.push(SpecBinding::Backtrace {
             function,
-            args: BacktraceArgs::Evaluated(args.iter().copied().collect()),
+            args: BacktraceArgs::Evaluated(args_index),
             debug_on_exit: false,
         });
     }
 
     pub(crate) fn push_backtrace_frame_owned(&mut self, function: Value, args: LispArgVec) {
+        let args_index = self.store_backtrace_args(args);
         self.specpdl.push(SpecBinding::Backtrace {
             function,
-            args: BacktraceArgs::Evaluated(args),
+            args: BacktraceArgs::Evaluated(args_index),
             debug_on_exit: false,
         });
     }
@@ -9567,6 +9566,83 @@ impl Context {
         });
     }
 
+    #[inline]
+    fn store_backtrace_args(&mut self, args: LispArgVec) -> usize {
+        let index = self.backtrace_args_stack.len();
+        self.backtrace_args_stack.push(args);
+        index
+    }
+
+    #[inline]
+    fn release_backtrace_args(&mut self, args: &BacktraceArgs) {
+        let BacktraceArgs::Evaluated(index) = *args else {
+            return;
+        };
+        debug_assert_eq!(
+            index + 1,
+            self.backtrace_args_stack.len(),
+            "backtrace args stack should unwind in LIFO order"
+        );
+        if index + 1 == self.backtrace_args_stack.len() {
+            self.backtrace_args_stack.pop();
+        } else if index < self.backtrace_args_stack.len() {
+            self.backtrace_args_stack[index].clear();
+        }
+    }
+
+    fn release_backtrace_args_in_specpdl_suffix(&mut self, count: usize) {
+        let mut truncate_to = self.backtrace_args_stack.len();
+        for binding in self.specpdl[count..].iter().rev() {
+            if let SpecBinding::Backtrace {
+                args: BacktraceArgs::Evaluated(index),
+                ..
+            } = binding
+            {
+                debug_assert_eq!(
+                    *index + 1,
+                    truncate_to,
+                    "backtrace args stack should match the specpdl unwind suffix"
+                );
+                truncate_to = truncate_to.min(*index);
+            }
+        }
+        self.backtrace_args_stack.truncate(truncate_to);
+    }
+
+    pub(crate) fn backtrace_args_values(&self, args: &BacktraceArgs) -> LispArgVec {
+        match args {
+            BacktraceArgs::Unevalled(value) => smallvec::smallvec![*value],
+            BacktraceArgs::Evaluated(index) => self
+                .backtrace_args_stack
+                .get(*index)
+                .cloned()
+                .unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn backtrace_args_len(&self, args: &BacktraceArgs) -> usize {
+        match args {
+            BacktraceArgs::Unevalled(_) => 1,
+            BacktraceArgs::Evaluated(index) => self
+                .backtrace_args_stack
+                .get(*index)
+                .map_or(0, |args| args.len()),
+        }
+    }
+
+    fn trace_backtrace_args(&self, args: &BacktraceArgs, visit: &mut dyn FnMut(Value)) {
+        match args {
+            BacktraceArgs::Unevalled(value) => visit(*value),
+            BacktraceArgs::Evaluated(index) => {
+                if let Some(args) = self.backtrace_args_stack.get(*index) {
+                    for arg in args.iter().copied() {
+                        visit(arg);
+                    }
+                }
+            }
+        }
+    }
+
     /// Promote the UNEVALLED backtrace frame at `specpdl[count]` to the
     /// EVALD shape in place. Mirrors GNU `set_backtrace_args`
     /// (eval.c:144-156) called at eval.c:2638, 2660, 3299 after
@@ -9580,6 +9656,20 @@ impl Context {
     /// must keep the invariant that every `set_backtrace_args_evalled`
     /// matches exactly one prior `push_unevalled_backtrace_frame`.
     pub(crate) fn set_backtrace_args_evalled(&mut self, count: usize, evaluated: &[Value]) {
+        let is_unevalled = matches!(
+            self.specpdl.get(count),
+            Some(SpecBinding::Backtrace {
+                args: BacktraceArgs::Unevalled(_),
+                ..
+            })
+        );
+        if !is_unevalled {
+            panic!(
+                "set_backtrace_args_evalled: expected UNEVALLED Backtrace at specpdl[{count}], got {:?}",
+                self.specpdl.get(count)
+            );
+        }
+        let args_index = self.store_backtrace_args(evaluated.iter().copied().collect());
         let entry = self
             .specpdl
             .get_mut(count)
@@ -9589,7 +9679,7 @@ impl Context {
                 args: backtrace_args,
                 ..
             } if backtrace_args.is_unevalled() => {
-                *backtrace_args = BacktraceArgs::Evaluated(evaluated.iter().copied().collect());
+                *backtrace_args = BacktraceArgs::Evaluated(args_index);
             }
             other => panic!(
                 "set_backtrace_args_evalled: expected UNEVALLED Backtrace at specpdl[{count}], got {other:?}"
@@ -9598,6 +9688,20 @@ impl Context {
     }
 
     pub(crate) fn set_backtrace_args_evalled_owned(&mut self, count: usize, evaluated: LispArgVec) {
+        let is_unevalled = matches!(
+            self.specpdl.get(count),
+            Some(SpecBinding::Backtrace {
+                args: BacktraceArgs::Unevalled(_),
+                ..
+            })
+        );
+        if !is_unevalled {
+            panic!(
+                "set_backtrace_args_evalled_owned: expected UNEVALLED Backtrace at specpdl[{count}], got {:?}",
+                self.specpdl.get(count)
+            );
+        }
+        let args_index = self.store_backtrace_args(evaluated);
         let entry = self
             .specpdl
             .get_mut(count)
@@ -9607,7 +9711,7 @@ impl Context {
                 args: backtrace_args,
                 ..
             } if backtrace_args.is_unevalled() => {
-                *backtrace_args = BacktraceArgs::Evaluated(evaluated);
+                *backtrace_args = BacktraceArgs::Evaluated(args_index);
             }
             other => panic!(
                 "set_backtrace_args_evalled_owned: expected UNEVALLED Backtrace at specpdl[{count}], got {other:?}"
@@ -9750,6 +9854,7 @@ impl Context {
             // GNU's common eval path pops SPECPDL_BACKTRACE by moving
             // specpdl_ptr. Avoid result rooting and full unwind work when the
             // suffix has no cleanup or dynamic binding restoration.
+            self.release_backtrace_args_in_specpdl_suffix(count);
             self.specpdl.truncate(count);
             return result;
         }
@@ -10147,9 +10252,13 @@ impl Context {
     fn backtrace_evaluated_arg_or_nil(&self, count: usize, index: usize) -> Value {
         match self.specpdl.get(count) {
             Some(SpecBinding::Backtrace {
-                args: BacktraceArgs::Evaluated(args),
+                args: BacktraceArgs::Evaluated(args_index),
                 ..
-            }) => args.get(index).copied().unwrap_or(Value::NIL),
+            }) => self
+                .backtrace_args_stack
+                .get(*args_index)
+                .and_then(|args| args.get(index).copied())
+                .unwrap_or(Value::NIL),
             Some(other) => panic!(
                 "backtrace_evaluated_arg_or_nil: expected EVALD Backtrace at specpdl[{count}], got {other:?}"
             ),
@@ -11319,7 +11428,8 @@ impl Context {
                     self.lexenv = old_lexenv;
                 }
                 SpecBinding::GcRoot { .. } => {}
-                SpecBinding::Backtrace { .. } => {
+                SpecBinding::Backtrace { args, .. } => {
+                    self.release_backtrace_args(&args);
                     // No-op, matches GNU SPECPDL_BACKTRACE
                 }
                 SpecBinding::Nop => {
