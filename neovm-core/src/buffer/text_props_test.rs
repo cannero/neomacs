@@ -501,6 +501,23 @@ fn no_merge_different_properties() {
     assert_eq!(table.next_property_change(5), Some(10));
 }
 
+#[test]
+fn adjacent_equal_but_not_eq_values_do_not_merge() {
+    crate::test_utils::init_test_tracing();
+    let mut table = TextPropertyTable::new();
+    let left = Value::string("v");
+    let right = Value::string("v");
+    assert!(!crate::emacs_core::value::eq_value(&left, &right));
+    assert!(crate::emacs_core::value::equal_value(&left, &right, 0));
+
+    table.put_property(0, 5, Value::symbol("p"), left);
+    table.put_property(5, 10, Value::symbol("p"), right);
+
+    assert_eq!(table.intervals_snapshot().len(), 2);
+    assert_eq!(table.next_property_change(0), Some(5));
+    assert_eq!(table.next_property_change(5), Some(10));
+}
+
 // -----------------------------------------------------------------------
 // Edge cases
 // -----------------------------------------------------------------------

@@ -1,38 +1,34 @@
-//! Text properties system for buffers.
+//! GNU-style text interval storage for buffers and strings.
 //!
-//! Text properties are key-value pairs attached to ranges of text within a
-//! buffer. They are indexed by interval start boundaries, with each interval
-//! carrying a set of properties. When a property is set on a range, existing
-//! intervals are split at the boundaries and the property is applied to all
-//! affected intervals. Adjacent intervals with identical property sets are
-//! merged to keep the interval map compact.
+//! GNU Emacs represents text properties as an `INTERVAL` tree rooted from the
+//! owning string or buffer.  Each interval node stores an augmented subtree
+//! length, cached position, left/right tree links, parent/object metadata,
+//! property cache bits, and a Lisp plist.  Neomacs keeps the existing Rust API
+//! name (`TextPropertyTable`) for callers, but the backing storage below follows
+//! that interval-tree model instead of the older boundary-indexed map.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
-use crate::emacs_core::value::{Value, equal_value};
+use crate::emacs_core::value::{Value, eq_value};
 use crate::gc_trace::GcTrace;
 
 // ---------------------------------------------------------------------------
 // PropertyInterval
 // ---------------------------------------------------------------------------
 
-/// A single text property interval: [start, end) with properties.
+/// Public snapshot of one text-property interval.
 ///
-/// Each interval covers a half-open byte range and holds a map of Lisp-valued
-/// properties. GNU Emacs stores interval properties in Lisp plists and
-/// compares property identity by Lisp object identity, not by Rust string
-/// contents. We mirror that here by keeping Lisp `Value` keys and preserving
-/// plist order separately.
+/// Runtime storage is `IntervalNode` below.  This type remains the serialization
+/// and inspection shape used by pdump/tests.
 #[derive(Clone, Debug)]
 pub struct PropertyInterval {
-    /// Byte position where this interval starts (inclusive).
+    /// Position where this interval starts (inclusive).
     pub start: usize,
-    /// Byte position where this interval ends (exclusive).
+    /// Position where this interval ends (exclusive).
     pub end: usize,
-    /// The property map for this interval.
+    /// Snapshot map for the interval plist.
     pub properties: HashMap<Value, Value>,
-    /// Property keys in insertion order (most recently added first,
-    /// matching GNU Emacs's prepend semantics).
+    /// Property keys in GNU plist order, newest first.
     pub(crate) key_order: Vec<Value>,
 }
 
@@ -56,585 +52,633 @@ impl PropertyInterval {
         }
     }
 
-    /// Insert or update a property, maintaining key_order.
-    /// New properties are prepended (matching GNU Emacs behavior).
-    /// Returns true if the property was actually changed.
-    fn insert_property(&mut self, name: Value, value: Value) -> bool {
-        let already_equal = self
-            .properties
-            .get(&name)
-            .map_or(false, |existing| equal_value(existing, &value, 0));
-        if already_equal {
-            return false;
+    fn from_plist(start: usize, end: usize, plist: &[(Value, Value)]) -> Self {
+        let mut properties = HashMap::new();
+        for (key, value) in plist.iter().rev() {
+            properties.insert(*key, *value);
         }
-        let is_new = !self.properties.contains_key(&name);
-        self.properties.insert(name, value);
-        if is_new {
-            // Prepend new properties (GNU Emacs behavior)
-            self.key_order.insert(0, name);
+        let mut key_order = Vec::new();
+        for (key, _) in plist {
+            if !key_order.iter().any(|seen| eq_value(seen, key)) {
+                key_order.push(*key);
+            }
         }
-        true
+        Self {
+            start,
+            end,
+            properties,
+            key_order,
+        }
     }
 
-    /// Remove a property by name.
-    fn remove_property(&mut self, name: Value) -> Option<Value> {
-        let result = self.properties.remove(&name);
-        if result.is_some() {
-            self.key_order.retain(|k| *k != name);
+    fn into_plist(self) -> Vec<(Value, Value)> {
+        let mut plist = Vec::new();
+        for key in &self.key_order {
+            if let Some(value) = self.properties.get(key)
+                && !plist.iter().any(|(seen, _)| eq_value(seen, key))
+            {
+                plist.push((*key, *value));
+            }
         }
-        result
+        for (key, value) in self.properties {
+            if !plist.iter().any(|(seen, _)| eq_value(seen, &key)) {
+                plist.push((key, value));
+            }
+        }
+        plist
     }
 
-    /// Returns true if the interval has no properties.
-    fn is_empty_props(&self) -> bool {
-        self.properties.is_empty()
-    }
-
-    /// Iterate properties in insertion order (most recently added first).
+    /// Iterate properties in GNU plist order.
     pub fn ordered_properties(&self) -> impl Iterator<Item = (Value, &Value)> {
         self.key_order
             .iter()
-            .filter_map(move |k| self.properties.get(k).map(|v| (*k, v)))
+            .filter_map(move |key| self.properties.get(key).map(|value| (*key, value)))
     }
 }
 
 // ---------------------------------------------------------------------------
-// Helper: compare two property maps for structural equality
+// GNU-style interval node
 // ---------------------------------------------------------------------------
 
-fn props_equal(a: &HashMap<Value, Value>, b: &HashMap<Value, Value>) -> bool {
-    if a.len() != b.len() {
-        return false;
+type IntervalPlist = Vec<(Value, Value)>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IntervalParent {
+    Null,
+    Object,
+    Interval(usize),
+}
+
+#[derive(Clone, Debug)]
+struct IntervalNode {
+    /// Length of this interval and both children.
+    total_length: usize,
+    /// Cached character position of this interval.
+    position: usize,
+    left: Option<usize>,
+    right: Option<usize>,
+    /// Parent interval, object owner, or null.
+    up: IntervalParent,
+    up_obj: bool,
+    gcmarkbit: bool,
+    write_protect: bool,
+    visible: bool,
+    front_sticky: bool,
+    rear_sticky: bool,
+    plist: IntervalPlist,
+}
+
+impl IntervalNode {
+    fn new(position: usize, length: usize, plist: IntervalPlist, up: IntervalParent) -> Self {
+        let mut node = Self {
+            total_length: length,
+            position,
+            left: None,
+            right: None,
+            up,
+            up_obj: matches!(up, IntervalParent::Object),
+            gcmarkbit: false,
+            write_protect: false,
+            visible: false,
+            front_sticky: false,
+            rear_sticky: false,
+            plist,
+        };
+        node.refresh_property_cache();
+        node
     }
-    for (key, val_a) in a {
-        match b.get(key) {
-            Some(val_b) => {
-                if !equal_value(val_a, val_b, 0) {
-                    return false;
-                }
+
+    fn refresh_property_cache(&mut self) {
+        self.write_protect =
+            plist_get(&self.plist, Value::symbol("read-only")).is_some_and(|v| v.is_truthy());
+        self.visible =
+            plist_get(&self.plist, Value::symbol("invisible")).is_none_or(|v| v.is_nil());
+        self.front_sticky =
+            plist_get(&self.plist, Value::symbol("front-sticky")).is_some_and(|v| v.is_truthy());
+        self.rear_sticky =
+            plist_get(&self.plist, Value::symbol("rear-nonsticky")).is_none_or(|v| v.is_nil());
+    }
+}
+
+#[derive(Clone, Debug)]
+struct IntervalRun {
+    start: usize,
+    end: usize,
+    plist: IntervalPlist,
+}
+
+impl IntervalRun {
+    fn new(start: usize, end: usize, plist: IntervalPlist) -> Self {
+        Self { start, end, plist }
+    }
+
+    fn default(start: usize, end: usize) -> Self {
+        Self::new(start, end, Vec::new())
+    }
+
+    fn len(&self) -> usize {
+        self.end.saturating_sub(self.start)
+    }
+
+    fn is_empty_plist(&self) -> bool {
+        self.plist.is_empty()
+    }
+}
+
+fn plist_get(plist: &[(Value, Value)], key: Value) -> Option<&Value> {
+    plist
+        .iter()
+        .find_map(|(name, value)| eq_value(name, &key).then_some(value))
+}
+
+fn plist_put_replace(plist: &mut IntervalPlist, key: Value, value: Value) -> bool {
+    for (name, existing) in plist.iter_mut() {
+        if eq_value(name, &key) {
+            if eq_value(existing, &value) {
+                return false;
             }
-            None => return false,
+            *existing = value;
+            return true;
         }
     }
+    plist.insert(0, (key, value));
     true
+}
+
+fn plist_remove(plist: &mut IntervalPlist, key: Value) -> bool {
+    let before = plist.len();
+    plist.retain(|(name, _)| !eq_value(name, &key));
+    before != plist.len()
+}
+
+fn plists_equal_eq(left: &[(Value, Value)], right: &[(Value, Value)]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    left.iter().all(|(left_key, left_value)| {
+        right.iter().any(|(right_key, right_value)| {
+            eq_value(left_key, right_key) && eq_value(left_value, right_value)
+        })
+    })
 }
 
 // ---------------------------------------------------------------------------
 // TextPropertyTable
 // ---------------------------------------------------------------------------
 
-/// Manages text properties for a buffer.
-///
-/// Internally stores a start-boundary-indexed, non-overlapping set of
-/// [`PropertyInterval`]s. Intervals with empty property sets may exist
-/// transiently but are cleaned up during merge passes.
+/// GNU-style interval tree for text properties.
 #[derive(Clone)]
 pub struct TextPropertyTable {
-    intervals: BTreeMap<usize, PropertyInterval>,
+    nodes: Vec<IntervalNode>,
+    root: Option<usize>,
 }
 
 impl TextPropertyTable {
-    /// Create an empty property table.
     pub fn new() -> Self {
         Self {
-            intervals: BTreeMap::new(),
+            nodes: Vec::new(),
+            root: None,
         }
     }
 
-    /// Set a property on the byte range `[start, end)`.
-    ///
-    /// Any existing intervals that overlap the range are split at the
-    /// boundaries, and the named property is set on all intervals within
-    /// the range. Adjacent intervals with identical properties are then
-    /// merged.
-    ///
-    /// Returns `true` if any property value was actually changed (or added),
-    /// `false` if all intervals already had the property with an equal value.
     pub fn put_property(&mut self, start: usize, end: usize, name: Value, value: Value) -> bool {
         if start >= end {
             return false;
         }
 
-        self.split_at(start);
-        self.split_at(end);
-
-        // Ensure there is coverage for the entire [start, end) range.
-        self.ensure_coverage(start, end);
+        let mut runs = self.all_runs();
+        runs = split_runs_at(runs, &[start, end]);
+        runs = cover_range_with_default_intervals(runs, start, end);
 
         let mut changed = false;
-        let keys: Vec<usize> = self
-            .intervals
-            .range(start..end)
-            .map(|(&key, _)| key)
-            .collect();
-        for key in keys {
-            if let Some(interval) = self.intervals.get_mut(&key)
-                && interval.insert_property(name, value)
+        for run in &mut runs {
+            if run.start < end && run.end > start && plist_put_replace(&mut run.plist, name, value)
             {
                 changed = true;
             }
         }
 
-        self.merge_adjacent_around(start, end);
+        self.rebuild_from_runs(runs);
         changed
     }
 
-    /// Get a single property at a byte position.
     pub fn get_property(&self, pos: usize, name: Value) -> Option<&Value> {
-        self.interval_containing(pos)
-            .and_then(|interval| interval.properties.get(&name))
+        let idx = self.interval_containing_index(pos)?;
+        plist_get(&self.nodes[idx].plist, name)
     }
 
-    /// Get all properties at a byte position.
     pub fn get_properties(&self, pos: usize) -> HashMap<Value, Value> {
-        self.interval_containing(pos)
-            .map(|interval| interval.properties.clone())
-            .unwrap_or_default()
+        let Some(idx) = self.interval_containing_index(pos) else {
+            return HashMap::new();
+        };
+        PropertyInterval::from_plist(pos, pos + 1, &self.nodes[idx].plist).properties
     }
 
-    /// Get all properties at a byte position in insertion order (most recently added first).
-    /// Returns a list of (name, value) pairs in the order matching GNU Emacs plist output.
     pub fn get_properties_ordered(&self, pos: usize) -> Vec<(Value, Value)> {
-        self.interval_containing(pos)
-            .map(|interval| {
-                interval
-                    .ordered_properties()
-                    .map(|(k, v)| (k, *v))
-                    .collect()
-            })
-            .unwrap_or_default()
+        let Some(idx) = self.interval_containing_index(pos) else {
+            return Vec::new();
+        };
+        self.nodes[idx].plist.clone()
     }
 
-    /// Remove a single named property from the byte range `[start, end)`.
-    /// Returns `true` if any property was actually removed, `false` otherwise.
     pub fn remove_property(&mut self, start: usize, end: usize, name: Value) -> bool {
         if start >= end {
             return false;
         }
 
-        self.split_at(start);
-        self.split_at(end);
-
-        let mut removed = false;
-        let keys: Vec<usize> = self
-            .intervals
-            .range(start..end)
-            .map(|(&key, _)| key)
-            .collect();
-        for key in keys {
-            if let Some(interval) = self.intervals.get_mut(&key)
-                && interval.remove_property(name).is_some()
-            {
-                removed = true;
+        let mut runs = split_runs_at(self.all_runs(), &[start, end]);
+        let mut changed = false;
+        for run in &mut runs {
+            if run.start < end && run.end > start && plist_remove(&mut run.plist, name) {
+                changed = true;
             }
         }
-
-        // Remove empty intervals and merge only the affected neighborhood.
-        self.cleanup_range(start, end);
-        self.merge_adjacent_around(start, end);
-        removed
+        self.rebuild_from_runs(runs);
+        changed
     }
 
-    /// Remove all properties from the byte range `[start, end)`.
     pub fn remove_all_properties(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
         }
 
-        self.split_at(start);
-        self.split_at(end);
-
-        let keys: Vec<usize> = self
-            .intervals
-            .range(start..end)
-            .map(|(&key, _)| key)
-            .collect();
-        for key in keys {
-            if let Some(interval) = self.intervals.get_mut(&key) {
-                interval.properties.clear();
-                interval.key_order.clear();
+        let mut runs = split_runs_at(self.all_runs(), &[start, end]);
+        for run in &mut runs {
+            if run.start < end && run.end > start {
+                run.plist.clear();
             }
         }
-
-        self.cleanup_range(start, end);
-        self.merge_adjacent_around(start, end);
+        self.rebuild_from_runs(runs);
     }
 
-    /// Return the next position at or after `pos` where any text property
-    /// changes, or `None` if there is no change after `pos`.
     pub fn next_property_change(&self, pos: usize) -> Option<usize> {
-        if let Some(mut interval) = self.interval_containing(pos) {
-            let mut end = interval.end;
-            while let Some((_, next)) = self
-                .intervals
-                .range((
-                    std::ops::Bound::Excluded(interval.start),
-                    std::ops::Bound::Unbounded,
-                ))
-                .next()
-            {
-                if interval.end == next.start && props_equal(&interval.properties, &next.properties)
-                {
-                    interval = next;
-                    end = next.end;
-                    continue;
-                }
-                break;
-            }
-            return Some(end);
+        let runs = self.all_runs();
+        if runs.is_empty() {
+            return None;
         }
-        self.intervals
-            .range((std::ops::Bound::Excluded(pos), std::ops::Bound::Unbounded))
-            .next()
-            .map(|(_, interval)| interval.start)
+
+        for (idx, run) in runs.iter().enumerate() {
+            if pos < run.start {
+                return next_non_default_start(&runs, idx);
+            }
+
+            if run.start <= pos && pos < run.end {
+                if run.is_empty_plist() {
+                    return next_non_default_start(&runs, idx + 1);
+                }
+                return Some(run.end);
+            }
+        }
+
+        None
     }
 
-    /// Return the previous position before `pos` where any text property
-    /// changes, or `None` if there is no change before `pos`.
     pub fn previous_property_change(&self, pos: usize) -> Option<usize> {
-        if let Some(mut interval) = self.interval_containing(pos.saturating_sub(1))
-            && pos <= interval.end
-            && interval.start < pos
-        {
-            let mut start = interval.start;
-            while let Some((_, previous)) = self.intervals.range(..interval.start).next_back() {
-                if previous.end == interval.start
-                    && props_equal(&previous.properties, &interval.properties)
-                {
-                    interval = previous;
-                    start = previous.start;
-                    continue;
-                }
-                break;
-            }
-            return Some(start);
+        if pos == 0 {
+            return None;
         }
-        self.intervals
-            .range(..pos)
-            .next_back()
-            .map(|(_, interval)| interval.end)
+        let runs = self.all_runs();
+        if runs.is_empty() {
+            return None;
+        }
+
+        let scan_pos = pos - 1;
+        for idx in (0..runs.len()).rev() {
+            let run = &runs[idx];
+            if scan_pos >= run.end {
+                if !run.is_empty_plist() {
+                    return Some(run.end);
+                }
+                continue;
+            }
+
+            if run.start <= scan_pos && scan_pos < run.end {
+                if run.is_empty_plist() {
+                    return previous_non_default_end(&runs, idx);
+                }
+                return Some(run.start);
+            }
+        }
+
+        None
     }
 
-    /// Adjust all intervals after text is inserted at `pos` with `len` bytes.
-    ///
-    /// Matches GNU Emacs `adjust_intervals_for_insertion` (intervals.c:802):
-    ///
-    /// - Intervals starting AFTER the insertion point are shifted right.
-    /// - An interval whose interior CONTAINS the insertion point is SPLIT
-    ///   around the inserted range, leaving the newly inserted text without
-    ///   inherited properties.
-    /// - An interval whose START equals `pos` is shifted right (the inserted
-    ///   text goes BEFORE this interval, not inside it).
-    /// - `insert-and-inherit` and related commands compute stickiness-aware
-    ///   inherited properties separately after the structural split.
     pub fn adjust_for_insert(&mut self, pos: usize, len: usize) {
         if len == 0 {
             return;
         }
-        let mut shifted = BTreeMap::new();
-        for interval in self.intervals_snapshot() {
-            if interval.start == pos {
-                let mut shifted_interval = interval;
-                shifted_interval.start += len;
-                shifted_interval.end += len;
-                shifted.insert(shifted_interval.start, shifted_interval);
-            } else if interval.start > pos {
-                let mut shifted_interval = interval;
-                shifted_interval.start += len;
-                shifted_interval.end += len;
-                shifted.insert(shifted_interval.start, shifted_interval);
-            } else if interval.end > pos {
-                let mut left = interval.clone();
-                left.end = pos;
-                if left.start < left.end {
-                    shifted.insert(left.start, left);
-                }
 
-                let mut right = interval;
-                right.start = pos + len;
-                right.end += len;
-                if right.start < right.end {
-                    shifted.insert(right.start, right);
-                }
+        let mut shifted = Vec::new();
+        for run in self.all_runs() {
+            if run.end <= pos {
+                shifted.push(run);
+            } else if run.start >= pos {
+                shifted.push(IntervalRun::new(run.start + len, run.end + len, run.plist));
             } else {
-                shifted.insert(interval.start, interval);
+                shifted.push(IntervalRun::new(run.start, pos, run.plist.clone()));
+                shifted.push(IntervalRun::default(pos, pos + len));
+                shifted.push(IntervalRun::new(pos + len, run.end + len, run.plist));
             }
         }
-        self.intervals = shifted;
+        self.rebuild_from_runs(shifted);
     }
 
-    /// Adjust all intervals after text in `[start, end)` is deleted.
-    ///
-    /// Intervals inside the deleted range are removed or truncated.
-    /// Intervals after the deleted range are shifted left.
     pub fn adjust_for_delete(&mut self, start: usize, end: usize) {
         if start >= end {
             return;
         }
+
         let len = end - start;
-        let mut shifted = BTreeMap::new();
-
-        for mut interval in self.intervals_snapshot() {
-            if interval.start >= end {
-                interval.start -= len;
-                interval.end -= len;
-            } else if interval.end <= start {
-            } else if interval.start >= start && interval.end <= end {
-                continue;
-            } else if interval.start < start && interval.end > end {
-                interval.end -= len;
-            } else if interval.start < start {
-                interval.end = start;
-            } else {
-                interval.start = start;
-                interval.end -= len;
-            }
-            shifted.insert(interval.start, interval);
-        }
-        self.intervals = shifted;
-        self.merge_adjacent();
-    }
-
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
-    /// Split any interval that spans `pos` into two intervals at `pos`.
-    fn split_at(&mut self, pos: usize) {
-        let Some((&start, interval)) = self.intervals.range(..pos).next_back() else {
-            return;
-        };
-        if !(interval.start < pos && pos < interval.end) {
-            return;
-        }
-
-        let second = PropertyInterval {
-            start: pos,
-            end: interval.end,
-            properties: interval.properties.clone(),
-            key_order: interval.key_order.clone(),
-        };
-        if let Some(first) = self.intervals.get_mut(&start) {
-            first.end = pos;
-        }
-        self.intervals.insert(pos, second);
-    }
-
-    /// Ensure that the entire range `[start, end)` is covered by intervals.
-    /// Fill any gaps with empty-property intervals.
-    fn ensure_coverage(&mut self, start: usize, end: usize) {
-        let mut gaps = Vec::new();
-        let mut cursor = start;
-
-        for interval in self
-            .intervals
-            .range(start..end)
-            .map(|(_, interval)| interval)
-        {
-            if interval.start > cursor {
-                gaps.push((cursor, interval.start));
-            }
-            if interval.end > cursor {
-                cursor = interval.end;
+        let mut shifted = Vec::new();
+        for mut run in self.all_runs() {
+            if run.end <= start {
+                shifted.push(run);
+            } else if run.start >= end {
+                run.start -= len;
+                run.end -= len;
+                shifted.push(run);
+            } else if run.start < start && run.end > end {
+                run.end -= len;
+                shifted.push(run);
+            } else if run.start < start {
+                run.end = start;
+                shifted.push(run);
+            } else if run.end > end {
+                run.start = start;
+                run.end -= len;
+                shifted.push(run);
             }
         }
-        if cursor < end {
-            gaps.push((cursor, end));
-        }
-
-        for (gap_start, gap_end) in gaps {
-            self.intervals
-                .insert(gap_start, PropertyInterval::new(gap_start, gap_end));
-        }
+        self.rebuild_from_runs(shifted);
     }
 
-    /// Remove intervals with no properties.
-    fn cleanup(&mut self) {
-        self.intervals.retain(|_, iv| !iv.is_empty_props());
-    }
-
-    /// Remove empty intervals that can only have been created in `[start, end)`.
-    fn cleanup_range(&mut self, start: usize, end: usize) {
-        let keys: Vec<usize> = self
-            .intervals
-            .range(start..end)
-            .filter_map(|(&key, interval)| interval.is_empty_props().then_some(key))
-            .collect();
-        for key in keys {
-            self.intervals.remove(&key);
-        }
-    }
-
-    /// Merge adjacent intervals that have identical property maps.
-    fn merge_adjacent(&mut self) {
-        if self.intervals.len() < 2 {
-            return;
-        }
-
-        let mut merged = BTreeMap::new();
-        let mut current: Option<PropertyInterval> = None;
-
-        for interval in self.intervals.values().cloned() {
-            match current.take() {
-                None => current = Some(interval),
-                Some(mut active) => {
-                    if active.end == interval.start
-                        && props_equal(&active.properties, &interval.properties)
-                    {
-                        active.end = interval.end;
-                        current = Some(active);
-                    } else {
-                        merged.insert(active.start, active);
-                        current = Some(interval);
-                    }
-                }
-            }
-        }
-        if let Some(interval) = current {
-            merged.insert(interval.start, interval);
-        }
-        self.intervals = merged;
-    }
-
-    /// Merge adjacent equal intervals only near a changed range.
-    ///
-    /// GNU's interval operations split and update the affected interval chain;
-    /// they don't rescan the whole buffer after every property write.  The
-    /// only possible new merge points are inside the changed range and at its
-    /// two boundaries, so restrict compaction to that neighborhood.
-    fn merge_adjacent_around(&mut self, start: usize, end: usize) {
-        if self.intervals.len() < 2 {
-            return;
-        }
-
-        let mut keys = Vec::new();
-        if let Some((&key, _)) = self.intervals.range(..start).next_back() {
-            keys.push(key);
-        }
-        keys.extend(self.intervals.range(start..=end).map(|(&key, _)| key));
-        if let Some((&key, _)) = self
-            .intervals
-            .range((std::ops::Bound::Excluded(end), std::ops::Bound::Unbounded))
-            .next()
-        {
-            keys.push(key);
-        }
-
-        keys.sort_unstable();
-        keys.dedup();
-        if keys.len() < 2 {
-            return;
-        }
-
-        let mut intervals: Vec<PropertyInterval> = keys
-            .into_iter()
-            .filter_map(|key| self.intervals.remove(&key))
-            .collect();
-        intervals.sort_by_key(|interval| interval.start);
-
-        let mut merged: Vec<PropertyInterval> = Vec::with_capacity(intervals.len());
-        for interval in intervals {
-            if let Some(active) = merged.last_mut()
-                && active.end == interval.start
-                && props_equal(&active.properties, &interval.properties)
-            {
-                active.end = interval.end;
-                continue;
-            }
-            merged.push(interval);
-        }
-
-        for interval in merged {
-            self.intervals.insert(interval.start, interval);
-        }
-    }
-
-    fn interval_containing(&self, pos: usize) -> Option<&PropertyInterval> {
-        let (_, interval) = self.intervals.range(..=pos).next_back()?;
-        (interval.start <= pos && pos < interval.end).then_some(interval)
-    }
-
-    /// Expose a stable interval snapshot for iteration (GC tracing, printing, etc.).
     pub fn intervals_snapshot(&self) -> Vec<PropertyInterval> {
-        self.intervals.values().cloned().collect()
+        self.all_runs()
+            .into_iter()
+            .filter(|run| !run.plist.is_empty())
+            .map(|run| PropertyInterval::from_plist(run.start, run.end, &run.plist))
+            .collect()
     }
 
-    /// Returns true if there are no intervals (no properties).
     pub fn is_empty(&self) -> bool {
-        self.intervals.is_empty()
+        self.nodes.iter().all(|node| node.plist.is_empty())
     }
 
-    /// Extract a sub-range `[start, end)` of the property table,
-    /// shifting all positions to be 0-based relative to `start`.
     pub fn slice(&self, start: usize, end: usize) -> TextPropertyTable {
         if start >= end {
             return TextPropertyTable::new();
         }
-        let mut result = BTreeMap::new();
-        for iv in self.intervals.values() {
-            if iv.end <= start || iv.start >= end {
-                continue;
-            }
-            let new_start = iv.start.max(start) - start;
-            let new_end = iv.end.min(end) - start;
-            if new_start < new_end && !iv.properties.is_empty() {
-                result.insert(
-                    new_start,
-                    PropertyInterval {
-                        start: new_start,
-                        end: new_end,
-                        properties: iv.properties.clone(),
-                        key_order: iv.key_order.clone(),
-                    },
-                );
-            }
-        }
-        TextPropertyTable { intervals: result }
+
+        let intervals = self
+            .intervals_snapshot()
+            .into_iter()
+            .filter_map(|interval| {
+                if interval.end <= start || interval.start >= end {
+                    return None;
+                }
+                let new_start = interval.start.max(start) - start;
+                let new_end = interval.end.min(end) - start;
+                (new_start < new_end).then_some(PropertyInterval {
+                    start: new_start,
+                    end: new_end,
+                    properties: interval.properties,
+                    key_order: interval.key_order,
+                })
+            })
+            .collect();
+        TextPropertyTable::from_dump(intervals)
     }
 
-    /// Append another table's intervals shifted by `byte_offset`.
-    pub fn append_shifted(&mut self, other: &TextPropertyTable, byte_offset: usize) {
-        for iv in other.intervals.values() {
-            if iv.properties.is_empty() {
-                continue;
-            }
-            let start = iv.start + byte_offset;
-            self.intervals.insert(
-                start,
-                PropertyInterval {
-                    start,
-                    end: iv.end + byte_offset,
-                    properties: iv.properties.clone(),
-                    key_order: iv.key_order.clone(),
-                },
-            );
-        }
-        self.merge_adjacent();
+    pub fn append_shifted(&mut self, other: &TextPropertyTable, offset: usize) {
+        let mut runs = self.all_runs();
+        runs.extend(other.intervals_snapshot().into_iter().map(|interval| {
+            IntervalRun::new(
+                interval.start + offset,
+                interval.end + offset,
+                interval.into_plist(),
+            )
+        }));
+        self.rebuild_from_runs(runs);
     }
 
-    // pdump accessors
     pub(crate) fn dump_intervals(&self) -> Vec<PropertyInterval> {
         self.intervals_snapshot()
     }
+
     pub(crate) fn from_dump(intervals: Vec<PropertyInterval>) -> Self {
-        Self {
-            intervals: intervals
+        let mut table = Self::new();
+        table.rebuild_from_runs(
+            intervals
                 .into_iter()
-                .map(|interval| (interval.start, interval))
+                .map(|interval| {
+                    IntervalRun::new(interval.start, interval.end, interval.into_plist())
+                })
                 .collect(),
-        }
+        );
+        table
     }
 
     pub(crate) fn for_each_root(&self, mut f: impl FnMut(Value)) {
-        for interval in self.intervals.values() {
-            for key in interval.properties.keys() {
+        for node in &self.nodes {
+            for (key, value) in &node.plist {
                 f(*key);
-            }
-            for value in interval.properties.values() {
                 f(*value);
             }
         }
     }
+
+    fn all_runs(&self) -> Vec<IntervalRun> {
+        let mut runs = Vec::new();
+        if let Some(root) = self.root {
+            self.collect_runs(root, &mut runs);
+        }
+        runs
+    }
+
+    fn collect_runs(&self, idx: usize, out: &mut Vec<IntervalRun>) {
+        let node = &self.nodes[idx];
+        if let Some(left) = node.left {
+            self.collect_runs(left, out);
+        }
+        let len = self.node_length(idx);
+        if len > 0 {
+            out.push(IntervalRun::new(
+                node.position,
+                node.position + len,
+                node.plist.clone(),
+            ));
+        }
+        if let Some(right) = node.right {
+            self.collect_runs(right, out);
+        }
+    }
+
+    fn rebuild_from_runs(&mut self, runs: Vec<IntervalRun>) {
+        let runs = normalize_runs(runs);
+        self.nodes.clear();
+        self.root = self.build_subtree(&runs, IntervalParent::Object);
+    }
+
+    fn build_subtree(&mut self, runs: &[IntervalRun], up: IntervalParent) -> Option<usize> {
+        if runs.is_empty() {
+            return None;
+        }
+
+        let mid = runs.len() / 2;
+        let idx = self.nodes.len();
+        self.nodes.push(IntervalNode::new(
+            runs[mid].start,
+            runs[mid].len(),
+            runs[mid].plist.clone(),
+            up,
+        ));
+
+        let left = self.build_subtree(&runs[..mid], IntervalParent::Interval(idx));
+        let right = self.build_subtree(&runs[mid + 1..], IntervalParent::Interval(idx));
+        let left_total = left.map_or(0, |child| self.nodes[child].total_length);
+        let right_total = right.map_or(0, |child| self.nodes[child].total_length);
+
+        let node = &mut self.nodes[idx];
+        node.left = left;
+        node.right = right;
+        node.total_length = runs[mid].len() + left_total + right_total;
+        node.up_obj = matches!(node.up, IntervalParent::Object);
+        Some(idx)
+    }
+
+    fn node_length(&self, idx: usize) -> usize {
+        let node = &self.nodes[idx];
+        node.total_length
+            .saturating_sub(node.left.map_or(0, |left| self.nodes[left].total_length))
+            .saturating_sub(node.right.map_or(0, |right| self.nodes[right].total_length))
+    }
+
+    fn interval_containing_index(&self, pos: usize) -> Option<usize> {
+        let mut cursor = self.root?;
+        loop {
+            let node = &self.nodes[cursor];
+            if pos < node.position {
+                cursor = node.left?;
+                continue;
+            }
+
+            let end = node.position + self.node_length(cursor);
+            if pos < end {
+                return Some(cursor);
+            }
+
+            cursor = node.right?;
+        }
+    }
+}
+
+fn split_runs_at(mut runs: Vec<IntervalRun>, boundaries: &[usize]) -> Vec<IntervalRun> {
+    let mut bounds: Vec<usize> = boundaries.to_vec();
+    bounds.sort_unstable();
+    bounds.dedup();
+    let mut result = Vec::with_capacity(runs.len() + bounds.len());
+
+    for run in runs.drain(..) {
+        let mut start = run.start;
+        for boundary in bounds.iter().copied() {
+            if start < boundary && boundary < run.end {
+                result.push(IntervalRun::new(start, boundary, run.plist.clone()));
+                start = boundary;
+            }
+        }
+        result.push(IntervalRun::new(start, run.end, run.plist));
+    }
+
+    result
+}
+
+fn cover_range_with_default_intervals(
+    mut runs: Vec<IntervalRun>,
+    start: usize,
+    end: usize,
+) -> Vec<IntervalRun> {
+    runs.sort_by_key(|run| run.start);
+    let mut result = Vec::new();
+    let mut cursor = start;
+    let mut covered = false;
+
+    for run in runs {
+        if run.end <= start {
+            result.push(run);
+            continue;
+        }
+
+        if run.start >= end {
+            if !covered && cursor < end {
+                result.push(IntervalRun::default(cursor, end));
+                covered = true;
+            }
+            result.push(run);
+            continue;
+        }
+
+        if cursor < run.start {
+            result.push(IntervalRun::default(cursor, run.start));
+        }
+        cursor = cursor.max(run.end);
+        result.push(run);
+    }
+
+    if !covered && cursor < end {
+        result.push(IntervalRun::default(cursor, end));
+    }
+
+    result
+}
+
+fn normalize_runs(mut runs: Vec<IntervalRun>) -> Vec<IntervalRun> {
+    runs.retain(|run| run.start < run.end);
+    runs.sort_by_key(|run| run.start);
+
+    let mut normalized: Vec<IntervalRun> = Vec::new();
+    for mut run in runs {
+        if let Some(last) = normalized.last_mut() {
+            if run.start < last.end {
+                run.start = last.end;
+                if run.start >= run.end {
+                    continue;
+                }
+            }
+            if last.end == run.start && plists_equal_eq(&last.plist, &run.plist) {
+                last.end = run.end;
+                continue;
+            }
+        }
+        normalized.push(run);
+    }
+
+    while normalized.first().is_some_and(|run| run.plist.is_empty()) {
+        normalized.remove(0);
+    }
+    while normalized.last().is_some_and(|run| run.plist.is_empty()) {
+        normalized.pop();
+    }
+
+    if normalized.iter().all(|run| run.plist.is_empty()) {
+        Vec::new()
+    } else {
+        normalized
+    }
+}
+
+fn next_non_default_start(runs: &[IntervalRun], start_idx: usize) -> Option<usize> {
+    runs.iter()
+        .skip(start_idx)
+        .find(|run| !run.is_empty_plist())
+        .map(|run| run.start)
+}
+
+fn previous_non_default_end(runs: &[IntervalRun], before_idx: usize) -> Option<usize> {
+    runs.iter()
+        .take(before_idx)
+        .rev()
+        .find(|run| !run.is_empty_plist())
+        .map(|run| run.end)
 }
 
 impl Default for TextPropertyTable {
