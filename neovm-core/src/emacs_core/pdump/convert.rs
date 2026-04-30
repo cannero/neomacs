@@ -9,7 +9,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use super::DumpError;
 use super::mapped_heap::MappedHeapView;
 use super::types::*;
-use super::value_fixups::RawValueFixup;
+use super::value_fixups::{self, RawValueFixup};
 use crate::buffer::buffer::{Buffer, BufferId, BufferManager, InsertionType};
 use crate::buffer::buffer_text::BufferText;
 use crate::buffer::overlay::{Overlay, OverlayList};
@@ -315,6 +315,13 @@ impl LoadDecoder {
     }
 
     pub(crate) fn preload_tagged_heap(&mut self) -> Result<(), DumpError> {
+        self.preload_tagged_heap_with_value_fixup_section(None)
+    }
+
+    pub(crate) fn preload_tagged_heap_with_value_fixup_section(
+        &mut self,
+        value_fixups_section: Option<&[u8]>,
+    ) -> Result<(), DumpError> {
         self.register_mapped_cons_ranges()?;
         self.register_mapped_float_ranges()?;
         self.register_mapped_string_objects()?;
@@ -324,13 +331,27 @@ impl LoadDecoder {
                 index: index as u32,
             })?;
         }
-        self.apply_mapped_value_fixups()?;
+        if let Some(section) = value_fixups_section {
+            self.apply_mapped_value_fixup_section(section)?;
+        } else {
+            self.apply_mapped_value_fixups()?;
+        }
         for index in 0..self.state.objects.len() {
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
         }
         Ok(())
+    }
+
+    fn apply_mapped_value_fixup_section(&mut self, section: &[u8]) -> Result<(), DumpError> {
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError("value fixups require a writable mapped heap image".into())
+        })?;
+        value_fixups::for_each_value_fixup(section, |fixup| {
+            let value = self.load_value(&fixup.value);
+            mapped_heap.write_value_word(fixup.location_offset, value)
+        })
     }
 
     fn apply_mapped_value_fixups(&mut self) -> Result<(), DumpError> {
@@ -340,7 +361,7 @@ impl LoadDecoder {
         let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
             DumpError::ImageFormatError("value fixups require a writable mapped heap image".into())
         })?;
-        let fixups = self.state.value_fixups.clone();
+        let fixups = std::mem::take(&mut self.state.value_fixups);
         for fixup in fixups {
             let value = self.load_value(&fixup.value);
             mapped_heap.write_value_word(fixup.location_offset, value)?;
@@ -433,76 +454,97 @@ impl LoadDecoder {
     }
 
     fn register_mapped_float_ranges(&self) -> Result<(), DumpError> {
-        let mut offsets: Vec<_> = self
-            .state
-            .mapped_floats
-            .iter()
-            .flatten()
-            .map(|span| span.offset)
-            .collect();
-        if offsets.is_empty() {
-            return Ok(());
-        }
-        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
-            DumpError::ImageFormatError(
-                "dump reserves mapped float objects but image has no heap section".into(),
-            )
-        })?;
-        offsets.sort_unstable();
-        let object_size = std::mem::size_of::<FloatObj>() as u64;
-        let mut run_start = offsets[0];
-        let mut run_len = 1usize;
-        let mut prev = offsets[0];
-        for offset in offsets.into_iter().skip(1) {
-            if offset == prev + object_size {
-                run_len += 1;
-            } else {
-                let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
-                with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, run_len) });
-                run_start = offset;
-                run_len = 1;
-            }
-            prev = offset;
-        }
-        let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
-        with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, run_len) });
-        Ok(())
+        self.register_mapped_offset_runs(
+            self.state
+                .mapped_floats
+                .iter()
+                .flatten()
+                .map(|span| span.offset),
+            std::mem::size_of::<FloatObj>() as u64,
+            "float",
+            |mapped_heap, offset| mapped_heap.float_obj_mut(DumpFloatSpan { offset }),
+            |ptr, len| {
+                with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, len) });
+            },
+        )
     }
 
     fn register_mapped_cons_ranges(&self) -> Result<(), DumpError> {
-        let mut offsets: Vec<_> = self
-            .state
-            .mapped_cons
-            .iter()
-            .flatten()
-            .map(|span| span.offset)
-            .collect();
-        if offsets.is_empty() {
-            return Ok(());
-        }
-        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
-            DumpError::ImageFormatError(
-                "dump reserves mapped cons cells but image has no heap section".into(),
-            )
-        })?;
-        offsets.sort_unstable();
-        let cell_size = std::mem::size_of::<ConsCell>() as u64;
-        let mut run_start = offsets[0];
-        let mut run_len = 1usize;
-        let mut prev = offsets[0];
-        for offset in offsets.into_iter().skip(1) {
-            if offset == prev + cell_size {
-                run_len += 1;
+        self.register_mapped_offset_runs(
+            self.state
+                .mapped_cons
+                .iter()
+                .flatten()
+                .map(|span| span.offset),
+            std::mem::size_of::<ConsCell>() as u64,
+            "cons",
+            |mapped_heap, offset| mapped_heap.cons_cell_mut(DumpConsSpan { offset }),
+            |ptr, len| {
+                with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, len) });
+            },
+        )
+    }
+
+    fn register_mapped_offset_runs<T>(
+        &self,
+        offsets: impl Iterator<Item = u64>,
+        object_size: u64,
+        label: &'static str,
+        ptr_for_offset: impl Fn(MappedHeapView, u64) -> Result<*mut T, DumpError>,
+        register: impl Fn(*mut T, usize),
+    ) -> Result<(), DumpError> {
+        let mut run_start = None;
+        let mut run_len = 0usize;
+        let mut expected_next = None;
+
+        for offset in offsets {
+            if let Some(next) = expected_next {
+                if offset < next {
+                    return Err(DumpError::ImageFormatError(format!(
+                        "mapped {label} offsets are not monotonic: got {offset}, expected at least {next}"
+                    )));
+                }
+                if offset != next {
+                    self.finish_mapped_offset_run(
+                        run_start.unwrap(),
+                        run_len,
+                        &ptr_for_offset,
+                        &register,
+                    )?;
+                    run_start = Some(offset);
+                    run_len = 1;
+                } else {
+                    run_len += 1;
+                }
             } else {
-                let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
-                with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, run_len) });
-                run_start = offset;
+                run_start = Some(offset);
                 run_len = 1;
             }
-            prev = offset;
+            expected_next = Some(offset.checked_add(object_size).ok_or_else(|| {
+                DumpError::ImageFormatError(format!("mapped {label} offset range overflows"))
+            })?);
         }
-        let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
-        with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, run_len) });
+
+        if let Some(run_start) = run_start {
+            self.finish_mapped_offset_run(run_start, run_len, ptr_for_offset, register)?;
+        }
+        Ok(())
+    }
+
+    fn finish_mapped_offset_run<T>(
+        &self,
+        run_start: u64,
+        run_len: usize,
+        ptr_for_offset: impl Fn(MappedHeapView, u64) -> Result<*mut T, DumpError>,
+        register: impl Fn(*mut T, usize),
+    ) -> Result<(), DumpError> {
+        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
+            DumpError::ImageFormatError(
+                "dump reserves mapped objects but image has no heap section".into(),
+            )
+        })?;
+        let ptr = ptr_for_offset(mapped_heap, run_start)?;
+        register(ptr, run_len);
         Ok(())
     }
 
@@ -822,12 +864,15 @@ impl LoadDecoder {
             }
             DumpHeapObject::Vector(items) => {
                 if let Some(ptr) = self.mapped_typed_object_for_object::<VectorObj>(id, "vector")? {
+                    let data = self
+                        .mapped_slots_for_object_without_copy(id, items.len())?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; items.len()]));
                     unsafe {
                         std::ptr::write(
                             ptr,
                             VectorObj {
                                 header: VecLikeHeader::new(VecLikeType::Vector),
-                                data: LispValueVec::owned(vec![Value::NIL; items.len()]),
+                                data,
                             },
                         );
                         Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())
@@ -881,12 +926,15 @@ impl LoadDecoder {
             DumpHeapObject::Lambda(slots) => {
                 let len = slots.len().max(CLOSURE_MIN_SLOTS);
                 if let Some(ptr) = self.mapped_typed_object_for_object::<LambdaObj>(id, "lambda")? {
+                    let data = self
+                        .mapped_slots_for_object_without_copy(id, slots.len())?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
                             ptr,
                             LambdaObj {
                                 header: VecLikeHeader::new(VecLikeType::Lambda),
-                                data: LispValueVec::owned(vec![Value::NIL; len]),
+                                data,
                                 parsed_params: std::sync::OnceLock::new(),
                             },
                         );
@@ -899,12 +947,15 @@ impl LoadDecoder {
             DumpHeapObject::Macro(slots) => {
                 let len = slots.len().max(CLOSURE_MIN_SLOTS);
                 if let Some(ptr) = self.mapped_typed_object_for_object::<MacroObj>(id, "macro")? {
+                    let data = self
+                        .mapped_slots_for_object_without_copy(id, slots.len())?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; len]));
                     unsafe {
                         std::ptr::write(
                             ptr,
                             MacroObj {
                                 header: VecLikeHeader::new(VecLikeType::Macro),
-                                data: LispValueVec::owned(vec![Value::NIL; len]),
+                                data,
                                 parsed_params: std::sync::OnceLock::new(),
                             },
                         );
@@ -932,12 +983,15 @@ impl LoadDecoder {
             }),
             DumpHeapObject::Record(items) => {
                 if let Some(ptr) = self.mapped_typed_object_for_object::<RecordObj>(id, "record")? {
+                    let data = self
+                        .mapped_slots_for_object_without_copy(id, items.len())?
+                        .unwrap_or_else(|| LispValueVec::owned(vec![Value::NIL; items.len()]));
                     unsafe {
                         std::ptr::write(
                             ptr,
                             RecordObj {
                                 header: VecLikeHeader::new(VecLikeType::Record),
-                                data: LispValueVec::owned(vec![Value::NIL; items.len()]),
+                                data,
                             },
                         );
                         Value::from_veclike_ptr(ptr.cast::<VecLikeHeader>())

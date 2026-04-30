@@ -55,6 +55,30 @@ pub(crate) fn value_fixups_section_bytes(fixups: &[RawValueFixup]) -> Result<Vec
 }
 
 pub(crate) fn load_value_fixups_section(section: &[u8]) -> Result<Vec<RawValueFixup>, DumpError> {
+    let (fixup_count, payload) = value_fixups_payload(section)?;
+    let mut cursor = object_value_codec::Cursor::new(payload);
+    let mut fixups = Vec::with_capacity(fixup_count);
+    for _ in 0..fixup_count {
+        let fixup = read_value_fixup(&mut cursor)?;
+        fixups.push(fixup);
+    }
+    ensure_fixup_cursor_empty(&cursor)?;
+    Ok(fixups)
+}
+
+pub(crate) fn for_each_value_fixup(
+    section: &[u8],
+    mut f: impl FnMut(RawValueFixup) -> Result<(), DumpError>,
+) -> Result<(), DumpError> {
+    let (fixup_count, payload) = value_fixups_payload(section)?;
+    let mut cursor = object_value_codec::Cursor::new(payload);
+    for _ in 0..fixup_count {
+        f(read_value_fixup(&mut cursor)?)?;
+    }
+    ensure_fixup_cursor_empty(&cursor)
+}
+
+fn value_fixups_payload(section: &[u8]) -> Result<(usize, &[u8]), DumpError> {
     if section.len() < HEADER_SIZE {
         return Err(DumpError::ImageFormatError(
             "value-fixups section too small for header".into(),
@@ -94,23 +118,28 @@ pub(crate) fn load_value_fixups_section(section: &[u8]) -> Result<Vec<RawValueFi
 
     let fixup_count = usize::try_from(header.fixup_count)
         .map_err(|_| DumpError::ImageFormatError("value-fixups count overflows usize".into()))?;
-    let mut cursor = object_value_codec::Cursor::new(&section[payload_start..payload_end]);
-    let mut fixups = Vec::with_capacity(fixup_count);
-    for _ in 0..fixup_count {
-        let location_offset = cursor.read_u64("value-fixup location offset")?;
-        let value = cursor.read_value()?;
-        fixups.push(RawValueFixup {
-            location_offset,
-            value,
-        });
-    }
+    Ok((fixup_count, &section[payload_start..payload_end]))
+}
+
+fn read_value_fixup(
+    cursor: &mut object_value_codec::Cursor<'_>,
+) -> Result<RawValueFixup, DumpError> {
+    let location_offset = cursor.read_u64("value-fixup location offset")?;
+    let value = cursor.read_value()?;
+    Ok(RawValueFixup {
+        location_offset,
+        value,
+    })
+}
+
+fn ensure_fixup_cursor_empty(cursor: &object_value_codec::Cursor<'_>) -> Result<(), DumpError> {
     if !cursor.is_empty() {
         return Err(DumpError::ImageFormatError(format!(
             "value-fixups section has {} trailing payload bytes",
             cursor.remaining()
         )));
     }
-    Ok(fixups)
+    Ok(())
 }
 
 #[cfg(test)]

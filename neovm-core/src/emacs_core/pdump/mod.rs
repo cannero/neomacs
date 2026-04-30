@@ -460,11 +460,6 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         mapped_veclikes: spans.mapped_veclikes,
         mapped_slots: spans.mapped_slots,
     };
-    let value_fixups = image
-        .section(DumpSectionKind::ValueRelocations)
-        .map(value_fixups::load_value_fixups_section)
-        .transpose()?
-        .unwrap_or_default();
     let obarray_payload = image
         .section(DumpSectionKind::Obarray)
         .ok_or_else(|| DumpError::ImageFormatError("missing obarray section".into()))?;
@@ -510,12 +505,13 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
     let mapped_heap = image
         .section_mut(DumpSectionKind::HeapImage)
         .map(mapped_heap::MappedHeapView::from_mut_slice);
+    let value_fixups_section = image.section(DumpSectionKind::ValueRelocations);
 
     let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap(
         &state,
         tagged_heap,
         mapped_heap,
-        value_fixups,
+        value_fixups_section,
     )?;
     drop(_cleanup);
     record_loaded_dump(path, load_start.elapsed());
@@ -618,25 +614,37 @@ fn reconstruct_evaluator_after_symbol_table_with_tagged_heap(
     state: &DumpContextState,
     tagged_heap_state: DumpTaggedHeap,
     mapped_heap: Option<mapped_heap::MappedHeapView>,
-    value_fixups: Vec<value_fixups::RawValueFixup>,
+    value_fixups_section: Option<&[u8]>,
 ) -> Result<Context, DumpError> {
     let decoder = LoadDecoder::from_tagged_heap_with_mapped_heap_and_fixups(
         tagged_heap_state,
         mapped_heap,
-        value_fixups,
+        Vec::new(),
     );
-    reconstruct_evaluator_after_symbol_table_with_decoder(state, decoder)
+    reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(
+        state,
+        decoder,
+        value_fixups_section,
+    )
 }
 
 fn reconstruct_evaluator_after_symbol_table_with_decoder(
     state: &DumpContextState,
+    decoder: LoadDecoder,
+) -> Result<Context, DumpError> {
+    reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(state, decoder, None)
+}
+
+fn reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(
+    state: &DumpContextState,
     mut decoder: LoadDecoder,
+    value_fixups_section: Option<&[u8]>,
 ) -> Result<Context, DumpError> {
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads
     // so tagged dump references can resolve directly to live tagged objects.
     let mut tagged_heap = Box::new(crate::tagged::gc::TaggedHeap::new());
     crate::tagged::gc::set_tagged_heap(&mut tagged_heap);
-    decoder.preload_tagged_heap()?;
+    decoder.preload_tagged_heap_with_value_fixup_section(value_fixups_section)?;
 
     // 3. Reset thread-local runtime caches before replaying semantic state.
     reset_runtime_for_new_heap(HeapResetMode::PdumpRestore);
