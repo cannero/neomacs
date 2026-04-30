@@ -1288,7 +1288,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                         break;
                     }
                     let new_val = lookup_string_text_property(obarray, buffers, &table, next, prop);
-                    let changed = !equal_value(&current_val, &new_val, 0);
+                    let changed = !eq_value(&current_val, &new_val);
                     if changed {
                         return Ok(Value::fixnum(string_char_to_elisp_pos(s, next)));
                     }
@@ -1337,7 +1337,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                     break;
                 }
                 let new_val = lookup_buffer_text_property(obarray, buffers, buf, next, prop);
-                let changed = !equal_value(&current_val, &new_val, 0);
+                let changed = !eq_value(&current_val, &new_val);
                 if changed {
                     return Ok(Value::fixnum(byte_to_elisp_pos(buf, next)));
                 }
@@ -1401,7 +1401,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                     let check = if prev > 0 { prev - 1 } else { 0 };
                     let new_val =
                         lookup_string_text_property(obarray, buffers, &table, check, prop);
-                    let changed = !equal_value(&current_val, &new_val, 0);
+                    let changed = !eq_value(&current_val, &new_val);
                     if changed {
                         return Ok(Value::fixnum(string_char_to_elisp_pos(s, prev)));
                     }
@@ -1451,7 +1451,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                 }
                 let check = if prev > 0 { prev - 1 } else { 0 };
                 let new_val = lookup_buffer_text_property(obarray, buffers, buf, check, prop);
-                let changed = !equal_value(&current_val, &new_val, 0);
+                let changed = !eq_value(&current_val, &new_val);
                 if changed {
                     return Ok(Value::fixnum(byte_to_elisp_pos(buf, prev)));
                 }
@@ -1494,10 +1494,16 @@ pub(crate) fn builtin_next_property_change_in_buffers(
         let char_pos = string_elisp_pos_to_char(s, pos);
         let limit_arg = args.get(2);
         // Keep original limit value for returning (don't clamp to string length)
+        // GNU: LIMIT == t means "return start of next interval, no further checking";
+        // we treat it as no integer bound and return t when nothing is found.
         let (char_limit, limit_val) = match limit_arg {
+            Some(v) if v.is_t() => (None, Some(*v)),
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_int(v)?;
-                (Some(string_elisp_pos_to_char(s, lim_int)), Some(lim_int))
+                (
+                    Some(string_elisp_pos_to_char(s, lim_int)),
+                    Some(Value::fixnum(lim_int)),
+                )
             }
             _ => (None, None),
         };
@@ -1506,25 +1512,16 @@ pub(crate) fn builtin_next_property_change_in_buffers(
             Some(next) => {
                 if let Some(lim) = char_limit {
                     if next >= lim {
-                        return Ok(match limit_val {
-                            Some(lv) => Value::fixnum(lv),
-                            None => Value::NIL,
-                        });
+                        return Ok(limit_val.unwrap_or(Value::NIL));
                     }
                 }
                 // If the change is at or past the end of the string, treat as no change
                 if next >= str_char_len {
-                    return Ok(match limit_val {
-                        Some(lv) => Value::fixnum(lv),
-                        None => Value::NIL,
-                    });
+                    return Ok(limit_val.unwrap_or(Value::NIL));
                 }
                 Ok(Value::fixnum(string_char_to_elisp_pos(s, next)))
             }
-            None => Ok(match limit_val {
-                Some(lv) => Value::fixnum(lv),
-                None => Value::NIL,
-            }),
+            None => Ok(limit_val.unwrap_or(Value::NIL)),
         };
     }
 
@@ -1536,11 +1533,17 @@ pub(crate) fn builtin_next_property_change_in_buffers(
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
-    // Keep original limit value for returning
+    // Keep original limit value for returning.
+    // GNU: LIMIT == t means "return start of next interval, no further checking";
+    // we treat it as no integer bound and return t when nothing is found.
     let (byte_limit, limit_val) = match limit_arg {
+        Some(v) if v.is_t() => (None, Some(*v)),
         Some(v) if !v.is_nil() => {
             let lim_int = expect_int(v)?;
-            (Some(elisp_pos_to_byte(buf, lim_int)), Some(lim_int))
+            (
+                Some(elisp_pos_to_byte(buf, lim_int)),
+                Some(Value::fixnum(lim_int)),
+            )
         }
         _ => (None, None),
     };
@@ -1550,25 +1553,16 @@ pub(crate) fn builtin_next_property_change_in_buffers(
         Some(next) => {
             if let Some(lim) = byte_limit {
                 if next >= lim {
-                    return Ok(match limit_val {
-                        Some(lv) => Value::fixnum(lv),
-                        None => Value::NIL,
-                    });
+                    return Ok(limit_val.unwrap_or(Value::NIL));
                 }
             }
             // If the change is at or past buffer end, treat as no change
             if next >= buf_end {
-                return Ok(match limit_val {
-                    Some(lv) => Value::fixnum(lv),
-                    None => Value::NIL,
-                });
+                return Ok(limit_val.unwrap_or(Value::NIL));
             }
             Ok(Value::fixnum(byte_to_elisp_pos(buf, next)))
         }
-        None => Ok(match limit_val {
-            Some(lv) => Value::fixnum(lv),
-            None => Value::NIL,
-        }),
+        None => Ok(limit_val.unwrap_or(Value::NIL)),
     }
 }
 
