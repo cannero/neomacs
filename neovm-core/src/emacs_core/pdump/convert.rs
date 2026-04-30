@@ -77,6 +77,67 @@ struct TaggedHeapRef {
     index: u32,
 }
 
+struct MappedOffsetRun {
+    start: Option<u64>,
+    len: usize,
+    expected_next: Option<u64>,
+    object_size: u64,
+    label: &'static str,
+}
+
+impl MappedOffsetRun {
+    fn new(object_size: u64, label: &'static str) -> Self {
+        Self {
+            start: None,
+            len: 0,
+            expected_next: None,
+            object_size,
+            label,
+        }
+    }
+
+    fn push(
+        &mut self,
+        offset: u64,
+        mut finish: impl FnMut(u64, usize) -> Result<(), DumpError>,
+    ) -> Result<(), DumpError> {
+        if let Some(next) = self.expected_next {
+            if offset < next {
+                return Err(DumpError::ImageFormatError(format!(
+                    "mapped {} offsets are not monotonic: got {offset}, expected at least {next}",
+                    self.label
+                )));
+            }
+            if offset != next {
+                finish(self.start.unwrap(), self.len)?;
+                self.start = Some(offset);
+                self.len = 1;
+            } else {
+                self.len += 1;
+            }
+        } else {
+            self.start = Some(offset);
+            self.len = 1;
+        }
+        self.expected_next = Some(offset.checked_add(self.object_size).ok_or_else(|| {
+            DumpError::ImageFormatError(format!("mapped {} offset range overflows", self.label))
+        })?);
+        Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        mut finish: impl FnMut(u64, usize) -> Result<(), DumpError>,
+    ) -> Result<(), DumpError> {
+        if let Some(start) = self.start.take() {
+            finish(start, self.len)?;
+        }
+        self.len = 0;
+        self.expected_next = None;
+        Ok(())
+    }
+}
+
 struct TaggedDumpState {
     objects: Vec<Option<DumpHeapObject>>,
     object_ids: HashMap<usize, TaggedHeapRef>,
@@ -201,9 +262,9 @@ impl DumpEncoder {
     }
 }
 
-pub(crate) struct TaggedLoadState {
+pub(crate) struct TaggedLoadState<'a> {
     objects: Vec<DumpHeapObject>,
-    spans: LoadedSpans,
+    spans: LoadedSpans<'a>,
     value_fixups: Vec<RawValueFixup>,
     values: Vec<Option<Value>>,
     populated: Vec<bool>,
@@ -223,7 +284,7 @@ pub(crate) struct TaggedLoadState {
     pub(crate) markers_by_id: FxHashMap<u64, *mut crate::tagged::header::MarkerObj>,
 }
 
-impl TaggedLoadState {
+impl<'a> TaggedLoadState<'a> {
     fn new(
         heap: &DumpTaggedHeap,
         mapped_heap: Option<MappedHeapView>,
@@ -256,7 +317,7 @@ impl TaggedLoadState {
 
     fn from_objects_and_spans(
         objects: Vec<DumpHeapObject>,
-        spans: LoadedSpans,
+        spans: LoadedSpans<'a>,
         mapped_heap: Option<MappedHeapView>,
         value_fixups: Vec<RawValueFixup>,
     ) -> Self {
@@ -278,11 +339,11 @@ impl TaggedLoadState {
     }
 }
 
-pub(crate) struct LoadDecoder {
-    state: TaggedLoadState,
+pub(crate) struct LoadDecoder<'a> {
+    state: TaggedLoadState<'a>,
 }
 
-impl LoadDecoder {
+impl LoadDecoder<'_> {
     pub(crate) fn new(heap: &DumpTaggedHeap) -> Self {
         Self::new_with_mapped_heap(heap, None)
     }
@@ -303,7 +364,9 @@ impl LoadDecoder {
             state: TaggedLoadState::new(heap, mapped_heap, value_fixups),
         }
     }
+}
 
+impl<'a> LoadDecoder<'a> {
     pub(crate) fn from_tagged_heap_with_mapped_heap_and_fixups(
         heap: DumpTaggedHeap,
         mapped_heap: Option<MappedHeapView>,
@@ -316,7 +379,7 @@ impl LoadDecoder {
 
     pub(crate) fn from_objects_and_spans_with_mapped_heap_and_fixups(
         objects: Vec<DumpHeapObject>,
-        spans: LoadedSpans,
+        spans: LoadedSpans<'a>,
         mapped_heap: Option<MappedHeapView>,
         value_fixups: Vec<RawValueFixup>,
     ) -> Self {
@@ -338,10 +401,7 @@ impl LoadDecoder {
         &mut self,
         value_fixups_section: Option<&[u8]>,
     ) -> Result<(), DumpError> {
-        self.register_mapped_cons_ranges()?;
-        self.register_mapped_float_ranges()?;
-        self.register_mapped_string_objects()?;
-        self.register_mapped_veclike_objects()?;
+        self.register_mapped_objects()?;
         for index in 0..self.state.objects.len() {
             self.allocate_tagged_placeholder(TaggedHeapRef {
                 index: index as u32,
@@ -385,186 +445,143 @@ impl LoadDecoder {
         Ok(())
     }
 
-    fn register_mapped_string_objects(&self) -> Result<(), DumpError> {
+    fn register_mapped_objects(&self) -> Result<(), DumpError> {
         let mapped_heap = self.state.mapped_heap;
+        let mut cons_run = MappedOffsetRun::new(std::mem::size_of::<ConsCell>() as u64, "cons");
+        let mut float_run = MappedOffsetRun::new(std::mem::size_of::<FloatObj>() as u64, "float");
+
         for (index, record) in self.state.spans.iter() {
-            let LoadedObjectSpan::String(span) = record else {
-                continue;
-            };
-            if !matches!(&self.state.objects[index], DumpHeapObject::Str { .. }) {
-                return Err(DumpError::ImageFormatError(format!(
-                    "mapped string span attached to non-string object: {:?}",
-                    self.state.objects[index]
-                )));
+            match record {
+                LoadedObjectSpan::Cons(span) => {
+                    cons_run.push(span.offset, |run_start, run_len| {
+                        let mapped_heap = mapped_heap.ok_or_else(|| {
+                            DumpError::ImageFormatError(
+                                "dump reserves mapped cons objects but image has no heap section"
+                                    .into(),
+                            )
+                        })?;
+                        let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
+                        with_tagged_heap(|heap| unsafe {
+                            heap.register_mapped_cons_range(ptr, run_len);
+                        });
+                        Ok(())
+                    })?;
+                }
+                LoadedObjectSpan::Float(span) => {
+                    float_run.push(span.offset, |run_start, run_len| {
+                        let mapped_heap = mapped_heap.ok_or_else(|| {
+                            DumpError::ImageFormatError(
+                                "dump reserves mapped float objects but image has no heap section"
+                                    .into(),
+                            )
+                        })?;
+                        let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
+                        with_tagged_heap(|heap| unsafe {
+                            heap.register_mapped_float_range(ptr, run_len);
+                        });
+                        Ok(())
+                    })?;
+                }
+                LoadedObjectSpan::String(span) => {
+                    if !matches!(&self.state.objects[index], DumpHeapObject::Str { .. }) {
+                        return Err(DumpError::ImageFormatError(format!(
+                            "mapped string span attached to non-string object: {:?}",
+                            self.state.objects[index]
+                        )));
+                    }
+                    let mapped_heap = mapped_heap.ok_or_else(|| {
+                        DumpError::ImageFormatError(
+                            "dump reserves mapped string objects but image has no heap section"
+                                .into(),
+                        )
+                    })?;
+                    let ptr = mapped_heap.string_obj_mut(span)?;
+                    with_tagged_heap(|heap| unsafe {
+                        heap.register_mapped_string_object(ptr, std::mem::size_of::<StringObj>())
+                    });
+                }
+                LoadedObjectSpan::Vectorlike { object: span, .. } => {
+                    let mapped_heap = mapped_heap.ok_or_else(|| {
+                        DumpError::ImageFormatError(
+                            "dump reserves mapped vectorlike objects but image has no heap section"
+                                .into(),
+                        )
+                    })?;
+                    let (ptr, byte_len) = match &self.state.objects[index] {
+                        DumpHeapObject::Vector(_) => (
+                            mapped_heap
+                                .typed_object_mut::<VectorObj>(span, "vector")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<VectorObj>(),
+                        ),
+                        DumpHeapObject::Lambda(_) => (
+                            mapped_heap
+                                .typed_object_mut::<LambdaObj>(span, "lambda")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<LambdaObj>(),
+                        ),
+                        DumpHeapObject::Macro(_) => (
+                            mapped_heap
+                                .typed_object_mut::<MacroObj>(span, "macro")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<MacroObj>(),
+                        ),
+                        DumpHeapObject::Record(_) => (
+                            mapped_heap
+                                .typed_object_mut::<RecordObj>(span, "record")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<RecordObj>(),
+                        ),
+                        DumpHeapObject::Marker(_) => (
+                            mapped_heap
+                                .typed_object_mut::<MarkerObj>(span, "marker")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<MarkerObj>(),
+                        ),
+                        DumpHeapObject::Overlay(_) => (
+                            mapped_heap
+                                .typed_object_mut::<OverlayObj>(span, "overlay")?
+                                .cast::<VecLikeHeader>(),
+                            std::mem::size_of::<OverlayObj>(),
+                        ),
+                        other => {
+                            return Err(DumpError::ImageFormatError(format!(
+                                "mapped vectorlike span attached to non-vectorlike object: {other:?}"
+                            )));
+                        }
+                    };
+                    with_tagged_heap(|heap| unsafe {
+                        heap.register_mapped_veclike_object(ptr, byte_len)
+                    });
+                }
+                LoadedObjectSpan::None | LoadedObjectSpan::Unmapped => {}
             }
+        }
+
+        cons_run.finish(|run_start, run_len| {
             let mapped_heap = mapped_heap.ok_or_else(|| {
                 DumpError::ImageFormatError(
-                    "dump reserves mapped string objects but image has no heap section".into(),
+                    "dump reserves mapped cons objects but image has no heap section".into(),
                 )
             })?;
-            let ptr = mapped_heap.string_obj_mut(span)?;
+            let ptr = mapped_heap.cons_cell_mut(DumpConsSpan { offset: run_start })?;
             with_tagged_heap(|heap| unsafe {
-                heap.register_mapped_string_object(ptr, std::mem::size_of::<StringObj>())
+                heap.register_mapped_cons_range(ptr, run_len);
             });
-        }
-        Ok(())
-    }
-
-    fn register_mapped_veclike_objects(&self) -> Result<(), DumpError> {
-        let mapped_heap = self.state.mapped_heap;
-        for (index, record) in self.state.spans.iter() {
-            let LoadedObjectSpan::Vectorlike { object: span, .. } = record else {
-                continue;
-            };
+            Ok(())
+        })?;
+        float_run.finish(|run_start, run_len| {
             let mapped_heap = mapped_heap.ok_or_else(|| {
                 DumpError::ImageFormatError(
-                    "dump reserves mapped vectorlike objects but image has no heap section".into(),
+                    "dump reserves mapped float objects but image has no heap section".into(),
                 )
             })?;
-            let (ptr, byte_len) = match &self.state.objects[index] {
-                DumpHeapObject::Vector(_) => (
-                    mapped_heap
-                        .typed_object_mut::<VectorObj>(span, "vector")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<VectorObj>(),
-                ),
-                DumpHeapObject::Lambda(_) => (
-                    mapped_heap
-                        .typed_object_mut::<LambdaObj>(span, "lambda")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<LambdaObj>(),
-                ),
-                DumpHeapObject::Macro(_) => (
-                    mapped_heap
-                        .typed_object_mut::<MacroObj>(span, "macro")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<MacroObj>(),
-                ),
-                DumpHeapObject::Record(_) => (
-                    mapped_heap
-                        .typed_object_mut::<RecordObj>(span, "record")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<RecordObj>(),
-                ),
-                DumpHeapObject::Marker(_) => (
-                    mapped_heap
-                        .typed_object_mut::<MarkerObj>(span, "marker")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<MarkerObj>(),
-                ),
-                DumpHeapObject::Overlay(_) => (
-                    mapped_heap
-                        .typed_object_mut::<OverlayObj>(span, "overlay")?
-                        .cast::<VecLikeHeader>(),
-                    std::mem::size_of::<OverlayObj>(),
-                ),
-                other => {
-                    return Err(DumpError::ImageFormatError(format!(
-                        "mapped vectorlike span attached to non-vectorlike object: {other:?}"
-                    )));
-                }
-            };
-            with_tagged_heap(|heap| unsafe { heap.register_mapped_veclike_object(ptr, byte_len) });
-        }
-        Ok(())
-    }
-
-    fn register_mapped_float_ranges(&self) -> Result<(), DumpError> {
-        self.register_mapped_offset_runs(
-            self.state
-                .spans
-                .iter()
-                .filter_map(|(_, record)| match record {
-                    LoadedObjectSpan::Float(span) => Some(span.offset),
-                    _ => None,
-                }),
-            std::mem::size_of::<FloatObj>() as u64,
-            "float",
-            |mapped_heap, offset| mapped_heap.float_obj_mut(DumpFloatSpan { offset }),
-            |ptr, len| {
-                with_tagged_heap(|heap| unsafe { heap.register_mapped_float_range(ptr, len) });
-            },
-        )
-    }
-
-    fn register_mapped_cons_ranges(&self) -> Result<(), DumpError> {
-        self.register_mapped_offset_runs(
-            self.state
-                .spans
-                .iter()
-                .filter_map(|(_, record)| match record {
-                    LoadedObjectSpan::Cons(span) => Some(span.offset),
-                    _ => None,
-                }),
-            std::mem::size_of::<ConsCell>() as u64,
-            "cons",
-            |mapped_heap, offset| mapped_heap.cons_cell_mut(DumpConsSpan { offset }),
-            |ptr, len| {
-                with_tagged_heap(|heap| unsafe { heap.register_mapped_cons_range(ptr, len) });
-            },
-        )
-    }
-
-    fn register_mapped_offset_runs<T>(
-        &self,
-        offsets: impl Iterator<Item = u64>,
-        object_size: u64,
-        label: &'static str,
-        ptr_for_offset: impl Fn(MappedHeapView, u64) -> Result<*mut T, DumpError>,
-        register: impl Fn(*mut T, usize),
-    ) -> Result<(), DumpError> {
-        let mut run_start = None;
-        let mut run_len = 0usize;
-        let mut expected_next = None;
-
-        for offset in offsets {
-            if let Some(next) = expected_next {
-                if offset < next {
-                    return Err(DumpError::ImageFormatError(format!(
-                        "mapped {label} offsets are not monotonic: got {offset}, expected at least {next}"
-                    )));
-                }
-                if offset != next {
-                    self.finish_mapped_offset_run(
-                        run_start.unwrap(),
-                        run_len,
-                        &ptr_for_offset,
-                        &register,
-                    )?;
-                    run_start = Some(offset);
-                    run_len = 1;
-                } else {
-                    run_len += 1;
-                }
-            } else {
-                run_start = Some(offset);
-                run_len = 1;
-            }
-            expected_next = Some(offset.checked_add(object_size).ok_or_else(|| {
-                DumpError::ImageFormatError(format!("mapped {label} offset range overflows"))
-            })?);
-        }
-
-        if let Some(run_start) = run_start {
-            self.finish_mapped_offset_run(run_start, run_len, ptr_for_offset, register)?;
-        }
-        Ok(())
-    }
-
-    fn finish_mapped_offset_run<T>(
-        &self,
-        run_start: u64,
-        run_len: usize,
-        ptr_for_offset: impl Fn(MappedHeapView, u64) -> Result<*mut T, DumpError>,
-        register: impl Fn(*mut T, usize),
-    ) -> Result<(), DumpError> {
-        let mapped_heap = self.state.mapped_heap.ok_or_else(|| {
-            DumpError::ImageFormatError(
-                "dump reserves mapped objects but image has no heap section".into(),
-            )
+            let ptr = mapped_heap.float_obj_mut(DumpFloatSpan { offset: run_start })?;
+            with_tagged_heap(|heap| unsafe {
+                heap.register_mapped_float_range(ptr, run_len);
+            });
+            Ok(())
         })?;
-        let ptr = ptr_for_offset(mapped_heap, run_start)?;
-        register(ptr, run_len);
         Ok(())
     }
 

@@ -151,6 +151,16 @@ impl LoadedMmapImage {
         Some(&mut self.mmap[start..end])
     }
 
+    pub(crate) fn section_mut_ptr(&self, kind: DumpSectionKind) -> Option<(*mut u8, usize)> {
+        let section = self
+            .sections
+            .iter()
+            .find(|section| section.kind == kind as u32)?;
+        let start = section.offset as usize;
+        let len = section.len as usize;
+        Some((unsafe { self.mmap.as_ptr().cast_mut().add(start) }, len))
+    }
+
     pub(crate) fn apply_relocations(&mut self) -> Result<(), DumpError> {
         let Ok(reloc_section) = self.section_bounds(DumpSectionKind::Relocations) else {
             return Ok(());

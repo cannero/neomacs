@@ -503,8 +503,8 @@ pub fn load_from_dump(path: &Path) -> Result<Context, DumpError> {
         .install_into(&mut state);
 
     let mapped_heap = image
-        .section_mut(DumpSectionKind::HeapImage)
-        .map(mapped_heap::MappedHeapView::from_mut_slice);
+        .section_mut_ptr(DumpSectionKind::HeapImage)
+        .map(|(ptr, len)| unsafe { mapped_heap::MappedHeapView::from_raw_parts(ptr, len, true) });
     let value_fixups_section = image.section(DumpSectionKind::ValueRelocations);
 
     let mut eval = reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(
@@ -632,7 +632,7 @@ fn reconstruct_evaluator_after_symbol_table_with_tagged_heap(
 fn reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(
     state: &DumpContextState,
     objects: Vec<DumpHeapObject>,
-    spans: object_starts::LoadedSpans,
+    spans: object_starts::LoadedSpans<'_>,
     mapped_heap: Option<mapped_heap::MappedHeapView>,
     value_fixups_section: Option<&[u8]>,
 ) -> Result<Context, DumpError> {
@@ -651,14 +651,14 @@ fn reconstruct_evaluator_after_symbol_table_with_tagged_heap_parts(
 
 fn reconstruct_evaluator_after_symbol_table_with_decoder(
     state: &DumpContextState,
-    decoder: LoadDecoder,
+    decoder: LoadDecoder<'_>,
 ) -> Result<Context, DumpError> {
     reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(state, decoder, None)
 }
 
 fn reconstruct_evaluator_after_symbol_table_with_decoder_and_value_fixups(
     state: &DumpContextState,
-    mut decoder: LoadDecoder,
+    mut decoder: LoadDecoder<'_>,
     value_fixups_section: Option<&[u8]>,
 ) -> Result<Context, DumpError> {
     // 2. Reconstruct the tagged heap before any heap-backed value/object loads

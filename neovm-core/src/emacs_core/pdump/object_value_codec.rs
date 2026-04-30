@@ -1360,41 +1360,43 @@ impl<'a> Cursor<'a> {
     }
 
     pub(crate) fn read_u8(&mut self, what: &str) -> Result<u8, DumpError> {
-        Ok(self.read_exact(1, what)?[0])
+        let start = self.read_fixed_start(1, what)?;
+        Ok(self.section[start])
     }
 
     pub(crate) fn read_u16(&mut self, what: &str) -> Result<u16, DumpError> {
-        let bytes = self.read_exact(2, what)?;
-        Ok(u16::from_ne_bytes([bytes[0], bytes[1]]))
+        Ok(self.read_unaligned::<u16>(what)?)
     }
 
     pub(crate) fn read_u32(&mut self, what: &str) -> Result<u32, DumpError> {
-        let bytes = self.read_exact(4, what)?;
-        Ok(u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        Ok(self.read_unaligned::<u32>(what)?)
     }
 
     pub(crate) fn read_u64(&mut self, what: &str) -> Result<u64, DumpError> {
-        let bytes = self.read_exact(8, what)?;
-        Ok(u64::from_ne_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        Ok(self.read_unaligned::<u64>(what)?)
     }
 
     pub(crate) fn read_i64(&mut self, what: &str) -> Result<i64, DumpError> {
-        let bytes = self.read_exact(8, what)?;
-        Ok(i64::from_ne_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        Ok(self.read_unaligned::<i64>(what)?)
     }
 
     pub(crate) fn read_f64(&mut self, what: &str) -> Result<f64, DumpError> {
-        let bytes = self.read_exact(8, what)?;
-        Ok(f64::from_ne_bytes([
-            bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-        ]))
+        Ok(self.read_unaligned::<f64>(what)?)
     }
 
     pub(crate) fn read_exact(&mut self, len: usize, what: &str) -> Result<&'a [u8], DumpError> {
+        let start = self.read_fixed_start(len, what)?;
+        Ok(&self.section[start..self.offset])
+    }
+
+    #[inline]
+    fn read_unaligned<T: Copy>(&mut self, what: &str) -> Result<T, DumpError> {
+        let start = self.read_fixed_start(std::mem::size_of::<T>(), what)?;
+        Ok(unsafe { std::ptr::read_unaligned(self.section.as_ptr().add(start).cast::<T>()) })
+    }
+
+    #[inline]
+    fn read_fixed_start(&mut self, len: usize, what: &str) -> Result<usize, DumpError> {
         let end = self
             .offset
             .checked_add(len)
@@ -1406,7 +1408,7 @@ impl<'a> Cursor<'a> {
         }
         let start = self.offset;
         self.offset = end;
-        Ok(&self.section[start..end])
+        Ok(start)
     }
 }
 

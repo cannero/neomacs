@@ -78,6 +78,10 @@ impl MappedHeapView {
         }
     }
 
+    pub(crate) unsafe fn from_raw_parts(ptr: *mut u8, len: usize, writable: bool) -> Self {
+        Self { ptr, len, writable }
+    }
+
     pub(crate) fn bytes(self, data: &DumpByteData) -> Result<MappedBytes, DumpError> {
         match data {
             DumpByteData::Owned(_) => Err(DumpError::ImageFormatError(
