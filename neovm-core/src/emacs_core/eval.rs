@@ -399,6 +399,19 @@ impl BacktraceArgs {
     }
 }
 
+#[inline]
+fn spec_binding_has_trivial_unbind(binding: &SpecBinding) -> bool {
+    matches!(
+        binding,
+        SpecBinding::GcRoot { .. }
+            | SpecBinding::Nop
+            | SpecBinding::Backtrace {
+                debug_on_exit: false,
+                ..
+            }
+    )
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct VmRootFrame {
     pub(crate) roots: LispArgVec,
@@ -9720,6 +9733,20 @@ impl Context {
     }
 
     pub(crate) fn unbind_to_with_result(&mut self, count: usize, result: EvalResult) -> EvalResult {
+        if self.specpdl.len() == count {
+            return result;
+        }
+        if self.specpdl[count..]
+            .iter()
+            .all(spec_binding_has_trivial_unbind)
+        {
+            // GNU's common eval path pops SPECPDL_BACKTRACE by moving
+            // specpdl_ptr. Avoid result rooting and full unwind work when the
+            // suffix has no cleanup or dynamic binding restoration.
+            self.specpdl.truncate(count);
+            return result;
+        }
+
         // GNU eval.c `unbind_to(count, value)` carries VALUE through cleanup.
         // In Rust the value is not on the C stack/register root set, so keep
         // all heap payloads rooted while unwind-protect/watchers may allocate.
