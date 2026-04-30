@@ -896,6 +896,27 @@ pub(crate) fn translate_char(table: &Value, c: i64) -> i64 {
     }
 }
 
+/// Return the unified character code for `c`, given the value `val`
+/// retrieved from `Vchar_unify_table`.
+///
+/// Mirrors GNU `maybe_unify_char` (charset.c:1606). `val` may be:
+///   * nil — return `c` unchanged
+///   * a fixnum — that fixnum is the unified code
+///   * a charset symbol — would normally trigger `load_charset` and a
+///     re-lookup. Neomacs lacks the full charset/decoder infrastructure
+///     today, so we treat this case as identity. Once charsets are
+///     implemented this branch should re-lookup through
+///     `Vchar_unify_table` after `load_charset`.
+pub(crate) fn maybe_unify_char(c: i64, val: &Value) -> i64 {
+    if let Some(n) = val.as_fixnum() {
+        if (0..=MAX_CHAR).contains(&n) {
+            return n;
+        }
+    }
+    // nil, or charset-symbol fallback — TODO: full charset support.
+    c
+}
+
 fn ct_lookup_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow> {
     if !is_char_table(table) {
         return Err(wrong_type("char-table-p", table));

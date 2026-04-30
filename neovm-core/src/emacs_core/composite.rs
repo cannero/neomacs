@@ -305,6 +305,9 @@ pub fn register_bootstrap_vars(obarray: &mut crate::emacs_core::symbol::Obarray)
     // Official Emacs leaves unicode-category-table as nil at C init time;
     // it is populated later by characters.el via unicode-property-table-internal.
     obarray.set_symbol_value("unicode-category-table", Value::NIL);
+    // char-unify-table is created lazily by define_charset (charset.c:1364).
+    // Initialize to nil so maybe_unify_char gracefully degrades.
+    obarray.set_symbol_value("char-unify-table", Value::NIL);
     // composition-function-table must be a real char-table (composite.c:2289).
     obarray.set_symbol_value(
         "composition-function-table",
