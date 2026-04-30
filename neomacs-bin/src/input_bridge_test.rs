@@ -2,23 +2,25 @@ use super::*;
 
 #[test]
 fn key_release_is_dropped_by_core_transport_owner() {
-    let event = convert_display_event(DisplayEvent::Key {
+    let display_event = DisplayEvent::Key {
         keysym: keyboard::XK_RETURN,
         modifiers: 0,
         pressed: false,
         emacs_frame_id: 0,
-    });
+    };
+    let event = convert_display_event(&display_event);
     assert!(event.is_none());
 }
 
 #[test]
 fn key_transport_preserves_source_frame_identity() {
-    let event = convert_display_event(DisplayEvent::Key {
+    let display_event = DisplayEvent::Key {
         keysym: 'a' as u32,
         modifiers: keyboard::RENDER_CTRL_MASK,
         pressed: true,
         emacs_frame_id: 42,
-    });
+    };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::KeyPress {
@@ -37,12 +39,13 @@ fn key_transport_preserves_source_frame_identity() {
 
 #[test]
 fn mouse_modifiers_use_core_transport_mapping() {
-    let event = convert_display_event(DisplayEvent::MouseMove {
+    let display_event = DisplayEvent::MouseMove {
         x: 1.0,
         y: 2.0,
         modifiers: keyboard::RENDER_SHIFT_MASK | keyboard::RENDER_CTRL_MASK,
         target_frame_id: 7,
-    });
+    };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::MouseMove {
@@ -61,7 +64,7 @@ fn mouse_modifiers_use_core_transport_mapping() {
 
 #[test]
 fn mouse_button_preserves_target_frame_for_keyboard_owner() {
-    let event = convert_display_event(DisplayEvent::MouseButton {
+    let display_event = DisplayEvent::MouseButton {
         button: 1,
         x: 10.0,
         y: 20.0,
@@ -71,7 +74,8 @@ fn mouse_button_preserves_target_frame_for_keyboard_owner() {
         webkit_id: 0,
         webkit_rel_x: 0,
         webkit_rel_y: 0,
-    });
+    };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::MousePress {
@@ -84,10 +88,11 @@ fn mouse_button_preserves_target_frame_for_keyboard_owner() {
 
 #[test]
 fn window_focus_preserves_frame_id_for_keyboard_owner() {
-    let event = convert_display_event(DisplayEvent::WindowFocus {
+    let display_event = DisplayEvent::WindowFocus {
         focused: true,
         emacs_frame_id: 42,
-    });
+    };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::Focus {
@@ -100,7 +105,8 @@ fn window_focus_preserves_frame_id_for_keyboard_owner() {
 
 #[test]
 fn window_close_preserves_frame_id_for_keyboard_owner() {
-    let event = convert_display_event(DisplayEvent::WindowClose { emacs_frame_id: 42 });
+    let display_event = DisplayEvent::WindowClose { emacs_frame_id: 42 };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::WindowClose { emacs_frame_id: 42 }) => {}
@@ -110,7 +116,7 @@ fn window_close_preserves_frame_id_for_keyboard_owner() {
 
 #[test]
 fn monitor_changes_convert_to_core_monitor_snapshot() {
-    let event = convert_display_event(DisplayEvent::MonitorsChanged {
+    let display_event = DisplayEvent::MonitorsChanged {
         monitors: vec![DisplayMonitorInfo {
             x: 10,
             y: 20,
@@ -121,7 +127,8 @@ fn monitor_changes_convert_to_core_monitor_snapshot() {
             height_mm: 290,
             name: Some("DP-1".to_string()),
         }],
-    });
+    };
+    let event = convert_display_event(&display_event);
 
     match event {
         Some(KbInputEvent::MonitorsChanged { monitors }) => {

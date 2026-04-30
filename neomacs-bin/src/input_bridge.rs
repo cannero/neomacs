@@ -31,7 +31,7 @@ pub(crate) fn convert_monitor_infos(monitors: &[DisplayMonitorInfo]) -> Vec<Neom
 ///
 /// Returns `None` for events that should be silently dropped (e.g. key
 /// releases, modifier-only keys).
-pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
+pub fn convert_display_event(event: &DisplayEvent) -> Option<KbInputEvent> {
     match event {
         DisplayEvent::Key {
             keysym,
@@ -41,15 +41,15 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
         } => {
             tracing::debug!(
                 "input_bridge: key keysym=0x{:04x} mods=0x{:x} pressed={}",
-                keysym,
-                modifiers,
-                pressed
+                *keysym,
+                *modifiers,
+                *pressed
             );
             let event = keyboard::render_key_transport_to_input_event(
-                keysym,
-                modifiers,
-                pressed,
-                emacs_frame_id,
+                *keysym,
+                *modifiers,
+                *pressed,
+                *emacs_frame_id,
             )?;
             tracing::debug!("input_bridge: converted to {:?}", event);
             Some(event)
@@ -63,7 +63,7 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             target_frame_id,
             ..
         } => {
-            let mb = match button {
+            let mb = match *button {
                 1 => MouseButton::Left,
                 2 => MouseButton::Middle,
                 3 => MouseButton::Right,
@@ -71,20 +71,20 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                 5 => MouseButton::Button5,
                 _ => return None,
             };
-            if pressed {
+            if *pressed {
                 Some(KbInputEvent::MousePress {
                     button: mb,
-                    x,
-                    y,
-                    modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
-                    target_frame_id,
+                    x: *x,
+                    y: *y,
+                    modifiers: keyboard::render_modifiers_to_modifiers(*modifiers),
+                    target_frame_id: *target_frame_id,
                 })
             } else {
                 Some(KbInputEvent::MouseRelease {
                     button: mb,
-                    x,
-                    y,
-                    target_frame_id,
+                    x: *x,
+                    y: *y,
+                    target_frame_id: *target_frame_id,
                 })
             }
         }
@@ -95,10 +95,10 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             target_frame_id,
             ..
         } => Some(KbInputEvent::MouseMove {
-            x,
-            y,
-            modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
-            target_frame_id,
+            x: *x,
+            y: *y,
+            modifiers: keyboard::render_modifiers_to_modifiers(*modifiers),
+            target_frame_id: *target_frame_id,
         }),
         DisplayEvent::MouseScroll {
             delta_x,
@@ -109,12 +109,12 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
             target_frame_id,
             ..
         } => Some(KbInputEvent::MouseScroll {
-            delta_x,
-            delta_y,
-            x,
-            y,
-            modifiers: keyboard::render_modifiers_to_modifiers(modifiers),
-            target_frame_id,
+            delta_x: *delta_x,
+            delta_y: *delta_y,
+            x: *x,
+            y: *y,
+            modifiers: keyboard::render_modifiers_to_modifiers(*modifiers),
+            target_frame_id: *target_frame_id,
         }),
         DisplayEvent::WindowResize {
             width,
@@ -128,23 +128,23 @@ pub fn convert_display_event(event: DisplayEvent) -> Option<KbInputEvent> {
                 emacs_frame_id
             );
             Some(KbInputEvent::Resize {
-                width,
-                height,
-                emacs_frame_id,
+                width: *width,
+                height: *height,
+                emacs_frame_id: *emacs_frame_id,
             })
         }
-        DisplayEvent::WindowClose { emacs_frame_id } => {
-            Some(KbInputEvent::WindowClose { emacs_frame_id })
-        }
+        DisplayEvent::WindowClose { emacs_frame_id } => Some(KbInputEvent::WindowClose {
+            emacs_frame_id: *emacs_frame_id,
+        }),
         DisplayEvent::WindowFocus {
             focused,
             emacs_frame_id,
         } => Some(KbInputEvent::Focus {
-            focused,
-            emacs_frame_id,
+            focused: *focused,
+            emacs_frame_id: *emacs_frame_id,
         }),
         DisplayEvent::MonitorsChanged { monitors } => Some(KbInputEvent::MonitorsChanged {
-            monitors: convert_monitor_infos(&monitors),
+            monitors: convert_monitor_infos(monitors),
         }),
         // Ignore other events (WebKit title changes, etc.)
         _ => None,
