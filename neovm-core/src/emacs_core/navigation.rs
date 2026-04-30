@@ -809,6 +809,7 @@ pub(crate) fn builtin_skip_chars_forward(
         };
         let start_pos = buf.pt_byte;
         let mut pos = buf.pt_byte;
+        let mut moved_chars = 0_i64;
         let limit = lim_byte.min(buf.zv_byte);
 
         while pos < limit {
@@ -824,13 +825,12 @@ pub(crate) fn builtin_skip_chars_forward(
                 pos += buf
                     .char_after_emacs_len(pos)
                     .expect("char width should exist at valid point");
+                moved_chars += 1;
             } else {
                 break;
             }
         }
 
-        let moved_chars =
-            buf.text.emacs_byte_to_char(pos) as i64 - buf.text.emacs_byte_to_char(start_pos) as i64;
         (start_pos, pos, limit, moved_chars)
     };
 
@@ -865,6 +865,7 @@ pub(crate) fn builtin_skip_chars_backward(
         };
         let start_pos = buf.pt_byte;
         let mut pos = buf.pt_byte;
+        let mut moved_chars = 0_i64;
 
         while pos > limit {
             // Find the character before `pos`.
@@ -880,13 +881,13 @@ pub(crate) fn builtin_skip_chars_backward(
                 pos -= buf
                     .char_before_emacs_len(pos)
                     .expect("char width should exist before valid point");
+                moved_chars -= 1;
             } else {
                 break;
             }
         }
 
-        let moved_chars =
-            buf.text.emacs_byte_to_char(pos) as i64 - buf.text.emacs_byte_to_char(start_pos) as i64;
+        debug_assert!(pos <= start_pos);
         (pos, moved_chars)
     };
     let _ = ctx.buffers.goto_buffer_byte(current_id, pos);

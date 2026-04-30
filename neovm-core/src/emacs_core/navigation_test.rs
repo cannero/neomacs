@@ -622,6 +622,37 @@ fn test_skip_chars_forward_negate() {
     assert_eq!(moved, 3);
 }
 
+#[test]
+fn skip_chars_forward_line_scans_do_not_rescan_from_buffer_start() {
+    crate::test_utils::init_test_tracing();
+    let line_count = 6_000;
+    let mut text = String::new();
+    for _ in 0..line_count {
+        text.push_str("abc def\n");
+    }
+    let mut ev = eval_with_text(&text);
+
+    let start = std::time::Instant::now();
+    let visited = eval_int(
+        &mut ev,
+        r#"(let ((n 0))
+             (while (not (eobp))
+               (skip-chars-forward "^ \t")
+               (skip-chars-forward " \t")
+               (skip-chars-forward "^\r\n")
+               (forward-line 1)
+               (setq n (1+ n)))
+             n)"#,
+    );
+    let elapsed = start.elapsed();
+
+    assert_eq!(visited, line_count);
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "skip-chars-forward should count scanned chars directly like GNU, elapsed={elapsed:?}"
+    );
+}
+
 // -----------------------------------------------------------------------
 // Mark and region
 // -----------------------------------------------------------------------

@@ -374,6 +374,20 @@ fn maybe_resize_hash_table_for_insert(table: &mut LispHashTable, inserting_new_k
     } else {
         base.saturating_mul(2)
     };
+    if let Ok(new_size) = usize::try_from(table.size.max(0)) {
+        if new_size > table.data.capacity() {
+            let additional = new_size - table.data.capacity();
+            table.data.reserve(additional);
+        }
+        if new_size > table.key_snapshots.capacity() {
+            let additional = new_size - table.key_snapshots.capacity();
+            table.key_snapshots.reserve(additional);
+        }
+        if new_size > table.insertion_order.capacity() {
+            let additional = new_size - table.insertion_order.capacity();
+            table.insertion_order.reserve(additional);
+        }
+    }
 }
 
 pub(crate) fn builtin_define_hash_table_test(args: Vec<Value>) -> EvalResult {
@@ -633,10 +647,11 @@ fn builtin_puthash_values(
             let test = table.as_hash_table().unwrap().test.clone();
             let key = key_value.to_hash_key_swp(&test, symbols_with_pos_enabled);
             let _ = table.with_hash_table_mut(|ht| {
-                let inserting_new_key = !ht.data.contains_key(&key);
-                maybe_resize_hash_table_for_insert(ht, inserting_new_key);
-                ht.data.insert(key.clone(), value);
-                if inserting_new_key {
+                if let Some(slot) = ht.data.get_mut(&key) {
+                    *slot = value;
+                } else {
+                    maybe_resize_hash_table_for_insert(ht, true);
+                    ht.data.insert(key.clone(), value);
                     ht.key_snapshots.insert(key.clone(), key_value);
                     ht.insertion_order.push(key);
                 }
