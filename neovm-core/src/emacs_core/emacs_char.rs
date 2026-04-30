@@ -279,12 +279,18 @@ pub fn make_char_multibyte(c: i32) -> u32 {
 ///
 /// The caller must ensure `c` is a raw-byte character (i.e. `char_byte8_p(c)`
 /// is true). For ASCII-range characters this also works (returns low byte).
+/// In debug builds, asserts that `c` is either ASCII or a byte8 character to
+/// catch silent low-byte truncation of unrelated multibyte characters.
 #[inline]
 pub fn char_to_byte8(c: u32) -> u8 {
     if char_byte8_p(c) {
         (c - BYTE8_OFFSET) as u8
     } else {
-        // ASCII or shouldn't be called, but be safe.
+        debug_assert!(
+            c < 0x80,
+            "char_to_byte8 called on non-byte8 non-ASCII char {:#x}",
+            c
+        );
         c as u8
     }
 }
