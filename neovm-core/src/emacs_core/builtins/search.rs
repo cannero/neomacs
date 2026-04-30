@@ -1623,11 +1623,11 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
     let current_id = buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let (oldstart, oldend, replacement_len) = {
+    let (oldstart, oldend, replacement) = {
         let buf = buffers
             .get(current_id)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        let (oldstart, oldend, replacement) = super::regex::compute_buffer_replacement_with_syntax(
+        super::regex::compute_buffer_replacement_with_syntax(
             buf,
             &newtext,
             fixedcase,
@@ -1642,34 +1642,20 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
             } else {
                 signal("error", vec![Value::string(msg)])
             }
-        })?;
-        let replacement_len = replacement.sbytes();
-        (oldstart, oldend, replacement_len)
+        })?
     };
+    let replacement_len = replacement.sbytes();
 
-    let result = {
-        let buf = buffers
-            .get_mut(current_id)
-            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        super::regex::replace_match_buffer_with_syntax(
-            buf,
-            &newtext,
-            fixedcase,
-            literal,
-            subexp,
-            &md_snapshot,
-            case_symbols_as_words,
-        )
-    };
-    match result {
-        Ok(()) => {
-            let newend = oldstart + replacement_len;
-            update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
-            Ok(Value::NIL)
-        }
-        Err(msg) if msg == missing_subexp_error => Err(missing_subexp_signal(raw_subexp)),
-        Err(msg) => Err(signal("error", vec![Value::string(msg)])),
-    }
+    super::super::fns::replace_buffer_region_lisp_string_in_manager(
+        buffers,
+        current_id,
+        oldstart,
+        oldend,
+        &replacement,
+    )?;
+    let newend = oldstart + replacement_len;
+    update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_replace_match(
