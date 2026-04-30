@@ -70,6 +70,22 @@ fn convert_lisp_string_for_buffer_mode(text: &LispString, target_multibyte: bool
 
 impl Buffer {
     fn insert_bytes_internal(&mut self, bytes: &[u8], char_len: usize, before_markers: bool) {
+        self.insert_bytes_internal_full(bytes, char_len, before_markers, false);
+    }
+
+    /// Same as `insert_bytes_internal` but, when `strict_after_markers` is
+    /// true, ignores `insertion_type` for markers exactly at the insertion
+    /// site. Used by the GNU-equivalent replace path so that markers
+    /// collapsed to the replacement start (by the prior delete) do not get
+    /// pushed past the inserted text — see GNU `adjust_markers_for_replace`
+    /// (insdel.c:341).
+    fn insert_bytes_internal_full(
+        &mut self,
+        bytes: &[u8],
+        char_len: usize,
+        before_markers: bool,
+        strict_after_markers: bool,
+    ) {
         let insert_pos = self.pt_byte;
         let insert_char_pos = self.pt;
         if bytes.is_empty() {
@@ -99,6 +115,7 @@ impl Buffer {
             true,
             true,
             before_markers,
+            strict_after_markers,
         );
         if before_markers {
             self.text.advance_markers_at(insert_pos, byte_len, char_len);
@@ -117,6 +134,7 @@ impl Buffer {
         adjust_shared_markers: bool,
         adjust_shared_text_props: bool,
         overlay_before_markers: bool,
+        strict_after_markers: bool,
     ) {
         if byte_len == 0 {
             return;
@@ -144,8 +162,13 @@ impl Buffer {
             self.mark = self.mark.map(|mark_char| mark_char + char_len);
         }
         if adjust_shared_markers {
-            self.text
-                .adjust_markers_for_insert(insert_pos, byte_len, char_len);
+            if strict_after_markers {
+                self.text
+                    .adjust_markers_for_insert_strict_after(insert_pos, byte_len, char_len);
+            } else {
+                self.text
+                    .adjust_markers_for_insert(insert_pos, byte_len, char_len);
+            }
         }
         debug_assert_eq!(
             self.text.emacs_byte_to_char(insert_pos),
@@ -318,6 +341,16 @@ impl Buffer {
         self.insert_bytes_internal(text.as_bytes(), text.schars(), true);
     }
 
+    /// GNU-equivalent replace path: insert `text` at point but do NOT
+    /// advance markers exactly at the insertion site even if their
+    /// `insertion_type` is true. This matches GNU
+    /// `adjust_markers_for_replace` (insdel.c:341), where markers at
+    /// `from_byte` stay put regardless of insertion_type.
+    pub fn insert_lisp_string_for_replace(&mut self, text: &LispString) {
+        let text = convert_lisp_string_for_buffer_mode(text, self.get_multibyte());
+        self.insert_bytes_internal_full(text.as_bytes(), text.schars(), false, true);
+    }
+
     /// Delete the byte range `[start, end)`.
     ///
     /// Adjusts point, mark, markers, and the narrowing boundary.
@@ -449,6 +482,28 @@ impl BufferManager {
         update_state_fields: bool,
         overlay_before_markers: bool,
     ) {
+        Self::adjust_shared_insert_metadata_full(
+            buf,
+            insert_pos,
+            insert_char_pos,
+            byte_len,
+            char_len,
+            update_state_fields,
+            overlay_before_markers,
+            false,
+        );
+    }
+
+    fn adjust_shared_insert_metadata_full(
+        buf: &mut Buffer,
+        insert_pos: usize,
+        insert_char_pos: usize,
+        byte_len: usize,
+        char_len: usize,
+        update_state_fields: bool,
+        overlay_before_markers: bool,
+        strict_after_markers: bool,
+    ) {
         buf.apply_byte_insert_side_effects(
             insert_pos,
             insert_char_pos,
@@ -460,6 +515,7 @@ impl BufferManager {
             false,
             false,
             overlay_before_markers,
+            strict_after_markers,
         );
     }
 
@@ -540,6 +596,28 @@ impl BufferManager {
         id: BufferId,
         text: &LispString,
     ) -> Option<()> {
+        self.insert_lisp_string_into_buffer_full(id, text, false)
+    }
+
+    /// GNU-equivalent replace path: like `insert_lisp_string_into_buffer`
+    /// but doesn't push markers exactly at point past the inserted text,
+    /// even if their `insertion_type` is true. Used by
+    /// `replace_buffer_region_lisp_string_in_manager` to match GNU
+    /// `adjust_markers_for_replace` (insdel.c:341) semantics.
+    pub fn insert_lisp_string_into_buffer_for_replace(
+        &mut self,
+        id: BufferId,
+        text: &LispString,
+    ) -> Option<()> {
+        self.insert_lisp_string_into_buffer_full(id, text, true)
+    }
+
+    fn insert_lisp_string_into_buffer_full(
+        &mut self,
+        id: BufferId,
+        text: &LispString,
+        strict_after_markers: bool,
+    ) -> Option<()> {
         if text.is_empty() {
             return Some(());
         }
@@ -552,7 +630,13 @@ impl BufferManager {
         let insert_pos = source.pt_byte;
         let insert_char_pos = source.pt;
 
-        self.buffers.get_mut(&id)?.insert_lisp_string(text);
+        if strict_after_markers {
+            self.buffers
+                .get_mut(&id)?
+                .insert_lisp_string_for_replace(text);
+        } else {
+            self.buffers.get_mut(&id)?.insert_lisp_string(text);
+        }
 
         for sibling_id in shared_ids {
             if sibling_id == id {
@@ -561,7 +645,7 @@ impl BufferManager {
             let update_state_fields =
                 self.current == Some(sibling_id) || !self.buffer_has_state_markers(sibling_id);
             let sibling = self.buffers.get_mut(&sibling_id)?;
-            Self::adjust_shared_insert_metadata(
+            Self::adjust_shared_insert_metadata_full(
                 sibling,
                 insert_pos,
                 insert_char_pos,
@@ -569,6 +653,7 @@ impl BufferManager {
                 char_len,
                 update_state_fields,
                 false,
+                strict_after_markers,
             );
             self.refresh_shared_buffer_state_cache(sibling_id, update_state_fields)?;
         }

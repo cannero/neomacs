@@ -372,7 +372,7 @@ pub(crate) fn replace_buffer_region_lisp_string_in_manager(
         .goto_buffer_byte(buffer_id, start_byte)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     buffers
-        .insert_lisp_string_into_buffer(buffer_id, replacement)
+        .insert_lisp_string_into_buffer_for_replace(buffer_id, replacement)
         .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
     Ok(())
 }

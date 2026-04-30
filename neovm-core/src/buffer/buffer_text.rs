@@ -824,6 +824,36 @@ impl BufferText {
         }
     }
 
+    /// Like `adjust_markers_for_insert`, but ignores `insertion_type` for
+    /// markers AT `insert_pos`. Used by the GNU-equivalent replace path,
+    /// where markers that ended up at `from_byte` (after the prior delete
+    /// collapsed inside-region markers there) must NOT advance past the
+    /// inserted text — matching GNU `adjust_markers_for_replace`
+    /// (insdel.c:341).
+    pub fn adjust_markers_for_insert_strict_after(
+        &self,
+        insert_pos: usize,
+        byte_len: usize,
+        char_len: usize,
+    ) {
+        if byte_len == 0 {
+            return;
+        }
+        let storage = self.storage.borrow();
+        let mut curr = storage.markers_head;
+        // SAFETY: same invariant as adjust_markers_for_insert.
+        unsafe {
+            while !curr.is_null() {
+                let data = &mut (*curr).data;
+                if data.bytepos > insert_pos {
+                    data.bytepos += byte_len;
+                    data.charpos += char_len;
+                }
+                curr = data.next_marker;
+            }
+        }
+    }
+
     pub fn adjust_markers_for_delete(
         &self,
         start: usize,
