@@ -682,3 +682,59 @@ fn strwidth_basic() {
     let n = char_string(0x4E2D, &mut buf);
     assert_eq!(strwidth(&buf[..n], true), 2);
 }
+
+// -----------------------------------------------------------------------
+// Unicode general-category predicates
+// -----------------------------------------------------------------------
+
+#[test]
+fn alphabeticp_letter_categories() {
+    assert!(alphabeticp(UnicodeCategory::UppercaseLetter as i64));
+    assert!(alphabeticp(UnicodeCategory::LowercaseLetter as i64));
+    assert!(alphabeticp(UnicodeCategory::OtherLetter as i64));
+    assert!(alphabeticp(UnicodeCategory::NonspacingMark as i64));
+    assert!(alphabeticp(UnicodeCategory::LetterNumber as i64));
+    assert!(!alphabeticp(UnicodeCategory::DecimalNumber as i64));
+    assert!(!alphabeticp(UnicodeCategory::Control as i64));
+}
+
+#[test]
+fn alphanumericp_includes_nd() {
+    assert!(alphanumericp(UnicodeCategory::UppercaseLetter as i64));
+    assert!(alphanumericp(UnicodeCategory::DecimalNumber as i64));
+    assert!(!alphanumericp(UnicodeCategory::Control as i64));
+}
+
+#[test]
+fn graphicp_excludes_separators_and_controls() {
+    assert!(graphicp(UnicodeCategory::UppercaseLetter as i64));
+    assert!(!graphicp(UnicodeCategory::SpaceSeparator as i64));
+    assert!(!graphicp(UnicodeCategory::LineSeparator as i64));
+    assert!(!graphicp(UnicodeCategory::Control as i64));
+    assert!(!graphicp(UnicodeCategory::Surrogate as i64));
+    assert!(!graphicp(UnicodeCategory::Unassigned as i64));
+}
+
+#[test]
+fn printablep_excludes_only_cc_cs_cn() {
+    assert!(printablep(UnicodeCategory::SpaceSeparator as i64));
+    assert!(printablep(UnicodeCategory::UppercaseLetter as i64));
+    assert!(!printablep(UnicodeCategory::Control as i64));
+    assert!(!printablep(UnicodeCategory::Surrogate as i64));
+    assert!(!printablep(UnicodeCategory::Unassigned as i64));
+}
+
+#[test]
+fn graphic_base_p_excludes_marks() {
+    assert!(graphic_base_p(UnicodeCategory::UppercaseLetter as i64));
+    assert!(!graphic_base_p(UnicodeCategory::NonspacingMark as i64));
+    assert!(!graphic_base_p(UnicodeCategory::SpacingMark as i64));
+    assert!(!graphic_base_p(UnicodeCategory::Format as i64));
+}
+
+#[test]
+fn blankp_only_zs() {
+    assert!(blankp(UnicodeCategory::SpaceSeparator as i64));
+    assert!(!blankp(UnicodeCategory::LineSeparator as i64));
+    assert!(!blankp(UnicodeCategory::Control as i64));
+}

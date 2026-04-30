@@ -961,6 +961,92 @@ pub fn strwidth(bytes: &[u8], multibyte: bool) -> usize {
 }
 
 // ---------------------------------------------------------------------------
+// Unicode general-category predicates (mirrors GNU character.c:956..1063).
+//
+// These take a category code (the integer value stored in
+// `unicode-category-table`) and return whether it falls into the given UTS
+// #18 set. The lookup is performed by the caller; if the lookup yields
+// nil (or anything non-fixnum), the predicate must return `false` — to
+// match GNU semantics, callers can pass `None` to the `*_opt` variants.
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn cat_eq(cat: i64, v: UnicodeCategory) -> bool {
+    cat == v as i64
+}
+
+/// True if `cat` denotes an alphabetic character (UTS #18).
+///
+/// Mirrors GNU `alphabeticp` (character.c:956): accepts Lu, Ll, Lt,
+/// Lm, Lo, Mn, Mc, Me, Nl.
+pub fn alphabeticp(cat: i64) -> bool {
+    use UnicodeCategory::*;
+    cat_eq(cat, UppercaseLetter)
+        || cat_eq(cat, LowercaseLetter)
+        || cat_eq(cat, TitlecaseLetter)
+        || cat_eq(cat, ModifierLetter)
+        || cat_eq(cat, OtherLetter)
+        || cat_eq(cat, NonspacingMark)
+        || cat_eq(cat, SpacingMark)
+        || cat_eq(cat, EnclosingMark)
+        || cat_eq(cat, LetterNumber)
+}
+
+/// True if `cat` denotes an alphabetic-or-decimal character.
+///
+/// Mirrors GNU `alphanumericp` (character.c:979): adds Nd to the set.
+pub fn alphanumericp(cat: i64) -> bool {
+    alphabeticp(cat) || cat_eq(cat, UnicodeCategory::DecimalNumber)
+}
+
+/// True if `cat` denotes a graphic character (UTS #18).
+///
+/// Mirrors GNU `graphicp` (character.c:1001): excludes Zs, Zl, Zp,
+/// Cc, Cs, Cn.
+pub fn graphicp(cat: i64) -> bool {
+    use UnicodeCategory::*;
+    !(cat_eq(cat, SpaceSeparator)
+        || cat_eq(cat, LineSeparator)
+        || cat_eq(cat, ParagraphSeparator)
+        || cat_eq(cat, Control)
+        || cat_eq(cat, Surrogate)
+        || cat_eq(cat, Unassigned))
+}
+
+/// True if `cat` denotes a printable character.
+///
+/// Mirrors GNU `printablep` (character.c:1019): excludes Cc, Cs, Cn.
+pub fn printablep(cat: i64) -> bool {
+    use UnicodeCategory::*;
+    !(cat_eq(cat, Control) || cat_eq(cat, Surrogate) || cat_eq(cat, Unassigned))
+}
+
+/// True if `cat` denotes a graphic base (printable, non-mark).
+///
+/// Mirrors GNU `graphic_base_p` (character.c:1034): excludes marks,
+/// separators, and Cc/Cs/Cf/Cn.
+pub fn graphic_base_p(cat: i64) -> bool {
+    use UnicodeCategory::*;
+    !(cat_eq(cat, NonspacingMark)
+        || cat_eq(cat, SpacingMark)
+        || cat_eq(cat, EnclosingMark)
+        || cat_eq(cat, SpaceSeparator)
+        || cat_eq(cat, LineSeparator)
+        || cat_eq(cat, ParagraphSeparator)
+        || cat_eq(cat, Control)
+        || cat_eq(cat, Surrogate)
+        || cat_eq(cat, Format)
+        || cat_eq(cat, Unassigned))
+}
+
+/// True if `cat` is the space-separator category (Zs).
+///
+/// Mirrors GNU `blankp` (character.c:1056).
+pub fn blankp(cat: i64) -> bool {
+    cat_eq(cat, UnicodeCategory::SpaceSeparator)
+}
+
+// ---------------------------------------------------------------------------
 // Higher-level utilities
 // ---------------------------------------------------------------------------
 
