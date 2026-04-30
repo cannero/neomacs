@@ -1524,6 +1524,12 @@ pub struct Context {
     /// buffer differs, the pending list is flushed before recording the new
     /// change.
     pub(crate) combine_after_change_buffer: Option<crate::buffer::BufferId>,
+    /// Overlay modification hooks collected during `signal_before_change`,
+    /// to be replayed verbatim by `signal_after_change` — mirrors GNU's
+    /// `last_overlay_modification_hooks` static vector (buffer.c:4083). Each
+    /// entry is `(hook_function, overlay_value)` in the order GNU records
+    /// them.
+    pub(crate) last_overlay_modification_hooks: Vec<(Value, Value)>,
     /// Process manager — owns all tracked processes.
     pub(crate) processes: ProcessManager,
     /// Network manager — owns network connections, filters, and sentinels.
@@ -4273,6 +4279,7 @@ impl Context {
             match_data: None,
             combine_after_change_list: Vec::new(),
             combine_after_change_buffer: None,
+            last_overlay_modification_hooks: Vec::new(),
             processes: ProcessManager::new(),
             timers: TimerManager::new(),
             watchers: VariableWatcherList::new(),
@@ -4425,6 +4432,7 @@ impl Context {
             match_data: None,
             combine_after_change_list: Vec::new(),
             combine_after_change_buffer: None,
+            last_overlay_modification_hooks: Vec::new(),
             processes: ProcessManager::new(),
             timers: TimerManager::new(),
             watchers,

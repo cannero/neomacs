@@ -250,6 +250,10 @@ pub(crate) fn signal_before_change(
         .get(current_id)
         .is_some_and(|buf| buf.modified_state_value().is_nil());
     let overlay_hooks = collect_overlay_change_hooks(ctx, beg, end, beg == end);
+    // GNU buffer.c:4141: reset `last_overlay_modification_hooks_used = 0`
+    // and re-populate while collecting. We mirror that by replacing the
+    // stored list — `signal_after_change` will replay the same pairs.
+    ctx.last_overlay_modification_hooks = overlay_hooks.clone();
     let specpdl_count = ctx.specpdl.len();
     ctx.specbind(intern("inhibit-modification-hooks"), Value::T);
     let result = (|| -> Result<(), Flow> {
@@ -633,9 +637,15 @@ fn run_overlay_after_change_hooks(
     lisp_end: i64,
     lisp_old_len: i64,
 ) -> Result<(), Flow> {
-    // GNU: `insertion = (after ? XFIXNAT (arg3) == 0 : BASE_EQ (start, end))`.
-    let insertion = lisp_old_len == 0;
-    let hooks = collect_overlay_change_hooks(ctx, beg, end, insertion);
+    // GNU `report_overlay_modification` (buffer.c:4119): the AFTER phase
+    // reuses the `(prop, overlay)` pairs collected during the BEFORE phase
+    // (`last_overlay_modification_hooks`) instead of re-walking the
+    // overlay tree. Drain that list here.
+    //
+    // Drain so we don't accidentally replay hooks for an unrelated later
+    // change — GNU resets the vector at the next BEFORE call.
+    let hooks = std::mem::take(&mut ctx.last_overlay_modification_hooks);
+    let _ = (beg, end); // currently unused; kept for future use
 
     if hooks.is_empty() {
         return Ok(());
