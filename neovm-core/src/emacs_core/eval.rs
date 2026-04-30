@@ -7786,33 +7786,40 @@ impl Context {
         tail: Value,
     ) -> Option<EvalResult> {
         let saved_depth = self.depth;
-        let surface_name = resolve_sym(surface_id);
         let result = Some(match target_id {
-            id if id == quote_symbol() => self.sf_quote_value_named(surface_name, tail),
-            id if id == function_symbol() => self.sf_function_value_named(surface_name, tail),
-            id if id == let_symbol() => self.sf_let_value_named(surface_name, tail),
-            id if id == let_star_symbol() => self.sf_let_star_value_named(surface_name, tail),
-            id if id == setq_symbol() => self.sf_setq_value_named(surface_name, tail),
-            id if id == if_symbol() => self.sf_if_value_named(surface_name, tail),
             id if id == and_symbol() => self.sf_and_value(tail),
             id if id == or_symbol() => self.sf_or_value(tail),
             id if id == cond_symbol() => self.sf_cond_value(tail),
-            id if id == while_symbol() => self.sf_while_value_named(surface_name, tail),
             id if id == progn_symbol() => self.sf_progn_value(tail),
-            id if id == prog1_symbol() => self.sf_prog1_value_named(surface_name, tail),
-            id if id == defvar_symbol() => self.sf_defvar_value_named(surface_name, tail),
-            id if id == defconst_symbol() => self.sf_defconst_value_named(surface_name, tail),
-            id if id == catch_symbol() => self.sf_catch_value_named(surface_name, tail),
-            id if id == unwind_protect_symbol() => {
-                self.sf_unwind_protect_value_named(surface_name, tail)
-            }
-            id if id == condition_case_symbol() => {
-                self.sf_condition_case_value_named(surface_name, tail)
-            }
             id if id == save_excursion_symbol() => self.sf_save_excursion_value(tail),
             id if id == save_current_buffer_symbol() => self.sf_save_current_buffer_value(tail),
             id if id == save_restriction_symbol() => self.sf_save_restriction_value(tail),
             id if id == interactive_symbol_id() => Ok(Value::NIL),
+            id if id == quote_symbol() => self.sf_quote_value_named(resolve_sym(surface_id), tail),
+            id if id == function_symbol() => {
+                self.sf_function_value_named(resolve_sym(surface_id), tail)
+            }
+            id if id == let_symbol() => self.sf_let_value_named(resolve_sym(surface_id), tail),
+            id if id == let_star_symbol() => {
+                self.sf_let_star_value_named(resolve_sym(surface_id), tail)
+            }
+            id if id == setq_symbol() => self.sf_setq_value_named(resolve_sym(surface_id), tail),
+            id if id == if_symbol() => self.sf_if_value_named(resolve_sym(surface_id), tail),
+            id if id == while_symbol() => self.sf_while_value_named(resolve_sym(surface_id), tail),
+            id if id == prog1_symbol() => self.sf_prog1_value_named(resolve_sym(surface_id), tail),
+            id if id == defvar_symbol() => {
+                self.sf_defvar_value_named(resolve_sym(surface_id), tail)
+            }
+            id if id == defconst_symbol() => {
+                self.sf_defconst_value_named(resolve_sym(surface_id), tail)
+            }
+            id if id == catch_symbol() => self.sf_catch_value_named(resolve_sym(surface_id), tail),
+            id if id == unwind_protect_symbol() => {
+                self.sf_unwind_protect_value_named(resolve_sym(surface_id), tail)
+            }
+            id if id == condition_case_symbol() => {
+                self.sf_condition_case_value_named(resolve_sym(surface_id), tail)
+            }
             _ => return None,
         });
         self.depth = saved_depth;
