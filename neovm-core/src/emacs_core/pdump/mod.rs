@@ -133,7 +133,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   matching GNU pdumper's dump_off instead of serializing every field as u64.
 // v51: ObjectExtra no longer duplicates mapped vectorlike slot counts; mapped
 //   ObjectStarts slot spans are the source of truth, like GNU's mapped objects.
-const FORMAT_VERSION: u32 = 51;
+// v52: ObjectExtra string metadata uses checked 32-bit dump fields for sizes,
+//   spans, and text-property run bounds, matching GNU pdumper's dump_off model.
+const FORMAT_VERSION: u32 = 52;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 

@@ -20,7 +20,7 @@ use super::object_value_codec;
 use super::{DumpError, types::*};
 
 const OBJECT_EXTRA_MAGIC: [u8; 16] = *b"NEOOBJEXTRA\0\0\0\0\0";
-const OBJECT_EXTRA_FORMAT_VERSION: u32 = 2;
+const OBJECT_EXTRA_FORMAT_VERSION: u32 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -155,19 +155,19 @@ fn write_object_extra(out: &mut Vec<u8>, obj: &DumpHeapObject) -> Result<(), Dum
             text_props,
         } => {
             object_value_codec::write_u8(out, EXTRA_STRING);
-            object_value_codec::write_u64(out, *size as u64);
-            object_value_codec::write_u64(out, *size_byte as u64);
+            write_dump_usize(out, *size, "string size")?;
+            write_dump_i32(out, *size_byte, "string size_byte")?;
             // Write byte data (Owned or Mapped)
             match data {
                 DumpByteData::Owned(bytes) => {
                     object_value_codec::write_u8(out, 0);
-                    object_value_codec::write_u64(out, bytes.len() as u64);
+                    write_dump_usize(out, bytes.len(), "string owned byte length")?;
                     out.extend_from_slice(bytes);
                 }
                 DumpByteData::Mapped(span) => {
                     object_value_codec::write_u8(out, 1);
-                    object_value_codec::write_u64(out, span.offset);
-                    object_value_codec::write_u64(out, span.len);
+                    write_dump_u64(out, span.offset, "string mapped offset")?;
+                    write_dump_u64(out, span.len, "string mapped length")?;
                 }
             }
             write_text_property_runs(out, text_props)?;
@@ -393,19 +393,19 @@ fn read_object_extra(cursor: &mut object_value_codec::Cursor) -> Result<ObjectEx
         EXTRA_MACRO => Ok(ObjectExtra::Macro),
         EXTRA_RECORD => Ok(ObjectExtra::Record),
         EXTRA_STRING => {
-            let size = cursor.read_u64("string size")? as usize;
-            let size_byte = cursor.read_u64("string size_byte")? as i64;
+            let size = read_dump_usize(cursor, "string size")?;
+            let size_byte = read_dump_i32(cursor, "string size_byte")?;
             let byte_data_tag = cursor.read_u8("string byte data tag")?;
             let byte_data = if byte_data_tag == 0 {
-                let len = cursor.read_u64("string owned len")? as usize;
+                let len = read_dump_usize(cursor, "string owned len")?;
                 let bytes = cursor.read_bytes_fixed(len)?;
                 DumpByteData::owned(bytes)
             } else {
-                let offset = cursor.read_u64("string mapped offset")?;
-                let len = cursor.read_u64("string mapped len")?;
+                let offset = read_dump_u64(cursor, "string mapped offset")?;
+                let len = read_dump_u64(cursor, "string mapped len")?;
                 DumpByteData::mapped(offset, len)
             };
-            let text_props = cursor.read_text_property_runs()?;
+            let text_props = read_text_property_runs(cursor)?;
             Ok(ObjectExtra::String {
                 size,
                 size_byte,
@@ -505,13 +505,65 @@ fn write_text_property_runs(
     out: &mut Vec<u8>,
     runs: &[DumpStringTextPropertyRun],
 ) -> Result<(), DumpError> {
-    object_value_codec::write_u64(out, runs.len() as u64);
+    write_dump_usize(out, runs.len(), "string text property run count")?;
     for run in runs {
-        object_value_codec::write_u64(out, run.start as u64);
-        object_value_codec::write_u64(out, run.end as u64);
+        write_dump_usize(out, run.start, "string text property start")?;
+        write_dump_usize(out, run.end, "string text property end")?;
         object_value_codec::write_value(out, &run.plist)?;
     }
     Ok(())
+}
+
+fn read_text_property_runs(
+    cursor: &mut object_value_codec::Cursor,
+) -> Result<Vec<DumpStringTextPropertyRun>, DumpError> {
+    let len = read_dump_usize(cursor, "string text property run count")?;
+    let mut runs = Vec::with_capacity(len);
+    for _ in 0..len {
+        runs.push(DumpStringTextPropertyRun {
+            start: read_dump_usize(cursor, "string text property start")?,
+            end: read_dump_usize(cursor, "string text property end")?,
+            plist: cursor.read_value()?,
+        });
+    }
+    Ok(runs)
+}
+
+fn write_dump_usize(out: &mut Vec<u8>, value: usize, what: &str) -> Result<(), DumpError> {
+    let value = u32::try_from(value)
+        .map_err(|_| DumpError::SerializationError(format!("{what} overflows dump_off")))?;
+    object_value_codec::write_u32(out, value);
+    Ok(())
+}
+
+fn write_dump_u64(out: &mut Vec<u8>, value: u64, what: &str) -> Result<(), DumpError> {
+    let value = u32::try_from(value)
+        .map_err(|_| DumpError::SerializationError(format!("{what} overflows dump_off")))?;
+    object_value_codec::write_u32(out, value);
+    Ok(())
+}
+
+fn write_dump_i32(out: &mut Vec<u8>, value: i64, what: &str) -> Result<(), DumpError> {
+    let value = i32::try_from(value)
+        .map_err(|_| DumpError::SerializationError(format!("{what} overflows dump_off")))?;
+    out.extend_from_slice(&value.to_ne_bytes());
+    Ok(())
+}
+
+fn read_dump_usize(
+    cursor: &mut object_value_codec::Cursor,
+    what: &str,
+) -> Result<usize, DumpError> {
+    Ok(cursor.read_u32(what)? as usize)
+}
+
+fn read_dump_u64(cursor: &mut object_value_codec::Cursor, what: &str) -> Result<u64, DumpError> {
+    Ok(u64::from(cursor.read_u32(what)?))
+}
+
+fn read_dump_i32(cursor: &mut object_value_codec::Cursor, what: &str) -> Result<i64, DumpError> {
+    let raw = cursor.read_u32(what)?;
+    Ok(i64::from(i32::from_ne_bytes(raw.to_ne_bytes())))
 }
 
 // ---------------------------------------------------------------------------
