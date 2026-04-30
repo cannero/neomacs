@@ -825,9 +825,15 @@ pub(crate) fn builtin_delete_char(
     expect_min_args("delete-char", &args, 1)?;
     expect_max_args("delete-char", &args, 2)?;
     let n = expect_integer("delete-char", &args[0])?;
+    let killflag = args.get(1).is_some_and(|v| v.is_truthy());
     ensure_current_buffer_writable_in_state(&ctx.obarray, &[], &ctx.buffers)?;
     if n.unsigned_abs() < 2 {
         ctx.apply(Value::symbol("undo-auto-amalgamate"), vec![])?;
+    }
+    // GNU `Fdelete_char` (cmds.c:221) dispatches to `kill-forward-chars`
+    // when KILLFLAG is non-nil, saving the deleted text in the kill ring.
+    if killflag {
+        return ctx.apply(Value::symbol("kill-forward-chars"), vec![args[0]]);
     }
     if let Some(current_id) = ctx.buffers.current_buffer_id() {
         let Some((start, end)) = ({
