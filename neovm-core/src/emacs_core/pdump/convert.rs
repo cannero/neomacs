@@ -403,6 +403,9 @@ impl<'a> LoadDecoder<'a> {
     ) -> Result<(), DumpError> {
         self.register_mapped_objects()?;
         for index in 0..self.state.objects.len() {
+            if self.object_is_fully_mapped_without_load_work(index) {
+                continue;
+            }
             self.allocate_tagged_placeholder(TaggedHeapRef {
                 index: index as u32,
             })?;
@@ -413,11 +416,21 @@ impl<'a> LoadDecoder<'a> {
             self.apply_mapped_value_fixups()?;
         }
         for index in 0..self.state.objects.len() {
+            if self.object_is_fully_mapped_without_load_work(index) {
+                continue;
+            }
             self.populate_tagged_object(TaggedHeapRef {
                 index: index as u32,
             })?;
         }
         Ok(())
+    }
+
+    fn object_is_fully_mapped_without_load_work(&self, index: usize) -> bool {
+        matches!(
+            self.state.spans.get(index),
+            LoadedObjectSpan::Cons(_) | LoadedObjectSpan::Float(_)
+        )
     }
 
     fn apply_mapped_value_fixup_section(&mut self, section: &[u8]) -> Result<(), DumpError> {
@@ -1492,6 +1505,15 @@ mod tests {
         let mapped = MappedHeapView::from_mut_slice(&mut bytes);
         let mut decoder = LoadDecoder::new_with_mapped_heap(&heap, Some(mapped));
         decoder.preload_tagged_heap().unwrap();
+
+        assert!(
+            decoder.state.values[0].is_none(),
+            "mapped cons cells should stay out of the eager load cache"
+        );
+        assert!(
+            !decoder.state.populated[0],
+            "mapped cons cells should not run descriptor population"
+        );
 
         let value = decoder.load_value(&DumpValue::Cons(DumpHeapRef { index: 0 }));
         assert_eq!(value.cons_car(), Value::fixnum(99));
