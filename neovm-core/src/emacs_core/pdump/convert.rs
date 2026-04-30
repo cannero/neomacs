@@ -869,6 +869,83 @@ impl LoadDecoder {
             .is_some_and(|span| span.is_some())
     }
 
+    fn mapped_slots_exist(&self, id: TaggedHeapRef) -> bool {
+        self.state
+            .mapped_slots
+            .get(id.index as usize)
+            .is_some_and(|span| span.is_some())
+    }
+
+    fn populate_from_mapped_heap_without_descriptor_clone(
+        &mut self,
+        id: TaggedHeapRef,
+        value: Value,
+    ) -> Result<bool, DumpError> {
+        match &self.state.objects[id.index as usize] {
+            DumpHeapObject::Cons { .. } => {
+                if self
+                    .state
+                    .mapped_cons
+                    .get(id.index as usize)
+                    .is_some_and(|span| span.is_some())
+                {
+                    return Ok(true);
+                }
+            }
+            DumpHeapObject::Vector(items) => {
+                if self.mapped_slots_exist(id) {
+                    let len = self.mapped_slot_count_or(id, items.len())?;
+                    let storage = self
+                        .mapped_slots_for_object_without_copy(id, len)?
+                        .ok_or_else(|| {
+                            DumpError::ImageFormatError(
+                                "mapped vector object has no mapped slot storage".into(),
+                            )
+                        })?;
+                    let _ = Self::install_mapped_vector_slots(value, storage);
+                    return Ok(true);
+                }
+            }
+            DumpHeapObject::Lambda(slots) | DumpHeapObject::Macro(slots) => {
+                if self.mapped_slots_exist(id) {
+                    let len = self.mapped_slot_count_or(id, slots.len())?;
+                    let storage = self
+                        .mapped_slots_for_object_without_copy(id, len)?
+                        .ok_or_else(|| {
+                            DumpError::ImageFormatError(
+                                "mapped closure object has no mapped slot storage".into(),
+                            )
+                        })?;
+                    let _ = Self::install_mapped_closure_slots(value, storage);
+                    return Ok(true);
+                }
+            }
+            DumpHeapObject::Record(items) => {
+                if self.mapped_slots_exist(id) {
+                    let len = self.mapped_slot_count_or(id, items.len())?;
+                    let storage = self
+                        .mapped_slots_for_object_without_copy(id, len)?
+                        .ok_or_else(|| {
+                            DumpError::ImageFormatError(
+                                "mapped record object has no mapped slot storage".into(),
+                            )
+                        })?;
+                    let _ = Self::install_mapped_record_slots(value, storage);
+                    return Ok(true);
+                }
+            }
+            DumpHeapObject::Str { text_props, .. } if text_props.is_empty() => {
+                return Ok(true);
+            }
+            DumpHeapObject::Float(_) => {
+                return Ok(true);
+            }
+            _ => {}
+        }
+
+        Ok(false)
+    }
+
     fn allocate_tagged_placeholder(&mut self, id: TaggedHeapRef) -> Result<Value, DumpError> {
         if let Some(value) = self.state.values[id.index as usize] {
             return Ok(value);
@@ -1114,6 +1191,10 @@ impl LoadDecoder {
 
         let value = self.allocate_tagged_placeholder(id)?;
         self.state.populated[id.index as usize] = true;
+        if self.populate_from_mapped_heap_without_descriptor_clone(id, value)? {
+            return Ok(());
+        }
+
         match self.state.objects[id.index as usize].clone() {
             DumpHeapObject::Cons { car, cdr } => {
                 if !self.mapped_cons_has_raw_words(id, &car, &cdr) {
