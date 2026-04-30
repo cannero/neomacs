@@ -481,32 +481,27 @@ fn resolve_case_region_in_buffers(
 }
 
 fn replace_current_buffer_region_in_buffers(
-    buffers: &mut crate::buffer::BufferManager,
+    eval: &mut super::eval::Context,
     beg: usize,
     end: usize,
     replacement: &LispString,
     restore_point: bool,
 ) -> EvalResult {
     let (buffer_id, saved_pt) = {
-        let buf = buffers
+        let buf = eval
+            .buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         (
-            buffers
+            eval.buffers
                 .current_buffer_id()
                 .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?,
             buf.point(),
         )
     };
-    super::fns::replace_buffer_region_lisp_string_in_manager(
-        buffers,
-        buffer_id,
-        beg,
-        end,
-        replacement,
-    )?;
+    super::fns::replace_buffer_region_lisp_string(eval, buffer_id, beg, end, replacement)?;
     if restore_point {
-        if let Some(buf) = buffers.current_buffer_mut() {
+        if let Some(buf) = eval.buffers.current_buffer_mut() {
             buf.goto_char(saved_pt.min(buf.point_max()));
         }
     }
@@ -514,9 +509,7 @@ fn replace_current_buffer_region_in_buffers(
 }
 
 fn casify_region_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
     name: &str,
     transform: impl FnOnce(&LispString) -> LispString,
@@ -526,13 +519,15 @@ fn casify_region_in_state(
     let end_val = expect_int(&args[1])?;
 
     let (beg, end, text) = {
-        let buf = buffers
+        let buf = eval
+            .buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-        if super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf) {
+        if super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf) {
             return Err(signal("buffer-read-only", vec![buf.name_value()]));
         }
-        let (beg, end) = resolve_case_region_in_buffers(buffers, beg_val, end_val, args.get(2))?;
+        let (beg, end) =
+            resolve_case_region_in_buffers(&eval.buffers, beg_val, end_val, args.get(2))?;
         let text = buf.buffer_substring_lisp_string(beg, end);
         (beg, end, text)
     };
@@ -542,13 +537,11 @@ fn casify_region_in_state(
         return Ok(Value::NIL);
     }
 
-    replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, true)
+    replace_current_buffer_region_in_buffers(eval, beg, end, &replacement, true)
 }
 
 fn casify_word_in_state(
-    obarray: &Obarray,
-    dynamic: &[OrderedRuntimeBindingMap],
-    buffers: &mut crate::buffer::BufferManager,
+    eval: &mut super::eval::Context,
     args: Vec<Value>,
     name: &str,
     transform: impl FnOnce(&LispString) -> LispString,
@@ -557,7 +550,8 @@ fn casify_word_in_state(
     let n = expect_int(&args[0])?;
 
     let (beg, end, text, buffer_name, read_only) = {
-        let buf = buffers
+        let buf = eval
+            .buffers
             .current_buffer()
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
         let table = crate::emacs_core::syntax::SyntaxTable::for_buffer(buf);
@@ -574,7 +568,7 @@ fn casify_word_in_state(
             end,
             text,
             buf.name_value(),
-            super::editfns::buffer_read_only_active_in_state(obarray, dynamic, buf),
+            super::editfns::buffer_read_only_active_in_state(&eval.obarray, &[], buf),
         )
     };
 
@@ -586,7 +580,7 @@ fn casify_word_in_state(
         return Err(signal("buffer-read-only", vec![buffer_name]));
     }
 
-    replace_current_buffer_region_in_buffers(buffers, beg, end, &replacement, false)
+    replace_current_buffer_region_in_buffers(eval, beg, end, &replacement, false)
 }
 
 // ---------------------------------------------------------------------------
@@ -791,9 +785,7 @@ pub(crate) fn builtin_downcase_region(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_region_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "downcase-region",
         downcase_lisp_string_emacs_compat,
@@ -805,9 +797,7 @@ pub(crate) fn builtin_upcase_region(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_region_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "upcase-region",
         upcase_lisp_string_emacs_compat,
@@ -819,9 +809,7 @@ pub(crate) fn builtin_capitalize_region(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_region_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "capitalize-region",
         capitalize_lisp_string,
@@ -833,9 +821,7 @@ pub(crate) fn builtin_upcase_initials_region(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_region_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "upcase-initials-region",
         upcase_initials_lisp_string,
@@ -847,9 +833,7 @@ pub(crate) fn builtin_downcase_word(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_word_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "downcase-word",
         downcase_lisp_string_emacs_compat,
@@ -858,9 +842,7 @@ pub(crate) fn builtin_downcase_word(
 
 pub(crate) fn builtin_upcase_word(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
     casify_word_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "upcase-word",
         upcase_lisp_string_emacs_compat,
@@ -872,9 +854,7 @@ pub(crate) fn builtin_capitalize_word(
     args: Vec<Value>,
 ) -> EvalResult {
     casify_word_in_state(
-        &ctx.obarray,
-        &[],
-        &mut ctx.buffers,
+        ctx,
         args,
         "capitalize-word",
         capitalize_lisp_string,
