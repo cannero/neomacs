@@ -2931,12 +2931,22 @@ fn apply_inherited_text_properties(
         return;
     }
 
-    let props = buffers
+    let (props, existing_keys) = buffers
         .get(current_id)
         .map(|buf| {
-            super::misc_eval::inherited_text_properties_for_inserted_range_in_state(
+            let merged = super::misc_eval::inherited_text_properties_for_inserted_range_in_state(
                 obarray, dynamic, buf, old_pt, text_len,
-            )
+            );
+            // Properties already present on the just-inserted region (from the
+            // source string's own propertize plist).  Source properties win
+            // over inherited ones, matching GNU graft_intervals_into_buffer.
+            let existing: std::collections::HashSet<Value> = buf
+                .text
+                .text_props_get_properties_ordered(old_pt)
+                .into_iter()
+                .map(|(name, _)| name)
+                .collect();
+            (merged, existing)
         })
         .unwrap_or_default();
     if props.is_empty() {
@@ -2946,6 +2956,9 @@ fn apply_inherited_text_properties(
     // put_property prepends new properties to interval order, so apply the
     // merged GNU plist in reverse to preserve the final plist shape.
     for (name, value) in props.iter().rev() {
+        if existing_keys.contains(name) {
+            continue;
+        }
         let _ =
             buffers.put_buffer_text_property(current_id, old_pt, old_pt + text_len, *name, *value);
     }
@@ -3049,16 +3062,20 @@ fn insert_pieces_in_state(
         if let Some(str_table) = piece.text_props {
             let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
         }
-        if inherit {
-            apply_inherited_text_properties(
-                obarray,
-                dynamic,
-                buffers,
-                current_id,
-                insert_pos,
-                piece.text.sbytes(),
-            );
-        }
+        // Match GNU adjust_intervals_for_insertion (intervals.c:802): every
+        // insert applies sticky-aware inheritance from the surrounding
+        // intervals, regardless of whether `insert-and-inherit` was used.
+        // Source-string properties already applied above take precedence
+        // because apply_inherited_text_properties skips keys already present.
+        let _ = inherit;
+        apply_inherited_text_properties(
+            obarray,
+            dynamic,
+            buffers,
+            current_id,
+            insert_pos,
+            piece.text.sbytes(),
+        );
     }
     Ok(Value::NIL)
 }
