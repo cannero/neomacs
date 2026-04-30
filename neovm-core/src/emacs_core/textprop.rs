@@ -278,13 +278,32 @@ fn lookup_string_text_property(
     obarray: &Obarray,
     buffers: &BufferManager,
     table: &TextPropertyTable,
-    byte_pos: usize,
+    char_pos: usize,
     prop: Value,
 ) -> Value {
     lookup_char_property_from_direct(
         obarray,
         buffers,
-        |name| table.get_property(byte_pos, name).copied(),
+        |name| table.get_property(char_pos, name).copied(),
+        prop,
+        true,
+    )
+}
+
+fn lookup_buffer_text_property_at_char_pos(
+    obarray: &Obarray,
+    buffers: &BufferManager,
+    buf: &crate::buffer::buffer::Buffer,
+    char_pos: usize,
+    prop: Value,
+) -> Value {
+    lookup_char_property_from_direct(
+        obarray,
+        buffers,
+        |name| {
+            buf.text
+                .text_props_get_property(buf.text.char_to_byte(char_pos), name)
+        },
         prop,
         true,
     )
@@ -297,12 +316,12 @@ pub(crate) fn lookup_buffer_text_property(
     byte_pos: usize,
     prop: Value,
 ) -> Value {
-    lookup_char_property_from_direct(
+    lookup_buffer_text_property_at_char_pos(
         obarray,
         buffers,
-        |name| buf.text.text_props_get_property(byte_pos, name),
+        buf,
+        buf.text.byte_to_char(byte_pos),
         prop,
-        true,
     )
 }
 
@@ -435,25 +454,14 @@ pub(crate) fn is_string_object(object: Option<&Value>) -> Option<Value> {
     }
 }
 
-/// Convert a 0-based Elisp string char position to an Emacs byte offset.
-pub(crate) fn string_elisp_pos_to_byte(s: &crate::heap_types::LispString, pos: i64) -> usize {
+/// Convert a 0-based Elisp string char position to the interval-tree position.
+pub(crate) fn string_elisp_pos_to_char(s: &crate::heap_types::LispString, pos: i64) -> usize {
     let char_pos = if pos < 0 { 0usize } else { pos as usize };
-    let clamped = char_pos.min(s.schars());
-    if s.is_multibyte() {
-        crate::emacs_core::emacs_char::char_to_byte_pos(s.as_bytes(), clamped)
-    } else {
-        clamped
-    }
+    char_pos.min(s.schars())
 }
 
-/// Convert an Emacs byte offset to a 0-based Elisp string char position.
-pub(crate) fn string_byte_to_elisp_pos(s: &crate::heap_types::LispString, byte_pos: usize) -> i64 {
-    let clamped = byte_pos.min(s.sbytes());
-    if s.is_multibyte() {
-        crate::emacs_core::emacs_char::byte_to_char_pos(s.as_bytes(), clamped) as i64
-    } else {
-        clamped as i64
-    }
+pub(crate) fn string_char_to_elisp_pos(_s: &crate::heap_types::LispString, char_pos: usize) -> i64 {
+    char_pos as i64
 }
 
 /// Write back a modified TextPropertyTable to string text properties.
@@ -519,9 +527,9 @@ pub(crate) fn builtin_put_text_property_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
-        table.put_property(byte_beg, byte_end, prop, val);
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
+        table.put_property(char_beg, char_end, prop, val);
         save_string_props_for_value(str_val, table);
         return Ok(Value::NIL);
     }
@@ -560,9 +568,9 @@ pub(crate) fn builtin_get_text_property_in_state(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         if let Some(table) = get_string_text_properties_table_for_value(str_val) {
-            let byte_pos = string_elisp_pos_to_byte(s, pos);
+            let char_pos = string_elisp_pos_to_char(s, pos);
             return Ok(lookup_string_text_property(
-                obarray, buffers, &table, byte_pos, prop,
+                obarray, buffers, &table, char_pos, prop,
             ));
         }
         return Ok(lookup_char_property_from_direct(
@@ -679,11 +687,11 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
         let mut any_changed = false;
         for (name, val) in pairs {
-            if table.put_property(byte_beg, byte_end, name, val) {
+            if table.put_property(char_beg, char_end, name, val) {
                 any_changed = true;
             }
         }
@@ -758,11 +766,11 @@ pub(crate) fn builtin_add_face_text_property_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
-        let existing = table.get_property(byte_beg, Value::symbol("face")).cloned();
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
+        let existing = table.get_property(char_beg, Value::symbol("face")).cloned();
         let merged = merge_face_property(existing, new_face, append);
-        table.put_property(byte_beg, byte_end, Value::symbol("face"), merged);
+        table.put_property(char_beg, char_end, Value::symbol("face"), merged);
         save_string_props_for_value(str_val, table);
         return Ok(Value::NIL);
     }
@@ -822,11 +830,11 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
         let mut any_removed = false;
         for (name, _val) in pairs {
-            if table.remove_property(byte_beg, byte_end, name) {
+            if table.remove_property(char_beg, char_end, name) {
                 any_removed = true;
             }
         }
@@ -881,11 +889,11 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
-        table.remove_all_properties(byte_beg, byte_end);
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
+        table.remove_all_properties(char_beg, char_end);
         for (name, val) in pairs {
-            table.put_property(byte_beg, byte_end, name, val);
+            table.put_property(char_beg, char_end, name, val);
         }
         save_string_props_for_value(str_val, table);
         return Ok(Value::T);
@@ -929,15 +937,15 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let mut table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
         let mut changed = false;
         for name_val in names {
             let name = expect_property_key(&name_val)?;
-            if table.get_property(byte_beg, name).is_some() {
+            if table.get_property(char_beg, name).is_some() {
                 changed = true;
             }
-            table.remove_property(byte_beg, byte_end, name);
+            table.remove_property(char_beg, char_end, name);
         }
         save_string_props_for_value(str_val, table);
         return Ok(if changed { Value::T } else { Value::NIL });
@@ -994,8 +1002,8 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         if let Some(table) = get_string_text_properties_table_for_value(str_val) {
-            let byte_pos = string_elisp_pos_to_byte(s, pos);
-            let props = table.get_properties_ordered(byte_pos);
+            let char_pos = string_elisp_pos_to_char(s, pos);
+            let props = table.get_properties_ordered(char_pos);
             return Ok(ordered_pairs_to_plist(&props));
         }
         return Ok(Value::NIL);
@@ -1034,21 +1042,21 @@ pub(crate) fn builtin_next_single_property_change_in_state(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_pos = string_elisp_pos_to_byte(s, pos);
-        let (byte_limit, limit_val) = match args.get(3) {
+        let char_pos = string_elisp_pos_to_char(s, pos);
+        let (char_limit, limit_val) = match args.get(3) {
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_int(v)?;
-                (Some(string_elisp_pos_to_byte(s, lim_int)), Some(lim_int))
+                (Some(string_elisp_pos_to_char(s, lim_int)), Some(lim_int))
             }
             _ => (None, None),
         };
-        let current_val = lookup_string_text_property(obarray, buffers, &table, byte_pos, prop);
-        let str_len = s.sbytes();
-        let mut cursor = byte_pos;
+        let current_val = lookup_string_text_property(obarray, buffers, &table, char_pos, prop);
+        let str_len = s.schars();
+        let mut cursor = char_pos;
         loop {
             match table.next_property_change(cursor) {
                 Some(next) => {
-                    if let Some(lim) = byte_limit {
+                    if let Some(lim) = char_limit {
                         if next >= lim {
                             return Ok(match limit_val {
                                 Some(lv) => Value::fixnum(lv),
@@ -1062,7 +1070,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
                     let new_val = lookup_string_text_property(obarray, buffers, &table, next, prop);
                     let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
-                        return Ok(Value::fixnum(string_byte_to_elisp_pos(s, next)));
+                        return Ok(Value::fixnum(string_char_to_elisp_pos(s, next)));
                     }
                     cursor = next;
                 }
@@ -1148,21 +1156,21 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_pos = string_elisp_pos_to_byte(s, pos);
-        let (byte_limit, limit_val) = match args.get(3) {
+        let char_pos = string_elisp_pos_to_char(s, pos);
+        let (char_limit, limit_val) = match args.get(3) {
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_int(v)?;
-                (Some(string_elisp_pos_to_byte(s, lim_int)), Some(lim_int))
+                (Some(string_elisp_pos_to_char(s, lim_int)), Some(lim_int))
             }
             _ => (None, None),
         };
-        let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-        let current_val = lookup_string_text_property(obarray, buffers, &table, ref_byte, prop);
-        let mut cursor = byte_pos;
+        let ref_char = if char_pos > 0 { char_pos - 1 } else { 0 };
+        let current_val = lookup_string_text_property(obarray, buffers, &table, ref_char, prop);
+        let mut cursor = char_pos;
         loop {
             match table.previous_property_change(cursor) {
                 Some(prev) => {
-                    if let Some(lim) = byte_limit {
+                    if let Some(lim) = char_limit {
                         if prev <= lim {
                             return Ok(match limit_val {
                                 Some(lv) => Value::fixnum(lv),
@@ -1175,7 +1183,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
                         lookup_string_text_property(obarray, buffers, &table, check, prop);
                     let changed = !equal_value(&current_val, &new_val, 0);
                     if changed {
-                        return Ok(Value::fixnum(string_byte_to_elisp_pos(s, prev)));
+                        return Ok(Value::fixnum(string_char_to_elisp_pos(s, prev)));
                     }
                     if prev == 0 {
                         break;
@@ -1263,20 +1271,20 @@ pub(crate) fn builtin_next_property_change_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_pos = string_elisp_pos_to_byte(s, pos);
+        let char_pos = string_elisp_pos_to_char(s, pos);
         let limit_arg = args.get(2);
         // Keep original limit value for returning (don't clamp to string length)
-        let (byte_limit, limit_val) = match limit_arg {
+        let (char_limit, limit_val) = match limit_arg {
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_int(v)?;
-                (Some(string_elisp_pos_to_byte(s, lim_int)), Some(lim_int))
+                (Some(string_elisp_pos_to_char(s, lim_int)), Some(lim_int))
             }
             _ => (None, None),
         };
-        let str_byte_len = s.sbytes();
-        return match table.next_property_change(byte_pos) {
+        let str_char_len = s.schars();
+        return match table.next_property_change(char_pos) {
             Some(next) => {
-                if let Some(lim) = byte_limit {
+                if let Some(lim) = char_limit {
                     if next >= lim {
                         return Ok(match limit_val {
                             Some(lv) => Value::fixnum(lv),
@@ -1285,13 +1293,13 @@ pub(crate) fn builtin_next_property_change_in_buffers(
                     }
                 }
                 // If the change is at or past the end of the string, treat as no change
-                if next >= str_byte_len {
+                if next >= str_char_len {
                     return Ok(match limit_val {
                         Some(lv) => Value::fixnum(lv),
                         None => Value::NIL,
                     });
                 }
-                Ok(Value::fixnum(string_byte_to_elisp_pos(s, next)))
+                Ok(Value::fixnum(string_char_to_elisp_pos(s, next)))
             }
             None => Ok(match limit_val {
                 Some(lv) => Value::fixnum(lv),
@@ -1369,16 +1377,16 @@ pub(crate) fn builtin_text_property_any_in_state(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
-        let mut cursor = byte_beg;
-        while cursor < byte_end {
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
+        let mut cursor = char_beg;
+        while cursor < char_end {
             let found = lookup_string_text_property(obarray, buffers, &table, cursor, prop);
             if equal_value(&found, val, 0) {
-                return Ok(Value::fixnum(string_byte_to_elisp_pos(s, cursor)));
+                return Ok(Value::fixnum(string_char_to_elisp_pos(s, cursor)));
             }
             match table.next_property_change(cursor) {
-                Some(next) if next <= byte_end => cursor = next,
+                Some(next) if next <= char_end => cursor = next,
                 _ => break,
             }
         }
@@ -1435,17 +1443,17 @@ pub(crate) fn builtin_text_property_not_all_in_state(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(str_val).unwrap_or_default();
-        let byte_beg = string_elisp_pos_to_byte(s, beg);
-        let byte_end = string_elisp_pos_to_byte(s, end);
-        let mut cursor = byte_beg;
-        while cursor < byte_end {
+        let char_beg = string_elisp_pos_to_char(s, beg);
+        let char_end = string_elisp_pos_to_char(s, end);
+        let mut cursor = char_beg;
+        while cursor < char_end {
             let found = lookup_string_text_property(obarray, buffers, &table, cursor, prop);
             let matches = equal_value(&found, val, 0);
             if !matches {
-                return Ok(Value::fixnum(string_byte_to_elisp_pos(s, cursor)));
+                return Ok(Value::fixnum(string_char_to_elisp_pos(s, cursor)));
             }
             match table.next_property_change(cursor) {
-                Some(next) if next > cursor && next < byte_end => cursor = next,
+                Some(next) if next > cursor && next < char_end => cursor = next,
                 _ => break,
             }
         }

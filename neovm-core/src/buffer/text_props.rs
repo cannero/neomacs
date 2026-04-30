@@ -19,12 +19,13 @@ use crate::gc_trace::GcTrace;
 /// Public snapshot of one text-property interval.
 ///
 /// Runtime storage is `IntervalNode` below.  This type remains the serialization
-/// and inspection shape used by pdump/tests.
+/// and inspection shape used by pdump/tests.  Bounds are character positions,
+/// matching GNU intervals; buffer owners convert byte positions at the boundary.
 #[derive(Clone, Debug)]
 pub struct PropertyInterval {
-    /// Position where this interval starts (inclusive).
+    /// Character position where this interval starts (inclusive).
     pub start: usize,
-    /// Position where this interval ends (exclusive).
+    /// Character position where this interval ends (exclusive).
     pub end: usize,
     /// Snapshot map for the interval plist.
     pub properties: HashMap<Value, Value>,

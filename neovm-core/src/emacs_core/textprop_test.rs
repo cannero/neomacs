@@ -407,6 +407,57 @@ fn get_pos_property_on_string_delegates_to_text_property() {
 }
 
 #[test]
+fn string_multibyte_text_property_intervals_are_char_indexed() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let string = Value::string("éx");
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+            string,
+        ],
+    )
+    .unwrap();
+
+    let intervals = crate::emacs_core::value::get_string_text_properties_table_for_value(string)
+        .unwrap()
+        .intervals_snapshot();
+    assert_eq!(intervals.len(), 1);
+    assert_eq!((intervals[0].start, intervals[0].end), (0, 1));
+}
+
+#[test]
+fn buffer_multibyte_text_property_intervals_are_char_indexed() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = eval_with_text("éx");
+
+    builtin_put_text_property(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::symbol("face"),
+            Value::symbol("bold"),
+        ],
+    )
+    .unwrap();
+
+    let intervals = eval
+        .buffers
+        .current_buffer()
+        .unwrap()
+        .text
+        .text_props_intervals_snapshot();
+    assert_eq!(intervals.len(), 1);
+    assert_eq!((intervals[0].start, intervals[0].end), (0, 1));
+}
+
+#[test]
 fn string_text_properties_handle_raw_unibyte_storage() {
     crate::test_utils::init_test_tracing();
     let mut eval = Context::new();

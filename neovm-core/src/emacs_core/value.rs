@@ -340,6 +340,7 @@ pub fn get_string_text_properties_table_for_value(value: Value) -> Option<TextPr
 }
 
 /// A string text property run used by printed propertized-string literals.
+/// Bounds are 0-based character indices, as in GNU string intervals.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StringTextPropertyRun {
     pub start: usize,

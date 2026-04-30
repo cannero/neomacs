@@ -487,6 +487,15 @@ impl BufferText {
         name: Value,
         value: Value,
     ) -> bool {
+        // GNU intervals are character-indexed; BufferText owns the conversion
+        // from buffer byte offsets into interval positions.
+        let (start, end) = {
+            let storage = self.storage.borrow();
+            (
+                storage.gap.byte_to_char(start),
+                storage.gap.byte_to_char(end),
+            )
+        };
         self.storage
             .borrow_mut()
             .text_props
@@ -494,6 +503,10 @@ impl BufferText {
     }
 
     pub fn text_props_get_property(&self, pos: usize, name: Value) -> Option<Value> {
+        let pos = {
+            let storage = self.storage.borrow();
+            storage.gap.byte_to_char(pos)
+        };
         self.storage
             .borrow()
             .text_props
@@ -502,14 +515,29 @@ impl BufferText {
     }
 
     pub fn text_props_get_properties(&self, pos: usize) -> HashMap<Value, Value> {
+        let pos = {
+            let storage = self.storage.borrow();
+            storage.gap.byte_to_char(pos)
+        };
         self.storage.borrow().text_props.get_properties(pos)
     }
 
     pub fn text_props_get_properties_ordered(&self, pos: usize) -> Vec<(Value, Value)> {
+        let pos = {
+            let storage = self.storage.borrow();
+            storage.gap.byte_to_char(pos)
+        };
         self.storage.borrow().text_props.get_properties_ordered(pos)
     }
 
     pub fn text_props_remove_property(&self, start: usize, end: usize, name: Value) -> bool {
+        let (start, end) = {
+            let storage = self.storage.borrow();
+            (
+                storage.gap.byte_to_char(start),
+                storage.gap.byte_to_char(end),
+            )
+        };
         self.storage
             .borrow_mut()
             .text_props
@@ -517,6 +545,13 @@ impl BufferText {
     }
 
     pub fn text_props_remove_all(&self, start: usize, end: usize) {
+        let (start, end) = {
+            let storage = self.storage.borrow();
+            (
+                storage.gap.byte_to_char(start),
+                storage.gap.byte_to_char(end),
+            )
+        };
         self.storage
             .borrow_mut()
             .text_props
@@ -524,25 +559,39 @@ impl BufferText {
     }
 
     pub fn text_props_next_change(&self, pos: usize) -> Option<usize> {
-        self.storage.borrow().text_props.next_property_change(pos)
+        let storage = self.storage.borrow();
+        let char_pos = storage.gap.byte_to_char(pos);
+        storage
+            .text_props
+            .next_property_change(char_pos)
+            .map(|next| storage.gap.char_to_byte(next))
     }
 
     pub fn text_props_previous_change(&self, pos: usize) -> Option<usize> {
-        self.storage
-            .borrow()
+        let storage = self.storage.borrow();
+        let char_pos = storage.gap.byte_to_char(pos);
+        storage
             .text_props
-            .previous_property_change(pos)
+            .previous_property_change(char_pos)
+            .map(|prev| storage.gap.char_to_byte(prev))
     }
 
     pub fn text_props_append_shifted(&self, other: &TextPropertyTable, byte_offset: usize) {
+        let char_offset = {
+            let storage = self.storage.borrow();
+            storage.gap.byte_to_char(byte_offset)
+        };
         self.storage
             .borrow_mut()
             .text_props
-            .append_shifted(other, byte_offset);
+            .append_shifted(other, char_offset);
     }
 
     pub fn text_props_slice(&self, start: usize, end: usize) -> TextPropertyTable {
-        self.storage.borrow().text_props.slice(start, end)
+        let storage = self.storage.borrow();
+        let start = storage.gap.byte_to_char(start);
+        let end = storage.gap.byte_to_char(end);
+        storage.text_props.slice(start, end)
     }
 
     pub fn text_props_intervals_snapshot(&self) -> Vec<PropertyInterval> {

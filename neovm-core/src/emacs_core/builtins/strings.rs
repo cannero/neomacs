@@ -158,7 +158,7 @@ fn substring_impl(name: &str, args: &[Value], preserve_props: bool) -> EvalResul
                     .slice(byte_from, byte_to)
                     .expect("validated storage substring bounds");
                 let sliced_props = if let Some(src_table) = src_props.as_ref() {
-                    let sliced = src_table.slice(byte_from, byte_to);
+                    let sliced = src_table.slice(from, to);
                     (!sliced.is_empty()).then_some(sliced)
                 } else {
                     None

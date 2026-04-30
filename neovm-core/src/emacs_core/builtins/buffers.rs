@@ -1554,18 +1554,16 @@ pub(crate) fn builtin_set_buffer_multibyte(
     let old_props = shared_text.text_props_snapshot();
 
     let new_props = match mode {
-        BufferMultibyteConversionMode::ToMultibyte => remap_text_property_table(
-            &old_props,
-            |byte_pos| shared_text.byte_to_char(byte_pos),
-            |char_pos| lisp_string_char_to_byte(&new_storage, char_pos),
-        ),
+        BufferMultibyteConversionMode::ToMultibyte => old_props,
         BufferMultibyteConversionMode::AsUnibyte | BufferMultibyteConversionMode::AsMultibyte => {
-            remap_text_property_table_bytes(&old_props, |byte_pos| {
+            remap_text_property_table(&old_props, |char_pos| {
+                let byte_pos = shared_text.char_to_byte(char_pos);
                 let logical_byte = shared_text.storage_byte_to_emacs_byte(byte_pos);
-                lisp_string_advance_byte_to_boundary(
+                let boundary = lisp_string_advance_byte_to_boundary(
                     &new_storage,
                     logical_byte.min(new_total_bytes),
-                )
+                );
+                lisp_string_byte_to_char(&new_storage, boundary)
             })
         }
     };
@@ -2698,36 +2696,14 @@ fn lisp_string_advance_byte_to_boundary(
 
 fn remap_text_property_table(
     table: &crate::buffer::text_props::TextPropertyTable,
-    source_byte_to_char: impl Fn(usize) -> usize,
-    target_char_to_byte: impl Fn(usize) -> usize,
+    char_map: impl Fn(usize) -> usize,
 ) -> crate::buffer::text_props::TextPropertyTable {
     let intervals = table
         .intervals_snapshot()
         .into_iter()
         .filter_map(|interval| {
-            let start = target_char_to_byte(source_byte_to_char(interval.start));
-            let end = target_char_to_byte(source_byte_to_char(interval.end));
-            (start < end).then_some(crate::buffer::text_props::PropertyInterval {
-                start,
-                end,
-                properties: interval.properties,
-                key_order: interval.key_order,
-            })
-        })
-        .collect();
-    crate::buffer::text_props::TextPropertyTable::from_dump(intervals)
-}
-
-fn remap_text_property_table_bytes(
-    table: &crate::buffer::text_props::TextPropertyTable,
-    target_byte_map: impl Fn(usize) -> usize,
-) -> crate::buffer::text_props::TextPropertyTable {
-    let intervals = table
-        .intervals_snapshot()
-        .into_iter()
-        .filter_map(|interval| {
-            let start = target_byte_map(interval.start);
-            let end = target_byte_map(interval.end);
+            let start = char_map(interval.start);
+            let end = char_map(interval.end);
             (start < end).then_some(crate::buffer::text_props::PropertyInterval {
                 start,
                 end,
@@ -2814,12 +2790,7 @@ fn buffer_insert_piece_from_string(
         if table.is_empty() {
             return None;
         }
-        let remapped = remap_text_property_table(
-            &table,
-            |byte_pos| lisp_string_byte_to_char(source, byte_pos),
-            |char_pos| lisp_string_char_to_byte(&text, char_pos),
-        );
-        (!remapped.is_empty()).then_some(remapped)
+        Some(table)
     });
     Ok(InsertPiece { text, text_props })
 }
@@ -2847,15 +2818,7 @@ pub(crate) fn buffer_slice_value(
     if !buf.text.text_props_is_empty() {
         let sliced = buf.text.text_props_slice(start_byte, end_byte);
         if !sliced.is_empty() {
-            let result_string = value.as_lisp_string().expect("heap string");
-            let remapped = remap_text_property_table(
-                &sliced,
-                |byte_pos| lisp_string_byte_to_char(result_string, byte_pos),
-                |char_pos| lisp_string_char_to_byte(result_string, char_pos),
-            );
-            if !remapped.is_empty() {
-                set_string_text_properties_table_for_value(value, remapped);
-            }
+            set_string_text_properties_table_for_value(value, sliced);
         }
     }
     value
@@ -2880,19 +2843,14 @@ fn remap_string_text_props_for_conversion(
         return;
     }
     let remapped = match mode {
-        BufferMultibyteConversionMode::ToMultibyte => {
+        BufferMultibyteConversionMode::ToMultibyte => table,
+        BufferMultibyteConversionMode::AsUnibyte | BufferMultibyteConversionMode::AsMultibyte => {
             let source_string = source.as_lisp_string().expect("source string");
             let target_string = target.as_lisp_string().expect("target string");
-            remap_text_property_table(
-                &table,
-                |byte_pos| lisp_string_byte_to_char(source_string, byte_pos),
-                |char_pos| lisp_string_char_to_byte(target_string, char_pos),
-            )
-        }
-        BufferMultibyteConversionMode::AsUnibyte | BufferMultibyteConversionMode::AsMultibyte => {
-            let target_string = target.as_lisp_string().expect("target string");
-            remap_text_property_table_bytes(&table, |byte_pos| {
-                lisp_string_advance_byte_to_boundary(target_string, byte_pos)
+            remap_text_property_table(&table, |char_pos| {
+                let source_byte = lisp_string_char_to_byte(source_string, char_pos);
+                let boundary = lisp_string_advance_byte_to_boundary(target_string, source_byte);
+                lisp_string_byte_to_char(target_string, boundary)
             })
         }
     };

@@ -153,7 +153,8 @@ impl Buffer {
             "insert-side-effect char position drifted from the source edit site"
         );
         if adjust_shared_text_props {
-            self.text.adjust_text_props_for_insert(insert_pos, byte_len);
+            self.text
+                .adjust_text_props_for_insert(insert_char_pos, char_len);
         }
         self.overlays
             .adjust_for_insert(insert_pos, byte_len, overlay_before_markers);
@@ -221,7 +222,7 @@ impl Buffer {
         }
 
         if adjust_shared_text_props {
-            self.text.adjust_text_props_for_delete(start, end);
+            self.text.adjust_text_props_for_delete(start_char, end_char);
         }
         self.overlays.adjust_for_delete(start, end);
         self.record_char_modification(char_len);

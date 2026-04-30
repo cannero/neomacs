@@ -26,11 +26,7 @@ pub(crate) fn builtin_get_pos_property_impl(
     let prop = super::textprop::expect_property_key(&args[1])?;
 
     if let Some(str_val) = args.get(2).filter(|v| v.is_string()) {
-        if let Some(table) = get_string_text_properties_table_for_value(*str_val) {
-            let s = str_val
-                .as_lisp_string()
-                .expect("string object must carry LispString payload");
-            let byte_pos = super::textprop::string_elisp_pos_to_byte(s, pos);
+        if get_string_text_properties_table_for_value(*str_val).is_some() {
             return Ok(super::textprop::builtin_get_text_property_in_state(
                 obarray,
                 buffers,
@@ -145,26 +141,26 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
             .as_lisp_string()
             .expect("string object must carry LispString payload");
         let table = get_string_text_properties_table_for_value(*str_val).unwrap_or_default();
-        let byte_pos = textprop::string_elisp_pos_to_byte(s, pos);
-        let (byte_limit, limit_val) = match args.get(2) {
+        let char_pos = textprop::string_elisp_pos_to_char(s, pos);
+        let (char_limit, limit_val) = match args.get(2) {
             Some(v) if !v.is_nil() => {
                 let lim_int = expect_integer_or_marker(v)?;
                 (
-                    Some(textprop::string_elisp_pos_to_byte(s, lim_int)),
+                    Some(textprop::string_elisp_pos_to_char(s, lim_int)),
                     Some(lim_int),
                 )
             }
             _ => (None, None),
         };
 
-        let ref_byte = if byte_pos > 0 { byte_pos - 1 } else { 0 };
-        let current_props = table.get_properties(ref_byte);
-        let mut cursor = byte_pos;
+        let ref_char = if char_pos > 0 { char_pos - 1 } else { 0 };
+        let current_props = table.get_properties(ref_char);
+        let mut cursor = char_pos;
 
         loop {
             match table.previous_property_change(cursor) {
                 Some(prev) => {
-                    if let Some(lim) = byte_limit {
+                    if let Some(lim) = char_limit {
                         if prev <= lim {
                             return Ok(match limit_val {
                                 Some(lv) => Value::fixnum(lv),
@@ -175,7 +171,7 @@ pub(crate) fn builtin_previous_property_change_in_buffers(
                     let check = if prev > 0 { prev - 1 } else { 0 };
                     let new_props = table.get_properties(check);
                     if new_props != current_props {
-                        return Ok(Value::fixnum(textprop::string_byte_to_elisp_pos(s, prev)));
+                        return Ok(Value::fixnum(textprop::string_char_to_elisp_pos(s, prev)));
                     }
                     if prev == 0 {
                         break;
