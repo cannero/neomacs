@@ -796,24 +796,14 @@ pub(crate) fn builtin_upcase_region(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    casify_region_in_state(
-        ctx,
-        args,
-        "upcase-region",
-        upcase_lisp_string_emacs_compat,
-    )
+    casify_region_in_state(ctx, args, "upcase-region", upcase_lisp_string_emacs_compat)
 }
 
 pub(crate) fn builtin_capitalize_region(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    casify_region_in_state(
-        ctx,
-        args,
-        "capitalize-region",
-        capitalize_lisp_string,
-    )
+    casify_region_in_state(ctx, args, "capitalize-region", capitalize_lisp_string)
 }
 
 pub(crate) fn builtin_upcase_initials_region(
@@ -841,24 +831,14 @@ pub(crate) fn builtin_downcase_word(
 }
 
 pub(crate) fn builtin_upcase_word(ctx: &mut super::eval::Context, args: Vec<Value>) -> EvalResult {
-    casify_word_in_state(
-        ctx,
-        args,
-        "upcase-word",
-        upcase_lisp_string_emacs_compat,
-    )
+    casify_word_in_state(ctx, args, "upcase-word", upcase_lisp_string_emacs_compat)
 }
 
 pub(crate) fn builtin_capitalize_word(
     ctx: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    casify_word_in_state(
-        ctx,
-        args,
-        "capitalize-word",
-        capitalize_lisp_string,
-    )
+    casify_word_in_state(ctx, args, "capitalize-word", capitalize_lisp_string)
 }
 
 /// `(char-resolve-modifiers CHAR)` -- resolve modifier bits in character.

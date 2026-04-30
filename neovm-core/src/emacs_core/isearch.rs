@@ -58,8 +58,7 @@ fn promote_unibyte_lisp_string(value: &LispString) -> LispString {
 
 fn append_char_to_lisp_string(value: &mut LispString, ch: char) {
     if !value.is_multibyte() && (ch as u32) <= 0xFF {
-        value.data_mut().push(ch as u8);
-        value.recompute_size();
+        value.mutate_bytes(|bytes| bytes.push(ch as u8));
         return;
     }
 
@@ -69,8 +68,7 @@ fn append_char_to_lisp_string(value: &mut LispString, ch: char) {
 
     let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
     let len = crate::emacs_core::emacs_char::char_string(ch as u32, &mut buf);
-    value.data_mut().extend_from_slice(&buf[..len]);
-    value.recompute_size();
+    value.mutate_bytes(|bytes| bytes.extend_from_slice(&buf[..len]));
 }
 
 fn pop_char_from_lisp_string(value: &mut LispString) {
@@ -83,11 +81,11 @@ fn pop_char_from_lisp_string(value: &mut LispString) {
             value.as_bytes(),
             value.schars().saturating_sub(1),
         );
-        value.data_mut().truncate(new_len);
-        value.recompute_size();
+        value.mutate_bytes(|bytes| bytes.truncate(new_len));
     } else {
-        value.data_mut().pop();
-        value.recompute_size();
+        value.mutate_bytes(|bytes| {
+            bytes.pop();
+        });
     }
 }
 

@@ -105,10 +105,19 @@ impl MappedHeapView {
                 let end = start.checked_add(len).ok_or_else(|| {
                     DumpError::ImageFormatError("mapped heap range overflow".into())
                 })?;
-                if end > self.len {
+                let terminator_end = end.checked_add(1).ok_or_else(|| {
+                    DumpError::ImageFormatError("mapped heap terminator range overflow".into())
+                })?;
+                if terminator_end > self.len {
                     return Err(DumpError::ImageFormatError(format!(
-                        "mapped heap range {start}..{end} exceeds heap section length {}",
+                        "mapped heap range {start}..{terminator_end} exceeds heap section length {}",
                         self.len
+                    )));
+                }
+                let terminator = unsafe { *self.ptr.add(end) };
+                if terminator != 0 {
+                    return Err(DumpError::ImageFormatError(format!(
+                        "mapped heap string data at {start}..{end} is missing GNU trailing NUL"
                     )));
                 }
                 let ptr = if start < self.len {
@@ -627,14 +636,7 @@ impl HeapLayoutCursor {
     fn push_bytes_len(&mut self, payload_len: usize) -> super::types::DumpByteSpan {
         self.align_to(HEAP_PAYLOAD_ALIGN);
         let offset = self.offset;
-        if payload_len == 0 {
-            self.offset += 1;
-            return super::types::DumpByteSpan {
-                offset: offset as u64,
-                len: 0,
-            };
-        }
-        self.offset += payload_len;
+        self.offset += payload_len + 1;
         super::types::DumpByteSpan {
             offset: offset as u64,
             len: payload_len as u64,
@@ -708,14 +710,8 @@ impl MappedHeapBuilder {
         let padding = align_padding(self.bytes.len(), HEAP_PAYLOAD_ALIGN);
         self.bytes.resize(self.bytes.len() + padding, 0);
         let offset = self.bytes.len();
-        if payload.is_empty() {
-            self.bytes.push(0);
-            return super::types::DumpByteSpan {
-                offset: offset as u64,
-                len: 0,
-            };
-        }
         self.bytes.extend_from_slice(payload);
+        self.bytes.push(0);
         super::types::DumpByteSpan {
             offset: offset as u64,
             len: payload.len() as u64,
@@ -1046,6 +1042,7 @@ mod tests {
         let mapped = view.bytes(data).unwrap();
         let mapped_bytes = unsafe { std::slice::from_raw_parts(mapped.ptr, mapped.len) };
         assert_eq!(mapped_bytes, b"abc");
+        assert_eq!(unsafe { *mapped.ptr.add(mapped.len) }, 0);
     }
 
     #[test]
@@ -1073,6 +1070,7 @@ mod tests {
         let mapped = view.bytes(data).unwrap();
         assert_eq!(mapped.len, 0);
         assert!(mapped.ptr as usize >= heap.bytes.as_ptr() as usize);
+        assert_eq!(unsafe { *mapped.ptr }, 0);
     }
 
     #[test]

@@ -1895,10 +1895,19 @@ fn dump_heap_object_from_value(encoder: &mut DumpEncoder, value: Value) -> DumpH
         },
         ValueKind::String => {
             let string = value.as_lisp_string().expect("string");
+            let size_byte = if string.is_rodata() {
+                // GNU preserves -2 only by relocating a pointer into the Emacs
+                // executable's rodata. Neomacs does not yet dump executable
+                // rodata relocations, so copied dump bytes become ordinary
+                // unibyte string data.
+                -1
+            } else {
+                string.size_byte()
+            };
             DumpHeapObject::Str {
                 data: DumpByteData::owned(string.as_bytes().to_vec()),
                 size: string.schars(),
-                size_byte: string.size_byte(),
+                size_byte,
                 text_props: get_string_text_properties_for_value(value)
                     .unwrap_or_default()
                     .into_iter()

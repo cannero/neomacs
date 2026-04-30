@@ -65,6 +65,7 @@ pub(crate) fn symbol_table_section_bytes(table: &DumpSymbolTable) -> Result<Vec<
             DumpError::SerializationError("pdump symbol name byte data is too large".into())
         })?;
         byte_data.extend_from_slice(name.as_bytes());
+        byte_data.push(0);
         let byte_len = u64::try_from(name.as_bytes().len()).map_err(|_| {
             DumpError::SerializationError("pdump symbol name byte length overflows u64".into())
         })?;
@@ -216,9 +217,12 @@ fn with_symbol_table_section<R>(
         let byte_len = usize::try_from(entry.byte_len).map_err(|_| {
             DumpError::ImageFormatError(format!("symbol name {idx} byte length overflows usize"))
         })?;
+        let stored_len = byte_len.checked_add(1).ok_or_else(|| {
+            DumpError::ImageFormatError(format!("symbol name {idx} byte length overflows usize"))
+        })?;
         let name_range = checked_range(
             entry.byte_offset,
-            byte_len,
+            stored_len,
             byte_data.len(),
             "symbol name bytes",
         )?;
@@ -228,6 +232,11 @@ fn with_symbol_table_section<R>(
         validate_name_sizes(idx, entry.byte_len, entry.size, entry.size_byte)?;
 
         let start = byte_data.start + name_range.start;
+        if section[start + byte_len] != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "symbol name {idx} is missing GNU trailing NUL"
+            )));
+        }
         let ptr = section[start..start + byte_len].as_ptr();
         let name = unsafe { LispString::from_mapped_bytes(ptr, byte_len, size, entry.size_byte) };
         names.push(name);
@@ -367,10 +376,13 @@ mod tests {
             assert_eq!(names.len(), 3);
             assert_eq!(names[0].as_bytes(), &[0xff, b'a']);
             assert!(!names[0].is_multibyte());
+            assert!(names[0].has_trailing_nul());
             assert_eq!(names[1].as_bytes(), b"lambda");
             assert!(names[1].is_multibyte());
+            assert!(names[1].has_trailing_nul());
             assert_eq!(names[2].as_bytes(), "λ".as_bytes());
             assert!(names[2].is_multibyte());
+            assert!(names[2].has_trailing_nul());
             assert_eq!(symbol_names, &[0, 1, 2]);
             assert_eq!(canonical, &[true, false, true]);
             Ok(())

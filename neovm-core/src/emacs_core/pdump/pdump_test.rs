@@ -171,6 +171,12 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
             .any(|window| window == b"mapped-pdump-string"),
         "heap string bytes should live in the mmap heap section"
     );
+    assert!(
+        heap_section
+            .windows(b"mapped-pdump-string\0".len())
+            .any(|window| window == b"mapped-pdump-string\0"),
+        "mapped string bytes must include GNU's trailing NUL after SBYTES"
+    );
 
     let loaded = load_from_dump(&dump_path).expect("load should succeed");
     let value = *loaded
@@ -180,6 +186,7 @@ fn file_pdump_loads_heap_string_bytes_from_mmap_image() {
     let string = value.as_lisp_string().expect("restored string");
 
     assert_eq!(string.as_bytes(), b"mapped-pdump-string");
+    assert!(string.has_trailing_nul());
     assert!(
         loaded.pdump_image_contains_ptr(value.as_string_ptr().unwrap().cast::<u8>()),
         "loaded string object must be a tagged pointer into the retained mmap image"
@@ -212,6 +219,30 @@ fn file_pdump_preserves_immovable_string_size_byte() {
     assert_eq!(string.as_bytes(), &[0xC0, 0x87]);
     assert_eq!(string.size_byte(), -3);
     assert!(string.is_immovable());
+}
+
+#[test]
+fn file_pdump_demotes_rodata_string_when_dumping_copied_bytes() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let string = LispString::from_rodata_unibyte(b"rodata\0");
+    eval.obarray
+        .set_symbol_value("test-pdump-rodata-string", Value::heap_string(string));
+
+    let dir = tempfile::tempdir().unwrap();
+    let dump_path = dir.path().join("rodata-string.pdump");
+    dump_to_file(&eval, &dump_path).expect("dump should succeed");
+
+    let loaded = load_from_dump(&dump_path).expect("load should succeed");
+    let value = *loaded
+        .obarray
+        .symbol_value("test-pdump-rodata-string")
+        .expect("restored string symbol");
+    let string = value.as_lisp_string().expect("restored string");
+    assert_eq!(string.as_bytes(), b"rodata");
+    assert_eq!(string.size_byte(), -1);
+    assert!(!string.is_rodata());
+    assert!(string.has_trailing_nul());
 }
 
 #[test]

@@ -815,10 +815,10 @@ pub(crate) fn builtin_fillarray(args: Vec<Value>) -> EvalResult {
                 data = vec![fill as u8; len];
             }
             let _ = args[0].with_lisp_string_mut(|lisp_str| {
-                let bytes = lisp_str.data_mut();
-                bytes.clear();
-                bytes.extend_from_slice(&data);
-                lisp_str.recompute_size();
+                lisp_str.mutate_bytes(|bytes| {
+                    bytes.clear();
+                    bytes.extend_from_slice(&data);
+                });
             });
             Ok(args[0])
         }

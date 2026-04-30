@@ -222,9 +222,7 @@ fn extract_line_columns(line: &LispString, start_col: usize, end_col: usize) -> 
 
     let mut out = slice_lisp_string_chars(line, start_col, len.min(end_col));
     if end_col > len {
-        out.data_mut()
-            .extend(std::iter::repeat_n(b' ', end_col - len));
-        out.recompute_size();
+        out.mutate_bytes(|bytes| bytes.extend(std::iter::repeat_n(b' ', end_col - len)));
     }
     out
 }
@@ -306,8 +304,9 @@ fn delete_extract_rectangle_from_text(
             del_end_char
         };
         if del_start_byte < del_end_byte {
-            line.data_mut().drain(del_start_byte..del_end_byte);
-            line.recompute_size();
+            line.mutate_bytes(|bytes| {
+                bytes.drain(del_start_byte..del_end_byte);
+            });
         }
     }
 
