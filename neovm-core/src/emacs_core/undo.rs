@@ -206,6 +206,14 @@ fn primitive_undo_inner(
                     let beg = (beg1 - 1).max(0) as usize;
                     let end = (end1 - 1).max(0) as usize;
                     if let Some(buf) = ctx.buffers.get(buf_id) {
+                        if beg < buf.begv_byte || end > buf.zv_byte {
+                            return Err(signal(
+                                "error",
+                                vec![Value::string(
+                                    "Changes to be undone are outside visible portion of buffer",
+                                )],
+                            ));
+                        }
                         let clamped_end = end.min(buf.text.len());
                         let clamped_beg = beg.min(clamped_end);
                         ctx.buffers
@@ -219,6 +227,14 @@ fn primitive_undo_inner(
                         .expect("ValueKind::String must carry LispString payload");
                     let pos = (pos1.abs() - 1).max(0) as usize;
                     if let Some(buf) = ctx.buffers.get(buf_id) {
+                        if pos < buf.begv_byte || pos > buf.zv_byte {
+                            return Err(signal(
+                                "error",
+                                vec![Value::string(
+                                    "Changes to be undone are outside visible portion of buffer",
+                                )],
+                            ));
+                        }
                         let clamped = pos.min(buf.text.len());
                         ctx.buffers.goto_buffer_byte(buf_id, clamped);
                         ctx.buffers.insert_lisp_string_into_buffer(buf_id, ls);
@@ -256,6 +272,16 @@ fn primitive_undo_inner(
                                 {
                                     let byte_beg = (b - 1).max(0) as usize;
                                     let byte_end = (e - 1).max(0) as usize;
+                                    if let Some(buf) = ctx.buffers.get(buf_id) {
+                                        if byte_beg < buf.begv_byte || byte_end > buf.zv_byte {
+                                            return Err(signal(
+                                                "error",
+                                                vec![Value::string(
+                                                    "Changes to be undone are outside visible portion of buffer",
+                                                )],
+                                            ));
+                                        }
+                                    }
                                     if val.is_nil() {
                                         let _ = ctx.buffers.remove_buffer_text_property(
                                             buf_id, byte_beg, byte_end, prop,
