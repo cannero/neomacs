@@ -923,7 +923,7 @@ fn decode_utf8_emacs_bytes(bytes: &[u8]) -> String {
 
         // Invalid byte: treat as raw-byte char (matching GNU Emacs behavior).
         let byte = bytes[i];
-        let code = crate::emacs_core::emacs_char::byte8_to_char(byte);
+        let code = crate::emacs_core::emacs_char::unibyte_to_char(byte);
         push_emacs_utf8_decoded_char(&mut out, code);
         i += 1;
     }
@@ -1154,7 +1154,7 @@ fn bytes_to_multibyte_raw_string(bytes: &[u8]) -> String {
             out.push(b as char);
             continue;
         }
-        let code = crate::emacs_core::emacs_char::byte8_to_char(b);
+        let code = crate::emacs_core::emacs_char::unibyte_to_char(b);
         push_emacs_utf8_decoded_char(&mut out, code);
     }
     out

@@ -2724,7 +2724,7 @@ fn buffer_insert_char_codes(
         if !string.is_multibyte() {
             for code in &mut codes {
                 if *code > 0x7F {
-                    *code = crate::emacs_core::emacs_char::byte8_to_char(*code as u8);
+                    *code = crate::emacs_core::emacs_char::unibyte_to_char(*code as u8);
                 }
             }
         }
@@ -3171,7 +3171,7 @@ pub(crate) fn builtin_insert_byte(eval: &mut super::eval::Context, args: Vec<Val
 
     let unit = encode_char_code_for_buffer_bytes(
         if multibyte {
-            crate::emacs_core::emacs_char::byte8_to_char(byte as u8)
+            crate::emacs_core::emacs_char::unibyte_to_char(byte as u8)
         } else {
             byte as u32
         },

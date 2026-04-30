@@ -1835,7 +1835,7 @@ fn append_symbol_name_bytes(name: &crate::heap_types::LispString, out: &mut Vec<
         if !name.is_multibyte() && byte >= 0x80 {
             let mut buf = [0u8; crate::emacs_core::emacs_char::MAX_MULTIBYTE_LENGTH];
             let len = crate::emacs_core::emacs_char::char_string(
-                crate::emacs_core::emacs_char::byte8_to_char(byte),
+                crate::emacs_core::emacs_char::unibyte_to_char(byte),
                 &mut buf,
             );
             out.extend_from_slice(&buf[..len]);

@@ -131,7 +131,7 @@ fn decode_string_key_events(value: &Value) -> Result<Vec<KeyEvent>, String> {
         }
     } else {
         for &byte in ls.as_bytes() {
-            out.push(key_event_from_char_code(super::emacs_char::byte8_to_char(
+            out.push(key_event_from_char_code(super::emacs_char::unibyte_to_char(
                 byte,
             )));
         }

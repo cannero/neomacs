@@ -57,7 +57,7 @@ fn translate_sentinel(cp: u32) -> Option<u32> {
     if (RAW_BYTE_SENTINEL_MIN..=RAW_BYTE_SENTINEL_MAX).contains(&cp) {
         let byte = (cp - RAW_BYTE_SENTINEL_BASE) as u8;
         // In multibyte context, raw bytes map to eight-bit char codes
-        Some(crate::emacs_core::emacs_char::byte8_to_char(byte))
+        Some(crate::emacs_core::emacs_char::unibyte_to_char(byte))
     } else if (UNIBYTE_SENTINEL_MIN..=UNIBYTE_SENTINEL_MAX).contains(&cp) {
         let byte = (cp - UNIBYTE_SENTINEL_BASE) as u8;
         // In unibyte context, sentinel maps to the raw byte value

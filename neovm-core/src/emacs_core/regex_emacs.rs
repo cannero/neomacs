@@ -2359,7 +2359,7 @@ pub(crate) fn re_match(
         if byte < 0x80 {
             byte as u32
         } else {
-            emacs_char::byte8_to_char(byte)
+            emacs_char::unibyte_to_char(byte)
         }
     };
     let syntax_char = |code: u32| -> char {

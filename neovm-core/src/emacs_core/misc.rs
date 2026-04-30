@@ -76,15 +76,7 @@ fn expect_character_code(val: &Value) -> Result<i64, Flow> {
 
 /// Convert unibyte LispString bytes to multibyte Emacs encoding.
 fn convert_unibyte_to_multibyte_bytes(src: &[u8]) -> Vec<u8> {
-    use crate::emacs_core::emacs_char;
-    let mut out = Vec::with_capacity(src.len() * 2);
-    for &b in src {
-        let c = emacs_char::byte8_to_char(b);
-        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-        let len = emacs_char::char_string(c, &mut buf);
-        out.extend_from_slice(&buf[..len]);
-    }
-    out
+    crate::emacs_core::emacs_char::str_to_multibyte(src)
 }
 
 /// Reinterpret unibyte bytes as an Emacs multibyte sequence.
@@ -92,33 +84,7 @@ fn convert_unibyte_to_multibyte_bytes(src: &[u8]) -> Vec<u8> {
 /// Valid multibyte sequences are preserved as-is; lone high bytes become
 /// raw-byte characters.
 fn reinterpret_unibyte_as_multibyte_bytes(src: &[u8]) -> Vec<u8> {
-    use crate::emacs_core::emacs_char;
-
-    let mut out = Vec::with_capacity(src.len() * 2);
-    let mut pos = 0usize;
-    while pos < src.len() {
-        let (cp, len) = emacs_char::string_char(&src[pos..]);
-        if len > 1 {
-            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-            let enc_len = emacs_char::char_string(cp, &mut buf);
-            if enc_len == len && src.get(pos..pos + len) == Some(&buf[..len]) {
-                out.extend_from_slice(&src[pos..pos + len]);
-                pos += len;
-                continue;
-            }
-        } else if src[pos] < 0x80 {
-            out.push(src[pos]);
-            pos += 1;
-            continue;
-        }
-
-        let c = emacs_char::byte8_to_char(src[pos]);
-        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-        let enc_len = emacs_char::char_string(c, &mut buf);
-        out.extend_from_slice(&buf[..enc_len]);
-        pos += 1;
-    }
-    out
+    crate::emacs_core::emacs_char::str_as_multibyte(src)
 }
 
 // ===========================================================================
@@ -519,16 +485,25 @@ pub(crate) fn builtin_unibyte_char_to_multibyte(args: Vec<Value>) -> EvalResult 
 }
 
 /// `(multibyte-char-to-unibyte CHAR)` -- map multibyte/raw-byte char code to byte.
+///
+/// Mirrors GNU `Fmultibyte_char_to_unibyte` in `character.c`: characters
+/// below 256 are passed through (latin1/unibyte ambiguity), eight-bit
+/// raw-byte chars decode to their byte via `CHAR_TO_BYTE_SAFE`, and
+/// anything else returns -1.
 pub(crate) fn builtin_multibyte_char_to_unibyte(args: Vec<Value>) -> EvalResult {
     expect_args("multibyte-char-to-unibyte", &args, 1)?;
     let code = expect_character_code(&args[0])?;
-    if code <= 0xFF {
+    if code < 256 {
+        // Can't distinguish a byte read from a unibyte buffer from a
+        // latin1 char, so let it slide.
         return Ok(Value::fixnum(code));
     }
-    if (0x3FFF80..=0x3FFFFF).contains(&code) {
-        return Ok(Value::fixnum(code - 0x3FFF00));
-    }
-    Ok(Value::fixnum(-1))
+    Ok(Value::fixnum(
+        match crate::emacs_core::emacs_char::char_to_byte_safe(code as u32) {
+            Some(b) => b as i64,
+            None => -1,
+        },
+    ))
 }
 
 /// `(locale-info ITEM)` -- minimal locale info.

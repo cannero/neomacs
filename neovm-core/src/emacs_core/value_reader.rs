@@ -283,7 +283,7 @@ type ReaderTokenBytes = SmallVec<[u8; 64]>;
 fn translate_runtime_source_char(ch: char) -> u32 {
     let cp = ch as u32;
     if (0xE080..=0xE0FF).contains(&cp) {
-        crate::emacs_core::emacs_char::byte8_to_char((cp - 0xE000) as u8)
+        crate::emacs_core::emacs_char::unibyte_to_char((cp - 0xE000) as u8)
     } else if (0xE300..=0xE3FF).contains(&cp) {
         (cp - 0xE300) as u32
     } else {
@@ -947,7 +947,7 @@ impl<'a> Reader<'a> {
 
             if (modifiers & CHAR_META_MODIFIER) != 0 {
                 modifiers &= !CHAR_META_MODIFIER;
-                code = emacs_char::byte8_to_char((code as u8) | 0x80);
+                code = emacs_char::unibyte_to_char((code as u8) | 0x80);
             }
         }
 

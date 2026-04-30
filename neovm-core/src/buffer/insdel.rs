@@ -51,7 +51,7 @@ fn convert_lisp_string_for_buffer_mode(text: &LispString, target_multibyte: bool
         if !text.is_multibyte() {
             for code in &mut codes {
                 if *code > 0x7F {
-                    *code = crate::emacs_core::emacs_char::byte8_to_char(*code as u8);
+                    *code = crate::emacs_core::emacs_char::unibyte_to_char(*code as u8);
                 }
             }
         }

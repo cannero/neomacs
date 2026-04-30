@@ -883,33 +883,9 @@ pub(crate) fn builtin_char_resolve_modifiers(args: Vec<Value>) -> EvalResult {
         }
     };
 
-    let modifiers = code & CHAR_MODIFIER_MASK;
-    let mut base = code & !CHAR_MODIFIER_MASK;
-    let mut remaining_mods = modifiers;
-
-    if remaining_mods & CHAR_SHIFT != 0 {
-        if base >= 'a' as i64 && base <= 'z' as i64 {
-            base = base - 'a' as i64 + 'A' as i64;
-            remaining_mods &= !CHAR_SHIFT;
-        } else if base >= 'A' as i64 && base <= 'Z' as i64 {
-            remaining_mods &= !CHAR_SHIFT;
-        }
-    }
-
-    if remaining_mods & CHAR_CTL != 0 {
-        if base >= '@' as i64 && base <= '_' as i64 {
-            base &= 0x1F;
-            remaining_mods &= !CHAR_CTL;
-        } else if base >= 'a' as i64 && base <= 'z' as i64 {
-            base &= 0x1F;
-            remaining_mods &= !CHAR_CTL;
-        } else if base == '?' as i64 {
-            base = 127;
-            remaining_mods &= !CHAR_CTL;
-        }
-    }
-
-    Ok(Value::fixnum(base | remaining_mods))
+    Ok(Value::fixnum(
+        crate::emacs_core::emacs_char::char_resolve_modifier_mask(code),
+    ))
 }
 
 // ---------------------------------------------------------------------------

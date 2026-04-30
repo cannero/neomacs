@@ -1566,6 +1566,15 @@ pub(crate) fn builtin_string_slice(args: &[Value]) -> EvalResult {
     for arg in args {
         match arg.kind() {
             ValueKind::Fixnum(c) => {
+                // Accept chars with modifier bits (char_string strips them);
+                // reject negatives or values whose base exceeds MAX_CHAR.
+                let base = c & !(emacs_char::CHAR_MODIFIER_MASK as i64);
+                if !(0..=emacs_char::MAX_CHAR as i64).contains(&base) {
+                    return Err(signal(
+                        "wrong-type-argument",
+                        vec![Value::symbol("characterp"), *arg],
+                    ));
+                }
                 let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
                 let len = emacs_char::char_string(c as u32, &mut buf);
                 result.extend_from_slice(&buf[..len]);

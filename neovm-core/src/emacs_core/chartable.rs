@@ -863,6 +863,39 @@ pub(crate) fn ct_lookup(table: &Value, ch: i64) -> EvalResult {
     }
 }
 
+/// Translate character `c` through translation `table`.
+///
+/// Mirrors GNU `translate_char` (character.c:151). If `table` is a
+/// char-table, look up `c`; if the entry is a character, that's the
+/// translation. If `table` is a list, fold left through all tables.
+/// Returns `c` unchanged if no translation applies.
+pub(crate) fn translate_char(table: &Value, c: i64) -> i64 {
+    if is_char_table(table) {
+        match ct_lookup(table, c) {
+            Ok(val) => match val.kind() {
+                ValueKind::Fixnum(n)
+                    if (0..=crate::emacs_core::emacs_char::MAX_CHAR as i64).contains(&n) =>
+                {
+                    n
+                }
+                _ => c,
+            },
+            Err(_) => c,
+        }
+    } else if table.is_cons() {
+        let mut result = c;
+        let mut cur = *table;
+        while cur.is_cons() {
+            let car = cur.cons_car();
+            result = translate_char(&car, result);
+            cur = cur.cons_cdr();
+        }
+        result
+    } else {
+        c
+    }
+}
+
 fn ct_lookup_and_range(table: &Value, ch: i64) -> Result<(Value, i64, i64), Flow> {
     if !is_char_table(table) {
         return Err(wrong_type("char-table-p", table));

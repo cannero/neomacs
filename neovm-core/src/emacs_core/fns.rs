@@ -1089,14 +1089,7 @@ pub(crate) fn builtin_string_make_multibyte(args: Vec<Value>) -> EvalResult {
         return Ok(args[0]);
     }
     // Unibyte -> multibyte: each byte 0x80..0xFF becomes a raw-byte char.
-    let src = ls.as_bytes();
-    let mut out = Vec::with_capacity(src.len() * 2);
-    for &b in src {
-        let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-        let c = emacs_char::byte8_to_char(b);
-        let len = emacs_char::char_string(c, &mut buf);
-        out.extend_from_slice(&buf[..len]);
-    }
+    let out = emacs_char::str_to_multibyte(ls.as_bytes());
     Ok(Value::heap_string(
         crate::heap_types::LispString::from_emacs_bytes(out),
     ))

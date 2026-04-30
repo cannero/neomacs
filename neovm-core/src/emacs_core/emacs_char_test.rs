@@ -370,10 +370,29 @@ fn char_byte8_p_boundary() {
 }
 
 #[test]
-fn byte8_to_char_ascii_passthrough() {
+fn unibyte_to_char_ascii_passthrough() {
     for b in 0u8..0x80 {
-        assert_eq!(byte8_to_char(b), b as u32);
+        assert_eq!(unibyte_to_char(b), b as u32);
     }
+}
+
+#[test]
+fn unibyte_to_char_high_bytes_are_byte8() {
+    for b in 0x80u16..=0xFF {
+        let b = b as u8;
+        assert_eq!(unibyte_to_char(b), byte8_to_char(b));
+        assert_eq!(unibyte_to_char(b), b as u32 + 0x3F_FF00);
+    }
+}
+
+#[test]
+fn byte8_to_char_is_strict() {
+    // GNU `BYTE8_TO_CHAR` is unconditional: even ASCII bytes are mapped
+    // into the eight-bit range.
+    assert_eq!(byte8_to_char(0x00), 0x3F_FF00);
+    assert_eq!(byte8_to_char(0x7F), 0x3F_FF7F);
+    assert_eq!(byte8_to_char(0x80), 0x3F_FF80);
+    assert_eq!(byte8_to_char(0xFF), 0x3F_FFFF);
 }
 
 #[test]
@@ -386,4 +405,232 @@ fn char_to_byte_pos_beyond_end() {
 fn byte_to_char_pos_at_zero() {
     let data = b"hello";
     assert_eq!(byte_to_char_pos(data, 0), 0);
+}
+
+// -----------------------------------------------------------------------
+// multibyte_length (strict validation)
+// -----------------------------------------------------------------------
+
+#[test]
+fn multibyte_length_empty_returns_none() {
+    assert_eq!(multibyte_length(&[], false), None);
+    assert_eq!(multibyte_length(&[], true), None);
+}
+
+#[test]
+fn multibyte_length_ascii_is_one() {
+    for b in 0u8..0x80 {
+        assert_eq!(multibyte_length(&[b], false), Some(1));
+    }
+}
+
+#[test]
+fn multibyte_length_round_trip_unicode() {
+    // Encode every code point boundary, then validate length matches.
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [0x80u32, 0x7FF, 0x800, 0xFFFF, 0x1_0000, 0x1F_FFFF, 0x20_0000, 0x3F_FF7F] {
+        let n = char_string(c, &mut buf);
+        assert_eq!(
+            multibyte_length(&buf[..n], false),
+            Some(n),
+            "round-trip failed for c=0x{:X}",
+            c
+        );
+    }
+}
+
+#[test]
+fn multibyte_length_eight_bit_only_with_allow_flag() {
+    // Encode a raw byte; standard validation must reject (overlong),
+    // `allow_8bit = true` must accept.
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    let n = char_string(byte8_to_char(0x80), &mut buf);
+    assert_eq!(n, 2);
+    assert_eq!(multibyte_length(&buf[..2], false), None);
+    assert_eq!(multibyte_length(&buf[..2], true), Some(2));
+}
+
+#[test]
+fn multibyte_length_truncated_returns_none() {
+    // 3-byte sequence missing trailing byte.
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    let n = char_string(0x4E2D, &mut buf); // CJK char, 3 bytes
+    assert_eq!(n, 3);
+    assert_eq!(multibyte_length(&buf[..2], false), None);
+}
+
+#[test]
+fn multibyte_length_stray_continuation_byte() {
+    assert_eq!(multibyte_length(&[0x80], true), None);
+    assert_eq!(multibyte_length(&[0xBF, 0xBF, 0xBF], true), None);
+}
+
+// -----------------------------------------------------------------------
+// char_resolve_modifier_mask (GNU character.c:51)
+// -----------------------------------------------------------------------
+
+#[test]
+fn char_resolve_shift_uppercase() {
+    // S-A → A (shift cleared).
+    let r = char_resolve_modifier_mask((CHAR_SHIFT as i64) | b'A' as i64);
+    assert_eq!(r, b'A' as i64);
+}
+
+#[test]
+fn char_resolve_shift_lowercase_to_upper() {
+    // S-a → A (shift cleared, code shifted).
+    let r = char_resolve_modifier_mask((CHAR_SHIFT as i64) | b'a' as i64);
+    assert_eq!(r, b'A' as i64);
+}
+
+#[test]
+fn char_resolve_shift_on_control_dropped() {
+    // S-\t (base ≤ 0x20) → \t with shift cleared.
+    let r = char_resolve_modifier_mask((CHAR_SHIFT as i64) | 0x09);
+    assert_eq!(r, 0x09);
+}
+
+#[test]
+fn char_resolve_ctl_space_to_nul() {
+    // C-SPC → C-@ (NUL, ctl cleared).
+    let r = char_resolve_modifier_mask((CHAR_CTL as i64) | b' ' as i64);
+    assert_eq!(r, 0);
+}
+
+#[test]
+fn char_resolve_ctl_question_to_del() {
+    // C-? → DEL (0177, ctl cleared).
+    let r = char_resolve_modifier_mask((CHAR_CTL as i64) | b'?' as i64);
+    assert_eq!(r, 0o177);
+}
+
+#[test]
+fn char_resolve_ctl_letter() {
+    // C-a → 0x01.
+    let r = char_resolve_modifier_mask((CHAR_CTL as i64) | b'a' as i64);
+    assert_eq!(r, 0x01);
+    // C-A → 0x01 too.
+    let r = char_resolve_modifier_mask((CHAR_CTL as i64) | b'A' as i64);
+    assert_eq!(r, 0x01);
+}
+
+#[test]
+fn char_resolve_non_ascii_unchanged() {
+    // CJK char with M- modifier: returned untouched (only ASCII bases resolve).
+    let c = (CHAR_META as i64) | 0x4E2D;
+    assert_eq!(char_resolve_modifier_mask(c), c);
+}
+
+#[test]
+fn char_resolve_meta_preserved() {
+    // Meta is intentionally NOT resolved (GNU bug#4751).
+    let r = char_resolve_modifier_mask((CHAR_META as i64) | b'A' as i64);
+    assert_eq!(r, (CHAR_META as i64) | b'A' as i64);
+}
+
+// -----------------------------------------------------------------------
+// raw_prev_char_len, string_char_advance, chars_in_text
+// -----------------------------------------------------------------------
+
+#[test]
+fn raw_prev_char_len_ascii() {
+    let s = b"abc";
+    assert_eq!(raw_prev_char_len(s, 3), 1);
+    assert_eq!(raw_prev_char_len(s, 2), 1);
+}
+
+#[test]
+fn raw_prev_char_len_multibyte() {
+    let mut buf = [0u8; MAX_MULTIBYTE_LENGTH];
+    let n = char_string(0x4E2D, &mut buf); // 3-byte CJK char
+    assert_eq!(raw_prev_char_len(&buf, n), n);
+}
+
+#[test]
+fn string_char_advance_walks_through() {
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, 0x4E2D, byte8_to_char(0xFF), b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        buf.extend_from_slice(&tmp[..n]);
+    }
+
+    let mut pos = 0;
+    assert_eq!(string_char_advance(&buf, &mut pos), b'A' as u32);
+    assert_eq!(string_char_advance(&buf, &mut pos), 0x4E2D);
+    assert_eq!(string_char_advance(&buf, &mut pos), byte8_to_char(0xFF));
+    assert_eq!(string_char_advance(&buf, &mut pos), b'B' as u32);
+    assert_eq!(pos, buf.len());
+}
+
+#[test]
+fn chars_in_text_counts() {
+    // Build "A中" + raw 0xFF + "B" → 4 chars, encoded with mixed widths.
+    let mut buf = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, 0x4E2D, byte8_to_char(0xFF), b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        buf.extend_from_slice(&tmp[..n]);
+    }
+    assert_eq!(chars_in_text(&buf, true), 4);
+    assert_eq!(chars_in_text(&buf, false), buf.len());
+}
+
+// -----------------------------------------------------------------------
+// Unibyte ↔ multibyte conversions (str_to_multibyte / str_as_multibyte / etc.)
+// -----------------------------------------------------------------------
+
+#[test]
+fn count_size_as_multibyte_basic() {
+    assert_eq!(count_size_as_multibyte(b"abc"), 3);
+    assert_eq!(count_size_as_multibyte(b"a\xFFb"), 4);
+    assert_eq!(count_size_as_multibyte(&[0x80, 0xFF]), 4);
+}
+
+#[test]
+fn str_to_multibyte_round_trips_via_str_as_unibyte() {
+    let src = b"a\x80\xC3\xFF";
+    let mb = str_to_multibyte(src);
+    // High bytes expand to 2-byte raw-byte form.
+    assert_eq!(mb.len(), 1 + 2 + 2 + 2);
+    let unib = str_as_unibyte(&mb);
+    assert_eq!(unib, src);
+}
+
+#[test]
+fn str_as_multibyte_preserves_valid_sequences() {
+    // Build a valid multibyte buffer first.
+    let mut input = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, 0x4E2D, b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        input.extend_from_slice(&tmp[..n]);
+    }
+    let out = str_as_multibyte(&input);
+    assert_eq!(out, input);
+}
+
+#[test]
+fn str_as_multibyte_promotes_lone_high_bytes() {
+    // A solitary 0xFF (not part of a valid sequence) becomes a raw-byte char.
+    let out = str_as_multibyte(&[b'A', 0xFF, b'B']);
+    assert_eq!(multibyte_chars_in_text(&out), 3);
+}
+
+#[test]
+fn parse_str_as_multibyte_counts() {
+    let mut input = Vec::new();
+    let mut tmp = [0u8; MAX_MULTIBYTE_LENGTH];
+    for c in [b'A' as u32, 0x4E2D, b'B' as u32] {
+        let n = char_string(c, &mut tmp);
+        input.extend_from_slice(&tmp[..n]);
+    }
+    let (chars, nbytes) = parse_str_as_multibyte(&input);
+    assert_eq!(chars, 3);
+    assert_eq!(nbytes, input.len());
+
+    // Lone high byte counts as 1 char / 2 bytes.
+    let (chars, nbytes) = parse_str_as_multibyte(&[b'A', 0xFF]);
+    assert_eq!(chars, 2);
+    assert_eq!(nbytes, 1 + 2);
 }
