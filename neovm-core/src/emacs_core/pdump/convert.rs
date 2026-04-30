@@ -425,8 +425,7 @@ impl<'a> LoadDecoder<'a> {
             DumpError::ImageFormatError("value fixups require a writable mapped heap image".into())
         })?;
         value_fixups::for_each_value_fixup(section, |fixup| {
-            let value = self.load_value(&fixup.value);
-            mapped_heap.write_value_word(fixup.location_offset, value)
+            self.apply_mapped_value_fixup(mapped_heap, fixup)
         })
     }
 
@@ -439,10 +438,35 @@ impl<'a> LoadDecoder<'a> {
         })?;
         let fixups = std::mem::take(&mut self.state.value_fixups);
         for fixup in fixups {
-            let value = self.load_value(&fixup.value);
-            mapped_heap.write_value_word(fixup.location_offset, value)?;
+            self.apply_mapped_value_fixup(mapped_heap, fixup)?;
         }
         Ok(())
+    }
+
+    fn apply_mapped_value_fixup(
+        &mut self,
+        mapped_heap: MappedHeapView,
+        fixup: RawValueFixup,
+    ) -> Result<(), DumpError> {
+        match fixup {
+            RawValueFixup::Symbol { location_offset } => {
+                let dump_id = mapped_heap.read_value_word(location_offset)?;
+                let dump_id = u32::try_from(dump_id).map_err(|_| {
+                    DumpError::ImageFormatError(format!(
+                        "symbol value-fixup id {dump_id} overflows u32"
+                    ))
+                })?;
+                let value = Value::symbol(load_sym_id(&DumpSymId(dump_id)));
+                mapped_heap.write_value_word(location_offset, value)
+            }
+            RawValueFixup::Value {
+                location_offset,
+                value,
+            } => {
+                let value = self.load_value(&value);
+                mapped_heap.write_value_word(location_offset, value)
+            }
+        }
     }
 
     fn register_mapped_objects(&self) -> Result<(), DumpError> {

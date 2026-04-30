@@ -301,6 +301,30 @@ impl MappedHeapView {
         }
         Ok(())
     }
+
+    pub(crate) fn read_value_word(self, offset: u64) -> Result<usize, DumpError> {
+        let start = usize::try_from(offset).map_err(|_| {
+            DumpError::ImageFormatError("mapped value fixup offset overflows usize".into())
+        })?;
+        let end = start
+            .checked_add(std::mem::size_of::<TaggedValue>())
+            .ok_or_else(|| {
+                DumpError::ImageFormatError("mapped value fixup range overflow".into())
+            })?;
+        if end > self.len {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped value fixup {start}..{end} exceeds heap section length {}",
+                self.len
+            )));
+        }
+        if start % std::mem::align_of::<TaggedValue>() != 0 {
+            return Err(DumpError::ImageFormatError(format!(
+                "mapped value fixup offset {start} is not {}-byte aligned",
+                std::mem::align_of::<TaggedValue>()
+            )));
+        }
+        Ok(unsafe { self.ptr.add(start).cast::<usize>().read_unaligned() })
+    }
 }
 
 pub(crate) fn extract_mapped_heap_payloads(state: &mut DumpContextState) -> MappedHeapPayload {
@@ -760,7 +784,7 @@ impl MappedHeapBuilder {
 
     fn write_dump_value_word(&mut self, offset: usize, value: &DumpValue, heap: &DumpTaggedHeap) {
         let Some(word) = self.dump_value_word(offset as u64, value, heap) else {
-            self.value_fixups.push(RawValueFixup {
+            self.value_fixups.push(RawValueFixup::Value {
                 location_offset: offset as u64,
                 value: value.clone(),
             });
@@ -782,6 +806,11 @@ impl MappedHeapBuilder {
             DumpValue::True => Some(TaggedValue::T.bits()),
             DumpValue::Int(n) => Some(TaggedValue::fixnum(*n).bits()),
             DumpValue::Unbound => Some(TaggedValue::UNBOUND.bits()),
+            DumpValue::Symbol(id) => {
+                self.value_fixups
+                    .push(RawValueFixup::Symbol { location_offset });
+                Some(id.0 as usize)
+            }
             _ => {
                 let (target_offset, tag) = mapped_heap_ref_target(value, heap)?;
                 self.relocations.push(ImageRelocation {
@@ -1103,23 +1132,18 @@ mod tests {
         let slots = tagged_heap.mapped_slots[0].expect("mapped slots");
 
         assert_eq!(heap.value_fixups.len(), 2);
-        assert_eq!(heap.value_fixups[0].location_offset, slots.offset);
         assert!(matches!(
-            heap.value_fixups[0].value,
-            crate::emacs_core::pdump::types::DumpValue::Symbol(_)
+            heap.value_fixups[0],
+            RawValueFixup::Symbol { location_offset } if location_offset == slots.offset
         ));
-        assert_eq!(
-            heap.value_fixups[1].location_offset,
-            slots.offset + std::mem::size_of::<TaggedValue>() as u64
-        );
         assert!(matches!(
-            heap.value_fixups[1].value,
-            crate::emacs_core::pdump::types::DumpValue::Subr(_)
+            heap.value_fixups[1],
+            RawValueFixup::Value {
+                location_offset,
+                value: crate::emacs_core::pdump::types::DumpValue::Subr(_),
+            } if location_offset == slots.offset + std::mem::size_of::<TaggedValue>() as u64
         ));
-        assert_eq!(
-            read_usize(&heap.bytes, slots.offset as usize),
-            TaggedValue::NIL.bits()
-        );
+        assert_eq!(read_usize(&heap.bytes, slots.offset as usize), 42);
     }
 
     #[test]

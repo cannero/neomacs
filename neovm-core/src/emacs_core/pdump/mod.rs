@@ -125,7 +125,11 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 // v48: HeapImage pointer relocations match GNU pdumper's dump_reloc shape more
 //   closely: the dump word stores the target heap offset, while compact
 //   relocation metadata stores only the location offset and Lisp tag.
-const FORMAT_VERSION: u32 = 48;
+// v49: Symbol ValueRelocations use the same shape: the dump word stores the
+//   dump-local symbol slot, and compact metadata stores only aligned location
+//   offset plus fixup type. Full DumpValue fixups remain only for rare runtime
+//   values such as subrs and non-mapped heap objects.
+const FORMAT_VERSION: u32 = 49;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 
