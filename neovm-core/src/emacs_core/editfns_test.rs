@@ -201,3 +201,34 @@ fn erase_buffer_widens_before_deleting_current_contents() {
     assert_eq!(buf.point_min(), 0);
     assert_eq!(buf.point_max(), 0);
 }
+
+#[test]
+fn combine_after_change_still_updates_treesit_linecol_cache() {
+    crate::test_utils::init_test_tracing();
+    install_test_runtime();
+
+    let mut eval = crate::emacs_core::Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .insert_into_buffer(current, "abcdef")
+        .expect("insert test text");
+    eval.treesit.set_linecol_cache(
+        current,
+        crate::emacs_core::treesit::LineColCache {
+            line: 3,
+            col: 4,
+            bytepos: 5,
+        },
+    );
+    eval.obarray
+        .set_symbol_value("combine-after-change-calls", Value::T);
+
+    signal_after_change(&mut eval, 1, 2, 0).expect("after-change signal");
+
+    let cache = eval
+        .treesit
+        .linecol_cache(current)
+        .expect("linecol cache should remain installed");
+    assert_eq!((cache.line, cache.col, cache.bytepos), (1, 1, 0));
+    assert_eq!(eval.combine_after_change_list.len(), 1);
+}

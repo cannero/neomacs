@@ -287,6 +287,8 @@ pub(crate) fn signal_after_change(
         return Ok(());
     };
 
+    finish_treesit_after_buffer_change(ctx, current_id, beg, end);
+
     // GNU `signal_after_change` (insdel.c:2390) defers `after-change-functions`
     // to `combine-after-change-execute` when:
     //   - `combine-after-change-calls` is non-nil,
@@ -328,14 +330,6 @@ pub(crate) fn signal_after_change(
         execute_combined_after_change(ctx)?;
     }
 
-    ctx.treesit.note_buffer_change(current_id, beg);
-    if ctx.treesit.has_pending_edit(current_id)
-        && let Some(buf) = ctx.buffers.get(current_id)
-    {
-        let source = buf.buffer_substring_lisp_string(buf.begv_byte, buf.zv_byte);
-        ctx.treesit.finish_buffer_edit(current_id, &source, end);
-    }
-
     // Convert byte positions to 1-based character positions.
     let (lisp_beg, lisp_end, lisp_old_len) = {
         let Some(buf) = ctx.buffers.get(current_id) else {
@@ -367,6 +361,21 @@ pub(crate) fn signal_after_change(
     })();
     ctx.unbind_to(specpdl_count);
     result
+}
+
+fn finish_treesit_after_buffer_change(
+    ctx: &mut crate::emacs_core::eval::Context,
+    buffer_id: crate::buffer::BufferId,
+    beg: usize,
+    end: usize,
+) {
+    ctx.treesit.note_buffer_change(buffer_id, beg);
+    if ctx.treesit.has_pending_edit(buffer_id)
+        && let Some(buf) = ctx.buffers.get(buffer_id)
+    {
+        let source = buf.buffer_substring_lisp_string(buf.begv_byte, buf.zv_byte);
+        ctx.treesit.finish_buffer_edit(buffer_id, &source, end);
+    }
 }
 
 /// Mirrors GNU's deferral predicate for `signal_after_change`
