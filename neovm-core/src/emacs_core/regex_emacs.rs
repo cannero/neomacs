@@ -3536,76 +3536,136 @@ pub(crate) fn re_search(
     point: usize,
 ) -> Option<(usize, MatchRegisters)> {
     let text_len = text.len();
-
-    // Translate a byte through the compiled pattern's translate
-    // table, mirroring GNU `regex-emacs.c:TRANSLATE` used at
-    // regex-emacs.c:3568 inside the fastmap loop.
-    let fastmap_tr = |b: u8| -> u8 {
-        match &pattern.translate {
-            Some(table) => table
-                .get(b as usize)
-                .copied()
-                .map(|ch| ch as u32 as u8)
-                .unwrap_or(b),
-            None => b,
-        }
-    };
+    let use_fastmap = pattern.fastmap_accurate && !pattern.can_be_null;
+    let translate = pattern.translate.as_deref();
 
     if range >= 0 {
         // Forward search
         let end = (start + range as usize).min(text_len);
         let mut pos = start;
-        while pos <= end {
-            if pos > text_len {
-                break;
-            }
-            // Skip UTF-8 continuation bytes — only try match at character
-            // boundaries to avoid matching in the middle of a multibyte char.
-            if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
-                pos += 1;
-                continue;
-            }
-            // GNU disables fastmap skipping for nullable patterns so zero-width
-            // matches like `\\(?:...\\)\\=` are still considered at every point.
-            //
-            // GNU regex-emacs.c:3568 applies TRANSLATE to the input
-            // byte before indexing the fastmap. Under case-fold that
-            // is what lets a fastmap built for a bitmap of lowercase
-            // characters still catch uppercase input (audit #9).
-            if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
-                if !pattern.fastmap[fastmap_tr(text[pos]) as usize] {
+        if use_fastmap {
+            if let Some(table) = translate {
+                while pos <= end {
+                    if pos > text_len {
+                        break;
+                    }
+                    // Skip UTF-8 continuation bytes — only try match at character
+                    // boundaries to avoid matching in the middle of a multibyte char.
+                    if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                        pos += 1;
+                        continue;
+                    }
+                    // GNU disables fastmap skipping for nullable patterns so zero-width
+                    // matches like `\\(?:...\\)\\=` are still considered at every point.
+                    //
+                    // GNU regex-emacs.c:3568 applies TRANSLATE to the input
+                    // byte before indexing the fastmap. Under case-fold that
+                    // is what lets a fastmap built for a bitmap of lowercase
+                    // characters still catch uppercase input (audit #9).
+                    if pos < text_len {
+                        debug_assert!(table.len() >= 256);
+                        let idx = table[text[pos] as usize] as u32 as u8 as usize;
+                        if !pattern.fastmap[idx] {
+                            pos += 1;
+                            continue;
+                        }
+                    }
+                    if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+                        return Some((pos, result.1));
+                    }
+                    pos += 1;
+                }
+            } else {
+                while pos <= end {
+                    if pos > text_len {
+                        break;
+                    }
+                    if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                        pos += 1;
+                        continue;
+                    }
+                    if pos < text_len && !pattern.fastmap[text[pos] as usize] {
+                        pos += 1;
+                        continue;
+                    }
+                    if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+                        return Some((pos, result.1));
+                    }
+                    pos += 1;
+                }
+            };
+        } else {
+            while pos <= end {
+                if pos > text_len {
+                    break;
+                }
+                if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
                     pos += 1;
                     continue;
                 }
+                if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
+                    return Some((pos, result.1));
+                }
+                pos += 1;
             }
-            if let Some(result) = re_match(pattern, text, pos, text_len, syntax, point) {
-                return Some((pos, result.1));
-            }
-            pos += 1;
         }
     } else {
         // Backward search
         let end = start.saturating_sub((-range) as usize);
-        for pos in (end..=start).rev() {
-            // Skip UTF-8 continuation bytes — only try at character boundaries.
-            if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
-                continue;
-            }
-            // GNU disables fastmap skipping for nullable patterns so zero-width
-            // matches like `\\(?:...\\)\\=` are still considered at every point.
-            if pattern.fastmap_accurate && !pattern.can_be_null && pos < text_len {
-                if !pattern.fastmap[fastmap_tr(text[pos]) as usize] {
-                    continue;
+        if use_fastmap {
+            if let Some(table) = translate {
+                for pos in (end..=start).rev() {
+                    // Skip UTF-8 continuation bytes — only try at character boundaries.
+                    if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                        continue;
+                    }
+                    // GNU disables fastmap skipping for nullable patterns so zero-width
+                    // matches like `\\(?:...\\)\\=` are still considered at every point.
+                    if pos < text_len {
+                        debug_assert!(table.len() >= 256);
+                        let idx = table[text[pos] as usize] as u32 as u8 as usize;
+                        if !pattern.fastmap[idx] {
+                            continue;
+                        }
+                    }
+                    // GNU `search.c:1195-1201` calls `re_search_2` for backward
+                    // searches with STOP set to the point where the search began.
+                    // That means a candidate may start before `start`, but it may
+                    // not extend past it.  This prevents a repeated backward search
+                    // from re-matching the same non-empty match that begins at
+                    // point but ends after it.
+                    if let Some(result) = re_match(pattern, text, pos, start, syntax, point) {
+                        return Some((pos, result.1));
+                    }
+                }
+            } else {
+                for pos in (end..=start).rev() {
+                    if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                        continue;
+                    }
+                    if pos < text_len && !pattern.fastmap[text[pos] as usize] {
+                        continue;
+                    }
+                    if let Some(result) = re_match(pattern, text, pos, start, syntax, point) {
+                        return Some((pos, result.1));
+                    }
                 }
             }
-            // GNU `search.c:1195-1201` calls `re_search_2` for backward
-            // searches with STOP set to the point where the search began.
-            // That means a candidate may start before `start`, but it may
-            // not extend past it.  This prevents a repeated backward search
-            // from re-matching the same non-empty match that begins at
-            // point but ends after it.
-            if let Some(result) = re_match(pattern, text, pos, start, syntax, point) {
-                return Some((pos, result.1));
+        } else {
+            for pos in (end..=start).rev() {
+                // Skip UTF-8 continuation bytes — only try at character boundaries.
+                if pattern.target_multibyte && pos < text_len && (text[pos] & 0xC0) == 0x80 {
+                    continue;
+                }
+                // GNU `search.c:1195-1201` calls `re_search_2` for backward
+                // searches with STOP set to the point where the search began.
+                // That means a candidate may start before `start`, but it may
+                // not extend past it.  This prevents a repeated backward search
+                // from re-matching the same non-empty match that begins at
+                // point but ends after it.
+                if let Some(result) = re_match(pattern, text, pos, start, syntax, point) {
+                    return Some((pos, result.1));
+                }
             }
         }
     }
