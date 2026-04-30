@@ -296,17 +296,67 @@ fn primitive_undo_inner(
                         }
                     }
                 }
-                // (apply FUN . ARGS) — call FUN with ARGS.
+                // (apply FUN . ARGS) or
+                // (apply DELTA START END FUN . ARGS) — call FUN with ARGS.
+                // Mirrors GNU lisp/simple.el:3702-3722.
                 _ if car.as_symbol_name() == Some("apply") => {
                     if cdr.is_cons() {
-                        let fun = cdr.cons_car();
-                        let rest = cdr.cons_cdr();
-                        let mut fargs = Vec::new();
-                        let mut cursor = rest;
-                        while cursor.is_cons() {
-                            fargs.push(cursor.cons_car());
-                            cursor = cursor.cons_cdr();
-                        }
+                        let fun_args_head = cdr.cons_car();
+                        let (fun, fargs) = if fun_args_head.as_fixnum().is_some() {
+                            // Long format: (apply DELTA START END FUN . ARGS).
+                            // Validate that START..END is fully inside the
+                            // visible portion of the buffer.
+                            let rest1 = cdr.cons_cdr(); // (START END FUN . ARGS)
+                            let mut start_v = Value::NIL;
+                            let mut rest2 = Value::NIL;
+                            if rest1.is_cons() {
+                                start_v = rest1.cons_car();
+                                rest2 = rest1.cons_cdr(); // (END FUN . ARGS)
+                            }
+                            let mut end_v = Value::NIL;
+                            let mut rest3 = Value::NIL;
+                            if rest2.is_cons() {
+                                end_v = rest2.cons_car();
+                                rest3 = rest2.cons_cdr(); // (FUN . ARGS)
+                            }
+                            if let (Some(start1), Some(end1)) =
+                                (start_v.as_fixnum(), end_v.as_fixnum())
+                            {
+                                let start_byte = (start1 - 1).max(0) as usize;
+                                let end_byte = (end1 - 1).max(0) as usize;
+                                if let Some(buf) = ctx.buffers.get(buf_id) {
+                                    if start_byte < buf.begv_byte || end_byte > buf.zv_byte {
+                                        return Err(signal(
+                                            "error",
+                                            vec![Value::string(
+                                                "Changes to be undone are outside visible portion of buffer",
+                                            )],
+                                        ));
+                                    }
+                                }
+                            }
+                            if !rest3.is_cons() {
+                                continue;
+                            }
+                            let fun = rest3.cons_car();
+                            let mut fargs = Vec::new();
+                            let mut cursor = rest3.cons_cdr();
+                            while cursor.is_cons() {
+                                fargs.push(cursor.cons_car());
+                                cursor = cursor.cons_cdr();
+                            }
+                            (fun, fargs)
+                        } else {
+                            // Short format: (apply FUN . ARGS).
+                            let fun = cdr.cons_car();
+                            let mut fargs = Vec::new();
+                            let mut cursor = cdr.cons_cdr();
+                            while cursor.is_cons() {
+                                fargs.push(cursor.cons_car());
+                                cursor = cursor.cons_cdr();
+                            }
+                            (fun, fargs)
+                        };
                         // Best-effort: ignore errors from undo apply calls.
                         let _ = ctx.funcall_general(fun, fargs);
                     }
