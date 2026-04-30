@@ -7395,11 +7395,6 @@ impl Context {
     /// lookup (preserving uninterned symbol identity, like Emacs's EQ-based
     /// Fassq on Vinternal_interpreter_environment).
     pub(crate) fn eval_symbol_by_id(&self, sym_id: SymId) -> EvalResult {
-        // Keywords evaluate to themselves
-        if is_keyword_id(sym_id) {
-            return Ok(Value::from_kw_id(sym_id));
-        }
-
         // GNU eval.c checks the lexenv for the ORIGINAL symbol BEFORE
         // resolving variable aliases and does not rescan declared-special
         // flags on ordinary reads. Declared-special affects how bindings are
@@ -7408,6 +7403,12 @@ impl Context {
             if let Some(value) = self.lexenv_lookup_cached_in(self.lexenv, sym_id) {
                 return Ok(value);
             }
+        }
+
+        // GNU keywords are self-valued constants installed by `intern_sym`;
+        // keep lexenv lookup first, then use the same self-value directly.
+        if is_keyword_id(sym_id) {
+            return Ok(Value::from_kw_id(sym_id));
         }
 
         let resolved = super::builtins::resolve_variable_alias_id(self, sym_id)?;
@@ -7420,14 +7421,7 @@ impl Context {
             }
         }
 
-        // Task #36: no t/nil short-circuit here. A lambda-parameter
-        // or legitimate specbind can shadow the canonical constants
-        // (GNU: `(funcall (lambda (t) t) 7)` → 7 even in dynamic
-        // mode, because specbind stores 7 in the t symbol cell).
-        // The fall-through to `find_symbol_value` below reads the
-        // current cell; the canonical values are restored as a
-        // fallback at the very end if no binding is found.
-        if is_keyword_id(resolved) {
+        if resolved != sym_id && is_keyword_id(resolved) {
             return Ok(Value::from_kw_id(resolved));
         }
 

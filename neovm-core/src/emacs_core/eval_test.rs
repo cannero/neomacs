@@ -4561,6 +4561,17 @@ fn intern_keyword_matches_reader_keyword_for_eq_and_memq() {
 }
 
 #[test]
+fn eval_keyword_checks_explicit_lexenv_before_self_value() {
+    crate::test_utils::init_test_tracing();
+    assert_eq!(
+        eval_one(
+            "(list (eval :vm-eval-keyword) (eval ':vm-eval-keyword '((:vm-eval-keyword . 7))))"
+        ),
+        "OK (:vm-eval-keyword 7)"
+    );
+}
+
+#[test]
 fn intern_canonicalizes_ascii_multibyte_names_to_existing_symbol() {
     crate::test_utils::init_test_tracing();
     assert_eq!(
