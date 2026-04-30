@@ -616,13 +616,103 @@ fn verify_property_change_read_only(
     verify_text_read_only_in_state(&eval.obarray, &eval.buffers, buf_id, byte_beg, byte_end)
 }
 
+/// GNU `verify_interval_modification` modification-hooks branch
+/// (textprop.c:2289-2363, 2342-2353): walk intervals overlapping
+/// `[byte_start, byte_end)` and call each interval's `modification-hooks`
+/// list (deduplicating consecutive identical hook lists).  Used by the
+/// property-change DEFUNs, which in GNU funnel through
+/// `modify_text_properties` -> `prepare_to_modify_buffer_1` ->
+/// `verify_interval_modification`.
+fn run_interval_modification_hooks(
+    eval: &mut super::eval::Context,
+    args: &[Value],
+    object_arg_idx: usize,
+) -> Result<(), Flow> {
+    if is_string_object(args.get(object_arg_idx)).is_some() {
+        return Ok(());
+    }
+    if args.len() < 2 {
+        return Ok(());
+    }
+    if super::editfns::inhibit_modification_hooks(eval) {
+        return Ok(());
+    }
+    let beg = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
+    let end = expect_integer_or_marker_in_buffers(&eval.buffers, &args[1])?;
+    let buf_id = resolve_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
+    let (byte_start, byte_end, lisp_start, lisp_end, hook_lists) = {
+        let Some(buf) = eval.buffers.get(buf_id) else {
+            return Ok(());
+        };
+        let mut a = elisp_pos_to_byte(buf, beg);
+        let mut b = elisp_pos_to_byte(buf, end);
+        if a > b {
+            std::mem::swap(&mut a, &mut b);
+        }
+        if a >= b {
+            return Ok(());
+        }
+        let lisp_a = buf.text.emacs_byte_to_char(a) as i64 + 1;
+        let lisp_b = buf.text.emacs_byte_to_char(b) as i64 + 1;
+        let mod_sym = Value::symbol("modification-hooks");
+        let mut prev: Option<Value> = None;
+        let mut hooks: Vec<Value> = Vec::new();
+        for iv in buf.text.text_props_intervals_snapshot() {
+            if iv.end <= a {
+                continue;
+            }
+            if iv.start >= b {
+                break;
+            }
+            let mh = iv.properties.get(&mod_sym).copied().unwrap_or(Value::NIL);
+            if mh.is_nil() {
+                continue;
+            }
+            if let Some(p) = prev
+                && eq_value(&p, &mh)
+            {
+                continue;
+            }
+            prev = Some(mh);
+            hooks.push(mh);
+        }
+        (a, b, lisp_a, lisp_b, hooks)
+    };
+    let _ = (byte_start, byte_end);
+    if hook_lists.is_empty() {
+        return Ok(());
+    }
+    let start_v = Value::fixnum(lisp_start);
+    let end_v = Value::fixnum(lisp_end);
+    let specpdl_count = eval.specpdl.len();
+    eval.specbind(
+        super::intern::intern("inhibit-modification-hooks"),
+        Value::T,
+    );
+    let result = (|| -> Result<(), Flow> {
+        for hook_list in hook_lists {
+            let mut cursor = hook_list;
+            while cursor.is_cons() {
+                let fn_v = cursor.cons_car();
+                eval.apply(fn_v, vec![start_v, end_v])?;
+                cursor = cursor.cons_cdr();
+            }
+        }
+        Ok(())
+    })();
+    eval.unbind_to(specpdl_count);
+    result
+}
+
 /// (put-text-property BEG END PROP VAL &optional OBJECT)
 pub(crate) fn builtin_put_text_property(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 4)?;
-    builtin_put_text_property_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 4)?;
+    let result = builtin_put_text_property_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_put_text_property_in_buffers(
@@ -784,7 +874,9 @@ pub(crate) fn builtin_add_text_properties(
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 3)?;
-    builtin_add_text_properties_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 3)?;
+    let result = builtin_add_text_properties_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_add_text_properties_in_buffers(
@@ -861,7 +953,9 @@ pub(crate) fn builtin_add_face_text_property(
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 4)?;
-    builtin_add_face_text_property_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 4)?;
+    let result = builtin_add_face_text_property_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_add_face_text_property_in_buffers(
@@ -929,7 +1023,9 @@ pub(crate) fn builtin_remove_text_properties(
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 3)?;
-    builtin_remove_text_properties_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 3)?;
+    let result = builtin_remove_text_properties_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_remove_text_properties_in_buffers(
@@ -984,7 +1080,9 @@ pub(crate) fn builtin_set_text_properties(
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 3)?;
-    builtin_set_text_properties_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 3)?;
+    let result = builtin_set_text_properties_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_set_text_properties_in_buffers(
@@ -1037,7 +1135,10 @@ pub(crate) fn builtin_remove_list_of_text_properties(
     args: Vec<Value>,
 ) -> EvalResult {
     verify_property_change_read_only(eval, &args, 3)?;
-    builtin_remove_list_of_text_properties_in_buffers(&mut eval.buffers, args)
+    run_interval_modification_hooks(eval, &args, 3)?;
+    let result =
+        builtin_remove_list_of_text_properties_in_buffers(&mut eval.buffers, args.clone())?;
+    Ok(result)
 }
 
 pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(

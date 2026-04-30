@@ -153,7 +153,7 @@ pub(crate) fn current_buffer_byte_span_char_len(
 // ---------------------------------------------------------------------------
 
 /// Check whether `inhibit-modification-hooks` is non-nil.
-fn inhibit_modification_hooks(ctx: &crate::emacs_core::eval::Context) -> bool {
+pub(crate) fn inhibit_modification_hooks(ctx: &crate::emacs_core::eval::Context) -> bool {
     let sym =
         crate::emacs_core::hook_runtime::hook_symbol_by_name(ctx, "inhibit-modification-hooks");
     crate::emacs_core::hook_runtime::hook_value_by_id(ctx, sym).is_some_and(|v| v.is_truthy())
