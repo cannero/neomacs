@@ -1,6 +1,6 @@
 //! Context — special forms, function application, and dispatch.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
@@ -730,9 +730,16 @@ struct LexenvAssqCacheEntry {
     cell: Value,
 }
 
-#[derive(Clone, Debug, Default)]
 struct LexenvAssqCache {
-    entries: [Option<LexenvAssqCacheEntry>; LEXENV_ASSQ_CACHE_CAPACITY],
+    entries: [Cell<Option<LexenvAssqCacheEntry>>; LEXENV_ASSQ_CACHE_CAPACITY],
+}
+
+impl Default for LexenvAssqCache {
+    fn default() -> Self {
+        Self {
+            entries: std::array::from_fn(|_| Cell::new(None)),
+        }
+    }
 }
 
 impl LexenvAssqCache {
@@ -744,14 +751,21 @@ impl LexenvAssqCache {
 
     #[inline]
     fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<Value> {
-        let entry = self.entries[Self::slot(lexenv_bits, sym_id)]?;
+        let entry = self.entries[Self::slot(lexenv_bits, sym_id)].get()?;
         (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id).then_some(entry.cell)
     }
 
     #[inline]
-    fn push(&mut self, entry: LexenvAssqCacheEntry) {
+    fn push(&self, entry: LexenvAssqCacheEntry) {
         let index = Self::slot(entry.lexenv_bits, entry.symbol);
-        self.entries[index] = Some(entry);
+        self.entries[index].set(Some(entry));
+    }
+
+    #[inline]
+    fn clear(&self) {
+        for entry in &self.entries {
+            entry.set(None);
+        }
     }
 }
 
@@ -762,9 +776,16 @@ struct LexenvSpecialCacheEntry {
     declared_special: bool,
 }
 
-#[derive(Clone, Debug, Default)]
 struct LexenvSpecialCache {
-    entries: [Option<LexenvSpecialCacheEntry>; LEXENV_SPECIAL_CACHE_CAPACITY],
+    entries: [Cell<Option<LexenvSpecialCacheEntry>>; LEXENV_SPECIAL_CACHE_CAPACITY],
+}
+
+impl Default for LexenvSpecialCache {
+    fn default() -> Self {
+        Self {
+            entries: std::array::from_fn(|_| Cell::new(None)),
+        }
+    }
 }
 
 impl LexenvSpecialCache {
@@ -776,15 +797,22 @@ impl LexenvSpecialCache {
 
     #[inline]
     fn find(&self, lexenv_bits: usize, sym_id: SymId) -> Option<bool> {
-        let entry = self.entries[Self::slot(lexenv_bits, sym_id)]?;
+        let entry = self.entries[Self::slot(lexenv_bits, sym_id)].get()?;
         (entry.lexenv_bits == lexenv_bits && entry.symbol == sym_id)
             .then_some(entry.declared_special)
     }
 
     #[inline]
-    fn push(&mut self, entry: LexenvSpecialCacheEntry) {
+    fn push(&self, entry: LexenvSpecialCacheEntry) {
         let index = Self::slot(entry.lexenv_bits, entry.symbol);
-        self.entries[index] = Some(entry);
+        self.entries[index].set(Some(entry));
+    }
+
+    #[inline]
+    fn clear(&self) {
+        for entry in &self.entries {
+            entry.set(None);
+        }
     }
 }
 
@@ -1648,9 +1676,9 @@ pub struct Context {
     /// installation immediately invalidates stale lookups.
     named_call_cache: HashMap<SymId, NamedCallCacheEntry>,
     /// Small hot cache for GNU-shaped lexical env alist lookups.
-    lexenv_assq_cache: RefCell<LexenvAssqCache>,
+    lexenv_assq_cache: LexenvAssqCache,
     /// Small hot cache for GNU-shaped lexical special declarations.
-    lexenv_special_cache: RefCell<LexenvSpecialCache>,
+    lexenv_special_cache: LexenvSpecialCache,
     /// Nested depth of active macro-expansion scopes.
     macro_expansion_scope_depth: usize,
     /// Monotonic counter for Lisp-visible mutations performed while a macro
@@ -4284,8 +4312,8 @@ impl Context {
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
-            lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
+            lexenv_assq_cache: LexenvAssqCache::default(),
+            lexenv_special_cache: LexenvSpecialCache::default(),
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
@@ -4434,8 +4462,8 @@ impl Context {
             next_resume_id: 1,
             pending_safe_funcalls: Vec::new(),
             named_call_cache: HashMap::with_capacity(NAMED_CALL_CACHE_CAPACITY),
-            lexenv_assq_cache: RefCell::new(LexenvAssqCache::default()),
-            lexenv_special_cache: RefCell::new(LexenvSpecialCache::default()),
+            lexenv_assq_cache: LexenvAssqCache::default(),
+            lexenv_special_cache: LexenvSpecialCache::default(),
 
             macro_expansion_scope_depth: 0,
             macro_expansion_mutation_epoch: 0,
@@ -5986,8 +6014,8 @@ impl Context {
 
     fn gc_collect_from_current_roots(&mut self) {
         let start = std::time::Instant::now();
-        *self.lexenv_assq_cache.borrow_mut() = LexenvAssqCache::default();
-        *self.lexenv_special_cache.borrow_mut() = LexenvSpecialCache::default();
+        self.lexenv_assq_cache.clear();
+        self.lexenv_special_cache.clear();
         let heap_ptr: *mut crate::tagged::gc::TaggedHeap = &mut *self.tagged_heap;
         // Safety: GC is stop-the-world with exclusive `&mut self`. Root
         // enumeration only reads Context state while seeding the collector via
@@ -12094,7 +12122,7 @@ impl Context {
 
     pub(crate) fn lexenv_assq_cached_in(&self, lexenv: Value, sym_id: SymId) -> Option<Value> {
         let lexenv_bits = lexenv.bits();
-        let mut cache = self.lexenv_assq_cache.borrow_mut();
+        let cache = &self.lexenv_assq_cache;
         if let Some(cell) = cache.find(lexenv_bits, sym_id) {
             return Some(cell);
         }
@@ -12115,7 +12143,7 @@ impl Context {
 
     pub(crate) fn lexenv_declares_special_cached_in(&self, lexenv: Value, sym_id: SymId) -> bool {
         let lexenv_bits = lexenv.bits();
-        let mut cache = self.lexenv_special_cache.borrow_mut();
+        let cache = &self.lexenv_special_cache;
         if let Some(declared_special) = cache.find(lexenv_bits, sym_id) {
             return declared_special;
         }
