@@ -90,12 +90,14 @@ pub(crate) fn make_marker_value_with_id(
         Some(p) if p > 0 => (p - 1) as usize,
         _ => 0,
     };
+    let last_position_valid = matches!(position, Some(p) if p > 0) || buffer_id.is_some();
     Value::make_marker(crate::heap_types::MarkerData {
         buffer: buffer_id,
         insertion_type,
         marker_id,
         bytepos: 0,
         charpos,
+        last_position_valid,
         next_marker: std::ptr::null_mut(),
     })
 }
@@ -149,7 +151,7 @@ pub(crate) fn marker_logical_fields(v: &Value) -> Option<(Option<BufferId>, Opti
     // `make_marker_value(None, Some(N), _)`. A truly unset marker has
     // `buffer == None && charpos == 0`, which reports `None` and matches
     // GNU's "points nowhere" semantics.
-    let position = if data.buffer.is_some() || data.charpos > 0 {
+    let position = if data.buffer.is_some() || data.last_position_valid {
         Some(data.charpos as i64 + 1)
     } else {
         None
@@ -199,8 +201,9 @@ pub(crate) fn detach_marker_in_buffers(buffers: &mut BufferManager, marker: &Val
     }
     let _ = marker.with_marker_data_mut(|data| {
         data.buffer = None;
-        data.bytepos = 0;
-        data.charpos = 0;
+        // Preserve charpos/bytepos/last_position_valid so
+        // `marker-last-position` reports the last attached location
+        // (GNU `unchain_marker`, marker.c:684).
         data.next_marker = std::ptr::null_mut();
     });
 }
@@ -233,7 +236,7 @@ fn marker_position_value(v: &Value) -> Value {
     // is 0 (i.e. `make_marker_value(None, None, _)`), return nil.
     if data.buffer.is_some() {
         Value::fixnum(data.charpos as i64 + 1)
-    } else if data.charpos > 0 {
+    } else if data.last_position_valid {
         Value::fixnum(data.charpos as i64 + 1)
     } else {
         Value::NIL
@@ -285,7 +288,7 @@ pub(crate) fn marker_position_as_int_with_buffers(
     // charpos == 0 and buffer == None, which signals "points nowhere".
     if data.buffer.is_some() {
         Ok(data.charpos as i64 + 1)
-    } else if data.charpos > 0 {
+    } else if data.last_position_valid {
         Ok(data.charpos as i64 + 1)
     } else {
         Err(signal(
@@ -574,15 +577,14 @@ pub(crate) fn builtin_set_marker_in_buffers(
     if args[0].is_marker() {
         let _ = args[0].with_marker_data_mut(|data| {
             data.buffer = buffer_id;
-            // T7: stale `position` cache removed. If `position` is None
-            // (marker detached), clear charpos/bytepos so the unset
-            // discriminator (`buffer.is_none() && charpos == 0`) fires
-            // correctly. For attached markers, register_marker_in_buffers
-            // above already spliced the marker into the new buffer's
-            // chain, which wrote authoritative charpos/bytepos.
-            if position.is_none() {
-                data.charpos = 0;
-                data.bytepos = 0;
+            // GNU `unchain_marker` (marker.c:684) preserves the marker's
+            // last attached charpos when it's detached, so
+            // `marker-last-position` keeps reporting it.  Stamp
+            // `last_position_valid` here whenever a real position is
+            // supplied (or buffer is set to a live buffer); never clear
+            // charpos/bytepos on detach.
+            if position.is_some() || buffer_id.is_some() {
+                data.last_position_valid = true;
             }
         });
     }

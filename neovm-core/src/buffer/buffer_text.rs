@@ -645,6 +645,7 @@ impl BufferText {
             (*marker_ptr).data.marker_id = Some(marker_id);
             (*marker_ptr).data.bytepos = byte_pos;
             (*marker_ptr).data.charpos = char_pos;
+            (*marker_ptr).data.last_position_valid = true;
             (*marker_ptr).data.insertion_type = insertion_type == InsertionType::After;
         }
         self.chain_splice_at_head(marker_ptr);
@@ -759,8 +760,9 @@ impl BufferText {
             // `chain_unlink` left it detached; field writes are sound.
             unsafe {
                 (*ptr).data.buffer = None;
-                (*ptr).data.bytepos = 0;
-                (*ptr).data.charpos = 0;
+                // GNU `unchain_marker` (marker.c:684) preserves charpos so
+                // `marker-last-position` can still report the marker's last
+                // attached location.  `last_position_valid` stays true.
             }
         }
     }
@@ -924,8 +926,9 @@ impl BufferText {
                     *prev_slot = data.next_marker;
                     data.next_marker = std::ptr::null_mut();
                     data.buffer = None;
-                    data.bytepos = 0;
-                    data.charpos = 0;
+                    // Preserve charpos/bytepos and last_position_valid so
+                    // `marker-last-position` keeps GNU semantics across
+                    // kill-buffer (cf. unchain_marker, marker.c:684).
                 } else {
                     prev_slot = &mut data.next_marker;
                 }

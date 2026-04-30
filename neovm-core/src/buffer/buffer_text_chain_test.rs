@@ -10,6 +10,7 @@ fn alloc_marker_for_test(heap: &mut TaggedHeap) -> *mut MarkerObj {
         marker_id: None,
         bytepos: 0,
         charpos: 0,
+        last_position_valid: false,
         next_marker: std::ptr::null_mut(),
     });
     tv.as_veclike_ptr().unwrap() as *mut MarkerObj

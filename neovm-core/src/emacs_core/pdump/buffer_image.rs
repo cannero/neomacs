@@ -16,7 +16,7 @@ use super::types::{
 };
 
 const BUFFER_MAGIC: [u8; 16] = *b"NEOBUFFER\0\0\0\0\0\0\0";
-const BUFFER_FORMAT_VERSION: u32 = 1;
+const BUFFER_FORMAT_VERSION: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -274,6 +274,7 @@ fn write_marker(out: &mut Vec<u8>, marker: &DumpMarker) -> Result<(), DumpError>
     write_opt_u64(out, marker.marker_id);
     write_usize(out, marker.bytepos)?;
     write_usize(out, marker.charpos)?;
+    write_bool(out, marker.last_position_valid);
     Ok(())
 }
 
@@ -284,6 +285,7 @@ fn read_marker(cursor: &mut Cursor<'_>) -> Result<DumpMarker, DumpError> {
         marker_id: read_opt_u64(cursor)?,
         bytepos: read_usize(cursor, "marker byte position")?,
         charpos: read_usize(cursor, "marker char position")?,
+        last_position_valid: cursor.read_bool("marker last_position_valid")?,
     })
 }
 
@@ -869,6 +871,7 @@ mod tests {
                 marker_id: Some(8),
                 bytepos: 9,
                 charpos: 10,
+                last_position_valid: true,
             }],
             state_pt_marker: Some(11),
             state_begv_marker: Some(12),

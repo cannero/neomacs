@@ -776,6 +776,15 @@ pub struct MarkerData {
     pub bytepos: usize,
     /// Char offset in buffer (authoritative after T6/T7).
     pub charpos: usize,
+    /// True once this marker has been positioned at a real location.
+    /// GNU's `unchain_marker` (marker.c:684) preserves a marker's
+    /// `charpos` across detach, so `Fmarker_last_position` can report
+    /// the last position even after the buffer is killed.  Neomacs
+    /// stores positions in 0-based form, which collides with the
+    /// "fresh" sentinel for a marker once attached at Lisp position 1.
+    /// This flag disambiguates: false for `make-marker` results, true
+    /// once `set-marker` (or insertion) has placed the marker.
+    pub last_position_valid: bool,
     /// Intrusive link to next marker in the owning buffer's chain.
     /// `null` if not on a chain. GC sweep order: `unchain_dead_markers`
     /// walks these BEFORE `sweep_objects` frees unmarked markers.

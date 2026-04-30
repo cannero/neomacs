@@ -1111,6 +1111,7 @@ impl<'a> LoadDecoder<'a> {
                     // v26: bytepos/charpos round-trip directly from MarkerData.
                     bytepos: marker.bytepos,
                     charpos: marker.charpos,
+                    last_position_valid: marker.last_position_valid,
                     next_marker: std::ptr::null_mut(),
                 };
                 let value = if let Some(ptr) =
@@ -2209,6 +2210,7 @@ fn dump_marker_object(marker: &crate::heap_types::MarkerData) -> DumpMarker {
         marker_id: marker.marker_id,
         bytepos: marker.bytepos,
         charpos: marker.charpos,
+        last_position_valid: marker.last_position_valid,
     }
 }
 
@@ -2269,6 +2271,7 @@ fn dump_buffer(encoder: &mut DumpEncoder, buf: &Buffer) -> DumpBuffer {
                     marker_id: data.marker_id,
                     bytepos: data.bytepos,
                     charpos: data.charpos,
+                    last_position_valid: data.last_position_valid,
                 });
             });
             out
@@ -3752,6 +3755,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                         marker_id: Some(marker_id),
                         bytepos: dump_marker.bytepos,
                         charpos: dump_marker.charpos,
+                        last_position_valid: dump_marker.last_position_valid,
                         next_marker: std::ptr::null_mut(),
                     });
                 scratch
@@ -3903,6 +3907,7 @@ fn load_buffer(decoder: &mut LoadDecoder, db: &DumpBuffer) -> Buffer {
                         marker_id: Some(mid),
                         bytepos: 0,
                         charpos: 0,
+                        last_position_valid: true,
                         next_marker: std::ptr::null_mut(),
                     });
                 scratch

@@ -1892,11 +1892,11 @@ pub(crate) fn builtin_marker_last_position(args: Vec<Value>) -> EvalResult {
     match args[0].kind() {
         ValueKind::Veclike(VecLikeType::Marker) => {
             let marker = args[0].as_marker_data().unwrap();
-            // T7: stale `position` cache removed. `marker-last-position`
-            // reads live charpos+1 when attached; an unset marker
-            // (no buffer and no seeded charpos) reports 0, matching
-            // pre-T7 behavior for make-marker.
-            let last = if marker.buffer.is_some() || marker.charpos > 0 {
+            // GNU `Fmarker_last_position` (marker.c:458) returns the
+            // marker's last known position even after detach.  Neomacs
+            // tracks this with `last_position_valid`, set the first time
+            // the marker is positioned and preserved across detach.
+            let last = if marker.last_position_valid {
                 marker.charpos as i64 + 1
             } else {
                 0

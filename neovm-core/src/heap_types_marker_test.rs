@@ -8,6 +8,7 @@ fn marker_data_new_fields_default() {
         marker_id: None,
         bytepos: 0,
         charpos: 0,
+        last_position_valid: false,
         next_marker: std::ptr::null_mut(),
     };
     assert_eq!(data.bytepos, 0);

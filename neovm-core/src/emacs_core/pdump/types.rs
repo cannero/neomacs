@@ -539,6 +539,11 @@ pub struct DumpMarker {
     pub marker_id: Option<u64>,
     pub bytepos: usize,
     pub charpos: usize,
+    /// Mirror of `MarkerData.last_position_valid`. Defaulted for back-compat
+    /// with pre-parity dumps; older dumps come back as `false` and a single
+    /// re-set will repopulate the flag.
+    #[serde(default)]
+    pub last_position_valid: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

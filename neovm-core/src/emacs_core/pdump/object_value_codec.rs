@@ -660,6 +660,7 @@ fn write_marker(out: &mut Vec<u8>, marker: &DumpMarker) -> Result<(), DumpError>
     write_opt_u64(out, marker.marker_id);
     write_usize(out, marker.bytepos)?;
     write_usize(out, marker.charpos)?;
+    write_bool(out, marker.last_position_valid);
     Ok(())
 }
 
@@ -1239,6 +1240,7 @@ impl<'a> Cursor<'a> {
             marker_id: self.read_opt_u64()?,
             bytepos: self.read_usize("marker byte position")?,
             charpos: self.read_usize("marker char position")?,
+            last_position_valid: self.read_bool("marker last_position_valid")?,
         })
     }
 
@@ -1500,6 +1502,7 @@ mod tests {
                 marker_id: Some(6),
                 bytepos: 7,
                 charpos: 8,
+                last_position_valid: true,
             }),
             DumpHeapObject::Overlay(DumpOverlay {
                 plist: DumpValue::Nil,

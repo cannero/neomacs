@@ -3994,6 +3994,7 @@ impl BufferManager {
                 marker_id: Some(marker_id),
                 bytepos: 0,
                 charpos: 0,
+                last_position_valid: true,
                 next_marker: std::ptr::null_mut(),
             });
         let marker_ptr = marker_value
