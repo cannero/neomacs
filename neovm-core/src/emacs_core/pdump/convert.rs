@@ -416,7 +416,7 @@ impl<'a> LoadDecoder<'a> {
             self.apply_mapped_value_fixups()?;
         }
         for index in 0..self.state.objects.len() {
-            if self.object_is_fully_mapped_without_load_work(index) {
+            if self.object_needs_no_post_fixup_population(index) {
                 continue;
             }
             self.populate_tagged_object(TaggedHeapRef {
@@ -431,6 +431,25 @@ impl<'a> LoadDecoder<'a> {
             self.state.spans.get(index),
             LoadedObjectSpan::Cons(_) | LoadedObjectSpan::Float(_)
         )
+    }
+
+    fn object_needs_no_post_fixup_population(&self, index: usize) -> bool {
+        if self.object_is_fully_mapped_without_load_work(index) {
+            return true;
+        }
+        match &self.state.objects[index] {
+            DumpHeapObject::Vector(_)
+            | DumpHeapObject::Lambda(_)
+            | DumpHeapObject::Macro(_)
+            | DumpHeapObject::Record(_) => self.mapped_slots_exist(TaggedHeapRef {
+                index: index as u32,
+            }),
+            DumpHeapObject::Str { text_props, .. } => {
+                text_props.is_empty() && self.state.spans.string(index).is_some()
+            }
+            DumpHeapObject::Float(_) => true,
+            _ => false,
+        }
     }
 
     fn apply_mapped_value_fixup_section(&mut self, section: &[u8]) -> Result<(), DumpError> {
@@ -1555,6 +1574,15 @@ mod tests {
         let mapped = MappedHeapView::from_mut_slice(&mut bytes);
         let mut decoder = LoadDecoder::new_with_mapped_heap(&heap, Some(mapped));
         decoder.preload_tagged_heap().unwrap();
+
+        assert!(
+            decoder.state.values[0].is_some(),
+            "mapped vector object headers still need one load-time wrapper initialization"
+        );
+        assert!(
+            !decoder.state.populated[0],
+            "mapped vector slots should not run the descriptor population pass"
+        );
 
         let value = decoder.load_value(&DumpValue::Vector(DumpHeapRef { index: 0 }));
         let slots = value.as_vector_data().unwrap();
