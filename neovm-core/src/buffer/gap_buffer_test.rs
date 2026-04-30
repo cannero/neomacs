@@ -687,6 +687,35 @@ fn copy_emacs_bytes_to_unibyte_storage_sentinels() {
     assert_eq!(out, vec![b'\n', 0x80]);
 }
 
+#[test]
+fn contiguous_emacs_bytes_borrows_before_and_after_gap() {
+    crate::test_utils::init_test_tracing();
+    let mut gb = GapBuffer::from_str("abcdef");
+    gb.move_gap_to(3);
+
+    assert!(gb.has_contiguous_emacs_bytes(0, 3));
+    assert_eq!(
+        gb.with_contiguous_emacs_bytes(0, 3, |bytes| bytes.to_vec()),
+        Some(b"abc".to_vec())
+    );
+
+    assert!(gb.has_contiguous_emacs_bytes(3, 6));
+    assert_eq!(
+        gb.with_contiguous_emacs_bytes(3, 6, |bytes| bytes.to_vec()),
+        Some(b"def".to_vec())
+    );
+}
+
+#[test]
+fn contiguous_emacs_bytes_rejects_gap_spanning_range() {
+    crate::test_utils::init_test_tracing();
+    let mut gb = GapBuffer::from_str("abcdef");
+    gb.move_gap_to(3);
+
+    assert!(!gb.has_contiguous_emacs_bytes(1, 5));
+    assert_eq!(gb.with_contiguous_emacs_bytes(1, 5, |_| ()), None);
+}
+
 // -----------------------------------------------------------------------
 // GNU parity tests (gap-sizing constants)
 // -----------------------------------------------------------------------

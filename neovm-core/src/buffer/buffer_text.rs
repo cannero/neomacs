@@ -222,6 +222,25 @@ impl BufferText {
             .copy_emacs_bytes_to(start, end, out);
     }
 
+    pub fn has_contiguous_emacs_bytes(&self, start: usize, end: usize) -> bool {
+        self.storage
+            .borrow()
+            .gap
+            .has_contiguous_emacs_bytes(start, end)
+    }
+
+    pub fn with_contiguous_emacs_bytes<R>(
+        &self,
+        start: usize,
+        end: usize,
+        f: impl FnOnce(&[u8]) -> R,
+    ) -> Option<R> {
+        self.storage
+            .borrow()
+            .gap
+            .with_contiguous_emacs_bytes(start, end, f)
+    }
+
     pub fn to_string(&self) -> String {
         self.storage.borrow().gap.to_string()
     }

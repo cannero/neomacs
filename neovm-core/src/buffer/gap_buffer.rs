@@ -339,6 +339,52 @@ impl GapBuffer {
         self.copy_bytes_to(start, end, out);
     }
 
+    /// Return whether logical Emacs bytes in `[start, end)` are physically
+    /// contiguous in the backing store.
+    pub fn has_contiguous_emacs_bytes(&self, start: usize, end: usize) -> bool {
+        assert!(
+            start <= end,
+            "has_contiguous_emacs_bytes: start ({start}) > end ({end})"
+        );
+        assert!(
+            end <= self.total_bytes,
+            "has_contiguous_emacs_bytes: end ({end}) > emacs len ({})",
+            self.total_bytes
+        );
+        start == end || end <= self.gap_start_bytes || start >= self.gap_start_bytes
+    }
+
+    /// Borrow logical Emacs bytes in `[start, end)` if that range does not
+    /// cross the gap.  This mirrors GNU's direct use of the two gap-buffer
+    /// segments (`BEGV_ADDR`/`GAP_END_ADDR`) without copying.
+    pub fn with_contiguous_emacs_bytes<R>(
+        &self,
+        start: usize,
+        end: usize,
+        f: impl FnOnce(&[u8]) -> R,
+    ) -> Option<R> {
+        assert!(
+            start <= end,
+            "with_contiguous_emacs_bytes: start ({start}) > end ({end})"
+        );
+        assert!(
+            end <= self.total_bytes,
+            "with_contiguous_emacs_bytes: end ({end}) > emacs len ({})",
+            self.total_bytes
+        );
+        if start == end {
+            return Some(f(&[]));
+        }
+        if end <= self.gap_start_bytes {
+            return Some(f(&self.buf[start..end]));
+        }
+        if start >= self.gap_start_bytes {
+            let gap = self.gap_size();
+            return Some(f(&self.buf[start + gap..end + gap]));
+        }
+        None
+    }
+
     /// Return the full buffer contents as a `String`.
     pub fn to_string(&self) -> String {
         self.text_range(0, self.len())

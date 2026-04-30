@@ -1822,6 +1822,25 @@ impl Buffer {
         self.text.copy_emacs_bytes_to(s, e, out);
     }
 
+    pub fn has_contiguous_emacs_bytes(&self, start: usize, end: usize) -> bool {
+        let total = self.total_bytes();
+        let s = start.min(total);
+        let e = end.max(s).min(total);
+        self.text.has_contiguous_emacs_bytes(s, e)
+    }
+
+    pub fn with_contiguous_emacs_bytes<R>(
+        &self,
+        start: usize,
+        end: usize,
+        f: impl FnOnce(&[u8]) -> R,
+    ) -> Option<R> {
+        let total = self.total_bytes();
+        let s = start.min(total);
+        let e = end.max(s).min(total);
+        self.text.with_contiguous_emacs_bytes(s, e, f)
+    }
+
     /// Return a raw Emacs-byte copy of the range `[start, end)`.
     pub fn buffer_substring_bytes(&self, start: usize, end: usize) -> Vec<u8> {
         let mut out = Vec::new();
