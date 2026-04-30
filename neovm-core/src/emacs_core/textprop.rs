@@ -2018,7 +2018,23 @@ pub(crate) fn builtin_overlays_at_in_buffers(
 
     let byte_pos = elisp_pos_to_byte(buf, pos);
     let mut ids = buf.overlays.overlays_at(byte_pos);
-    if args.get(1).is_some_and(|value| value.is_truthy()) {
+    if let Some(sorted) = args.get(1)
+        && sorted.is_truthy()
+    {
+        // GNU `Foverlays_at` (buffer.c:3901): when SORTED is a window value,
+        // `sort_overlays` filters via `overlay_matches_window` — overlays
+        // whose `window` property is a window distinct from W are dropped.
+        if let Some(target_window_id) = sorted.as_window_id() {
+            let window_sym = Value::symbol("window");
+            ids.retain(|ov| {
+                match buf.overlays.overlay_get_named(*ov, window_sym) {
+                    Some(prop) => prop
+                        .as_window_id()
+                        .is_none_or(|wid| wid == target_window_id),
+                    None => true,
+                }
+            });
+        }
         buf.overlays.sort_overlay_ids_by_priority_desc(&mut ids);
     }
     Ok(Value::list(ids))
