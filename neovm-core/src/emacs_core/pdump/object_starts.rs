@@ -10,7 +10,7 @@ use bytemuck::{Pod, Zeroable};
 use super::{DumpError, types::*};
 
 const OBJECT_STARTS_MAGIC: [u8; 16] = *b"NEOOBJSTARTS\0\0\0\0";
-const OBJECT_STARTS_FORMAT_VERSION: u32 = 3;
+const OBJECT_STARTS_FORMAT_VERSION: u32 = 4;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -34,7 +34,7 @@ pub(crate) fn build_object_starts(heap: &DumpTaggedHeap) -> Result<Vec<u8>, Dump
     let mut bytes = vec![0u8; HEADER_SIZE];
 
     for (i, obj) in heap.objects.iter().enumerate() {
-        write_object_span(&mut bytes, obj, heap, i);
+        write_object_span(&mut bytes, obj, heap, i)?;
     }
 
     let header = ObjectStartsHeader {
@@ -56,12 +56,17 @@ const SPAN_VECTORLIKE: u8 = 4;
 // Category C objects (no span).
 const SPAN_UNMAPPED: u8 = 5;
 
-fn write_object_span(out: &mut Vec<u8>, obj: &DumpHeapObject, heap: &DumpTaggedHeap, index: usize) {
+fn write_object_span(
+    out: &mut Vec<u8>,
+    obj: &DumpHeapObject,
+    heap: &DumpTaggedHeap,
+    index: usize,
+) -> Result<(), DumpError> {
     match obj {
         DumpHeapObject::Cons { .. } => {
             if let Some(span) = heap.mapped_cons.get(index).and_then(|s| *s) {
                 out.push(SPAN_CONS);
-                write_u64(out, span.offset);
+                write_dump_off(out, span.offset)?;
             } else {
                 out.push(SPAN_NONE);
             }
@@ -69,7 +74,7 @@ fn write_object_span(out: &mut Vec<u8>, obj: &DumpHeapObject, heap: &DumpTaggedH
         DumpHeapObject::Float(_) => {
             if let Some(span) = heap.mapped_floats.get(index).and_then(|s| *s) {
                 out.push(SPAN_FLOAT);
-                write_u64(out, span.offset);
+                write_dump_off(out, span.offset)?;
             } else {
                 out.push(SPAN_NONE);
             }
@@ -77,8 +82,8 @@ fn write_object_span(out: &mut Vec<u8>, obj: &DumpHeapObject, heap: &DumpTaggedH
         DumpHeapObject::Str { .. } => {
             if let Some(span) = heap.mapped_strings.get(index).and_then(|s| *s) {
                 out.push(SPAN_STRING);
-                write_u64(out, span.offset);
-                write_u64(out, span.len);
+                write_dump_off(out, span.offset)?;
+                write_dump_off(out, span.len)?;
             } else {
                 out.push(SPAN_NONE);
             }
@@ -93,12 +98,12 @@ fn write_object_span(out: &mut Vec<u8>, obj: &DumpHeapObject, heap: &DumpTaggedH
             let sl = heap.mapped_slots.get(index).and_then(|s| *s);
             if let Some(vl) = vl {
                 out.push(SPAN_VECTORLIKE);
-                write_u64(out, vl.offset);
-                write_u64(out, vl.len);
+                write_dump_off(out, vl.offset)?;
+                write_dump_off(out, vl.len)?;
                 if let Some(sl) = sl {
                     out.push(1); // has slots
-                    write_u64(out, sl.offset);
-                    write_u64(out, sl.len);
+                    write_dump_off(out, sl.offset)?;
+                    write_dump_off(out, sl.len)?;
                 } else {
                     out.push(0); // no slots
                 }
@@ -118,6 +123,7 @@ fn write_object_span(out: &mut Vec<u8>, obj: &DumpHeapObject, heap: &DumpTaggedH
             out.push(SPAN_UNMAPPED);
         }
     }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -326,17 +332,17 @@ fn skip_span_record(data: &[u8], cursor: &mut usize) -> Result<(), DumpError> {
     match tag {
         SPAN_NONE | SPAN_UNMAPPED => Ok(()),
         SPAN_CONS | SPAN_FLOAT => {
-            read_u64(data, cursor)?;
+            read_dump_off(data, cursor)?;
             Ok(())
         }
         SPAN_STRING => {
-            read_u64(data, cursor)?;
-            read_u64(data, cursor)?;
+            read_dump_off(data, cursor)?;
+            read_dump_off(data, cursor)?;
             Ok(())
         }
         SPAN_VECTORLIKE => {
-            read_u64(data, cursor)?;
-            read_u64(data, cursor)?;
+            read_dump_off(data, cursor)?;
+            read_dump_off(data, cursor)?;
             if *cursor >= data.len() {
                 return Err(DumpError::ImageFormatError(
                     "object-starts vectorlike slot flag truncated".into(),
@@ -350,8 +356,8 @@ fn skip_span_record(data: &[u8], cursor: &mut usize) -> Result<(), DumpError> {
                 ));
             }
             if has_slots != 0 {
-                read_u64(data, cursor)?;
-                read_u64(data, cursor)?;
+                read_dump_off(data, cursor)?;
+                read_dump_off(data, cursor)?;
             }
             Ok(())
         }
@@ -373,19 +379,19 @@ fn loaded_span_at(data: &[u8], cursor: usize) -> Result<LoadedObjectSpan, DumpEr
         SPAN_NONE => Ok(LoadedObjectSpan::None),
         SPAN_UNMAPPED => Ok(LoadedObjectSpan::Unmapped),
         SPAN_CONS => Ok(LoadedObjectSpan::Cons(DumpConsSpan {
-            offset: read_u64(data, &mut cursor)?,
+            offset: read_dump_off(data, &mut cursor)?,
         })),
         SPAN_FLOAT => Ok(LoadedObjectSpan::Float(DumpFloatSpan {
-            offset: read_u64(data, &mut cursor)?,
+            offset: read_dump_off(data, &mut cursor)?,
         })),
         SPAN_STRING => Ok(LoadedObjectSpan::String(DumpStringSpan {
-            offset: read_u64(data, &mut cursor)?,
-            len: read_u64(data, &mut cursor)?,
+            offset: read_dump_off(data, &mut cursor)?,
+            len: read_dump_off(data, &mut cursor)?,
         })),
         SPAN_VECTORLIKE => {
             let object = DumpVecLikeSpan {
-                offset: read_u64(data, &mut cursor)?,
-                len: read_u64(data, &mut cursor)?,
+                offset: read_dump_off(data, &mut cursor)?,
+                len: read_dump_off(data, &mut cursor)?,
             };
             if cursor >= data.len() {
                 return Err(DumpError::ImageFormatError(
@@ -396,8 +402,8 @@ fn loaded_span_at(data: &[u8], cursor: usize) -> Result<LoadedObjectSpan, DumpEr
             cursor += 1;
             let slots = if has_slots != 0 {
                 Some(DumpSlotSpan {
-                    offset: read_u64(data, &mut cursor)?,
-                    len: read_u64(data, &mut cursor)?,
+                    offset: read_dump_off(data, &mut cursor)?,
+                    len: read_dump_off(data, &mut cursor)?,
                 })
             } else {
                 None
@@ -410,22 +416,26 @@ fn loaded_span_at(data: &[u8], cursor: usize) -> Result<LoadedObjectSpan, DumpEr
     }
 }
 
-fn write_u64(out: &mut Vec<u8>, value: u64) {
+fn write_dump_off(out: &mut Vec<u8>, value: u64) -> Result<(), DumpError> {
+    let value = u32::try_from(value).map_err(|_| {
+        DumpError::SerializationError(format!("object-starts dump offset {value} overflows u32"))
+    })?;
     out.extend_from_slice(&value.to_le_bytes());
+    Ok(())
 }
 
-fn read_u64(data: &[u8], cursor: &mut usize) -> Result<u64, DumpError> {
+fn read_dump_off(data: &[u8], cursor: &mut usize) -> Result<u64, DumpError> {
     let end = (*cursor)
-        .checked_add(8)
-        .ok_or_else(|| DumpError::ImageFormatError("object-starts u64 cursor overflow".into()))?;
+        .checked_add(4)
+        .ok_or_else(|| DumpError::ImageFormatError("object-starts u32 cursor overflow".into()))?;
     if end > data.len() {
         return Err(DumpError::ImageFormatError(
-            "object-starts section truncated at u64".into(),
+            "object-starts section truncated at u32".into(),
         ));
     }
-    let value = unsafe { std::ptr::read_unaligned(data.as_ptr().add(*cursor).cast::<u64>()) };
+    let value = unsafe { std::ptr::read_unaligned(data.as_ptr().add(*cursor).cast::<u32>()) };
     *cursor = end;
-    Ok(u64::from_le(value))
+    Ok(u32::from_le(value).into())
 }
 
 #[cfg(test)]

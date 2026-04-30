@@ -129,7 +129,9 @@ const AFTER_PDUMP_LOAD_HOOK_PENDING_SYMBOL: &str = "neovm--after-pdump-load-hook
 //   dump-local symbol slot, and compact metadata stores only aligned location
 //   offset plus fixup type. Full DumpValue fixups remain only for rare runtime
 //   values such as subrs and non-mapped heap objects.
-const FORMAT_VERSION: u32 = 49;
+// v50: ObjectStarts span offsets and lengths use checked 32-bit dump offsets,
+//   matching GNU pdumper's dump_off instead of serializing every field as u64.
+const FORMAT_VERSION: u32 = 50;
 
 const FINGERPRINT_PLACEHOLDER: [u8; 32] = *b"NEOMACS_PDUMP_FINGERPRINT_SLOT!!";
 
