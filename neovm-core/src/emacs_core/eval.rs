@@ -6132,7 +6132,20 @@ impl Context {
 
     /// GNU `maybe_quit`: do nothing when `quit-flag` is nil or
     /// `inhibit-quit` is non-nil; otherwise process the quit request.
+    #[inline(always)]
     pub(crate) fn maybe_quit(&mut self) -> Result<(), Flow> {
+        if self.quit_flag.is_nil()
+            && !self
+                .quit_requested
+                .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            return Ok(());
+        }
+        self.maybe_quit_slow()
+    }
+
+    #[cold]
+    fn maybe_quit_slow(&mut self) -> Result<(), Flow> {
         // Drain the cross-thread quit-request atomic into `Vquit_flag`.
         // Set by the input-bridge thread when it observes a `quit-char`
         // keystroke while the evaluator is busy (e.g. deep in bytecode
@@ -6267,14 +6280,17 @@ impl Context {
         }
     }
 
+    #[inline(always)]
+    fn has_throw_on_input_poll_source(&self) -> bool {
+        // GNU's evaluator-side `maybe_quit` is a cheap flag/signal check; the
+        // input path sets `quit-flag` when real keyboard input is available.
+        // Neomacs has to poll the host channel for `throw-on-input`, but only
+        // when such a channel exists or the command loop is interactive.
+        self.input_rx.is_some() || !self.command_loop_noninteractive()
+    }
+
     fn poll_pending_input_for_throw_on_input(&mut self) -> Result<(), Flow> {
-        // GNU skips the interactive keyboard path only when there is no live
-        // input source. Tests and embedded hosts can attach `input_rx` while
-        // keeping `noninteractive` true, and `throw-on-input` must still see
-        // that host input.
-        if self.command_loop_noninteractive() && self.input_rx.is_none() {
-            return Ok(());
-        }
+        debug_assert!(self.has_throw_on_input_poll_source());
 
         let throw_on_input = self
             .obarray
@@ -6338,7 +6354,9 @@ impl Context {
     }
 
     fn maybe_quit_before_gc(&mut self) -> Result<(), Flow> {
-        self.poll_pending_input_for_throw_on_input()?;
+        if self.has_throw_on_input_poll_source() {
+            self.poll_pending_input_for_throw_on_input()?;
+        }
         self.maybe_quit()
     }
 
