@@ -1365,6 +1365,12 @@ pub trait DisplayHost {
 // transferred between threads), this is safe.
 unsafe impl Send for Context {}
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OverlayModificationHook {
+    pub(crate) hook_list: Value,
+    pub(crate) overlay: Value,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum ResumeTarget {
@@ -1503,6 +1509,9 @@ pub struct Context {
     pub(crate) loads_in_progress: Vec<crate::heap_types::LispString>,
     /// Buffer manager — owns all live buffers and tracks current buffer.
     pub buffers: BufferManager,
+    /// GNU `last_overlay_modification_hooks`: hook-list/overlay pairs recorded
+    /// by the before-change overlay scan and replayed by the after-change scan.
+    pub(crate) last_overlay_modification_hooks: Vec<OverlayModificationHook>,
     /// Match data from the last successful search/match operation.
     pub(crate) match_data: Option<MatchData>,
     /// Deferred after-change records, mirroring GNU Emacs's
@@ -2324,6 +2333,7 @@ impl Context {
         ev.require_stack.clear();
         ev.loads_in_progress.clear();
         ev.buffers = BufferManager::new();
+        ev.last_overlay_modification_hooks.clear();
         ev.match_data = None;
         ev.processes = ProcessManager::new();
         ev.timers = TimerManager::new();
@@ -4282,6 +4292,7 @@ impl Context {
             require_stack: Vec::new(),
             loads_in_progress: Vec::new(),
             buffers: BufferManager::new(),
+            last_overlay_modification_hooks: Vec::new(),
             match_data: None,
             combine_after_change_list: Vec::new(),
             combine_after_change_buffer: None,
@@ -4441,6 +4452,7 @@ impl Context {
             require_stack,
             loads_in_progress,
             buffers,
+            last_overlay_modification_hooks: Vec::new(),
             match_data: None,
             combine_after_change_list: Vec::new(),
             combine_after_change_buffer: None,

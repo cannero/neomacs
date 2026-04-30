@@ -7797,6 +7797,65 @@ fn after_change_functions_receive_character_old_len() {
 }
 
 #[test]
+fn overlay_modification_after_phase_replays_before_recorded_hook_list() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(progn
+             (erase-buffer)
+             (insert "abc")
+             (setq hook-log nil)
+             (fset 'neo-original-overlay-hook
+                   (lambda (ov after beg end &optional old-len)
+                     (setq hook-log
+                           (cons (list 'original after beg end old-len) hook-log))
+                     (if after
+                         nil
+                       (overlay-put ov 'modification-hooks
+                                    (list 'neo-replacement-overlay-hook)))))
+             (fset 'neo-replacement-overlay-hook
+                   (lambda (_ov after beg end &optional old-len)
+                     (setq hook-log
+                           (cons (list 'replacement after beg end old-len)
+                                 hook-log))))
+             (let ((ov (make-overlay 1 4)))
+               (overlay-put ov 'modification-hooks
+                            (list 'neo-original-overlay-hook))
+               (delete-region 2 3)
+               (nreverse hook-log)))"#,
+    );
+    assert_eq!(result, "OK ((original nil 2 3 nil) (original t 2 2 1))");
+}
+
+#[test]
+fn overlay_modification_hooks_are_collected_after_before_change_functions() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(progn
+             (erase-buffer)
+             (insert "abc")
+             (setq hook-log nil)
+             (fset 'neo-old-overlay-hook
+                   (lambda (_ov after beg end &optional old-len)
+                     (setq hook-log
+                           (cons (list 'old after beg end old-len) hook-log))))
+             (fset 'neo-new-overlay-hook
+                   (lambda (_ov after beg end &optional old-len)
+                     (setq hook-log
+                           (cons (list 'new after beg end old-len) hook-log))))
+             (let ((ov (make-overlay 1 4)))
+               (overlay-put ov 'modification-hooks
+                            (list 'neo-old-overlay-hook))
+               (setq before-change-functions
+                     (list (lambda (_beg _end)
+                             (overlay-put ov 'modification-hooks
+                                          (list 'neo-new-overlay-hook)))))
+               (delete-region 2 3)
+               (nreverse hook-log)))"#,
+    );
+    assert_eq!(result, "OK ((new nil 2 3 nil) (new t 2 2 1))");
+}
+
+#[test]
 fn before_change_functions_reset_to_nil_on_error() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(

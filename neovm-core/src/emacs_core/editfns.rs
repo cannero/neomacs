@@ -9,6 +9,7 @@
 //! - byte pos       →  Lisp char: `buf.text.emacs_byte_to_char(byte_pos) + 1`
 
 use super::error::{EvalResult, Flow, signal};
+use super::eval::OverlayModificationHook;
 use super::intern::intern;
 use super::symbol::Obarray;
 use super::value::*;
@@ -249,11 +250,6 @@ pub(crate) fn signal_before_change(
         .buffers
         .get(current_id)
         .is_some_and(|buf| buf.modified_state_value().is_nil());
-    let overlay_hooks = collect_overlay_change_hooks(ctx, beg, end, beg == end);
-    // GNU buffer.c:4141: reset `last_overlay_modification_hooks_used = 0`
-    // and re-populate while collecting. We mirror that by replacing the
-    // stored list — `signal_after_change` will replay the same pairs.
-    ctx.last_overlay_modification_hooks = overlay_hooks.clone();
     let specpdl_count = ctx.specpdl.len();
     ctx.specbind(intern("inhibit-modification-hooks"), Value::T);
     let result = (|| -> Result<(), Flow> {
@@ -262,31 +258,9 @@ pub(crate) fn signal_before_change(
         }
         run_named_hook_reset_on_error(ctx, "before-change-functions", &hook_args)?;
 
-        if !overlay_hooks.is_empty() {
-            // GNU passes `nil` for AFTER in the before-change phase.
-            let overlay_arg = Value::NIL;
-            let roots = ctx.save_specpdl_roots();
-            for (func, ov_val) in &overlay_hooks {
-                ctx.push_specpdl_root(*func);
-                ctx.push_specpdl_root(*ov_val);
-            }
-            let apply_result = (|| -> Result<(), Flow> {
-                for (func, ov_val) in &overlay_hooks {
-                    ctx.apply(
-                        *func,
-                        vec![
-                            *ov_val,
-                            overlay_arg,
-                            Value::fixnum(lisp_beg),
-                            Value::fixnum(lisp_end),
-                        ],
-                    )?;
-                }
-                Ok(())
-            })();
-            ctx.restore_specpdl_roots(roots);
-            apply_result?;
-        }
+        ctx.last_overlay_modification_hooks =
+            collect_overlay_change_hooks(ctx, beg, end, beg == end);
+        run_recorded_overlay_change_hooks(ctx, Value::NIL, lisp_beg, lisp_end, None)?;
 
         Ok(())
     })();
@@ -559,7 +533,7 @@ fn collect_overlay_change_hooks(
     beg: usize,
     end: usize,
     insertion: bool,
-) -> Vec<(Value, Value)> {
+) -> Vec<OverlayModificationHook> {
     let Some(current_id) = ctx.buffers.current_buffer_id() else {
         return Vec::new();
     };
@@ -588,20 +562,24 @@ fn collect_overlay_change_hooks(
             if let Some(hook_val) = buf
                 .overlays
                 .overlay_get_named(ov_id, Value::symbol("insert-in-front-hooks"))
+                .filter(|value| !value.is_nil())
             {
-                for func in value_list_iter(hook_val) {
-                    result.push((func, ov_id));
-                }
+                result.push(OverlayModificationHook {
+                    hook_list: hook_val,
+                    overlay: ov_id,
+                });
             }
         }
         if insertion && (beg == ov_end || end == ov_end) {
             if let Some(hook_val) = buf
                 .overlays
                 .overlay_get_named(ov_id, Value::symbol("insert-behind-hooks"))
+                .filter(|value| !value.is_nil())
             {
-                for func in value_list_iter(hook_val) {
-                    result.push((func, ov_id));
-                }
+                result.push(OverlayModificationHook {
+                    hook_list: hook_val,
+                    overlay: ov_id,
+                });
             }
         }
         // GNU intersection test (open interval):
@@ -610,10 +588,12 @@ fn collect_overlay_change_hooks(
             if let Some(hook_val) = buf
                 .overlays
                 .overlay_get_named(ov_id, Value::symbol("modification-hooks"))
+                .filter(|value| !value.is_nil())
             {
-                for func in value_list_iter(hook_val) {
-                    result.push((func, ov_id));
-                }
+                result.push(OverlayModificationHook {
+                    hook_list: hook_val,
+                    overlay: ov_id,
+                });
             }
         }
     }
@@ -631,37 +611,41 @@ fn run_overlay_after_change_hooks(
     lisp_end: i64,
     lisp_old_len: i64,
 ) -> Result<(), Flow> {
-    // GNU `report_overlay_modification` (buffer.c:4119): the AFTER phase
-    // reuses the `(prop, overlay)` pairs collected during the BEFORE phase
-    // (`last_overlay_modification_hooks`) instead of re-walking the
-    // overlay tree. Drain that list here.
-    //
-    // Drain so we don't accidentally replay hooks for an unrelated later
-    // change — GNU resets the vector at the next BEFORE call.
-    let hooks = std::mem::take(&mut ctx.last_overlay_modification_hooks);
-    let _ = (beg, end); // currently unused; kept for future use
+    let _ = (beg, end);
+    // GNU passes `t` for AFTER in the after-change phase and replays the
+    // hook-list/overlay pairs recorded by the before-change scan.
+    run_recorded_overlay_change_hooks(ctx, Value::T, lisp_beg, lisp_end, Some(lisp_old_len))
+}
 
+fn run_recorded_overlay_change_hooks(
+    ctx: &mut crate::emacs_core::eval::Context,
+    after_flag: Value,
+    lisp_beg: i64,
+    lisp_end: i64,
+    lisp_old_len: Option<i64>,
+) -> Result<(), Flow> {
+    let hooks = ctx.last_overlay_modification_hooks.clone();
     if hooks.is_empty() {
         return Ok(());
     }
-
-    let after_flag = Value::T; // GNU passes `t` for AFTER in the after-change phase
     let roots = ctx.save_specpdl_roots();
-    for (func, ov_val) in &hooks {
-        ctx.push_specpdl_root(*func);
-        ctx.push_specpdl_root(*ov_val);
+    for hook in &hooks {
+        ctx.push_specpdl_root(hook.hook_list);
+        ctx.push_specpdl_root(hook.overlay);
     }
     let apply_result = (|| -> Result<(), Flow> {
-        for (func, ov_val) in &hooks {
-            ctx.apply(
-                *func,
-                vec![
-                    *ov_val,
-                    after_flag,
-                    Value::fixnum(lisp_beg),
-                    Value::fixnum(lisp_end),
-                    Value::fixnum(lisp_old_len),
-                ],
+        for hook in &hooks {
+            if !overlay_belongs_to_current_buffer(ctx, hook.overlay) {
+                continue;
+            }
+            call_overlay_hook_list(
+                ctx,
+                hook.hook_list,
+                hook.overlay,
+                after_flag,
+                lisp_beg,
+                lisp_end,
+                lisp_old_len,
             )?;
         }
         Ok(())
@@ -670,21 +654,43 @@ fn run_overlay_after_change_hooks(
     apply_result
 }
 
-/// Iterate over a Lisp list, yielding each car.
-fn value_list_iter(list: Value) -> Vec<Value> {
-    let mut result = Vec::new();
-    let mut cursor = list;
+fn overlay_belongs_to_current_buffer(
+    ctx: &crate::emacs_core::eval::Context,
+    overlay: Value,
+) -> bool {
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return false;
+    };
+    overlay
+        .as_overlay_data()
+        .is_some_and(|data| data.buffer == Some(current_id))
+}
+
+fn call_overlay_hook_list(
+    ctx: &mut crate::emacs_core::eval::Context,
+    hook_list: Value,
+    overlay: Value,
+    after_flag: Value,
+    lisp_beg: i64,
+    lisp_end: i64,
+    lisp_old_len: Option<i64>,
+) -> Result<(), Flow> {
+    let mut cursor = hook_list;
     while cursor.is_cons() {
-        let pair_car = cursor.cons_car();
-        let pair_cdr = cursor.cons_cdr();
-        result.push(pair_car);
-        cursor = pair_cdr;
+        let func = cursor.cons_car();
+        let mut args = vec![
+            overlay,
+            after_flag,
+            Value::fixnum(lisp_beg),
+            Value::fixnum(lisp_end),
+        ];
+        if let Some(old_len) = lisp_old_len {
+            args.push(Value::fixnum(old_len));
+        }
+        ctx.apply(func, args)?;
+        cursor = cursor.cons_cdr();
     }
-    // If it's a single non-nil, non-cons value, treat it as a single-element list.
-    if result.is_empty() && !list.is_nil() && !list.is_cons() {
-        result.push(list);
-    }
-    result
+    Ok(())
 }
 
 fn expect_integer_or_marker_in_buffers(
