@@ -2915,7 +2915,7 @@ pub(crate) fn builtin_forward_word(
     } else {
         match args[0].kind() {
             ValueKind::Fixnum(n) => n,
-            other => {
+            _ => {
                 return Err(signal(
                     "wrong-type-argument",
                     vec![Value::symbol("integerp"), args[0]],
@@ -2924,20 +2924,63 @@ pub(crate) fn builtin_forward_word(
         }
     };
 
-    let buf = eval
-        .buffers
-        .current_buffer()
-        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let table = SyntaxTable::for_buffer(buf);
-    let honor_properties = parse_sexp_lookup_properties_enabled(eval);
-    let new_pos = forward_word_with_options(buf, &table, count, honor_properties);
+    let (raw_byte, orig_char, raw_char) = {
+        let buf = eval
+            .buffers
+            .current_buffer()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        let table = SyntaxTable::for_buffer(buf);
+        let honor_properties = parse_sexp_lookup_properties_enabled(eval);
+        let raw_byte = forward_word_with_options(buf, &table, count, honor_properties);
+        let orig_char = buf.text.emacs_byte_to_char(buf.point()) as i64 + 1;
+        let raw_char = buf.text.emacs_byte_to_char(raw_byte) as i64 + 1;
+        (raw_byte, orig_char, raw_char)
+    };
+
+    // GNU `Fforward_word` (syntax.c:1561) constrains the destination via
+    // `Fconstrain_to_field` so that motion does not cross input-field
+    // boundaries (e.g. the minibuffer prompt). The full call is
+    // (constrain-to-field VAL PT nil nil nil).
+    let constrained = crate::emacs_core::builtins::builtin_constrain_to_field(
+        eval,
+        vec![
+            Value::fixnum(raw_char),
+            Value::fixnum(orig_char),
+            Value::NIL,
+            Value::NIL,
+            Value::NIL,
+        ],
+    )?;
+    let constrained_char = match constrained.kind() {
+        ValueKind::Fixnum(n) => n,
+        _ => raw_char,
+    };
+
+    let final_byte = if constrained_char == raw_char {
+        raw_byte
+    } else {
+        let buf = eval
+            .buffers
+            .current_buffer()
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        // Convert constrained 1-based char position back to a byte offset.
+        let zero_based = (constrained_char - 1).max(0) as usize;
+        buf.text.char_to_emacs_byte(zero_based)
+    };
 
     let current_id = eval
         .buffers
         .current_buffer_id()
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
-    let _ = eval.buffers.goto_buffer_byte(current_id, new_pos);
-    Ok(Value::NIL)
+    let _ = eval.buffers.goto_buffer_byte(current_id, final_byte);
+
+    // GNU returns t when the requested motion fully succeeded, nil when it
+    // stopped early at a buffer edge or a field boundary.
+    Ok(if constrained_char == raw_char {
+        Value::T
+    } else {
+        Value::NIL
+    })
 }
 
 pub(crate) fn builtin_forward_word_in_buffers(
