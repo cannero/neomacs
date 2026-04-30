@@ -453,12 +453,19 @@ pub(crate) fn builtin_copy_marker_in_buffers(
     buffers: &mut BufferManager,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_range_args("copy-marker", &args, 1, 2)?;
+    // GNU `Fcopy_marker` (marker.c:753) is `(0, 2)`: with no arguments, it
+    // returns a fresh marker that points nowhere; passing nil for MARKER
+    // does the same.  TYPE is also optional.
+    expect_range_args("copy-marker", &args, 0, 2)?;
     let insertion_type = if args.len() > 1 {
         args[1].is_truthy()
     } else {
         false
     };
+
+    if args.is_empty() || args[0].is_nil() {
+        return Ok(make_marker_value(None, None, insertion_type));
+    }
 
     let src = &args[0];
     match src.kind() {
