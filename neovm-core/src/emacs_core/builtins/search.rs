@@ -1526,11 +1526,12 @@ fn update_match_data_after_buffer_replace(
 }
 
 pub(crate) fn builtin_replace_match_with_state(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &mut crate::buffer::BufferManager,
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
 ) -> EvalResult {
-    builtin_replace_match_with_state_and_flags(buffers, match_data, args, false)
+    builtin_replace_match_with_state_and_flags(obarray, buffers, match_data, args, false)
 }
 
 /// Variant that also carries the current value of
@@ -1538,6 +1539,7 @@ pub(crate) fn builtin_replace_match_with_state(
 /// `replace-match` with FIXEDCASE=nil. Audit findings #14/#20 in
 /// `drafts/regex-search-audit.md`.
 pub(crate) fn builtin_replace_match_with_state_and_flags(
+    obarray: &crate::emacs_core::symbol::Obarray,
     buffers: &mut crate::buffer::BufferManager,
     match_data: &mut Option<super::regex::MatchData>,
     args: &[Value],
@@ -1654,6 +1656,16 @@ pub(crate) fn builtin_replace_match_with_state_and_flags(
         &replacement,
     )?;
     let newend = oldstart + replacement_len;
+    // Match GNU adjust_intervals_for_insertion: apply sticky-aware
+    // text-property inheritance after the replacement.
+    super::buffers::apply_inherited_text_properties(
+        obarray,
+        &[],
+        buffers,
+        current_id,
+        oldstart,
+        replacement_len,
+    );
     update_match_data_after_buffer_replace(match_data, oldstart, oldend, newend);
     Ok(Value::NIL)
 }
@@ -1687,6 +1699,7 @@ pub(crate) fn builtin_replace_match(
                     let (oldstart, oldend) = (*oldstart, *oldend);
                     super::editfns::signal_before_change(eval, oldstart, oldend)?;
                     let result = builtin_replace_match_with_state_and_flags(
+                        &eval.obarray,
                         &mut eval.buffers,
                         &mut eval.match_data,
                         &args,
@@ -1712,6 +1725,7 @@ pub(crate) fn builtin_replace_match(
 
     // Fallback: string replacement or no match data — no buffer hooks needed.
     builtin_replace_match_with_state_and_flags(
+        &eval.obarray,
         &mut eval.buffers,
         &mut eval.match_data,
         &args,

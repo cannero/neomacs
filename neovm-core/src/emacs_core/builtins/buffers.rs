@@ -2919,7 +2919,7 @@ fn collect_insert_pieces(args: &[Value], target_multibyte: bool) -> Result<Vec<I
     Ok(pieces)
 }
 
-fn apply_inherited_text_properties(
+pub(crate) fn apply_inherited_text_properties(
     obarray: &crate::emacs_core::symbol::Obarray,
     dynamic: &[OrderedRuntimeBindingMap],
     buffers: &mut BufferManager,
