@@ -9866,8 +9866,28 @@ impl Context {
     }
 
     pub(crate) fn unbind_to_with_result(&mut self, count: usize, result: EvalResult) -> EvalResult {
-        if self.specpdl.len() == count {
+        let specpdl_len = self.specpdl.len();
+        if specpdl_len == count {
             return result;
+        }
+        if specpdl_len == count + 1 {
+            match self.specpdl.last() {
+                Some(
+                    SpecBinding::GcRoot { .. }
+                    | SpecBinding::Nop
+                    | SpecBinding::Backtrace {
+                        debug_on_exit: false,
+                        ..
+                    },
+                ) => {
+                    let binding = self.specpdl.pop().expect("specpdl_len checked above");
+                    if let SpecBinding::Backtrace { args, .. } = binding {
+                        self.release_backtrace_args(&args);
+                    }
+                    return result;
+                }
+                _ => {}
+            }
         }
         if self.specpdl[count..]
             .iter()
