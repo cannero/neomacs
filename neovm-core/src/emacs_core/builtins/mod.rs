@@ -7793,7 +7793,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "combine-after-change-execute",
-        |_ctx, args| builtin_combine_after_change_execute(args),
+        |ctx, args| builtin_combine_after_change_execute(ctx, args),
         0,
         Some(0),
     );

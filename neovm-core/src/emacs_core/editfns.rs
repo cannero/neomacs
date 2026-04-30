@@ -309,6 +309,47 @@ pub(crate) fn signal_after_change(
         return Ok(());
     };
 
+    // GNU `signal_after_change` (insdel.c:2390) defers `after-change-functions`
+    // to `combine-after-change-execute` when:
+    //   - `combine-after-change-calls` is non-nil,
+    //   - `before-change-functions` is nil (or the syntax-ppss-flush-cache
+    //     special case),
+    //   - the current buffer has no overlays.
+    // Mirrored here so wrappers like `combine-after-change-calls` coalesce
+    // multiple edits into a single after-change call as in GNU Emacs.
+    if combine_after_change_calls_active(ctx) && !buffer_has_overlays(ctx, current_id) {
+        // If the pending deferred list belongs to a different buffer, GNU
+        // flushes it via `Fcombine_after_change_execute` before recording
+        // the new change.
+        let needs_flush = !ctx.combine_after_change_list.is_empty()
+            && ctx.combine_after_change_buffer != Some(current_id);
+        if needs_flush {
+            execute_combined_after_change(ctx)?;
+        }
+
+        if let Some(buf) = ctx.buffers.get(current_id) {
+            let beg_char = buf.text.emacs_byte_to_char(beg) as i64;
+            let end_char = buf.text.emacs_byte_to_char(end) as i64;
+            let charpos = beg_char + 1; // 1-based, like GNU's PT/charpos.
+            let lenins = end_char - beg_char;
+            let lendel = old_len as i64;
+            let z = buf.text.char_count() as i64 + 1; // 1-based Z.
+            let beg_field = charpos - 1; // charpos - BEG
+            let end_field = z - (charpos - lendel + lenins);
+            let change = lenins - lendel;
+            ctx.combine_after_change_list
+                .push((beg_field, end_field, change));
+            ctx.combine_after_change_buffer = Some(current_id);
+        }
+        return Ok(());
+    }
+
+    // Not deferring: any pending coalesced changes must run first so their
+    // hooks observe the buffer state from before this new edit's after-pass.
+    if !ctx.combine_after_change_list.is_empty() {
+        execute_combined_after_change(ctx)?;
+    }
+
     ctx.treesit.note_buffer_change(current_id, beg);
     if ctx.treesit.has_pending_edit(current_id)
         && let Some(buf) = ctx.buffers.get(current_id)
@@ -347,6 +388,163 @@ pub(crate) fn signal_after_change(
         Ok(())
     })();
     ctx.unbind_to(specpdl_count);
+    result
+}
+
+/// Mirrors GNU's deferral predicate for `signal_after_change`
+/// (`insdel.c:2393`). True when `combine-after-change-calls` is non-nil and
+/// `before-change-functions` is either nil or the well-known
+/// `(t syntax-ppss-flush-cache)` special case.
+fn combine_after_change_calls_active(ctx: &crate::emacs_core::eval::Context) -> bool {
+    let combine_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+        ctx,
+        "combine-after-change-calls",
+    );
+    let combine_val = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym)
+        .unwrap_or(Value::NIL);
+    if combine_val.is_nil() {
+        return false;
+    }
+
+    let before_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+        ctx,
+        "before-change-functions",
+    );
+    let before_val = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, before_sym)
+        .unwrap_or(Value::NIL);
+    if before_val.is_nil() {
+        return true;
+    }
+
+    // GNU permits the special case `(t syntax-ppss-flush-cache)` where the
+    // buffer-local list is just the global trampoline plus the cache flush.
+    if before_val.is_cons() {
+        let head = before_val.cons_car();
+        let tail = before_val.cons_cdr();
+        if head.is_t() && tail.is_cons() {
+            let second = tail.cons_car();
+            let rest = tail.cons_cdr();
+            if rest.is_nil()
+                && second.is_symbol()
+                && second.as_symbol_name() == Some("syntax-ppss-flush-cache")
+            {
+                let default_val = ctx
+                    .obarray
+                    .default_value_id(before_sym)
+                    .copied()
+                    .unwrap_or(Value::NIL);
+                return default_val.is_nil();
+            }
+        }
+    }
+    false
+}
+
+fn buffer_has_overlays(
+    ctx: &crate::emacs_core::eval::Context,
+    buffer_id: crate::buffer::BufferId,
+) -> bool {
+    ctx.buffers
+        .get(buffer_id)
+        .is_some_and(|buf| !buf.overlays.is_empty())
+}
+
+/// GNU `Fcombine_after_change_execute` (insdel.c:2475). Merges the deferred
+/// per-change records into a single (begpos, lendel, lenins) triple and
+/// dispatches one `signal_after_change` call.
+pub(crate) fn execute_combined_after_change(
+    ctx: &mut crate::emacs_core::eval::Context,
+) -> Result<(), Flow> {
+    if ctx.combine_after_change_list.is_empty() {
+        return Ok(());
+    }
+
+    let Some(target_id) = ctx.combine_after_change_buffer else {
+        ctx.combine_after_change_list.clear();
+        return Ok(());
+    };
+
+    if ctx.buffers.get(target_id).is_none() {
+        ctx.combine_after_change_list.clear();
+        ctx.combine_after_change_buffer = None;
+        return Ok(());
+    }
+
+    // GNU temporarily switches to the recording buffer.
+    let saved_buffer = ctx.buffers.current_buffer_id();
+    if saved_buffer != Some(target_id) {
+        let _ = ctx.set_current_buffer_unrecorded(target_id);
+    }
+
+    let (begpos, endpos, change_total, list_len) = {
+        let buf = match ctx.buffers.get(target_id) {
+            Some(b) => b,
+            None => {
+                ctx.combine_after_change_list.clear();
+                ctx.combine_after_change_buffer = None;
+                if let Some(prev) = saved_buffer {
+                    let _ = ctx.set_current_buffer_unrecorded(prev);
+                }
+                return Ok(());
+            }
+        };
+        let z = buf.text.char_count() as i64 + 1;
+        let init = z - 1;
+        let mut beg = init;
+        let mut end = init;
+        let mut change: i64 = 0;
+        for (thisbeg, thisend, thischange) in &ctx.combine_after_change_list {
+            change += *thischange;
+            if *thisbeg < beg {
+                beg = *thisbeg;
+            }
+            if *thisend < end {
+                end = *thisend;
+            }
+        }
+        let begpos = 1 + beg;
+        let endpos = z - end;
+        (begpos, endpos, change, ctx.combine_after_change_list.len())
+    };
+
+    ctx.combine_after_change_list.clear();
+    ctx.combine_after_change_buffer = None;
+
+    // GNU temporarily clears `combine-after-change-calls` while replaying.
+    let combine_sym = crate::emacs_core::hook_runtime::hook_symbol_by_name(
+        ctx,
+        "combine-after-change-calls",
+    );
+    let saved_combine = crate::emacs_core::hook_runtime::hook_value_by_id(ctx, combine_sym)
+        .unwrap_or(Value::NIL);
+    let specpdl_count = ctx.specpdl.len();
+    ctx.specbind(intern("combine-after-change-calls"), Value::NIL);
+
+    let _ = list_len;
+
+    // Convert merged 1-based char range back into byte positions for our
+    // signal_after_change which speaks bytes.
+    let (beg_byte, end_byte) = {
+        let buf = ctx.buffers.get(target_id).expect("target buffer");
+        let beg_char_zero = (begpos - 1).max(0) as usize;
+        let end_char_zero = (endpos - 1).max(0) as usize;
+        (
+            buf.text.char_to_emacs_byte(beg_char_zero),
+            buf.text.char_to_emacs_byte(end_char_zero),
+        )
+    };
+    let old_len = (endpos - begpos - change_total).max(0) as usize;
+
+    let result = signal_after_change(ctx, beg_byte, end_byte, old_len);
+
+    ctx.unbind_to(specpdl_count);
+    let _ = saved_combine; // specbind already restores; explicit to mark intent.
+
+    if let Some(prev) = saved_buffer
+        && prev != target_id
+    {
+        let _ = ctx.set_current_buffer_unrecorded(prev);
+    }
     result
 }
 

@@ -1510,6 +1510,20 @@ pub struct Context {
     pub buffers: BufferManager,
     /// Match data from the last successful search/match operation.
     pub(crate) match_data: Option<MatchData>,
+    /// Deferred after-change records, mirroring GNU Emacs's
+    /// `combine_after_change_list` (insdel.c). When
+    /// `combine-after-change-calls` is non-nil and no incompatible
+    /// before-change-functions or overlays are installed,
+    /// `signal_after_change` records the change here instead of running
+    /// `after-change-functions` immediately. Each entry is the GNU triple
+    /// `(charpos - BEG, Z - (charpos - lendel + lenins), lenins - lendel)`
+    /// in 1-based character coordinates.
+    pub(crate) combine_after_change_list: Vec<(i64, i64, i64)>,
+    /// Buffer that owns the deferred after-change records, mirroring GNU
+    /// Emacs's `combine_after_change_buffer` (insdel.c). When the change
+    /// buffer differs, the pending list is flushed before recording the new
+    /// change.
+    pub(crate) combine_after_change_buffer: Option<crate::buffer::BufferId>,
     /// Process manager — owns all tracked processes.
     pub(crate) processes: ProcessManager,
     /// Network manager — owns network connections, filters, and sentinels.
@@ -4257,6 +4271,8 @@ impl Context {
             loads_in_progress: Vec::new(),
             buffers: BufferManager::new(),
             match_data: None,
+            combine_after_change_list: Vec::new(),
+            combine_after_change_buffer: None,
             processes: ProcessManager::new(),
             timers: TimerManager::new(),
             watchers: VariableWatcherList::new(),
@@ -4407,6 +4423,8 @@ impl Context {
             loads_in_progress,
             buffers,
             match_data: None,
+            combine_after_change_list: Vec::new(),
+            combine_after_change_buffer: None,
             processes: ProcessManager::new(),
             timers: TimerManager::new(),
             watchers,

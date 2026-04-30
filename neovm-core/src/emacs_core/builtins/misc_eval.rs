@@ -989,8 +989,12 @@ pub(crate) fn builtin_cancel_kbd_macro_events(
     Ok(Value::NIL)
 }
 
-pub(crate) fn builtin_combine_after_change_execute(args: Vec<Value>) -> EvalResult {
+pub(crate) fn builtin_combine_after_change_execute(
+    eval: &mut super::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
     expect_args("combine-after-change-execute", &args, 0)?;
+    crate::emacs_core::editfns::execute_combined_after_change(eval)?;
     Ok(Value::NIL)
 }
 
