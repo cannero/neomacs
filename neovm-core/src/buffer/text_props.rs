@@ -472,6 +472,43 @@ impl TextPropertyTable {
         self.rebuild_from_runs(runs);
     }
 
+    pub fn merge_missing_shifted(&mut self, other: &TextPropertyTable, offset: usize) {
+        let source_runs: Vec<IntervalRun> = other
+            .intervals_snapshot()
+            .into_iter()
+            .map(|interval| {
+                IntervalRun::new(
+                    interval.start + offset,
+                    interval.end + offset,
+                    interval.into_plist(),
+                )
+            })
+            .collect();
+        if source_runs.is_empty() {
+            return;
+        }
+
+        let mut runs = self.all_runs();
+        for source in source_runs {
+            if source.is_empty_plist() {
+                continue;
+            }
+            runs = split_runs_at(runs, &[source.start, source.end]);
+            runs = cover_range_with_default_intervals(runs, source.start, source.end);
+            for run in &mut runs {
+                if run.start >= source.end || run.end <= source.start {
+                    continue;
+                }
+                for (name, value) in &source.plist {
+                    if plist_get(&run.plist, *name).is_none() {
+                        run.plist.insert(0, (*name, *value));
+                    }
+                }
+            }
+        }
+        self.rebuild_from_runs(runs);
+    }
+
     pub(crate) fn dump_intervals(&self) -> Vec<PropertyInterval> {
         self.intervals_snapshot()
     }

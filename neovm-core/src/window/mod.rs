@@ -1428,14 +1428,27 @@ impl Frame {
         terminal_id: u64,
         width: u32,
         height: u32,
-        root_window: Window,
+        mut root_window: Window,
     ) -> Self {
         let minibuffer_window = WindowId(MINIBUFFER_WINDOW_ID_BASE + id.0);
         let minibuffer_buffer_id = root_window.buffer_id().unwrap_or(BufferId(0));
+        let minibuffer_height = 16.0_f32.min(height as f32);
+        let root_bounds = Rect::new(
+            root_window.bounds().x,
+            root_window.bounds().y,
+            width as f32,
+            (height as f32 - minibuffer_height).max(0.0),
+        );
+        resize_window_subtree(&mut root_window, root_bounds);
         let mut minibuffer_leaf = Window::new_leaf(
             minibuffer_window,
             minibuffer_buffer_id,
-            Rect::new(0.0, height as f32, width as f32, 16.0),
+            Rect::new(
+                root_bounds.x,
+                root_bounds.y + root_bounds.height,
+                width as f32,
+                minibuffer_height,
+            ),
         );
         if let Window::Leaf {
             window_start,

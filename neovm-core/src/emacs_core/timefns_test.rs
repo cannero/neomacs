@@ -405,7 +405,7 @@ fn builtin_current_time_string_known_time() {
     crate::test_utils::init_test_tracing();
     // 2024-01-15 12:30:45 UTC
     let epoch = encode_to_epoch_secs(45, 30, 12, 15, 1, 2024);
-    let result = builtin_current_time_string(vec![Value::fixnum(epoch)]).unwrap();
+    let result = builtin_current_time_string(vec![Value::fixnum(epoch), Value::T]).unwrap();
     let s = result.as_utf8_str().unwrap();
     assert!(s.contains("Jan"));
     assert!(s.contains("12:30:45"));
@@ -854,7 +854,7 @@ fn time_operations_with_mixed_formats() {
 #[test]
 fn current_time_string_epoch() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_current_time_string(vec![Value::fixnum(0)]).unwrap();
+    let result = builtin_current_time_string(vec![Value::fixnum(0), Value::T]).unwrap();
     let s = result.as_utf8_str().unwrap();
     // 1970-01-01 00:00:00 UTC, Thursday
     assert!(s.contains("Thu"));

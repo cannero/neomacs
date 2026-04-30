@@ -1015,7 +1015,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     ctx.defsubr("fset", builtin_fset, 2, Some(2));
     ctx.defsubr("makunbound", builtin_makunbound, 1, Some(1));
     ctx.defsubr("fmakunbound", builtin_fmakunbound, 1, Some(1));
-    ctx.defsubr_slice("macroexpand", builtin_macroexpand_slice, 1, Some(2));
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state("macroexpand", builtin_macroexpand, 1, Some(2)),
+    );
     ctx.defsubr_2("get", builtin_get_2, 2);
     ctx.defsubr_3("put", builtin_put_3, 3);
     register_builtin(
@@ -3627,7 +3630,10 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         2,
         Some(2),
     );
-    ctx.defsubr_slice("assoc", builtin_assoc_slice, 2, Some(3));
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state("assoc", builtin_assoc, 2, Some(3)),
+    );
     register_builtin(
         ctx,
         BuiltinRegistration::requires_eval_state("plist-member", builtin_plist_member, 2, Some(3)),
@@ -5628,11 +5634,14 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
         0,
         Some(1),
     );
-    ctx.defsubr(
-        "translate-region-internal",
-        |ctx, args| crate::emacs_core::editfns::builtin_translate_region_internal(ctx, args),
-        3,
-        Some(3),
+    register_builtin(
+        ctx,
+        BuiltinRegistration::requires_eval_state(
+            "translate-region-internal",
+            crate::emacs_core::editfns::builtin_translate_region_internal,
+            3,
+            Some(3),
+        ),
     );
     ctx.defsubr(
         "transpose-regions",

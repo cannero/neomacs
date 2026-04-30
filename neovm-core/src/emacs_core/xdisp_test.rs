@@ -1559,7 +1559,7 @@ fn test_window_line_height_eval_returns_live_gui_row_metrics() {
     )
     .unwrap();
     assert_eq!(super::super::print::print_value(&current), "(16 1 16 0)");
-    assert_eq!(super::super::print::print_value(&last), "(16 2 32 0)");
+    assert_eq!(super::super::print::print_value(&last), "(16 1 16 0)");
 }
 
 #[test]

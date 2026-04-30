@@ -718,6 +718,10 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
 ) -> Vec<(Value, Value)> {
     let insert_start_char = buf.text.emacs_byte_to_char(insert_start);
     let left_props = if insert_start_char > buf.point_min_char() {
+        // GNU intervals are indexed by character positions (`PT`), not raw
+        // bytes. Step to the previous character boundary before consulting
+        // the left neighbor; `insert_start - 1` can land inside an Emacs
+        // multibyte/non-Unicode storage sequence.
         let left_byte = buf
             .text
             .char_to_emacs_byte(insert_start_char.saturating_sub(1));

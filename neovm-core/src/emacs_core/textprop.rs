@@ -406,6 +406,29 @@ fn resolve_buffer_id_in_buffers(
     }
 }
 
+fn resolve_text_property_buffer_id_in_buffers(
+    buffers: &BufferManager,
+    object: Option<&Value>,
+) -> Result<BufferId, Flow> {
+    match object {
+        None => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_nil() => buffers
+            .current_buffer()
+            .map(|b| b.id)
+            .ok_or_else(|| signal("error", vec![Value::string("No current buffer")])),
+        Some(v) if v.is_buffer() => v
+            .as_buffer_id()
+            .ok_or_else(|| signal("error", vec![Value::string("Invalid buffer")])),
+        Some(other) => Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("buffer-or-string-p"), *other],
+        )),
+    }
+}
+
 fn current_buffer_id_in_buffers(buffers: &BufferManager) -> Result<BufferId, Flow> {
     buffers
         .current_buffer_id()
@@ -602,7 +625,8 @@ fn verify_property_change_read_only(
     }
     let beg = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
     let end = expect_integer_or_marker_in_buffers(&eval.buffers, &args[1])?;
-    let buf_id = resolve_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
+    let buf_id =
+        resolve_text_property_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
     let (byte_beg, byte_end) = {
         let buf = eval
             .buffers
@@ -641,7 +665,8 @@ fn run_interval_modification_hooks(
     }
     let beg = expect_integer_or_marker_in_buffers(&eval.buffers, &args[0])?;
     let end = expect_integer_or_marker_in_buffers(&eval.buffers, &args[1])?;
-    let buf_id = resolve_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
+    let buf_id =
+        resolve_text_property_buffer_id_in_buffers(&eval.buffers, args.get(object_arg_idx))?;
     let (byte_start, byte_end, lisp_start, lisp_end, hook_lists) = {
         let Some(buf) = eval.buffers.get(buf_id) else {
             return Ok(());
@@ -740,7 +765,7 @@ pub(crate) fn builtin_put_text_property_in_buffers(
         return Ok(Value::NIL);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(4))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -788,7 +813,7 @@ pub(crate) fn builtin_get_text_property_in_state(
         ));
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(2))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -853,7 +878,7 @@ pub(crate) fn builtin_get_char_property_in_state(
         return builtin_get_text_property_in_state(obarray, buffers, args);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(2))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -908,7 +933,7 @@ pub(crate) fn builtin_add_text_properties_in_buffers(
         return Ok(if any_changed { Value::T } else { Value::NIL });
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(3))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1093,7 +1118,7 @@ pub(crate) fn builtin_remove_text_properties_in_buffers(
         return Ok(if any_removed { Value::T } else { Value::NIL });
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(3))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1153,7 +1178,7 @@ pub(crate) fn builtin_set_text_properties_in_buffers(
         return Ok(Value::T);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(3))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1209,7 +1234,7 @@ pub(crate) fn builtin_remove_list_of_text_properties_in_buffers(
         return Ok(if changed { Value::T } else { Value::NIL });
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(3))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(3))?;
     let (byte_beg, byte_end) = {
         let buf = buffers
             .get(buf_id)
@@ -1267,7 +1292,7 @@ pub(crate) fn builtin_text_properties_at_in_buffers(
         return Ok(Value::NIL);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(1))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(1))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1341,7 +1366,7 @@ pub(crate) fn builtin_next_single_property_change_in_state(
         });
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(2))?;
 
     let buf = buffers
         .get(buf_id)
@@ -1457,7 +1482,7 @@ pub(crate) fn builtin_previous_single_property_change_in_state(
         });
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(2))?;
 
     let buf = buffers
         .get(buf_id)
@@ -1563,7 +1588,7 @@ pub(crate) fn builtin_next_property_change_in_buffers(
         };
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(1))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(1))?;
     let limit_arg = args.get(2);
 
     let buf = buffers
@@ -1645,7 +1670,7 @@ pub(crate) fn builtin_text_property_any_in_state(
         return Ok(Value::NIL);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(4))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1712,7 +1737,7 @@ pub(crate) fn builtin_text_property_not_all_in_state(
         return Ok(Value::NIL);
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(4))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(4))?;
     let buf = buffers
         .get(buf_id)
         .ok_or_else(|| signal("error", vec![Value::string("Buffer does not exist")]))?;
@@ -1762,7 +1787,7 @@ pub(crate) fn builtin_get_char_property_and_overlay_in_state(
         return Ok(Value::cons(value, Value::NIL));
     }
 
-    let buf_id = resolve_buffer_id_in_buffers(buffers, args.get(2))?;
+    let buf_id = resolve_text_property_buffer_id_in_buffers(buffers, args.get(2))?;
 
     if let Some(buf) = buffers.get(buf_id) {
         let byte_pos = elisp_pos_to_byte(buf, pos);

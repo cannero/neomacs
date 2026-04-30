@@ -214,33 +214,69 @@ fn pure_dispatch_typed_max_min_preserve_selected_operand_type() {
 #[test]
 fn pure_dispatch_typed_numeric_primitives_accept_markers() {
     crate::test_utils::init_test_tracing();
-    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
+    let mut eval = crate::emacs_core::eval::Context::new();
+    eval.buffers
+        .current_buffer_mut()
+        .expect("current buffer")
+        .insert("abcdef");
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        4,
+        false,
+    );
 
     let max_with_marker = dispatch_builtin_pure("max", vec![Value::fixnum(1), marker])
         .expect("builtin max should resolve")
         .expect("builtin max should evaluate");
     assert_eq!(max_with_marker, Value::fixnum(4));
 
-    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        4,
+        false,
+    );
     let min_with_marker = dispatch_builtin_pure("min", vec![Value::fixnum(10), marker])
         .expect("builtin min should resolve")
         .expect("builtin min should evaluate");
     assert_eq!(min_with_marker, Value::fixnum(4));
 
-    let left_marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
-    let right_marker = crate::emacs_core::marker::make_marker_value(None, Some(5), false);
+    let left_marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        2,
+        false,
+    );
+    let right_marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        5,
+        false,
+    );
     let lt_with_markers = dispatch_builtin_pure("<", vec![left_marker, right_marker])
         .expect("builtin < should resolve")
         .expect("builtin < should evaluate");
     assert_eq!(lt_with_markers, Value::T);
 
-    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        4,
+        false,
+    );
     let add1_with_marker = dispatch_builtin_pure("1+", vec![marker])
         .expect("builtin 1+ should resolve")
         .expect("builtin 1+ should evaluate");
     assert_eq!(add1_with_marker, Value::fixnum(5));
 
-    let marker = crate::emacs_core::marker::make_marker_value(None, Some(4), false);
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        4,
+        false,
+    );
     let sub1_with_marker = dispatch_builtin_pure("1-", vec![marker])
         .expect("builtin 1- should resolve")
         .expect("builtin 1- should evaluate");
@@ -3233,16 +3269,15 @@ fn byte_position_and_clear_bitmap_semantics() {
         builtin_position_bytes(&mut eval, vec![Value::fixnum(3)]).unwrap(),
         Value::fixnum(4)
     );
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        2,
+        false,
+    );
     assert_eq!(
-        builtin_position_bytes(
-            &mut eval,
-            vec![crate::emacs_core::marker::make_marker_value(
-                None,
-                Some(2),
-                false
-            )],
-        )
-        .unwrap(),
+        builtin_position_bytes(&mut eval, vec![marker]).unwrap(),
         Value::fixnum(2)
     );
     assert_eq!(
@@ -5478,14 +5513,6 @@ fn pure_dispatch_tty_tool_bar_placeholder_cluster_matches_compat_contracts() {
         .expect("builtin tool-bar-pixel-width should resolve")
         .expect("builtin tool-bar-pixel-width should evaluate");
     assert_eq!(tool_bar_width, Value::fixnum(0));
-
-    let translate = dispatch_builtin_pure(
-        "translate-region-internal",
-        vec![Value::fixnum(1), Value::fixnum(2), Value::NIL],
-    )
-    .expect("builtin translate-region-internal should resolve")
-    .expect("builtin translate-region-internal should evaluate");
-    assert!(translate.is_nil());
 
     let transpose = dispatch_builtin_pure(
         "transpose-regions",
@@ -8128,6 +8155,7 @@ fn dispatch_builtin_pure_defers_evaluator_window_accessors_and_mutators() {
     assert!(dispatch_builtin_pure("terminal-live-p", vec![]).is_none());
     assert!(dispatch_builtin_pure("terminal-name", vec![]).is_none());
     assert!(dispatch_builtin_pure("terpri", vec![]).is_none());
+    assert!(dispatch_builtin_pure("translate-region-internal", vec![]).is_none());
     assert!(dispatch_builtin_pure("undo-boundary", vec![]).is_none());
     assert!(dispatch_builtin_pure("write-char", vec![]).is_none());
     assert!(dispatch_builtin_pure("assoc", vec![]).is_none());
@@ -13662,16 +13690,15 @@ fn get_byte_buffer_semantics_match_oracle_edges() {
         builtin_get_byte(&mut eval, vec![Value::fixnum(2)]).unwrap(),
         Value::fixnum(98)
     );
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let marker = crate::emacs_core::marker::make_registered_buffer_marker(
+        &mut eval.buffers,
+        buffer_id,
+        2,
+        false,
+    );
     assert_eq!(
-        builtin_get_byte(
-            &mut eval,
-            vec![crate::emacs_core::marker::make_marker_value(
-                None,
-                Some(2),
-                false
-            )],
-        )
-        .unwrap(),
+        builtin_get_byte(&mut eval, vec![marker]).unwrap(),
         Value::fixnum(98)
     );
     assert_eq!(

@@ -837,7 +837,7 @@ fn decode_char_unicode() {
 fn decode_char_eight_bit_maps_to_raw_byte_range() {
     crate::test_utils::init_test_tracing();
     let r = builtin_decode_char(vec![Value::symbol("eight-bit"), Value::fixnum(255)]).unwrap();
-    assert!(r.is_fixnum());
+    assert_eq!(r, Value::fixnum(0x3FFFFF));
 }
 
 #[test]
@@ -937,7 +937,7 @@ fn encode_char_unicode() {
 fn encode_char_eight_bit_raw_byte_maps_back_to_byte() {
     crate::test_utils::init_test_tracing();
     let r = builtin_encode_char(vec![Value::fixnum(0x3FFFFF), Value::symbol("eight-bit")]).unwrap();
-    assert!(r.is_fixnum());
+    assert_eq!(r, Value::fixnum(255));
 }
 
 #[test]

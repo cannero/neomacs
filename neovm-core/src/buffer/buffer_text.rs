@@ -564,6 +564,17 @@ impl BufferText {
             .append_shifted(other, char_offset);
     }
 
+    pub fn text_props_merge_missing_shifted(&self, other: &TextPropertyTable, byte_offset: usize) {
+        let char_offset = {
+            let storage = self.storage.borrow();
+            storage.gap.byte_to_char(byte_offset)
+        };
+        self.storage
+            .borrow_mut()
+            .text_props
+            .merge_missing_shifted(other, char_offset);
+    }
+
     pub fn text_props_slice(&self, start: usize, end: usize) -> TextPropertyTable {
         let start = self.buf_bytepos_to_charpos(start);
         let end = self.buf_bytepos_to_charpos(end);

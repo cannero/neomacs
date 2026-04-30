@@ -3046,13 +3046,7 @@ fn insert_pieces_in_state(
         } else {
             let _ = buffers.insert_lisp_string_into_buffer(current_id, &piece.text);
         }
-        if let Some(str_table) = piece.text_props {
-            let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
-        }
         if inherit {
-            // GNU clears surrounding inherited properties for plain `insert`
-            // after interval adjustment; only the inheriting insert variants
-            // keep sticky properties from adjoining text.
             apply_inherited_text_properties(
                 obarray,
                 dynamic,
@@ -3061,6 +3055,14 @@ fn insert_pieces_in_state(
                 insert_pos,
                 piece.text.sbytes(),
             );
+        }
+        if let Some(str_table) = piece.text_props {
+            if inherit {
+                let _ = buffers
+                    .merge_missing_buffer_text_properties(current_id, &str_table, insert_pos);
+            } else {
+                let _ = buffers.append_buffer_text_properties(current_id, &str_table, insert_pos);
+            }
         }
     }
     Ok(Value::NIL)

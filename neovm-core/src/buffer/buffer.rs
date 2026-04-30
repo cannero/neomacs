@@ -3475,6 +3475,19 @@ impl BufferManager {
         Some(())
     }
 
+    pub fn merge_missing_buffer_text_properties(
+        &mut self,
+        id: BufferId,
+        table: &TextPropertyTable,
+        byte_offset: usize,
+    ) -> Option<()> {
+        self.buffers
+            .get_mut(&id)?
+            .text
+            .text_props_merge_missing_shifted(table, byte_offset);
+        Some(())
+    }
+
     pub fn remove_buffer_text_property(
         &mut self,
         id: BufferId,

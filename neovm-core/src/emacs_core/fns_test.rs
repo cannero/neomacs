@@ -865,7 +865,8 @@ fn secure_hash_eval_buffer_marker_range() {
         buf.insert("abc");
     }
     let id = eval.buffers.current_buffer().expect("current buffer").id;
-    let marker = crate::emacs_core::marker::make_marker_value(None, Some(2), false);
+    let marker =
+        crate::emacs_core::marker::make_registered_buffer_marker(&mut eval.buffers, id, 2, false);
     let r = builtin_secure_hash(
         &mut eval,
         vec![

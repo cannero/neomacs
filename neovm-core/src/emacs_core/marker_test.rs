@@ -83,8 +83,10 @@ fn builtin_markerp_works() {
 #[test]
 fn builtin_marker_position_returns_position() {
     crate::test_utils::init_test_tracing();
-    let m = make_marker_value(None, Some(10), false);
-    let pos = call_marker_position(vec![m]).unwrap();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let m = make_registered_buffer_marker(&mut eval.buffers, buffer_id, 10, false);
+    let pos = builtin_marker_position(&mut eval, vec![m]).unwrap();
     assert!(pos.is_fixnum());
 }
 
@@ -119,8 +121,10 @@ fn builtin_marker_insertion_type_roundtrip() {
 #[test]
 fn builtin_copy_marker_from_marker() {
     crate::test_utils::init_test_tracing();
-    let m = make_marker_value(None, Some(5), true);
-    let copy = call_copy_marker(vec![m]).unwrap();
+    let mut eval = super::super::eval::Context::new();
+    let buffer_id = eval.buffers.current_buffer_id().expect("current buffer");
+    let m = make_registered_buffer_marker(&mut eval.buffers, buffer_id, 5, true);
+    let copy = builtin_copy_marker(&mut eval, vec![m]).unwrap();
     assert!(is_marker(&copy));
     assert!(marker_position_value(&copy).is_fixnum());
 }

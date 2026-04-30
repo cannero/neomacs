@@ -834,8 +834,10 @@ fn window_body_height_pixelwise() {
     let r = eval_one_with_frame("(window-body-height nil t)");
     assert!(r.starts_with("OK "));
     let val: i64 = r.strip_prefix("OK ").unwrap().trim().parse().unwrap();
-    // PIXELWISE=t returns pixel height (frame 600 - mode-line 16 = 584).
-    assert_eq!(val, 584);
+    // PIXELWISE=t returns pixel height of the root window body.  GNU frames
+    // reserve the minibuffer line outside the root window, then exclude the
+    // mode-line from the root window's text area.
+    assert_eq!(val, 568);
 }
 
 #[test]
@@ -895,7 +897,7 @@ fn gui_window_body_geometry_excludes_fringes_and_margins() {
             Value::fixnum(16),
             Value::fixnum(0),
             Value::fixnum(764),
-            Value::fixnum(584),
+            Value::fixnum(568),
         ])
     );
     assert_eq!(

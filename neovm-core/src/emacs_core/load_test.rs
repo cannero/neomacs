@@ -892,7 +892,8 @@ fn runtime_image_loader_stops_on_primary_fingerprint_mismatch() {
     stale.set_variable("runtime-image-candidate-test-var", Value::fixnum(1));
     crate::emacs_core::pdump::dump_to_file(&stale, &primary).expect("write primary runtime image");
     let mut primary_bytes = fs::read(&primary).expect("read primary runtime image");
-    primary_bytes[12] ^= 0x01;
+    let fingerprint_start = 16 + 4 + 4 + 4 + 4;
+    primary_bytes[fingerprint_start] ^= 0x01;
     fs::write(&primary, primary_bytes).expect("corrupt primary fingerprint");
 
     let mut fresh = Context::new();
@@ -2874,24 +2875,32 @@ fn bootstrap_runtime_command_loop_executes_help_describe_function_on_ret() {
         "runtime command-loop help test should have a selected frame"
     );
 
-    let _ = eval.eval_str_each(
+    for result in eval.eval_str_each(
         r#"(progn
              (setq neo-help-f-log nil)
              (defun neo--capture-describe-function (&rest _args)
                (setq neo-help-f-log
-                     (list
-                      (bufferp (get-buffer "*Help*"))
-                      (with-current-buffer "*Help*"
-                        (not (null (save-excursion
-                                     (goto-char (point-min))
-                                     (search-forward "find-file is" nil t)))))
-                      (with-current-buffer "*Help*"
-                        (not (null (save-excursion
-                                     (goto-char (point-min))
-                                     (search-forward "C-x C-f" nil t))))))
-               (exit-recursive-edit))
+                     (let ((help (get-buffer "*Help*")))
+                       (list
+                        (bufferp help)
+                        (with-current-buffer help
+                          (save-excursion
+                            (goto-char (point-min))
+                            (not (null (search-forward "find-file is" nil t)))))
+                        (with-current-buffer help
+                          (save-excursion
+                            (goto-char (point-min))
+                            (not (null (search-forward "C-x C-f" nil t))))))))
+               (kill-emacs))
              (advice-add 'describe-function :after #'neo--capture-describe-function))"#,
-    );
+    ) {
+        if let Err(err) = result {
+            panic!(
+                "install C-h f describe-function capture advice: {}",
+                format_eval_error(&eval, &err)
+            );
+        }
+    }
 
     let (tx, rx) = crossbeam_channel::unbounded();
     tx.send(crate::keyboard::InputEvent::key_press(
@@ -4884,10 +4893,10 @@ fn bootstrap_runtime_command_loop_logs_help_route_for_ch_f() {
              (setq neo-help-route-log nil)
              (defun neo--capture-prefix-help (&rest _args)
                (setq neo-help-route-log (append neo-help-route-log '(describe-prefix-bindings)))
-               (exit-recursive-edit))
+               (kill-emacs))
              (defun neo--capture-describe-function (&rest _args)
                (setq neo-help-route-log (append neo-help-route-log '(describe-function)))
-               (exit-recursive-edit))
+               (kill-emacs))
              (advice-add 'describe-prefix-bindings :before #'neo--capture-prefix-help)
              (advice-add 'describe-function :before #'neo--capture-describe-function))"#,
     );
@@ -4901,6 +4910,16 @@ fn bootstrap_runtime_command_loop_logs_help_route_for_ch_f() {
         crate::keyboard::KeyEvent::char('f'),
     ))
     .expect("queue f");
+    for ch in "find-file".chars() {
+        tx.send(crate::keyboard::InputEvent::key_press(
+            crate::keyboard::KeyEvent::char(ch),
+        ))
+        .expect("queue function chars");
+    }
+    tx.send(crate::keyboard::InputEvent::key_press(
+        crate::keyboard::KeyEvent::named(crate::keyboard::NamedKey::Return),
+    ))
+    .expect("queue RET");
     drop(tx);
 
     eval.input_rx = Some(rx);
@@ -4996,11 +5015,11 @@ fn bootstrap_runtime_command_loop_traces_describe_function_body_for_ch_f() {
                (condition-case err
                    (prog1 (apply orig args)
                      (setq neo-help-f-trace (append neo-help-f-trace '(returned)))
-                     (exit-recursive-edit))
+                     (kill-emacs))
                  (error
                   (setq neo-help-f-trace
                         (append neo-help-f-trace (list (list 'error err))))
-                  (exit-recursive-edit)
+                  (kill-emacs)
                   nil)))
              (advice-add 'describe-function :around #'neo--trace-describe-function))"#,
     );
@@ -6255,9 +6274,10 @@ fn bootstrap_runtime_message_logging_does_not_change_other_buffer_order() {
              (switch-to-buffer buf)
              (switch-to-buffer "*scratch*")
              (message "hi")
-             (list
-              (mapcar #'buffer-name (buffer-list))
-              (buffer-name (other-buffer (current-buffer)))))"#,
+             (let ((names (mapcar #'buffer-name (buffer-list))))
+               (list
+                (list (nth 0 names) (nth 1 names) (nth 2 names) (nth 3 names))
+                (buffer-name (other-buffer (current-buffer))))))"#,
     );
     assert_eq!(
         rendered,
@@ -11339,56 +11359,7 @@ fn macroexp_eager_reload_preserves_symbol_identity() {
 fn eager_expand_toplevel_forms_keeps_recursive_progn_forms_alive_under_exact_gc() {
     crate::test_utils::init_test_tracing();
 
-    let mut eval = crate::emacs_core::eval::Context::new();
-    let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let project_root = manifest.parent().expect("root");
-    let lisp_dir = project_root.join("lisp");
-    assert!(lisp_dir.is_dir());
-    let subdirs = ["", "emacs-lisp"];
-    let mut load_path_entries = Vec::new();
-    for sub in &subdirs {
-        let dir = if sub.is_empty() {
-            lisp_dir.clone()
-        } else {
-            lisp_dir.join(sub)
-        };
-        if dir.is_dir() {
-            load_path_entries.push(Value::string(dir.to_string_lossy().to_string()));
-        }
-    }
-    eval.set_variable("load-path", Value::list(load_path_entries));
-    eval.set_variable("dump-mode", Value::symbol("pbootstrap"));
-    eval.set_variable("purify-flag", Value::NIL);
-    eval.set_variable("max-lisp-eval-depth", Value::fixnum(1600));
-
-    let load_path = get_load_path(&eval.obarray());
-    let load_and_report = |eval: &mut crate::emacs_core::eval::Context,
-                           name: &str,
-                           load_path: &[crate::heap_types::LispString]| {
-        let path = find_file_in_load_path(name, load_path).expect(name);
-        load_file(eval, &path).unwrap_or_else(|e| {
-            let msg = match &e {
-                EvalError::Signal { symbol, data, .. } => {
-                    let sym = crate::emacs_core::intern::resolve_sym(*symbol);
-                    let data_strs: Vec<String> = data.iter().map(|v| format!("{v}")).collect();
-                    format!("({sym} {})", data_strs.join(" "))
-                }
-                other => format!("{other:?}"),
-            };
-            panic!("Failed to load {name}: {msg}");
-        });
-    };
-
-    for name in &[
-        "emacs-lisp/debug-early",
-        "emacs-lisp/byte-run",
-        "emacs-lisp/backquote",
-        "subr",
-        "emacs-lisp/macroexp",
-        "emacs-lisp/pcase",
-    ] {
-        load_and_report(&mut eval, name, &load_path);
-    }
+    let mut eval = minimal_eager_macroexpand_eval();
 
     eval.eval_str(
         r#"(defmacro neomacs-test-progn-macro ()

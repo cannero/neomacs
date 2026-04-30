@@ -10931,11 +10931,11 @@ fn evaluator_face_table_has_standard_faces() {
         "missing minibuffer-prompt face"
     );
 
-    // Resolve should apply inheritance (bold inherits from default)
+    // GNU keeps `bold' foreground unspecified; it supplies only weight.
     let bold = ft.resolve("bold");
     assert!(
-        bold.foreground.is_some(),
-        "bold should inherit foreground from default"
+        bold.foreground.is_none(),
+        "bold foreground should remain unspecified"
     );
     assert!(
         bold.weight.map_or(false, |w| w.is_bold()),

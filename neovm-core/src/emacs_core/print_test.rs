@@ -374,13 +374,13 @@ fn print_default_handles_self_referential_bytecode_constants() {
     let bytecode = Value::make_bytecode(function);
     bytecode.with_bytecode_data_mut(|data| data.constants[0] = bytecode);
 
-    assert_eq!(print_value(&bytecode), "#[nil nil [#0] 0 nil]");
-    assert_eq!(print_value_bytes(&bytecode), b"#[nil nil [#0] 0 nil]");
+    assert_eq!(print_value(&bytecode), "#[nil nil [#0] 0]");
+    assert_eq!(print_value_bytes(&bytecode), b"#[nil nil [#0] 0]");
 
     let options = PrintOptions::new(false, true, None, None);
     assert_eq!(
         print_value_with_options(&bytecode, options),
-        "#1=#[nil nil [#1#] 0 nil]"
+        "#1=#[nil nil [#1#] 0]"
     );
 }
 

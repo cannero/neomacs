@@ -79,9 +79,8 @@ pub(crate) fn make_marker_value_with_id(
     marker_id: Option<u64>,
 ) -> Value {
     // Seed charpos from the 1-based Lisp position so unregistered markers
-    // (e.g. synthesized mark-markers, bufferless fixture markers that never
-    // get registered into a buffer's chain) still report a sensible
-    // position when the reader path reads MarkerData.charpos directly.
+    // can preserve a last-position value.  GNU `marker-position` still
+    // reports nil unless the marker is attached to a live buffer.
     //
     // Markers that later get registered via register_marker have their
     // charpos/bytepos overwritten through the chain path, so this only
@@ -226,17 +225,10 @@ fn marker_position_value(v: &Value) -> Value {
         return Value::NIL;
     };
     let data = v.as_marker_data().unwrap();
-    // T7: the stale `position` cache is gone. The only source of truth is
-    // `charpos` (live for buffer-attached markers, pre-seeded from the
-    // Lisp position for unregistered/synthesized markers in
-    // `make_marker_value_with_id`). Use `buffer.is_some()` to decide
-    // "attached", matching GNU (`Fmarker_position` returns nil for a
-    // detached marker). Bufferless NeoVM-internal fixture markers that
-    // carry a seeded charpos report it back as `charpos + 1`; if charpos
-    // is 0 (i.e. `make_marker_value(None, None, _)`), return nil.
+    // GNU `Fmarker_position` returns nil for detached markers.  The saved
+    // charpos for detached/dead-buffer markers is exposed by
+    // `marker-last-position`, not by `marker-position`.
     if data.buffer.is_some() {
-        Value::fixnum(data.charpos as i64 + 1)
-    } else if data.last_position_valid {
         Value::fixnum(data.charpos as i64 + 1)
     } else {
         Value::NIL
@@ -281,14 +273,10 @@ pub(crate) fn marker_position_as_int_with_buffers(
     }
 
     let data = v.as_marker_data().unwrap();
-    // T7: stale `position` cache is gone. Attached markers return live
-    // charpos+1; bufferless NeoVM-internal fixture markers seeded with a
-    // position keep reporting it back via the seeded charpos; a truly
-    // unset marker (`make-marker` with no buffer and no position) has
-    // charpos == 0 and buffer == None, which signals "points nowhere".
+    // GNU position contexts require an attached marker; detached markers
+    // still retain a charpos for `marker-last-position`, but they do not
+    // point anywhere for `marker-position`.
     if data.buffer.is_some() {
-        Ok(data.charpos as i64 + 1)
-    } else if data.last_position_valid {
         Ok(data.charpos as i64 + 1)
     } else {
         Err(signal(

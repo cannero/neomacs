@@ -256,7 +256,7 @@ impl CharsetRegistry {
         eight_bit.min_code = 128;
         eight_bit.max_code = 255;
         eight_bit.supplementary_p = true;
-        eight_bit.method = CharsetMethod::Offset(0x3FFF00);
+        eight_bit.method = CharsetMethod::Offset(0x3FFF80);
         self.register(eight_bit);
 
         // iso-8859-1 is a full 0-255 charset with identity mapping

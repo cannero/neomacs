@@ -1195,7 +1195,7 @@ fn internal_get_lisp_face_attribute_default_foreground() {
         vec![Value::symbol("default"), Value::keyword(":foreground")],
     )
     .unwrap();
-    assert_eq!(result.as_utf8_str(), Some("black"));
+    assert_eq!(result.as_utf8_str(), Some("unspecified-fg"));
 }
 
 #[test]
