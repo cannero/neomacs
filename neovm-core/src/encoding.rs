@@ -495,6 +495,11 @@ pub fn char_width(c: char) -> usize {
     if (0x80..=0x9f).contains(&cp) {
         return 4; // octal escaped control bytes
     }
+    // GNU `CHARACTER_WIDTH` returns 1 for printable ASCII before the
+    // char-width-table lookup.
+    if cp < 0x80 {
+        return 1;
+    }
     // Non-spacing marks
     if is_zero_width(c) {
         return 0;
