@@ -716,15 +716,20 @@ pub(crate) fn inherited_text_properties_for_inserted_range_in_state(
     insert_start: usize,
     insert_len: usize,
 ) -> Vec<(Value, Value)> {
-    let left_props = if insert_start > buf.point_min_byte() {
-        buf.text
-            .text_props_get_properties_ordered(insert_start.saturating_sub(1))
+    let insert_start_char = buf.text.emacs_byte_to_char(insert_start);
+    let left_props = if insert_start_char > buf.point_min_char() {
+        let left_byte = buf
+            .text
+            .char_to_emacs_byte(insert_start_char.saturating_sub(1));
+        buf.text.text_props_get_properties_ordered(left_byte)
     } else {
         Vec::new()
     };
     let right_pos = insert_start.saturating_add(insert_len);
-    let right_props = if right_pos < buf.point_max_byte() {
-        buf.text.text_props_get_properties_ordered(right_pos)
+    let right_char = buf.text.emacs_byte_to_char(right_pos);
+    let right_props = if right_char < buf.point_max_char() {
+        let right_byte = buf.text.char_to_emacs_byte(right_char);
+        buf.text.text_props_get_properties_ordered(right_byte)
     } else {
         Vec::new()
     };

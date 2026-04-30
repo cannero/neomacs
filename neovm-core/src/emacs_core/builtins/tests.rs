@@ -2245,6 +2245,30 @@ fn plain_insert_does_not_inherit_spanning_text_properties() {
 }
 
 #[test]
+fn insert_inherits_left_multibyte_text_property_at_char_boundary() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = super::super::eval::Context::new();
+    {
+        let buf = eval.buffers.current_buffer_mut().expect("current buffer");
+        buf.insert("é");
+        buf.text
+            .text_props_put_property(0, 2, Value::symbol("face"), Value::symbol("bold"));
+    }
+
+    assert_eq!(
+        builtin_insert_and_inherit(&mut eval, vec![Value::string("X")]).unwrap(),
+        Value::NIL
+    );
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "éX");
+    assert_eq!(
+        buf.text.text_props_get_property(2, Value::symbol("face")),
+        Some(Value::symbol("bold"))
+    );
+}
+
+#[test]
 fn insert_char_nil_count_defaults_to_one_and_can_inherit_text_properties() {
     crate::test_utils::init_test_tracing();
     let mut eval = super::super::eval::Context::new();
