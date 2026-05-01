@@ -1419,6 +1419,14 @@ pub struct Frame {
     pub no_accept_focus: bool,
     /// Unsplittable frame hint.
     pub no_split: bool,
+    /// GNU `struct frame.buffer_list`: buffers most-recently shown in this
+    /// frame, in most-recently-shown-first order.  Updated by
+    /// `bury-buffer-internal` and cleaned up on buffer kill.
+    pub buffer_list: Vec<BufferId>,
+    /// GNU `struct frame.buried_buffer_list`: buffers buried in this frame,
+    /// in most-recently-buried-first order.  Updated by
+    /// `bury-buffer-internal` and cleaned up on buffer kill.
+    pub buried_buffer_list: Vec<BufferId>,
 }
 
 impl Frame {
@@ -1530,6 +1538,8 @@ impl Frame {
             undecorated: false,
             no_accept_focus: false,
             no_split: false,
+            buffer_list: Vec::new(),
+            buried_buffer_list: Vec::new(),
         }
     }
 

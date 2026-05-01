@@ -570,6 +570,17 @@ pub(crate) fn builtin_kill_buffer(eval: &mut super::eval::Context, args: Vec<Val
         eval.frames.replace_buffer_in_windows(*killed_id, scratch);
     }
 
+    // Discard killed buffers from every frame's buffer list and buried
+    // buffer list (GNU frame.c:3757-3769 discards from each frame).
+    for killed_id in &killed_ids {
+        for fid in eval.frames.frame_list() {
+            if let Some(frame) = eval.frames.get_mut(fid) {
+                frame.buffer_list.retain(|bid| *bid != *killed_id);
+                frame.buried_buffer_list.retain(|bid| *bid != *killed_id);
+            }
+        }
+    }
+
     if current_will_die {
         if let Some(next) = replacement {
             if eval.buffers.get(next).is_some() {
@@ -3633,23 +3644,25 @@ pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Val
             ValueKind::Veclike(VecLikeType::Frame) => {
                 let fid = crate::window::FrameId(value.as_frame_id().unwrap());
                 let frame = eval.frames.get(fid)?;
-                let mut ids = Vec::new();
-                for window_id in frame.window_list() {
-                    let Some(buffer_id) = frame
-                        .find_window(window_id)
-                        .and_then(|window| window.buffer_id())
-                    else {
-                        continue;
-                    };
-                    if !ids.contains(&buffer_id) {
-                        ids.push(buffer_id);
-                    }
-                }
-                for buffer_id in eval.buffers.buffer_list() {
-                    if !ids.contains(&buffer_id) {
-                        ids.push(buffer_id);
-                    }
-                }
+
+                // Global buffer list (Vbuffer_alist equivalent).
+                let mut general = eval.buffers.buffer_list();
+
+                // Frame-specific lists (GNU buffer.c:438-460).
+                // f->buffer_list: most-recently-shown first.
+                let framelist: Vec<BufferId> = frame.buffer_list.clone();
+                // f->buried_buffer_list: most-recently-buried first;
+                // GNU reverses it so most-recently-buried comes last.
+                let mut prevlist: Vec<BufferId> = frame.buried_buffer_list.clone();
+                prevlist.reverse();
+
+                // Remove duplicates from general.
+                general.retain(|bid| !framelist.contains(bid) && !prevlist.contains(bid));
+
+                let mut ids = Vec::with_capacity(framelist.len() + prevlist.len() + general.len());
+                ids.extend(framelist);
+                ids.extend(prevlist);
+                ids.extend(general);
                 Some(ids)
             }
             _ => None,

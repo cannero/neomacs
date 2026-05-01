@@ -3853,7 +3853,12 @@ fn note_selected_window_buffer_in_state(
     }
 }
 
-fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: BufferId) -> EvalResult {
+fn record_buffer_display_in_state(
+    frames: &mut FrameManager,
+    buffers: &mut BufferManager,
+    buffer_id: BufferId,
+    fid: FrameId,
+) -> EvalResult {
     let display_time = super::timefns::builtin_current_time(vec![])?;
     {
         let Some(buffer) = buffers.get_mut(buffer_id) else {
@@ -3870,7 +3875,14 @@ fn record_buffer_display_in_state(buffers: &mut BufferManager, buffer_id: Buffer
         }
         buffer.set_buffer_local("buffer-display-time", display_time);
     }
+    // Move to front of global buffer order (Vbuffer_alist equivalent).
     buffers.note_buffer_display(buffer_id);
+    // Update frame buffer lists (GNU record_buffer, buffer.c:2223-2225).
+    if let Some(frame) = frames.get_mut(fid) {
+        frame.buffer_list.retain(|bid| *bid != buffer_id);
+        frame.buffer_list.insert(0, buffer_id);
+        frame.buried_buffer_list.retain(|bid| *bid != buffer_id);
+    }
     Ok(Value::NIL)
 }
 
@@ -3920,6 +3932,17 @@ pub(crate) fn builtin_select_window(
         }
         sync_selected_window_buffer_in_state(frames, buffers, fid);
         note_selected_window_buffer_in_state(frames, buffers, fid);
+        // GNU Fselect_window calls record_buffer when NORECORD is nil
+        // (window.c).
+        if record_selection {
+            if let Some(buffer_id) = frames
+                .get(fid)
+                .and_then(|f| f.find_window(wid))
+                .and_then(Window::buffer_id)
+            {
+                record_buffer_display_in_state(frames, buffers, buffer_id, fid)?;
+            }
+        }
         let run_buffer_list_hook = record_selection
             && selected_window_buffer_state_in_frame(frames, fid)
                 .is_some_and(|(_, buffer_id)| !buffers.buffer_hooks_inhibited(buffer_id));
@@ -4238,7 +4261,7 @@ pub(crate) fn builtin_set_window_buffer(
                 scroll_bars: next_scroll_bars,
             },
         );
-        record_buffer_display_in_state(buffers, buf_id)?;
+        record_buffer_display_in_state(frames, buffers, buf_id, fid)?;
         if selected_window == Some(wid)
             && let Some(buffer) = buffers.get_mut(buf_id)
         {
@@ -4297,6 +4320,9 @@ pub(crate) fn builtin_switch_to_buffer(
         eval.switch_current_buffer(buf_id)?;
         if let Some(buffer) = eval.buffers.get_mut(buf_id) {
             buffer.last_selected_window = Some(sel_wid);
+        }
+        if record_selection {
+            record_buffer_display_in_state(&mut eval.frames, &mut eval.buffers, buf_id, fid)?;
         }
         (
             buf_id,

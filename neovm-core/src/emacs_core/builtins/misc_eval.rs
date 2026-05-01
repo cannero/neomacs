@@ -983,7 +983,19 @@ pub(crate) fn builtin_bury_buffer_internal(
     eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    builtin_bury_buffer_internal_impl(&mut eval.buffers, args)
+    expect_args("bury-buffer-internal", &args, 1)?;
+    let id = expect_buffer_id(&args[0])?;
+    if eval.buffers.get(id).is_some() {
+        // Move to end of global buffer order (Vbuffer_alist equivalent).
+        eval.buffers.note_buffer_order_tail(id);
+        // Update frame buffer lists (GNU buffer.c:2259-2262).
+        if let Some(frame) = eval.frames.selected_frame_mut() {
+            frame.buffer_list.retain(|bid| *bid != id);
+            frame.buried_buffer_list.retain(|bid| *bid != id);
+            frame.buried_buffer_list.insert(0, id);
+        }
+    }
+    Ok(Value::NIL)
 }
 
 pub(crate) fn builtin_bury_buffer_internal_impl(
