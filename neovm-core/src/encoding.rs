@@ -1318,6 +1318,30 @@ fn coding_string_nocopy(args: &[Value]) -> bool {
     args.get(2).is_some_and(|value| value.is_truthy())
 }
 
+fn coding_string_trivial_ascii_nocopy(bytes: &[u8], coding: &str, encode: bool) -> bool {
+    if !bytes.iter().all(u8::is_ascii) {
+        return false;
+    }
+    if encode && bytes.contains(&b'\n') {
+        return false;
+    }
+    if !encode && bytes.contains(&b'\r') {
+        return false;
+    }
+    matches!(
+        coding_system_family(coding),
+        "utf-8"
+            | "utf-8-emacs"
+            | "iso-latin-1"
+            | "iso-latin-5"
+            | "iso-latin-9"
+            | "ascii"
+            | "us-ascii"
+            | "undecided"
+            | "prefer-utf-8"
+    )
+}
+
 fn copy_lisp_string_value(value: Value) -> Result<Value, crate::emacs_core::error::Flow> {
     let string = value
         .as_lisp_string()
@@ -1721,6 +1745,11 @@ pub(crate) fn builtin_encode_coding_string_with_known(
         }
     };
     validate_coding_system(&coding, args[1], known)?;
+    if coding_string_nocopy(&args)
+        && coding_string_trivial_ascii_nocopy(string.as_bytes(), &coding, true)
+    {
+        return Ok(args[0]);
+    }
     let bytes = encode_lisp_string(string, &coding);
     Ok(Value::heap_string(
         crate::heap_types::LispString::from_unibyte(bytes),
@@ -1765,6 +1794,9 @@ pub(crate) fn builtin_decode_coding_string_with_known(
     };
     validate_coding_system(&coding, args[1], known)?;
     let bytes = storage_string_to_bytes(&s);
+    if coding_string_nocopy(&args) && coding_string_trivial_ascii_nocopy(&bytes, &coding, false) {
+        return Ok(args[0]);
+    }
     if is_byte_preserving_coding_system(&coding) {
         let bytes = if coding.starts_with("raw-text") {
             decode_eol_text(&bytes, &coding)

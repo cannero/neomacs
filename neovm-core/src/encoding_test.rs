@@ -343,6 +343,60 @@ fn nil_coding_string_respects_nocopy_identity() {
 }
 
 #[test]
+fn ascii_coding_string_respects_nocopy_fast_path_identity() {
+    crate::test_utils::init_test_tracing();
+    let source = Value::string("abc");
+
+    let encoded_copy =
+        builtin_encode_coding_string(vec![source, Value::symbol("utf-8"), Value::NIL])
+            .expect("utf-8 encode");
+    assert_eq!(encoded_copy.as_utf8_str(), Some("abc"));
+    assert!(!crate::emacs_core::value::eq_value(&source, &encoded_copy));
+
+    let encoded_nocopy =
+        builtin_encode_coding_string(vec![source, Value::symbol("utf-8"), Value::T])
+            .expect("utf-8 encode");
+    assert!(crate::emacs_core::value::eq_value(&source, &encoded_nocopy));
+
+    let decoded_copy =
+        builtin_decode_coding_string(vec![source, Value::symbol("utf-8"), Value::NIL])
+            .expect("utf-8 decode");
+    assert_eq!(decoded_copy.as_utf8_str(), Some("abc"));
+    assert!(!crate::emacs_core::value::eq_value(&source, &decoded_copy));
+
+    let decoded_nocopy =
+        builtin_decode_coding_string(vec![source, Value::symbol("utf-8"), Value::T])
+            .expect("utf-8 decode");
+    assert!(crate::emacs_core::value::eq_value(&source, &decoded_nocopy));
+}
+
+#[test]
+fn ascii_coding_string_nocopy_allocates_when_eol_conversion_needed() {
+    crate::test_utils::init_test_tracing();
+    let encode_source = Value::string("a\nb");
+    let encoded =
+        builtin_encode_coding_string(vec![encode_source, Value::symbol("utf-8-dos"), Value::T])
+            .expect("utf-8-dos encode");
+    assert_eq!(encoded.as_lisp_string().unwrap().as_bytes(), b"a\r\nb");
+    assert!(!crate::emacs_core::value::eq_value(
+        &encode_source,
+        &encoded
+    ));
+
+    let decode_source = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"a\r\nb".to_vec(),
+    ));
+    let decoded =
+        builtin_decode_coding_string(vec![decode_source, Value::symbol("utf-8-dos"), Value::T])
+            .expect("utf-8-dos decode");
+    assert_eq!(decoded.as_utf8_str(), Some("a\nb"));
+    assert!(!crate::emacs_core::value::eq_value(
+        &decode_source,
+        &decoded
+    ));
+}
+
+#[test]
 fn encode_coding_string_buffer_destination_inserts_without_moving_point() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
