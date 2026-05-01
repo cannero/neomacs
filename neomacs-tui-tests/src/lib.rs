@@ -70,7 +70,7 @@ impl TuiSession {
         }
         let home = Self::unique_home_dir(name);
         command = command
-            .env("TERM", "xterm-256color")
+            .env("TERM", "screen-256color")
             .env("COLUMNS", COLS.to_string())
             .env("LINES", ROWS.to_string())
             // Prevent user config from interfering while also isolating

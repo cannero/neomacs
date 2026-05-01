@@ -63,8 +63,7 @@ pub fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
             neo_ready = startup_ready(&neo.text_grid());
         }
     }
-
-    // Phase 2 — interleaved uncapped settle (absorbs late-render bursts)
+    // Phase 2 — parallel settle (absorbs late-render bursts)
     settle_both(&mut gnu, &mut neo);
 
     (gnu, neo)
@@ -83,15 +82,14 @@ pub fn settle_session(session: &mut TuiSession) {
     }
 }
 
-/// Interleaved settle: keep reading both sessions until both grids stop
-/// changing. Used by `boot_pair` so the slower editor doesn't stretch the
-/// settle phase.
+/// Parallel settle via `read_both`: keep reading both sessions until both
+/// grids stop changing. Used by `boot_pair` so the slower editor doesn't
+/// stretch the settle phase.
 fn settle_both(gnu: &mut TuiSession, neo: &mut TuiSession) {
     let mut prev_gnu = gnu.text_grid();
     let mut prev_neo = neo.text_grid();
     loop {
-        gnu.read(SETTLE_IDLE);
-        neo.read(SETTLE_IDLE);
+        read_both(gnu, neo, SETTLE_IDLE);
         let cur_gnu = gnu.text_grid();
         let cur_neo = neo.text_grid();
         if cur_gnu == prev_gnu && cur_neo == prev_neo {
@@ -121,20 +119,15 @@ pub fn send_both_raw(gnu: &mut TuiSession, neo: &mut TuiSession, bytes: &[u8]) {
     neo.send(bytes);
 }
 
-/// Drain PTY output from both sessions concurrently in short interleaved
-/// slices. Each slice polls whichever PTY has data, so the faster editor
-/// never waits for the slower one.
+/// Drain PTY output from both sessions in parallel via scoped threads.
+/// Each session gets the full timeout with its own idle detection — the
+/// faster editor returns as soon as its output settles, never waiting
+/// for the slower one.
 pub fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
-    let deadline = Instant::now() + timeout;
-    loop {
-        let now = Instant::now();
-        if now >= deadline {
-            break;
-        }
-        let cap = deadline.saturating_duration_since(now).min(POLL_SLICE);
-        gnu.read(cap);
-        neo.read(cap);
-    }
+    std::thread::scope(|s| {
+        s.spawn(|| gnu.read(timeout));
+        s.spawn(|| neo.read(timeout));
+    });
 }
 
 pub fn resize_both(gnu: &mut TuiSession, neo: &mut TuiSession, rows: u16, cols: u16) {
