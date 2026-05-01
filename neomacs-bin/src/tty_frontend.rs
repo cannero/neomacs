@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,23 +6,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{select, unbounded};
 use neomacs_display_runtime::thread_comm::{InputEvent, RenderCommand, RenderComms};
-use neovm_core::keyboard::{
-    RENDER_CTRL_MASK, RENDER_META_MASK, RENDER_SHIFT_MASK, XK_BACKSPACE, XK_DELETE, XK_DOWN,
-    XK_END, XK_F1, XK_HOME, XK_INSERT, XK_LEFT, XK_PAGE_DOWN, XK_PAGE_UP, XK_RETURN, XK_RIGHT,
-    XK_TAB, XK_UP,
-};
 
-thread_local! {
-    /// Buffer of bytes that were consumed from stdin but need to be re-emitted
-    /// as individual byte events. Used when an escape sequence is not recognized
-    /// by the parser — the raw bytes are pushed here (in reverse order so that
-    /// pop() yields the correct forward sequence) and the parser emits ESC.
-    /// Subsequent `read_stdin_byte` calls drain this buffer before polling stdin.
-    static STDIN_UNREAD: RefCell<Vec<u8>> = RefCell::new(Vec::new());
-}
-
-const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
-const INPUT_POLL_INTERVAL_MS: i32 = 100;
 const RESIZE_POLL_INTERVAL_MS: u64 = 100;
 
 #[cfg(unix)]
@@ -129,91 +112,113 @@ fn spawn_tty_resize_watcher(
     None
 }
 
-fn read_tty_input(
-    tx: crossbeam_channel::Sender<InputEvent>,
-    stop: Arc<AtomicBool>,
-    paused: Arc<AtomicBool>,
-) {
-    while !stop.load(Ordering::Relaxed) {
-        if paused.load(Ordering::Relaxed) {
-            thread::sleep(Duration::from_millis(25));
-            continue;
-        }
-        match read_one_input_event(&stop) {
-            Ok(Some(event)) => {
-                tracing::info!("tty_input: got event {:?}", event);
-                if tx.send(event).is_err() {
-                    tracing::warn!("tty_input: channel closed");
-                    break;
-                }
+// ── TTY byte input (GNU-compatible raw byte stream) ───────────────────
+//
+// Matches GNU Emacs's `tty_read_avail_input` (keyboard.c:8134-8307):
+// every byte read from the terminal becomes an ASCII_KEYSTROKE_EVENT.
+// Escape sequences are NOT parsed at the Rust level — translation of
+// \e[A → [up] etc. happens at the Lisp level via input-decode-map.
+
+/// Convert a single raw TTY byte into a (keysym, modifiers) pair.
+///
+/// `meta_key` controls 8-bit interpretation, matching GNU's per-terminal
+/// `tty->meta_key` mode:
+///   - 0: clear the 8th bit, no Meta modifier (default for UTF-8 terminals)
+///   - 1: if the 8th bit is set, clear it and add Meta modifier
+///   - 2: pass every byte through unchanged (raw 8-bit / coding-system)
+fn parse_tty_byte(byte: u8, meta_key: u8) -> (u32, u32) {
+    match meta_key {
+        0 => (u32::from(byte & 0x7F), 0),
+        1 => {
+            if byte & 0x80 != 0 {
+                (u32::from(byte & 0x7F), RENDER_META_MASK)
+            } else {
+                (u32::from(byte), 0)
             }
-            Ok(None) => {}
-            Err(err) => {
-                tracing::warn!("tty input reader stopped: {err}");
-                break;
-            }
         }
+        _ => (u32::from(byte), 0),
     }
 }
 
-fn read_one_input_event(stop: &AtomicBool) -> io::Result<Option<InputEvent>> {
-    let Some(first_byte) = read_stdin_byte_blocking(stop)? else {
-        return Ok(None);
+/// Bitmask constants for the frontend modifier word.
+/// These match the values expected by `keyboard::render_modifiers_to_modifiers`.
+const RENDER_META_MASK: u32 = 1 << 27;
+
+/// Try to decode a UTF-8 multi-byte character starting at `bytes[*pos]`.
+/// On success, advances `*pos` past the consumed bytes and returns the char.
+/// Returns `None` if `bytes[*pos]` is not a UTF-8 lead byte or the sequence
+/// is incomplete.
+fn decode_utf8_from_slice(bytes: &[u8], pos: &mut usize) -> Option<char> {
+    let first = bytes[*pos];
+    let len = match first {
+        0xC2..=0xDF => 2,
+        0xE0..=0xEF => 3,
+        0xF0..=0xF4 => 4,
+        _ => return None,
     };
 
-    let mut next_byte = |timeout_ms| read_stdin_byte(timeout_ms);
-    let Some((keysym, modifiers)) = parse_tty_key_event(first_byte, &mut next_byte)? else {
-        return Ok(None);
-    };
+    let end = *pos + len;
+    if end > bytes.len() {
+        return None;
+    }
 
-    Ok(Some(InputEvent::Key {
-        keysym,
-        modifiers,
-        pressed: true,
-        emacs_frame_id: 0,
-    }))
+    let s = std::str::from_utf8(&bytes[*pos..end]).ok()?;
+    let ch = s.chars().next()?;
+    *pos = end;
+    Some(ch)
 }
 
-fn read_stdin_byte_blocking(stop: &AtomicBool) -> io::Result<Option<u8>> {
-    while !stop.load(Ordering::Relaxed) {
-        match read_stdin_byte(INPUT_POLL_INTERVAL_MS)? {
-            Some(byte) => return Ok(Some(byte)),
-            None => continue,
+/// Convert a batch of raw TTY bytes into `InputEvent::Key` events.
+///
+/// Each byte (or decoded UTF-8 character) becomes its own event, matching
+/// GNU's `tty_read_avail_input` per-byte `ASCII_KEYSTROKE_EVENT` loop.
+///
+/// UTF-8 lead bytes (0xC2..=0xF4) trigger multi-byte decoding; all other
+/// bytes are emitted individually via `parse_tty_byte`.
+fn emit_events_from_bytes(bytes: &[u8], meta_key: u8) -> Vec<InputEvent> {
+    let mut events = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if (0xC2..=0xF4).contains(&byte) {
+            if let Some(ch) = decode_utf8_from_slice(bytes, &mut i) {
+                events.push(InputEvent::Key {
+                    keysym: ch as u32,
+                    modifiers: 0,
+                    pressed: true,
+                    emacs_frame_id: 0,
+                });
+            } else {
+                // Incomplete UTF-8 sequence at end of buffer: emit the
+                // lead byte as-is.  The continuation bytes will arrive
+                // in the next read and be emitted individually.
+                let (keysym, modifiers) = parse_tty_byte(byte, meta_key);
+                events.push(InputEvent::Key {
+                    keysym,
+                    modifiers,
+                    pressed: true,
+                    emacs_frame_id: 0,
+                });
+                i += 1;
+            }
+        } else {
+            let (keysym, modifiers) = parse_tty_byte(byte, meta_key);
+            events.push(InputEvent::Key {
+                keysym,
+                modifiers,
+                pressed: true,
+                emacs_frame_id: 0,
+            });
+            i += 1;
         }
     }
-    Ok(None)
+    events
 }
 
-fn read_stdin_byte(timeout_ms: i32) -> io::Result<Option<u8>> {
-    // Drain the unread buffer first — bytes pushed back from unrecognized
-    // escape sequences are re-emitted before polling stdin again.
-    if let Some(byte) = STDIN_UNREAD.with(|buf| buf.borrow_mut().pop()) {
-        return Ok(Some(byte));
-    }
-
-    if !poll_stdin(timeout_ms)? {
-        return Ok(None);
-    }
-
-    let mut byte = 0u8;
-    loop {
-        let n = unsafe { libc::read(libc::STDIN_FILENO, &mut byte as *mut u8 as *mut _, 1) };
-        if n == 1 {
-            return Ok(Some(byte));
-        }
-        if n == 0 {
-            return Ok(None);
-        }
-        let err = io::Error::last_os_error();
-        match err.raw_os_error() {
-            Some(libc::EINTR) => continue,
-            Some(libc::EAGAIN) => return Ok(None),
-            _ => return Err(err),
-        }
-    }
-}
-
-fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
+/// Block until stdin has data available or `stop` is set.
+///
+/// Returns `Ok(true)` when data is ready, `Ok(false)` when stopped.
+fn poll_stdin_blocking(stop: &AtomicBool) -> io::Result<bool> {
     let mut pollfd = libc::pollfd {
         fd: libc::STDIN_FILENO,
         events: libc::POLLIN,
@@ -221,12 +226,16 @@ fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
     };
 
     loop {
-        let rc = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if stop.load(Ordering::Relaxed) {
+            return Ok(false);
+        }
+
+        let rc = unsafe { libc::poll(&mut pollfd, 1, 50) };
         if rc > 0 {
             return Ok((pollfd.revents & (libc::POLLIN | libc::POLLHUP)) != 0);
         }
         if rc == 0 {
-            return Ok(false);
+            continue;
         }
 
         let err = io::Error::last_os_error();
@@ -237,251 +246,68 @@ fn poll_stdin(timeout_ms: i32) -> io::Result<bool> {
     }
 }
 
-fn parse_tty_key_event<F>(first: u8, next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    if first != 0x1B {
-        return parse_simple_key(first, next_byte);
-    }
-
-    let Some(second) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-        return Ok(Some((0x1B, 0)));
-    };
-
-    match second {
-        b'[' => parse_csi_sequence(next_byte),
-        b'O' => parse_ss3_sequence(next_byte),
-        b']' => parse_osc_sequence(next_byte),
-        0x7F => Ok(Some((0x7F, RENDER_META_MASK))),
-        _ => Ok(parse_simple_key(second, next_byte)?
-            .map(|(keysym, modifiers)| (keysym, modifiers | RENDER_META_MASK))),
-    }
-}
-
-fn parse_simple_key<F>(first: u8, next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    let key = match first {
-        0 => Some((b'@' as u32, RENDER_CTRL_MASK)),
-        // Preserve LF as raw C-j. GNU TTY input distinguishes Enter/RET
-        // (typically CR) from literal linefeed, and commands like
-        // `quoted-insert` rely on `C-q C-j` reaching Lisp as `?\C-j`
-        // instead of a synthetic RET event.
-        b'\r' => Some((XK_RETURN, 0)),
-        b'\t' => Some((XK_TAB, 0)),
-        // Match GNU's TTY split between help-char (`C-h` == 0x08) and
-        // the physical Backspace keysym. GNU keeps raw 0x08 as a
-        // control character for `help-char` and maps `[backspace]`
-        // through `function-key-map` to `C-?` instead.
-        0x7F => Some((XK_BACKSPACE, 0)),
-        0x01..=0x1A => Some((((first - 1) + b'a') as u32, RENDER_CTRL_MASK)),
-        0x1C => Some((b'\\' as u32, RENDER_CTRL_MASK)),
-        0x1D => Some((b']' as u32, RENDER_CTRL_MASK)),
-        0x1E => Some((b'^' as u32, RENDER_CTRL_MASK)),
-        0x1F => Some((b'_' as u32, RENDER_CTRL_MASK)),
-        0x20..=0x7E => Some((first as u32, 0)),
-        0xC2..=0xF4 => decode_utf8_key(first, next_byte)?.map(|ch| (ch as u32, 0)),
-        _ => None,
-    };
-
-    Ok(key)
-}
-
-fn decode_utf8_key<F>(first: u8, next_byte: &mut F) -> io::Result<Option<char>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    let len = match first {
-        0xC2..=0xDF => 2,
-        0xE0..=0xEF => 3,
-        0xF0..=0xF4 => 4,
-        _ => return Ok(None),
-    };
-
-    let mut bytes = vec![first];
-    for _ in 1..len {
-        let Some(next) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-            return Ok(None);
-        };
-        bytes.push(next);
-    }
-
-    Ok(std::str::from_utf8(&bytes)
-        .ok()
-        .and_then(|s| s.chars().next()))
-}
-
-fn parse_ss3_sequence<F>(next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    let Some(final_byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-        return Ok(Some((0x1B, 0)));
-    };
-
-    let result = match final_byte {
-        b'A' => Some((XK_UP, 0)),
-        b'B' => Some((XK_DOWN, 0)),
-        b'C' => Some((XK_RIGHT, 0)),
-        b'D' => Some((XK_LEFT, 0)),
-        b'F' => Some((XK_END, 0)),
-        b'H' => Some((XK_HOME, 0)),
-        b'P' => Some((XK_F1, 0)),
-        b'Q' => Some((XK_F1 + 1, 0)),
-        b'R' => Some((XK_F1 + 2, 0)),
-        b'S' => Some((XK_F1 + 3, 0)),
-        _ => None,
-    };
-
-    if result.is_some() {
-        return Ok(result);
-    }
-
-    // Unrecognized SS3 sequence: push O + final_byte back, emit ESC.
-    push_esc_seq_unread(b'O', &[final_byte]);
-    Ok(Some((0x1B, 0)))
-}
-
-fn parse_csi_sequence<F>(next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    let mut bytes = Vec::new();
+/// Read available bytes from stdin into `buf`.
+///
+/// Returns the number of bytes read, 0 on EOF, or an error.
+fn read_stdin_bytes(buf: &mut [u8]) -> io::Result<usize> {
     loop {
-        let Some(byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-            // Timeout mid-sequence: push consumed bytes back so they
-            // aren't lost, then emit ESC.
-            push_esc_seq_unread(b'[', &bytes);
-            return Ok(Some((0x1B, 0)));
-        };
-        bytes.push(byte);
-        if (0x40..=0x7E).contains(&byte) || bytes.len() >= 16 {
-            break;
+        let n = unsafe { libc::read(libc::STDIN_FILENO, buf.as_mut_ptr() as *mut _, buf.len()) };
+        if n > 0 {
+            return Ok(n as usize);
+        }
+        if n == 0 {
+            return Ok(0);
+        }
+        let err = io::Error::last_os_error();
+        match err.raw_os_error() {
+            Some(libc::EINTR) => continue,
+            Some(libc::EAGAIN) => return Ok(0),
+            _ => return Err(err),
         }
     }
+}
 
-    if let Some(result) = map_csi_sequence(&bytes) {
-        return Ok(Some(result));
+/// Read one batch of input events from stdin.
+///
+/// Blocks until data arrives or `stop` is set, then reads all available
+/// bytes and converts them to `InputEvent::Key` events.
+fn read_batch_input_events(stop: &AtomicBool) -> io::Result<Vec<InputEvent>> {
+    if !poll_stdin_blocking(stop)? {
+        return Ok(Vec::new());
     }
 
-    // Unrecognized CSI sequence (e.g. terminal DA response \e[?1;2c).
-    // Push raw bytes back so they surface as individual byte events that
-    // Lisp handlers in input-decode-map can match against.
-    push_esc_seq_unread(b'[', &bytes);
-    Ok(Some((0x1B, 0)))
+    let mut buf = [0u8; 64];
+    match read_stdin_bytes(&mut buf)? {
+        0 => Ok(Vec::new()),
+        n => Ok(emit_events_from_bytes(&buf[..n], /* meta_key= */ 0)),
+    }
 }
 
-/// Push the leader byte and body bytes to the unread buffer in reverse order
-/// so that subsequent `read_stdin_byte` calls pop them in the correct forward
-/// order. The caller emits ESC as the current key event.
-fn push_esc_seq_unread(leader: u8, body: &[u8]) {
-    STDIN_UNREAD.with(|buf| {
-        let mut buf = buf.borrow_mut();
-        buf.reserve(body.len() + 1);
-        for &b in body.iter().rev() {
-            buf.push(b);
+fn read_tty_input(
+    tx: crossbeam_channel::Sender<InputEvent>,
+    stop: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
+) {
+    while !stop.load(Ordering::Relaxed) {
+        if paused.load(Ordering::Relaxed) {
+            thread::sleep(Duration::from_millis(25));
+            continue;
         }
-        buf.push(leader);
-    });
-}
-
-fn parse_osc_sequence<F>(next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
-where
-    F: FnMut(i32) -> io::Result<Option<u8>>,
-{
-    let mut bytes = vec![b']'];
-    loop {
-        let Some(byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
-            push_esc_seq_unread(b']', &bytes[1..]);
-            return Ok(Some((0x1B, 0)));
-        };
-        bytes.push(byte);
-        // BEL terminator
-        if byte == 0x07 {
-            break;
-        }
-        // ST terminator (ESC backslash)
-        if byte == 0x1B {
-            if let Some(0x5C) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? {
-                bytes.push(0x5C);
+        match read_batch_input_events(&stop) {
+            Ok(events) => {
+                for event in events {
+                    tracing::info!("tty_input: got event {:?}", event);
+                    if tx.send(event).is_err() {
+                        tracing::warn!("tty_input: channel closed");
+                        return;
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!("tty input reader stopped: {err}");
                 break;
             }
         }
-        if bytes.len() >= 256 {
-            break;
-        }
-    }
-
-    // Push the complete OSC payload to the unread buffer so it surfaces as
-    // individual byte events, then emit ESC.
-    push_esc_seq_unread(b']', &bytes[1..]);
-    Ok(Some((0x1B, 0)))
-}
-
-fn map_csi_sequence(bytes: &[u8]) -> Option<(u32, u32)> {
-    let (&final_byte, body) = bytes.split_last()?;
-    if body.is_empty() {
-        return Some(match final_byte {
-            b'A' => (XK_UP, 0),
-            b'B' => (XK_DOWN, 0),
-            b'C' => (XK_RIGHT, 0),
-            b'D' => (XK_LEFT, 0),
-            b'F' => (XK_END, 0),
-            b'H' => (XK_HOME, 0),
-            b'Z' => (XK_TAB, RENDER_SHIFT_MASK),
-            _ => return None,
-        });
-    }
-
-    let body = std::str::from_utf8(body).ok()?;
-    let body = body.strip_prefix('?').unwrap_or(body);
-    let params: Vec<u16> = body
-        .split(';')
-        .filter(|part| !part.is_empty())
-        .map(|part| part.parse::<u16>().ok())
-        .collect::<Option<Vec<_>>>()?;
-    let modifiers = params.get(1).copied().map(csi_modifier_bits).unwrap_or(0);
-
-    match final_byte {
-        b'A' => Some((XK_UP, modifiers)),
-        b'B' => Some((XK_DOWN, modifiers)),
-        b'C' => Some((XK_RIGHT, modifiers)),
-        b'D' => Some((XK_LEFT, modifiers)),
-        b'F' => Some((XK_END, modifiers)),
-        b'H' => Some((XK_HOME, modifiers)),
-        b'Z' => Some((XK_TAB, modifiers | RENDER_SHIFT_MASK)),
-        b'~' => {
-            let code = *params.first()?;
-            let keysym = match code {
-                1 | 7 => XK_HOME,
-                2 => XK_INSERT,
-                3 => XK_DELETE,
-                4 | 8 => XK_END,
-                5 => XK_PAGE_UP,
-                6 => XK_PAGE_DOWN,
-                11..=15 => XK_F1 + u32::from(code - 11),
-                17..=21 => XK_F1 + u32::from(code - 12),
-                23..=24 => XK_F1 + u32::from(code - 13),
-                _ => return None,
-            };
-            Some((keysym, modifiers))
-        }
-        _ => None,
-    }
-}
-
-fn csi_modifier_bits(modifier: u16) -> u32 {
-    match modifier {
-        2 => RENDER_SHIFT_MASK,
-        3 => RENDER_META_MASK,
-        4 => RENDER_SHIFT_MASK | RENDER_META_MASK,
-        5 => RENDER_CTRL_MASK,
-        6 => RENDER_SHIFT_MASK | RENDER_CTRL_MASK,
-        7 => RENDER_META_MASK | RENDER_CTRL_MASK,
-        8 => RENDER_SHIFT_MASK | RENDER_META_MASK | RENDER_CTRL_MASK,
-        _ => 0,
     }
 }
 

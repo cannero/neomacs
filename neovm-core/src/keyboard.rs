@@ -604,6 +604,12 @@ pub fn keysym_to_key_event(keysym: u32, modifiers: u32) -> Option<KeyEvent> {
         }
         // Printable ASCII
         0x20..=0x7E => Key::Char(keysym as u8 as char),
+        // Raw TTY bytes that are control characters (and thus excluded by
+        // the `!ch.is_control()` guard in the catch-all below).  Emitted as
+        // Key::Char so they produce the same fixnum events GNU creates in
+        // tty_read_avail_input (buf.code = cbuf[i]).
+        0x00 => Key::Char('\0'),
+        0x1C..=0x1F | 0x80..=0xFF => Key::Char(char::from_u32(keysym).unwrap()),
         // Named keys
         XK_RETURN => Key::Named(NamedKey::Return),
         XK_TAB => Key::Named(NamedKey::Tab),
