@@ -6921,6 +6921,38 @@ fn backward_kill_word_via_esc_del() {
 }
 
 #[test]
+fn alt_backspace_raw_escape_delete_kills_previous_word() {
+    let (mut gnu, mut neo) = boot_pair("");
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "alt-backspace.txt",
+        "alpha beta gamma\n",
+        "C-x C-f",
+    );
+
+    send_both(&mut gnu, &mut neo, "C-e");
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+    send_both_raw(&mut gnu, &mut neo, &[0x1b, 0x7f]);
+
+    let killed = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("alpha beta"))
+            && !grid.iter().any(|row| row.contains("alpha beta gamma"))
+    };
+    gnu.read_until(Duration::from_secs(6), killed);
+    neo.read_until(Duration::from_secs(8), killed);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    save_current_file_and_assert_contents(
+        "alt_backspace_raw_escape_delete_kills_previous_word",
+        &mut gnu,
+        &mut neo,
+        "alt-backspace.txt",
+        "alpha beta \n",
+    );
+}
+
+#[test]
 fn forward_and_backward_sentence_via_me_ma() {
     let (mut gnu, mut neo) = boot_pair("");
     open_home_file(

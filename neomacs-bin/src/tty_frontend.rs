@@ -236,6 +236,7 @@ where
     match second {
         b'[' => parse_csi_sequence(next_byte),
         b'O' => parse_ss3_sequence(next_byte),
+        0x7F => Ok(Some((0x7F, RENDER_META_MASK))),
         _ => Ok(parse_simple_key(second, next_byte)?
             .map(|(keysym, modifiers)| (keysym, modifiers | RENDER_META_MASK))),
     }

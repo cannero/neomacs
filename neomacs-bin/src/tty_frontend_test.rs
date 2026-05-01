@@ -42,6 +42,10 @@ fn parses_meta_keypress() {
         parse_key_bytes(&[0x1B, b'x']),
         Some((b'x' as u32, RENDER_META_MASK))
     );
+    assert_eq!(
+        parse_key_bytes(&[0x1B, 0x7F]),
+        Some((0x7F, RENDER_META_MASK))
+    );
 }
 
 #[test]
