@@ -6752,6 +6752,26 @@ pub(crate) fn builtin_frame_parameter(
         "visibility" => {
             return Ok(if frame.visible { Value::T } else { Value::NIL });
         }
+        // GNU frame.c:4117 — buffer-list frame parameter stored
+        // directly from f->buffer_list (most-recently-shown first).
+        "buffer-list" => {
+            let vals: Vec<Value> = frame
+                .buffer_list
+                .iter()
+                .map(|id| Value::make_buffer(*id))
+                .collect();
+            return Ok(Value::list(vals));
+        }
+        // GNU frame.c:4118 — buried-buffer-list frame parameter
+        // stored from f->buried_buffer_list (most-recently-buried first).
+        "buried-buffer-list" => {
+            let vals: Vec<Value> = frame
+                .buried_buffer_list
+                .iter()
+                .map(|id| Value::make_buffer(*id))
+                .collect();
+            return Ok(Value::list(vals));
+        }
         _ => {}
     }
     // User-set parameters.
@@ -6792,6 +6812,30 @@ pub(crate) fn builtin_frame_parameters(
         Value::symbol("visibility"),
         Value::bool_val(frame.visible),
     ));
+    // GNU frame.c:4117-4118 — buffer-list and buried-buffer-list are
+    // stored as frame parameters.
+    {
+        let blist: Vec<Value> = frame
+            .buffer_list
+            .iter()
+            .map(|id| Value::make_buffer(*id))
+            .collect();
+        pairs.push(Value::cons(
+            Value::symbol("buffer-list"),
+            Value::list(blist),
+        ));
+    }
+    {
+        let buried: Vec<Value> = frame
+            .buried_buffer_list
+            .iter()
+            .map(|id| Value::make_buffer(*id))
+            .collect();
+        pairs.push(Value::cons(
+            Value::symbol("buried-buffer-list"),
+            Value::list(buried),
+        ));
+    }
     // User parameters.
     for (k, v) in &frame.parameters {
         pairs.push(Value::cons(*k, *v));

@@ -3659,10 +3659,14 @@ pub(crate) fn builtin_buffer_list(eval: &mut super::eval::Context, args: Vec<Val
                 // Remove duplicates from general.
                 general.retain(|bid| !framelist.contains(bid) && !prevlist.contains(bid));
 
+                // GNU buffer.c:457: CALLN(Fnconc, framelist, general, prevlist).
+                // Framelist first, then remaining (deduped) general, then
+                // reversed buried list last so buried buffers are at the
+                // absolute end.
                 let mut ids = Vec::with_capacity(framelist.len() + prevlist.len() + general.len());
                 ids.extend(framelist);
-                ids.extend(prevlist);
                 ids.extend(general);
+                ids.extend(prevlist);
                 Some(ids)
             }
             _ => None,

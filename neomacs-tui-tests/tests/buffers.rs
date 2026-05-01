@@ -757,3 +757,287 @@ fn kill_buffer_after_find_file_via_cx_k() {
 
     assert_pair_nearly_matches("kill_buffer_after_find_file_via_cx_k", &gnu, &neo, 2);
 }
+
+// ── Frame-specific buffer-list / buried-buffer-list tests ────────────────
+
+#[test]
+fn frame_parameter_buffer_list_returns_buffers_in_order() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "frm-buf-a.txt",
+        "frame buffer a\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "frm-buf-b.txt",
+        "frame buffer b\n",
+        "C-x C-f",
+    );
+
+    // Eval (mapcar #'buffer-name (frame-parameter nil 'buffer-list))
+    // to verify the frame parameter returns buffer objects in order.
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    let expr = "(mapcar #'buffer-name (frame-parameter nil 'buffer-list))";
+    gnu.send(expr.as_bytes());
+    neo.send(expr.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let has_frm_buf_b = |grid: &[String]| {
+        grid.iter()
+            .any(|row| row.contains("frm-buf-b.txt") && row.contains("frm-buf-a.txt"))
+    };
+    gnu.read_until(Duration::from_secs(8), has_frm_buf_b);
+    neo.read_until(Duration::from_secs(10), has_frm_buf_b);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "frame_parameter_buffer_list_returns_buffers_in_order",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn frame_parameter_buried_buffer_list_after_bury_buffer() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bury-fp-a.txt",
+        "bury fp alpha\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "bury-fp-b.txt",
+        "bury fp beta\n",
+        "C-x C-f",
+    );
+
+    // Bury the current buffer (bury-fp-b.txt).  This should move it to
+    // the frame's buried-buffer-list frame parameter.
+    invoke_mx_command(&mut gnu, &mut neo, "bury-buffer");
+
+    // Wait for the previous buffer (bury-fp-a.txt) to become visible.
+    let alpha_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("bury-fp-a.txt"))
+            && grid.iter().any(|row| row.contains("bury fp alpha"))
+    };
+    gnu.read_until(Duration::from_secs(6), alpha_ready);
+    neo.read_until(Duration::from_secs(8), alpha_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    // Eval (frame-parameter nil 'buried-buffer-list) and verify the
+    // buried buffer is listed.
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    let expr = "(mapcar #'buffer-name (frame-parameter nil 'buried-buffer-list))";
+    gnu.send(expr.as_bytes());
+    neo.send(expr.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    let has_buried = |grid: &[String]| grid.iter().any(|row| row.contains("bury-fp-b.txt"));
+    gnu.read_until(Duration::from_secs(8), has_buried);
+    neo.read_until(Duration::from_secs(10), has_buried);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "frame_parameter_buried_buffer_list_after_bury_buffer",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn multiple_bury_then_unbury_restores_in_lifo_order() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "multi-aaa.txt",
+        "buffer aaa\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "multi-bbb.txt",
+        "buffer bbb\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "multi-ccc.txt",
+        "buffer ccc\n",
+        "C-x C-f",
+    );
+
+    // Bury multi-ccc.txt → should switch to multi-bbb.txt.
+    invoke_mx_command(&mut gnu, &mut neo, "bury-buffer");
+    let bbb_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("multi-bbb.txt"))
+            && grid.iter().any(|row| row.contains("buffer bbb"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("multi-bbb.txt"))
+            && !grid.iter().any(|row| row.contains("buffer ccc"))
+    };
+    gnu.read_until(Duration::from_secs(6), bbb_ready);
+    neo.read_until(Duration::from_secs(8), bbb_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "multiple_bury_then_unbury_restores_in_lifo_order/buried-ccc",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    // Bury multi-bbb.txt → should switch to multi-aaa.txt.
+    invoke_mx_command(&mut gnu, &mut neo, "bury-buffer");
+    let aaa_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("multi-aaa.txt"))
+            && grid.iter().any(|row| row.contains("buffer aaa"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("multi-aaa.txt"))
+            && !grid.iter().any(|row| row.contains("buffer bbb"))
+    };
+    gnu.read_until(Duration::from_secs(6), aaa_ready);
+    neo.read_until(Duration::from_secs(8), aaa_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "multiple_bury_then_unbury_restores_in_lifo_order/buried-bbb",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    // Unbury → should restore multi-bbb.txt (most recently buried = LIFO).
+    invoke_mx_command(&mut gnu, &mut neo, "unbury-buffer");
+    let unbury_bbb = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("multi-bbb.txt"))
+            && grid.iter().any(|row| row.contains("buffer bbb"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("multi-bbb.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), unbury_bbb);
+    neo.read_until(Duration::from_secs(8), unbury_bbb);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "multiple_bury_then_unbury_restores_in_lifo_order/unburied-bbb",
+        &gnu,
+        &neo,
+        3,
+    );
+
+    // Unbury again → should restore multi-ccc.txt.
+    invoke_mx_command(&mut gnu, &mut neo, "unbury-buffer");
+    let unbury_ccc = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("multi-ccc.txt"))
+            && grid.iter().any(|row| row.contains("buffer ccc"))
+            && grid
+                .get(usize::from(ROWS - 2))
+                .is_some_and(|row| row.contains("multi-ccc.txt"))
+    };
+    gnu.read_until(Duration::from_secs(6), unbury_ccc);
+    neo.read_until(Duration::from_secs(8), unbury_ccc);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    assert_pair_nearly_matches(
+        "multiple_bury_then_unbury_restores_in_lifo_order/unburied-ccc",
+        &gnu,
+        &neo,
+        3,
+    );
+}
+
+#[test]
+fn kill_buffer_removes_from_frame_buried_buffer_list() {
+    let (mut gnu, mut neo) = boot_pair("");
+
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-buried-a.txt",
+        "kill buried a\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-buried-b.txt",
+        "kill buried b\n",
+        "C-x C-f",
+    );
+    open_home_file(
+        &mut gnu,
+        &mut neo,
+        "kill-buried-c.txt",
+        "kill buried c\n",
+        "C-x C-f",
+    );
+
+    // Bury kill-buried-c.txt so it goes into the frame's buried list.
+    invoke_mx_command(&mut gnu, &mut neo, "bury-buffer");
+
+    // Wait for the previous buffer to become visible (kill-buried-b.txt).
+    let prev_ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains("kill-buried-b.txt"))
+            && !grid.iter().any(|row| row.contains("kill buried c"))
+    };
+    gnu.read_until(Duration::from_secs(6), prev_ready);
+    neo.read_until(Duration::from_secs(8), prev_ready);
+    // Extra settle: keep reading until both are truly stable.
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+
+    // Kill the buried buffer via M-: eval — more direct than C-x k,
+    // avoids minibuffer timing issues.
+    send_both(&mut gnu, &mut neo, "M-:");
+    let prompt_ready = |grid: &[String]| grid.iter().any(|row| row.contains("Eval:"));
+    gnu.read_until(Duration::from_secs(6), prompt_ready);
+    neo.read_until(Duration::from_secs(8), prompt_ready);
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
+
+    let kill_expr = "(progn (kill-buffer \"kill-buried-c.txt\") (length (frame-parameter nil 'buried-buffer-list)))";
+    gnu.send(kill_expr.as_bytes());
+    neo.send(kill_expr.as_bytes());
+    send_both(&mut gnu, &mut neo, "RET");
+
+    // Wait for "0" in the echo area (buried list should be empty).
+    let shows_zero = |grid: &[String]| {
+        grid.iter()
+            .rev()
+            .take(4)
+            .any(|row| row.contains("#o0") || row.contains(" 0"))
+    };
+    gnu.read_until(Duration::from_secs(8), shows_zero);
+    neo.read_until(Duration::from_secs(10), shows_zero);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+
+    assert_pair_nearly_matches(
+        "kill_buffer_removes_from_frame_buried_buffer_list",
+        &gnu,
+        &neo,
+        3,
+    );
+}
