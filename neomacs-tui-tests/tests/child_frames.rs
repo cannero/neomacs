@@ -6,9 +6,9 @@
 //! 'tty-child-frames)` feature and serve as a spec for NeoMacs.
 
 mod support;
-use support::{boot_pair, eval_expression, read_both, send_both};
 use neomacs_tui_tests::*;
 use std::time::Duration;
+use support::{boot_pair, eval_expression, read_both, send_both};
 
 /// Elisp helper loaded via `-l` at boot. Defines `cf--make-child` for
 /// concise child-frame creation in tests.

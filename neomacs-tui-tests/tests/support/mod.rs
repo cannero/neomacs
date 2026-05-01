@@ -138,12 +138,8 @@ pub fn resize_both(gnu: &mut TuiSession, neo: &mut TuiSession, rows: u16, cols: 
 /// Wait until `predicate` is satisfied on both sessions or `timeout`
 /// elapses. Polls both PTYs concurrently in short interleaved slices,
 /// same strategy as `boot_pair` phase 1.
-pub fn wait_for_both<F>(
-    gnu: &mut TuiSession,
-    neo: &mut TuiSession,
-    timeout: Duration,
-    predicate: F,
-) where
+pub fn wait_for_both<F>(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration, predicate: F)
+where
     F: Fn(&[String]) -> bool + Copy,
 {
     let deadline = Instant::now() + timeout;
@@ -273,6 +269,94 @@ pub fn save_current_file_and_assert_contents(
         fs::read_to_string(&neo_path).expect("read Neo saved file"),
         expected,
         "{label}: Neomacs saved file contents should match"
+    );
+}
+
+// ── Assertion and utility helpers ──────────────────────────────────────
+
+/// Filter out boot-info rows (product name, version, etc.) from diffs.
+pub fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
+    diffs
+        .into_iter()
+        .filter(|d| !is_boot_info_row(&d.gnu, &d.neo))
+        .collect()
+}
+
+/// Predicate: the `*scratch*` buffer is visible with its default content.
+pub fn scratch_ready(grid: &[String]) -> bool {
+    grid.iter().any(|row| row.contains("*scratch*"))
+        && grid
+            .iter()
+            .any(|row| row.contains("This buffer is for text that is not saved"))
+}
+
+/// Assert that the number of differing rows is at most `allowed_rows`.
+pub fn assert_pair_nearly_matches(
+    label: &str,
+    gnu: &TuiSession,
+    neo: &TuiSession,
+    allowed_rows: usize,
+) {
+    let gl = gnu.text_grid();
+    let nl = neo.text_grid();
+    let diffs = meaningful_diffs(diff_text_grids(&gl, &nl));
+    if !diffs.is_empty() {
+        eprintln!("{label}: {} rows differ", diffs.len());
+        print_row_diffs(&diffs);
+    }
+    assert!(
+        diffs.len() <= allowed_rows,
+        "{label} differs in {} rows",
+        diffs.len()
+    );
+}
+
+/// Dump both editor grids and their diffs to stderr for debugging.
+pub fn dump_pair_grids(label: &str, gnu: &TuiSession, neo: &TuiSession) {
+    eprintln!("{label}: GNU grid");
+    for (row, text) in gnu.text_grid().iter().enumerate() {
+        eprintln!("  {row:02}: |{}|", text.trim_end());
+    }
+    eprintln!("{label}: NEO grid");
+    for (row, text) in neo.text_grid().iter().enumerate() {
+        eprintln!("  {row:02}: |{}|", text.trim_end());
+    }
+    let diffs = meaningful_diffs(diff_text_grids(&gnu.text_grid(), &neo.text_grid()));
+    if !diffs.is_empty() {
+        eprintln!("{label}: {} differing rows", diffs.len());
+        print_row_diffs(&diffs);
+    }
+}
+
+/// Send `C-h` then a help sub-key, waiting for the prefix to appear.
+pub fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
+    send_both(gnu, neo, "C-h");
+    let prefix_ready = |grid: &[String]| grid.iter().any(|row| row.contains("C-h-"));
+    gnu.read_until(Duration::from_secs(6), prefix_ready);
+    neo.read_until(Duration::from_secs(8), prefix_ready);
+    read_both(gnu, neo, Duration::from_millis(300));
+    send_both(gnu, neo, key);
+}
+
+/// Send `C-g` (keyboard-quit) and wait until `*scratch*` is visible again.
+pub fn abort_minibuffer_and_wait_for_scratch(gnu: &mut TuiSession, neo: &mut TuiSession) {
+    send_both(gnu, neo, "C-g");
+    gnu.read_until(Duration::from_secs(6), scratch_ready);
+    neo.read_until(Duration::from_secs(8), scratch_ready);
+    read_both(gnu, neo, Duration::from_secs(1));
+}
+
+/// Assert that a file in each editor's home dir matches the expected contents.
+pub fn assert_home_file_contents(gnu: &TuiSession, neo: &TuiSession, name: &str, expected: &str) {
+    assert_eq!(
+        fs::read_to_string(gnu.home_dir().join(name)).expect("read GNU home file"),
+        expected,
+        "GNU file contents should match"
+    );
+    assert_eq!(
+        fs::read_to_string(neo.home_dir().join(name)).expect("read Neo home file"),
+        expected,
+        "Neomacs file contents should match"
     );
 }
 
