@@ -170,7 +170,7 @@ fn canonical_name_for_detected_eol_matches_gnu_alias_resolution() {
     assert_eq!(
         m.canonical_name_for_detected_eol("cn-gb-2312-unix", "-dos")
             .as_deref(),
-        Some("chinese-iso-8bit-unix")
+        Some("cn-gb-2312-unix")
     );
 }
 

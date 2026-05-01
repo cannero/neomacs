@@ -263,6 +263,16 @@ impl TextPropertyTable {
         changed
     }
 
+    pub(crate) fn from_plist_runs(runs: Vec<(usize, usize, Vec<(Value, Value)>)>) -> Self {
+        let mut table = Self::new();
+        table.rebuild_from_runs(
+            runs.into_iter()
+                .map(|(start, end, plist)| IntervalRun::new(start, end, plist))
+                .collect(),
+        );
+        table
+    }
+
     pub fn get_property(&self, pos: usize, name: Value) -> Option<&Value> {
         let idx = self.interval_containing_index(pos)?;
         plist_get(&self.nodes[idx].plist, name)
@@ -517,6 +527,7 @@ impl TextPropertyTable {
     fn rebuild_from_runs(&mut self, runs: Vec<IntervalRun>) {
         let runs = normalize_runs(runs);
         self.nodes.clear();
+        self.nodes.reserve(runs.len());
         self.root = self.build_subtree(&runs, IntervalParent::Object);
     }
 

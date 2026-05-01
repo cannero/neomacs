@@ -289,6 +289,11 @@ pub fn set_string_text_properties_table_for_value(value: Value, table: TextPrope
 }
 
 pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPropertyRun>) {
+    if let Some(table) = bulk_string_text_property_table(&runs) {
+        set_string_text_properties_table_for_value(value, table);
+        return;
+    }
+
     let mut table = TextPropertyTable::new();
     for run in &runs {
         if let Some(items) = list_to_vec(&run.plist) {
@@ -300,6 +305,52 @@ pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPr
         }
     }
     set_string_text_properties_table_for_value(value, table);
+}
+
+fn bulk_string_text_property_table(runs: &[StringTextPropertyRun]) -> Option<TextPropertyTable> {
+    let mut plist_runs = Vec::with_capacity(runs.len());
+    for run in runs {
+        if run.start >= run.end {
+            continue;
+        }
+        let mut plist = Vec::new();
+        if let Some(items) = list_to_vec(&run.plist) {
+            for chunk in items.chunks(2) {
+                if let [key, value] = chunk {
+                    string_text_prop_plist_put(&mut plist, *key, *value);
+                }
+            }
+        }
+        plist_runs.push((run.start, run.end, plist));
+    }
+
+    if plist_runs.is_empty() {
+        return Some(TextPropertyTable::new());
+    }
+
+    let mut sorted_bounds: Vec<(usize, usize)> = plist_runs
+        .iter()
+        .map(|(start, end, _)| (*start, *end))
+        .collect();
+    sorted_bounds.sort_unstable();
+    if sorted_bounds
+        .windows(2)
+        .any(|window| window[1].0 < window[0].1)
+    {
+        return None;
+    }
+
+    Some(TextPropertyTable::from_plist_runs(plist_runs))
+}
+
+fn string_text_prop_plist_put(plist: &mut Vec<(Value, Value)>, key: Value, value: Value) {
+    for (name, existing) in plist.iter_mut() {
+        if eq_value(name, &key) {
+            *existing = value;
+            return;
+        }
+    }
+    plist.insert(0, (key, value));
 }
 
 pub fn get_string_text_properties_for_value(value: Value) -> Option<Vec<StringTextPropertyRun>> {

@@ -376,6 +376,30 @@ fn decode_latin1_attaches_charset_text_property() {
 }
 
 #[test]
+fn decode_latin1_charset_property_spans_ascii_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let encoded = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+        b'A', 0xE9, b'B',
+    ]));
+    let decoded = builtin_decode_coding_string(vec![encoded, Value::symbol("latin-1")])
+        .expect("latin-1 decode should succeed");
+
+    assert_eq!(
+        decoded.as_lisp_string().and_then(|s| s.as_utf8_str()),
+        Some("AéB")
+    );
+    let props = get_string_text_properties_for_value(decoded)
+        .expect("decoded Latin-1 string should be propertized");
+    assert_eq!(props.len(), 1);
+    assert_eq!(props[0].start, 0);
+    assert_eq!(props[0].end, 3);
+    assert_eq!(
+        props[0].plist,
+        Value::list(vec![Value::symbol("charset"), Value::symbol("iso-8859-1")])
+    );
+}
+
+#[test]
 fn encode_no_conversion_preserves_unibyte_storage_bytes() {
     crate::test_utils::init_test_tracing();
     let source = Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![0xE9]));
@@ -600,6 +624,35 @@ fn decode_coding_string_gb2312_marks_charset_like_gnu() {
     assert_eq!(props.len(), 1);
     assert_eq!(props[0].start, 0);
     assert_eq!(props[0].end, 1);
+    assert_eq!(
+        props[0].plist,
+        Value::list(vec![
+            Value::symbol("charset"),
+            Value::symbol("chinese-gb2312"),
+        ])
+    );
+}
+
+#[test]
+fn decode_coding_string_gb2312_extends_charset_after_first_non_ascii_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let decoded = builtin_decode_coding_string(vec![
+        Value::heap_string(crate::heap_types::LispString::from_unibyte(vec![
+            b'A', 0xd2, 0xbb, b'B',
+        ])),
+        Value::symbol("cn-gb-2312-unix"),
+    ])
+    .expect("decode-coding-string cn-gb-2312-unix should succeed");
+
+    assert_eq!(
+        decoded.as_lisp_string().and_then(|s| s.as_utf8_str()),
+        Some("A一B")
+    );
+    let props = get_string_text_properties_for_value(decoded)
+        .expect("decoded GB2312 string should be propertized");
+    assert_eq!(props.len(), 1);
+    assert_eq!(props[0].start, 1);
+    assert_eq!(props[0].end, 3);
     assert_eq!(
         props[0].plist,
         Value::list(vec![

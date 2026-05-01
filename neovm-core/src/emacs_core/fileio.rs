@@ -15,6 +15,9 @@ use std::sync::Once;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::buffer::text_props::TextPropertyTable;
+use crate::heap_types::LispString;
+
 use super::error::{EvalResult, Flow, signal};
 use super::eval::Context;
 use super::intern::{intern, resolve_sym};
@@ -3496,7 +3499,8 @@ fn current_buffer_id_or_error(
 fn replace_accessible_portion_in_current_buffer(
     buffers: &mut crate::buffer::BufferManager,
     current_id: crate::buffer::BufferId,
-    text: &str,
+    text: &LispString,
+    text_props: Option<&TextPropertyTable>,
 ) -> Result<(), Flow> {
     let (start, end, old_point) = {
         let buf = buffers
@@ -3514,10 +3518,15 @@ fn replace_accessible_portion_in_current_buffer(
         .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
     if !text.is_empty() {
         buffers
-            .insert_into_buffer(current_id, text)
+            .insert_lisp_string_into_buffer(current_id, text)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if let Some(table) = text_props {
+            buffers
+                .append_buffer_text_properties(current_id, table, start)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        }
     }
-    let replacement_end = start + text.len();
+    let replacement_end = start + text.sbytes();
     let restored_point = if old_point <= start {
         old_point
     } else {
@@ -3532,11 +3541,12 @@ fn replace_accessible_portion_in_current_buffer(
 fn insert_file_contents_into_current_buffer_in_state(
     buffers: &mut crate::buffer::BufferManager,
     current_id: crate::buffer::BufferId,
-    contents: &str,
+    contents: &LispString,
+    text_props: Option<&TextPropertyTable>,
     replace_requested: bool,
 ) -> Result<(), Flow> {
     if replace_requested {
-        replace_accessible_portion_in_current_buffer(buffers, current_id, contents)
+        replace_accessible_portion_in_current_buffer(buffers, current_id, contents, text_props)
     } else {
         // GNU Emacs: insert-file-contents inserts text at point but does NOT
         // advance point past the inserted text (unlike regular `insert`).
@@ -3547,8 +3557,13 @@ fn insert_file_contents_into_current_buffer_in_state(
             .map(|b| (b.pt_byte, b.pt))
             .unwrap_or((0, 0));
         buffers
-            .insert_into_buffer(current_id, contents)
+            .insert_lisp_string_into_buffer(current_id, contents)
             .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        if let Some(table) = text_props {
+            buffers
+                .append_buffer_text_properties(current_id, table, pt_before.0)
+                .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+        }
         // Restore point to before the insertion (matching GNU).
         if let Some(buf) = buffers.get_mut(current_id) {
             buf.pt_byte = pt_before.0;
@@ -3719,13 +3734,46 @@ fn write_region_content_in_state(
     Ok(buf.buffer_substring_lisp_string(byte_start, byte_end))
 }
 
+struct DecodedFileContents {
+    value: Value,
+    coding: String,
+}
+
+impl DecodedFileContents {
+    fn from_lisp_string(text: LispString, coding: String) -> Self {
+        Self {
+            value: Value::heap_string(text),
+            coding,
+        }
+    }
+
+    fn from_multibyte_string(text: String, coding: String) -> Self {
+        Self::from_lisp_string(LispString::new(text, true), coding)
+    }
+
+    fn text(&self) -> &LispString {
+        self.value
+            .as_lisp_string()
+            .expect("decoded file contents must be a Lisp string")
+    }
+
+    fn text_properties(&self) -> Option<&TextPropertyTable> {
+        let table = self.text().intervals();
+        if table.is_empty() { None } else { Some(table) }
+    }
+
+    fn char_count(&self) -> i64 {
+        self.text().schars() as i64
+    }
+}
+
 fn decode_insert_file_contents(
     coding_systems: &crate::emacs_core::coding::CodingSystemManager,
     bytes: &[u8],
     multibyte: bool,
     source_load_context: bool,
     coding_system_for_read: Option<&str>,
-) -> Result<(String, String), Flow> {
+) -> Result<DecodedFileContents, Flow> {
     let detected_default_eol_suffix = |bytes: &[u8]| {
         let mut saw_lf = false;
         let mut saw_crlf = false;
@@ -3772,15 +3820,16 @@ fn decode_insert_file_contents(
     else {
         if source_load_context && multibyte {
             let eol_suffix = detected_default_eol_suffix(bytes);
-            return Ok((
-                crate::encoding::decode_bytes(bytes, &format!("utf-8-emacs{eol_suffix}")),
-                format!("utf-8-emacs{eol_suffix}"),
+            let coding = format!("utf-8-emacs{eol_suffix}");
+            return Ok(DecodedFileContents::from_multibyte_string(
+                crate::encoding::decode_bytes(bytes, &coding),
+                coding,
             ));
         }
 
         if !multibyte {
-            return Ok((
-                crate::emacs_core::string_escape::bytes_to_unibyte_storage_string(bytes),
+            return Ok(DecodedFileContents::from_lisp_string(
+                LispString::from_unibyte(bytes.to_vec()),
                 "no-conversion".to_string(),
             ));
         }
@@ -3788,17 +3837,23 @@ fn decode_insert_file_contents(
         let eol_suffix = detected_default_eol_suffix(bytes);
         if bytes.is_ascii() {
             let coding = format!("undecided{eol_suffix}");
-            return Ok((crate::encoding::decode_bytes(bytes, &coding), coding));
+            return Ok(DecodedFileContents::from_multibyte_string(
+                crate::encoding::decode_bytes(bytes, &coding),
+                coding,
+            ));
         }
         if std::str::from_utf8(bytes).is_ok() {
             let coding = format!("utf-8{eol_suffix}");
-            return Ok((crate::encoding::decode_bytes(bytes, &coding), coding));
+            return Ok(DecodedFileContents::from_multibyte_string(
+                crate::encoding::decode_bytes(bytes, &coding),
+                coding,
+            ));
         }
 
         let eol_suffix = detected_default_eol_suffix(bytes);
         let coding = format!("utf-8-emacs{eol_suffix}");
         let decoded = crate::encoding::decode_bytes(bytes, &coding);
-        return Ok((decoded, coding));
+        return Ok(DecodedFileContents::from_multibyte_string(decoded, coding));
     };
 
     let eol_suffix = detected_default_eol_suffix(bytes);
@@ -3807,7 +3862,10 @@ fn decode_insert_file_contents(
         .unwrap_or_else(|| coding.to_string());
 
     if source_load_context && multibyte && is_utf8_like_source_coding(&coding) {
-        return Ok((crate::emacs_core::load::decode_emacs_utf8(bytes), coding));
+        return Ok(DecodedFileContents::from_multibyte_string(
+            crate::emacs_core::load::decode_emacs_utf8(bytes),
+            coding,
+        ));
     }
 
     let decoded = crate::encoding::builtin_decode_coding_string_with_known(
@@ -3819,7 +3877,10 @@ fn decode_insert_file_contents(
     )?;
 
     match decoded.kind() {
-        ValueKind::String => Ok((fileio_owned_runtime_string(decoded), coding)),
+        ValueKind::String => Ok(DecodedFileContents {
+            value: decoded,
+            coding,
+        }),
         other => Err(signal(
             "error",
             vec![Value::string(format!(
@@ -4052,7 +4113,7 @@ pub(crate) fn builtin_insert_file_contents(
     } else {
         None
     };
-    let (contents, used_coding) = decode_insert_file_contents(
+    let contents = decode_insert_file_contents(
         &eval.coding_systems,
         slice,
         multibyte,
@@ -4061,18 +4122,19 @@ pub(crate) fn builtin_insert_file_contents(
             .as_deref()
             .or(auto_coding_system.as_deref()),
     )?;
-    let decoded_char_count = contents.chars().count() as i64;
+    let decoded_char_count = contents.char_count();
 
     insert_file_contents_into_current_buffer_in_state(
         &mut eval.buffers,
         current_id,
-        &contents,
+        contents.text(),
+        contents.text_properties(),
         replace_requested,
     )?;
 
     // GNU `insert-file-contents' sets `last-coding-system-used' before
     // `after-insert-file-set-coding' derives `buffer-file-coding-system'.
-    eval.set_variable("last-coding-system-used", Value::symbol(&used_coding));
+    eval.set_variable("last-coding-system-used", Value::symbol(&contents.coding));
 
     let inserted_char_count = run_after_insert_file_pipeline(
         eval,

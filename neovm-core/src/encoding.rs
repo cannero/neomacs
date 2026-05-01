@@ -630,6 +630,7 @@ fn coding_system_family(coding_system: &str) -> &str {
         .or_else(|| coding_system.strip_suffix("-mac"))
         .unwrap_or(coding_system)
     {
+        "latin-1" | "iso-8859-1" | "iso-latin-1" => "iso-latin-1",
         "latin-5" | "iso-8859-9" | "iso-latin-5" => "iso-latin-5",
         "latin-0" | "latin-9" | "iso-8859-15" | "iso-latin-9" => "iso-latin-9",
         "cn-gb-2312" | "euc-china" | "euc-cn" | "cn-gb" | "gb2312" | "chinese-iso-8bit" => {
@@ -1161,32 +1162,29 @@ fn bytes_to_multibyte_raw_string(bytes: &[u8]) -> String {
 }
 
 fn charset_property_runs(text: &str, charset: &str) -> Vec<StringTextPropertyRun> {
-    let mut runs = Vec::new();
-    let mut start = None;
-    let mut char_idx = 0usize;
-
-    for ch in text.chars() {
-        if (ch as u32) > 0x7f {
-            start.get_or_insert(char_idx);
-        } else if let Some(run_start) = start.take() {
-            runs.push(StringTextPropertyRun {
-                start: run_start,
-                end: char_idx,
-                plist: Value::list(vec![Value::symbol("charset"), Value::symbol(charset)]),
-            });
+    let mut char_count = 0usize;
+    let mut first_non_ascii = None;
+    for (idx, ch) in text.chars().enumerate() {
+        if first_non_ascii.is_none() && (ch as u32) > 0x7f {
+            first_non_ascii = Some(idx);
         }
-        char_idx += 1;
+        char_count = idx + 1;
     }
 
-    if let Some(run_start) = start {
-        runs.push(StringTextPropertyRun {
-            start: run_start,
-            end: char_idx,
-            plist: Value::list(vec![Value::symbol("charset"), Value::symbol(charset)]),
-        });
-    }
+    let Some(first_non_ascii) = first_non_ascii else {
+        return Vec::new();
+    };
+    let start = if charset == "iso-8859-1" {
+        0
+    } else {
+        first_non_ascii
+    };
 
-    runs
+    vec![StringTextPropertyRun {
+        start,
+        end: char_count,
+        plist: Value::list(vec![Value::symbol("charset"), Value::symbol(charset)]),
+    }]
 }
 
 // ---------------------------------------------------------------------------

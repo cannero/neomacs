@@ -659,7 +659,7 @@ impl CodingSystemManager {
     ) -> Option<String> {
         let normalized = normalize_coding_name_for_lookup(name);
         if EolType::from_suffix(normalized).is_some() {
-            return canonical_runtime_name(self, normalized);
+            return resolve_runtime_name(self, normalized);
         }
 
         let eol = match eol_suffix {

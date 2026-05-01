@@ -3199,7 +3199,7 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (unix_text, unix_coding) = super::decode_insert_file_contents(
+    let unix = super::decode_insert_file_contents(
         &coding_systems,
         b"alpha line\nbeta line\n",
         true,
@@ -3207,10 +3207,10 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
         None,
     )
     .expect("decode ascii unix text");
-    assert_eq!(unix_text, "alpha line\nbeta line\n");
-    assert_eq!(unix_coding, "undecided-unix");
+    assert_eq!(unix.text().as_utf8_str(), Some("alpha line\nbeta line\n"));
+    assert_eq!(unix.coding, "undecided-unix");
 
-    let (dos_text, dos_coding) = super::decode_insert_file_contents(
+    let dos = super::decode_insert_file_contents(
         &coding_systems,
         b"alpha line\r\nbeta line\r\n",
         true,
@@ -3218,10 +3218,10 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
         None,
     )
     .expect("decode ascii dos text");
-    assert_eq!(dos_text, "alpha line\nbeta line\n");
-    assert_eq!(dos_coding, "undecided-dos");
+    assert_eq!(dos.text().as_utf8_str(), Some("alpha line\nbeta line\n"));
+    assert_eq!(dos.coding, "undecided-dos");
 
-    let (mac_text, mac_coding) = super::decode_insert_file_contents(
+    let mac = super::decode_insert_file_contents(
         &coding_systems,
         b"alpha line\rbeta line\r",
         true,
@@ -3229,8 +3229,8 @@ fn decode_insert_file_contents_defaults_to_gnu_ascii_undecided_codings() {
         None,
     )
     .expect("decode ascii mac text");
-    assert_eq!(mac_text, "alpha line\nbeta line\n");
-    assert_eq!(mac_coding, "undecided-mac");
+    assert_eq!(mac.text().as_utf8_str(), Some("alpha line\nbeta line\n"));
+    assert_eq!(mac.coding, "undecided-mac");
 }
 
 #[test]
@@ -3238,7 +3238,7 @@ fn decode_insert_file_contents_preserves_lone_cr_in_lf_text() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         b"alpha\rdata\nbeta\n",
         true,
@@ -3246,10 +3246,10 @@ fn decode_insert_file_contents_preserves_lone_cr_in_lf_text() {
         None,
     )
     .expect("decode ascii unix text with embedded cr");
-    assert_eq!(text, "alpha\rdata\nbeta\n");
-    assert_eq!(coding, "undecided-unix");
+    assert_eq!(decoded.text().as_utf8_str(), Some("alpha\rdata\nbeta\n"));
+    assert_eq!(decoded.coding, "undecided-unix");
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         b"(setq probe \"a\rb\")\n",
         true,
@@ -3257,8 +3257,11 @@ fn decode_insert_file_contents_preserves_lone_cr_in_lf_text() {
         None,
     )
     .expect("decode source-loaded unix text with embedded cr");
-    assert_eq!(text, "(setq probe \"a\rb\")\n");
-    assert_eq!(coding, "utf-8-emacs-unix");
+    assert_eq!(
+        decoded.text().as_utf8_str(),
+        Some("(setq probe \"a\rb\")\n")
+    );
+    assert_eq!(decoded.coding, "utf-8-emacs-unix");
 }
 
 #[test]
@@ -3288,7 +3291,7 @@ fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         b"(message \"alpha\")\r(message \"beta\")\r",
         true,
@@ -3297,8 +3300,11 @@ fn decode_insert_file_contents_source_load_normalizes_detected_eols() {
     )
     .expect("decode source-loaded mac-eol text");
 
-    assert_eq!(text, "(message \"alpha\")\n(message \"beta\")\n");
-    assert_eq!(coding, "utf-8-emacs-mac");
+    assert_eq!(
+        decoded.text().as_utf8_str(),
+        Some("(message \"alpha\")\n(message \"beta\")\n")
+    );
+    assert_eq!(decoded.coding, "utf-8-emacs-mac");
 }
 
 #[test]
@@ -3306,7 +3312,7 @@ fn decode_insert_file_contents_accepts_chinese_big5_coding() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         &[0xa4, 0x40, b'\r', b'\n'],
         true,
@@ -3315,8 +3321,8 @@ fn decode_insert_file_contents_accepts_chinese_big5_coding() {
     )
     .expect("decode Big5 file bytes");
 
-    assert_eq!(text, "一\r\n");
-    assert_eq!(coding, "chinese-big5-unix");
+    assert_eq!(decoded.text().as_utf8_str(), Some("一\r\n"));
+    assert_eq!(decoded.coding, "chinese-big5-unix");
 }
 
 #[test]
@@ -3324,7 +3330,7 @@ fn decode_insert_file_contents_accepts_chinese_gb2312_coding() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         &[0xd2, 0xbb, b'\r', b'\n'],
         true,
@@ -3333,8 +3339,38 @@ fn decode_insert_file_contents_accepts_chinese_gb2312_coding() {
     )
     .expect("decode GB2312 file bytes");
 
-    assert_eq!(text, "一\r\n");
-    assert_eq!(coding, "cn-gb-2312-unix");
+    assert_eq!(decoded.text().as_utf8_str(), Some("一\r\n"));
+    assert_eq!(decoded.coding, "cn-gb-2312-unix");
+}
+
+#[test]
+fn insert_file_contents_preserves_decoded_charset_text_property() {
+    crate::test_utils::init_test_tracing();
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("gb2312.txt");
+    fs::write(&path, [0xd2, 0xbb, b'\n']).expect("write GB2312 fixture");
+    let path_str = path.to_string_lossy().to_string();
+
+    let mut eval = Context::new();
+    eval.set_variable("coding-system-for-read", Value::symbol("cn-gb-2312-unix"));
+    builtin_insert_file_contents(&mut eval, vec![Value::string(&path_str)])
+        .expect("insert-file-contents should decode GB2312");
+
+    let buf = eval.buffers.current_buffer().expect("current buffer");
+    assert_eq!(buf.buffer_string(), "一\n");
+    assert_eq!(
+        buf.text
+            .text_props_get_property(0, Value::symbol("charset"))
+            .and_then(|value| value.as_symbol_name()),
+        Some("chinese-gb2312")
+    );
+    assert_eq!(
+        buf.text
+            .text_props_get_property("一".len(), Value::symbol("charset"))
+            .and_then(|value| value.as_symbol_name()),
+        Some("chinese-gb2312")
+    );
 }
 
 #[test]
@@ -3342,7 +3378,7 @@ fn decode_insert_file_contents_adds_detected_eol_to_base_coding_like_gnu() {
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         &[0xd2, 0xbb, b'\r', b'\n'],
         true,
@@ -3351,8 +3387,8 @@ fn decode_insert_file_contents_adds_detected_eol_to_base_coding_like_gnu() {
     )
     .expect("decode GB2312 file bytes with detected DOS EOL");
 
-    assert_eq!(text, "一\n");
-    assert_eq!(coding, "chinese-iso-8bit-dos");
+    assert_eq!(decoded.text().as_utf8_str(), Some("一\n"));
+    assert_eq!(decoded.coding, "chinese-iso-8bit-dos");
 }
 
 #[test]
@@ -3504,7 +3540,7 @@ fn decode_insert_file_contents_defaults_to_gnu_utf8_coding_for_non_ascii_text() 
     crate::test_utils::init_test_tracing();
     let coding_systems = crate::emacs_core::coding::CodingSystemManager::new();
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         "alpha cafe\n".as_bytes(),
         true,
@@ -3512,10 +3548,10 @@ fn decode_insert_file_contents_defaults_to_gnu_utf8_coding_for_non_ascii_text() 
         None,
     )
     .expect("decode utf-8 text");
-    assert_eq!(text, "alpha cafe\n");
-    assert_eq!(coding, "undecided-unix");
+    assert_eq!(decoded.text().as_utf8_str(), Some("alpha cafe\n"));
+    assert_eq!(decoded.coding, "undecided-unix");
 
-    let (text, coding) = super::decode_insert_file_contents(
+    let decoded = super::decode_insert_file_contents(
         &coding_systems,
         "alpha caf\u{00E9}\n".as_bytes(),
         true,
@@ -3523,8 +3559,8 @@ fn decode_insert_file_contents_defaults_to_gnu_utf8_coding_for_non_ascii_text() 
         None,
     )
     .expect("decode utf-8 accented text");
-    assert_eq!(text, "alpha caf\u{00E9}\n");
-    assert_eq!(coding, "utf-8-unix");
+    assert_eq!(decoded.text().as_utf8_str(), Some("alpha caf\u{00E9}\n"));
+    assert_eq!(decoded.coding, "utf-8-unix");
 }
 
 #[cfg(unix)]
