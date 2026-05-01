@@ -533,7 +533,7 @@ fn builtin_encode_time_honors_zone_offset() {
 #[test]
 fn builtin_decode_time_epoch_zero() {
     crate::test_utils::init_test_tracing();
-    let result = builtin_decode_time(vec![Value::fixnum(0)]).unwrap();
+    let result = builtin_decode_time(vec![Value::fixnum(0), Value::T]).unwrap();
     let items = list_to_vec(&result).unwrap();
     assert_eq!(items.len(), 9);
     assert_eq!(items[0].as_int(), Some(0)); // sec
@@ -545,6 +545,94 @@ fn builtin_decode_time_epoch_zero() {
     assert_eq!(items[6].as_int(), Some(4)); // dow (Thursday)
     assert!(items[7].is_nil()); // DST
     assert_eq!(items[8].as_int(), Some(0)); // utcoff
+}
+
+#[test]
+fn builtin_decode_time_honors_explicit_zone_argument() {
+    crate::test_utils::init_test_tracing();
+
+    let plus = builtin_decode_time(vec![Value::fixnum(0), Value::fixnum(3600)]).unwrap();
+    let plus_items = list_to_vec(&plus).unwrap();
+    assert_eq!(plus_items[2].as_int(), Some(1)); // hour
+    assert_eq!(plus_items[3].as_int(), Some(1)); // day
+    assert_eq!(plus_items[4].as_int(), Some(1)); // month
+    assert_eq!(plus_items[5].as_int(), Some(1970)); // year
+    assert_eq!(plus_items[7], Value::NIL);
+    assert_eq!(plus_items[8].as_int(), Some(3600));
+
+    let minus = builtin_decode_time(vec![Value::fixnum(0), Value::fixnum(-3600)]).unwrap();
+    let minus_items = list_to_vec(&minus).unwrap();
+    assert_eq!(minus_items[2].as_int(), Some(23)); // hour
+    assert_eq!(minus_items[3].as_int(), Some(31)); // day
+    assert_eq!(minus_items[4].as_int(), Some(12)); // month
+    assert_eq!(minus_items[5].as_int(), Some(1969)); // year
+    assert_eq!(minus_items[6].as_int(), Some(3)); // Wednesday
+    assert_eq!(minus_items[7], Value::NIL);
+    assert_eq!(minus_items[8].as_int(), Some(-3600));
+}
+
+#[test]
+fn builtin_decode_time_nil_zone_uses_time_zone_rule() {
+    crate::test_utils::init_test_tracing();
+    let _guard = tz_test_lock();
+    reset_tz_rule();
+
+    builtin_set_time_zone_rule(vec![Value::fixnum(-3600)]).unwrap();
+    let implicit = builtin_decode_time(vec![Value::fixnum(0)]).unwrap();
+    let explicit_nil = builtin_decode_time(vec![Value::fixnum(0), Value::NIL]).unwrap();
+    assert_eq!(implicit, explicit_nil);
+
+    let items = list_to_vec(&implicit).unwrap();
+    assert_eq!(items[2].as_int(), Some(23));
+    assert_eq!(items[3].as_int(), Some(31));
+    assert_eq!(items[4].as_int(), Some(12));
+    assert_eq!(items[5].as_int(), Some(1969));
+    assert_eq!(items[8].as_int(), Some(-3600));
+
+    reset_tz_rule();
+}
+
+#[test]
+fn builtin_decode_time_form_t_preserves_input_precision() {
+    crate::test_utils::init_test_tracing();
+
+    let integer = builtin_decode_time(vec![Value::fixnum(42), Value::T, Value::T]).unwrap();
+    let integer_items = list_to_vec(&integer).unwrap();
+    assert_eq!(integer_items[0].as_int(), Some(42));
+
+    let micro = builtin_decode_time(vec![
+        Value::list(vec![
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::fixnum(250_000),
+        ]),
+        Value::T,
+        Value::T,
+    ])
+    .unwrap();
+    let micro_items = list_to_vec(&micro).unwrap();
+    assert_eq!(micro_items[0].cons_car().as_int(), Some(1_250_000));
+    assert_eq!(micro_items[0].cons_cdr().as_int(), Some(1_000_000));
+
+    let pico = builtin_decode_time(vec![
+        Value::list(vec![
+            Value::fixnum(0),
+            Value::fixnum(1),
+            Value::fixnum(250_000),
+            Value::fixnum(123_456),
+        ]),
+        Value::T,
+        Value::T,
+    ])
+    .unwrap();
+    let pico_items = list_to_vec(&pico).unwrap();
+    assert_eq!(pico_items[0].cons_car().as_int(), Some(1_250_000_123_456));
+    assert_eq!(pico_items[0].cons_cdr().as_int(), Some(1_000_000_000_000));
+
+    let default_form =
+        builtin_decode_time(vec![Value::make_float(1.25), Value::T, Value::NIL]).unwrap();
+    let default_items = list_to_vec(&default_form).unwrap();
+    assert_eq!(default_items[0].as_int(), Some(1));
 }
 
 #[test]
@@ -571,7 +659,7 @@ fn builtin_encode_decode_roundtrip() {
     .unwrap();
 
     // Decode it back.
-    let decoded = builtin_decode_time(vec![encoded]).unwrap();
+    let decoded = builtin_decode_time(vec![encoded, Value::T]).unwrap();
     let items = list_to_vec(&decoded).unwrap();
     assert_eq!(items[0].as_int(), Some(30)); // sec
     assert_eq!(items[1].as_int(), Some(45)); // min

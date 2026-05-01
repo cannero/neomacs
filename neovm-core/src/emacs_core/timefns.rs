@@ -280,6 +280,12 @@ struct DecodedTime {
     dow: i64, // 0=Sunday, 1=Monday, ..., 6=Saturday
 }
 
+struct ZonedDecodedTime {
+    time: DecodedTime,
+    dst: Value,
+    utcoff: i64,
+}
+
 /// Break epoch seconds into UTC date/time components.
 fn decode_epoch_secs(total_secs: i64) -> DecodedTime {
     // Handle the time-of-day part
@@ -459,6 +465,49 @@ fn local_offset_name_at_epoch(_epoch_secs: i64) -> (i64, String) {
 }
 
 #[cfg(unix)]
+fn local_decoded_time_at_epoch(epoch_secs: i64) -> Result<ZonedDecodedTime, Flow> {
+    let mut time_val: libc::time_t = epoch_secs as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let tm_ptr = unsafe { libc::localtime_r(&mut time_val as *mut _, &mut tm as *mut _) };
+    if tm_ptr.is_null() {
+        return Err(signal(
+            "error",
+            vec![Value::string("Invalid time specification")],
+        ));
+    }
+
+    let dst = match tm.tm_isdst {
+        n if n < 0 => Value::fixnum(-1),
+        0 => Value::NIL,
+        _ => Value::T,
+    };
+
+    Ok(ZonedDecodedTime {
+        time: DecodedTime {
+            sec: tm.tm_sec as i64,
+            min: tm.tm_min as i64,
+            hour: tm.tm_hour as i64,
+            day: tm.tm_mday as i64,
+            month: tm.tm_mon as i64 + 1,
+            year: tm.tm_year as i64 + 1900,
+            dow: tm.tm_wday as i64,
+        },
+        utcoff: tm.tm_gmtoff as i64,
+        dst,
+    })
+}
+
+#[cfg(not(unix))]
+fn local_decoded_time_at_epoch(epoch_secs: i64) -> Result<ZonedDecodedTime, Flow> {
+    let time = decode_epoch_secs(epoch_secs);
+    Ok(ZonedDecodedTime {
+        time,
+        dst: Value::NIL,
+        utcoff: 0,
+    })
+}
+
+#[cfg(unix)]
 fn refresh_tz_env() {
     unsafe extern "C" {
         fn tzset();
@@ -534,6 +583,14 @@ fn parse_zone_rule(zone: &Value) -> Result<ZoneRule, Flow> {
     }
 }
 
+fn effective_zone_rule(zone: Option<&Value>) -> Result<ZoneRule, Flow> {
+    match zone {
+        None => TIME_ZONE_RULE.with(|slot| Ok(slot.borrow().clone())),
+        Some(value) if value.is_nil() => TIME_ZONE_RULE.with(|slot| Ok(slot.borrow().clone())),
+        Some(value) => parse_zone_rule(value),
+    }
+}
+
 fn zone_rule_to_offset_name(rule: &ZoneRule, epoch_secs: i64) -> (i64, String) {
     match rule {
         ZoneRule::Local => local_offset_name_at_epoch(epoch_secs),
@@ -550,12 +607,78 @@ pub(crate) fn zone_offset_name_for_time(
     zone: Option<&Value>,
     epoch_secs: i64,
 ) -> Result<(i64, String), Flow> {
-    let rule = if let Some(zone) = zone {
-        parse_zone_rule(zone)?
-    } else {
-        TIME_ZONE_RULE.with(|slot| slot.borrow().clone())
-    };
+    let rule = effective_zone_rule(zone)?;
     Ok(zone_rule_to_offset_name(&rule, epoch_secs))
+}
+
+fn decode_time_for_zone(rule: &ZoneRule, epoch_secs: i64) -> Result<ZonedDecodedTime, Flow> {
+    match rule {
+        ZoneRule::Local => local_decoded_time_at_epoch(epoch_secs),
+        ZoneRule::Utc => Ok(ZonedDecodedTime {
+            time: decode_epoch_secs(epoch_secs),
+            dst: Value::NIL,
+            utcoff: 0,
+        }),
+        ZoneRule::FixedOffset(offset) | ZoneRule::FixedNamedOffset(offset, _) => {
+            Ok(ZonedDecodedTime {
+                time: decode_epoch_secs(epoch_secs.saturating_add(*offset)),
+                dst: Value::NIL,
+                utcoff: *offset,
+            })
+        }
+        ZoneRule::TzString(spec) => {
+            with_tz_env(Some(spec), || local_decoded_time_at_epoch(epoch_secs))
+        }
+    }
+}
+
+fn decode_time_form_hz(time_arg: Option<&Value>) -> i64 {
+    let Some(time_arg) = time_arg else {
+        return 1_000_000;
+    };
+
+    match time_arg.kind() {
+        ValueKind::Nil => 1_000_000,
+        ValueKind::Float => 1_000_000,
+        ValueKind::Cons => {
+            if let Some(items) = list_to_vec(time_arg) {
+                if items.len() >= 4 {
+                    1_000_000_000_000
+                } else if items.len() >= 3 {
+                    1_000_000
+                } else {
+                    1
+                }
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
+fn decode_time_second_value(
+    time_arg: Option<&Value>,
+    tm: TimeMicros,
+    decoded_sec: i64,
+    form: Option<&Value>,
+) -> Value {
+    if !matches!(form.map(|value| value.kind()), Some(ValueKind::T)) {
+        return Value::fixnum(decoded_sec);
+    }
+
+    match decode_time_form_hz(time_arg) {
+        1 => Value::fixnum(decoded_sec),
+        1_000_000 => Value::cons(
+            Value::make_int(decoded_sec * 1_000_000 + tm.usecs),
+            Value::fixnum(1_000_000),
+        ),
+        1_000_000_000_000 => Value::cons(
+            Value::make_int(decoded_sec * 1_000_000_000_000 + tm.usecs * 1_000_000 + tm.psecs),
+            Value::make_int(1_000_000_000_000),
+        ),
+        _ => Value::fixnum(decoded_sec),
+    }
 }
 
 fn require_integer_component(value: &Value) -> Result<i64, Flow> {
@@ -568,7 +691,7 @@ fn require_integer_component(value: &Value) -> Result<i64, Flow> {
 }
 
 fn encode_time_zone_offset(zone: &Value, approx_epoch_secs: i64) -> Result<i64, Flow> {
-    let rule = parse_zone_rule(zone)?;
+    let rule = effective_zone_rule(Some(zone))?;
     let initial = zone_rule_to_offset_name(&rule, approx_epoch_secs).0;
     Ok(match rule {
         ZoneRule::Local | ZoneRule::TzString(_) => {
@@ -679,11 +802,7 @@ pub(crate) fn builtin_current_time_zone(args: Vec<Value>) -> EvalResult {
         parse_time(&args[0])?
     };
 
-    let rule = if args.len() > 1 {
-        parse_zone_rule(&args[1])?
-    } else {
-        TIME_ZONE_RULE.with(|slot| slot.borrow().clone())
-    };
+    let rule = effective_zone_rule(args.get(1))?;
 
     let (offset, name) = zone_rule_to_offset_name(&rule, tm.secs);
     Ok(Value::list(vec![
@@ -744,28 +863,29 @@ pub(crate) fn builtin_encode_time(args: Vec<Value>) -> EvalResult {
     Ok(Value::list(vec![Value::fixnum(high), Value::fixnum(low)]))
 }
 
-/// `(decode-time &optional TIME ZONE)`
+/// `(decode-time &optional TIME ZONE FORM)`
 /// -> `(SECONDS MINUTES HOURS DAY MONTH YEAR DOW DST UTCOFF)`
-///
-/// DOW is 0=Sunday .. 6=Saturday.  DST is nil.  UTCOFF is 0 (UTC).
 pub(crate) fn builtin_decode_time(args: Vec<Value>) -> EvalResult {
-    expect_min_max_args("decode-time", &args, 0, 2)?;
+    expect_min_max_args("decode-time", &args, 0, 3)?;
     let tm = if args.is_empty() || args[0].is_nil() {
         TimeMicros::now()
     } else {
         parse_time(&args[0])?
     };
-    let dt = decode_epoch_secs(tm.secs);
+    let rule = effective_zone_rule(args.get(1))?;
+    let decoded = decode_time_for_zone(&rule, tm.secs)?;
+    let dt = decoded.time;
+    let sec = decode_time_second_value(args.first(), tm, dt.sec, args.get(2));
     Ok(Value::list(vec![
-        Value::fixnum(dt.sec),
+        sec,
         Value::fixnum(dt.min),
         Value::fixnum(dt.hour),
         Value::fixnum(dt.day),
         Value::fixnum(dt.month),
         Value::fixnum(dt.year),
         Value::fixnum(dt.dow),
-        Value::NIL,       // DST
-        Value::fixnum(0), // UTCOFF
+        decoded.dst,
+        Value::fixnum(decoded.utcoff),
     ]))
 }
 
