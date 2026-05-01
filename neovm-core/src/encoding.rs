@@ -1314,6 +1314,17 @@ fn validate_coding_system(
     }
 }
 
+fn coding_string_nocopy(args: &[Value]) -> bool {
+    args.get(2).is_some_and(|value| value.is_truthy())
+}
+
+fn copy_lisp_string_value(value: Value) -> Result<Value, crate::emacs_core::error::Flow> {
+    let string = value
+        .as_lisp_string()
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("stringp"), value]))?;
+    Ok(Value::heap_string(string.clone()))
+}
+
 fn context_coding_name(
     ctx: &crate::emacs_core::eval::Context,
     coding_arg: Value,
@@ -1694,7 +1705,13 @@ pub(crate) fn builtin_encode_coding_string_with_known(
         )
     })?;
     let coding = match args[1].kind() {
-        ValueKind::Nil => return Ok(args[0]),
+        ValueKind::Nil => {
+            return if coding_string_nocopy(&args) {
+                Ok(args[0])
+            } else {
+                copy_lisp_string_value(args[0])
+            };
+        }
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(
@@ -1731,7 +1748,13 @@ pub(crate) fn builtin_decode_coding_string_with_known(
     }
     let s = expect_string(&args[0])?;
     let coding = match args[1].kind() {
-        ValueKind::Nil => return Ok(args[0]),
+        ValueKind::Nil => {
+            return if coding_string_nocopy(&args) {
+                Ok(args[0])
+            } else {
+                copy_lisp_string_value(args[0])
+            };
+        }
         ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
         other => {
             return Err(signal(

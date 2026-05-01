@@ -319,6 +319,30 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
 }
 
 #[test]
+fn nil_coding_string_respects_nocopy_identity() {
+    crate::test_utils::init_test_tracing();
+    let source = Value::string("abc");
+
+    let encoded_copy =
+        builtin_encode_coding_string(vec![source, Value::NIL, Value::NIL]).expect("nil coding");
+    assert_eq!(encoded_copy.as_utf8_str(), Some("abc"));
+    assert!(!crate::emacs_core::value::eq_value(&source, &encoded_copy));
+
+    let encoded_nocopy =
+        builtin_encode_coding_string(vec![source, Value::NIL, Value::T]).expect("nil coding");
+    assert!(crate::emacs_core::value::eq_value(&source, &encoded_nocopy));
+
+    let decoded_copy =
+        builtin_decode_coding_string(vec![source, Value::NIL, Value::NIL]).expect("nil coding");
+    assert_eq!(decoded_copy.as_utf8_str(), Some("abc"));
+    assert!(!crate::emacs_core::value::eq_value(&source, &decoded_copy));
+
+    let decoded_nocopy =
+        builtin_decode_coding_string(vec![source, Value::NIL, Value::T]).expect("nil coding");
+    assert!(crate::emacs_core::value::eq_value(&source, &decoded_nocopy));
+}
+
+#[test]
 fn encode_coding_string_buffer_destination_inserts_without_moving_point() {
     crate::test_utils::init_test_tracing();
     let mut eval = crate::emacs_core::Context::new();
