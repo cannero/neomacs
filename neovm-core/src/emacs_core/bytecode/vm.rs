@@ -2103,12 +2103,9 @@ impl<'a> Vm<'a> {
                     None => (Value::NIL, Value::NIL),
                 };
                 // GNU `eval.c:3559-3577 (let_shadows_buffer_binding_p)`
-                // walks the specpdl looking for SPECPDL_LET_LOCAL or
-                // SPECPDL_LET_DEFAULT records bound to this symbol.
-                // The Context-side version on `eval::Context` already
-                // handles this; route through it instead of the
-                // free-function stub. Buffer-local audit Medium 4 in
-                // `drafts/buffer-local-variables-audit.md`.
+                // only treats SPECPDL_LET_DEFAULT for the current buffer
+                // as shadowing. SPECPDL_LET_LOCAL is explicitly excluded
+                // by bug#62419.
                 let let_shadows = self.ctx.let_shadows_buffer_binding_p(resolved);
                 let new_alist = self.ctx.obarray.set_internal_localized(
                     resolved,
@@ -4507,7 +4504,11 @@ impl<'a> crate::emacs_core::builtins::symbols::MacroexpandRuntime for Vm<'a> {
             for value in args.iter().copied() {
                 vm.push_dynamic_vm_root(value);
             }
-            let expanded = vm.with_macro_expansion_scope(|vm| vm.call_function(function, args))?;
+            // GNU `Fmacroexpand` applies macro expanders directly.  Only the
+            // ordinary `eval_sub` macro-call path specbinds
+            // `lexical-binding`; byte-compiled bytecomp/macroexp code depends
+            // on the caller's visible dynamic value while compiling source.
+            let expanded = vm.call_function(function, args)?;
             let expand_elapsed = expand_start.elapsed();
             vm.ctx.store_runtime_macro_expansion(
                 form,

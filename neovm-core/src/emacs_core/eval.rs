@@ -326,6 +326,7 @@ pub(crate) enum SpecBinding {
     LetDefault {
         sym_id: SymId,
         old_value: Option<Value>,
+        buffer_id: Option<crate::buffer::BufferId>,
     },
     /// Lexical environment save/restore. Mirrors GNU's
     /// `specbind(Qinternal_interpreter_environment, ...)` which saves
@@ -1968,8 +1969,6 @@ pub(crate) struct ActiveLambdaCallState {
 
 pub(crate) struct ActiveMacroExpansionScopeState {
     saved_specpdl_len: usize,
-    old_lexical: bool,
-    old_dynvars: Value,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -2187,76 +2186,6 @@ fn finish_lambda_call_in_state(
             }
         }
     }
-}
-
-fn begin_macro_expansion_scope_in_state(
-    obarray: &mut Obarray,
-    specpdl: &mut Vec<SpecBinding>,
-    buffers: &mut BufferManager,
-    custom: &CustomManager,
-    lexenv: Value,
-) -> ActiveMacroExpansionScopeState {
-    let saved_specpdl_len = specpdl.len();
-    let old_lexical = obarray
-        .symbol_value_id(lexical_binding_symbol())
-        .is_some_and(|value| value.is_truthy());
-    let old_dynvars = obarray
-        .symbol_value_id(macroexp_dynvars_symbol())
-        .cloned()
-        .unwrap_or(Value::NIL);
-
-    let dynvars_root_index = specpdl.len();
-    specpdl.push(SpecBinding::GcRoot { value: old_dynvars });
-    let mut dynvars = old_dynvars;
-    // GNU eval.c walks Vinternal_interpreter_environment directly and only
-    // extends `macroexp--dynvars` for bare symbols. Dynamic specpdl bindings
-    // are not part of this macro-expansion state.
-    let mut cursor = lexenv;
-    while cursor.is_cons() {
-        let entry = cursor.cons_car();
-        if let Some(sym) = entry.as_symbol_id() {
-            dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
-            match specpdl.get_mut(dynvars_root_index) {
-                Some(SpecBinding::GcRoot { value }) => *value = dynvars,
-                other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
-            }
-        }
-        cursor = cursor.cons_cdr();
-    }
-    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(!lexenv.is_nil()));
-    set_runtime_binding(
-        obarray,
-        buffers,
-        custom,
-        specpdl,
-        macroexp_dynvars_symbol(),
-        dynvars,
-    );
-
-    ActiveMacroExpansionScopeState {
-        saved_specpdl_len,
-        old_lexical,
-        old_dynvars,
-    }
-}
-
-fn finish_macro_expansion_scope_in_state(
-    obarray: &mut Obarray,
-    specpdl: &mut Vec<SpecBinding>,
-    buffers: &mut BufferManager,
-    custom: &CustomManager,
-    state: ActiveMacroExpansionScopeState,
-) {
-    set_runtime_binding(
-        obarray,
-        buffers,
-        custom,
-        specpdl,
-        macroexp_dynvars_symbol(),
-        state.old_dynvars,
-    );
-    obarray.set_symbol_value_id(lexical_binding_symbol(), Value::bool_val(state.old_lexical));
-    specpdl.truncate(state.saved_specpdl_len);
 }
 
 impl Default for Context {
@@ -10803,13 +10732,7 @@ impl Context {
     ) -> Result<T, Flow> {
         self.macro_expansion_scope_depth += 1;
         let scope_enter_start = self.macro_perf_enabled.then(std::time::Instant::now);
-        let state = begin_macro_expansion_scope_in_state(
-            &mut self.obarray,
-            &mut self.specpdl,
-            &mut self.buffers,
-            &self.custom,
-            self.lexenv,
-        );
+        let state = self.begin_macro_expansion_scope_frame();
         if let Some(start) = scope_enter_start {
             self.macro_perf_stats
                 .scope_enter
@@ -10817,13 +10740,7 @@ impl Context {
         }
         let result = f(self);
         let scope_exit_start = self.macro_perf_enabled.then(std::time::Instant::now);
-        finish_macro_expansion_scope_in_state(
-            &mut self.obarray,
-            &mut self.specpdl,
-            &mut self.buffers,
-            &self.custom,
-            state,
-        );
+        self.finish_macro_expansion_scope_frame(state);
         if let Some(start) = scope_exit_start {
             self.macro_perf_stats
                 .scope_exit
@@ -10831,6 +10748,54 @@ impl Context {
         }
         self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);
         result
+    }
+
+    fn begin_macro_expansion_scope_frame(&mut self) -> ActiveMacroExpansionScopeState {
+        let saved_specpdl_len = self.specpdl.len();
+        let old_dynvars = self
+            .obarray
+            .symbol_value_id(macroexp_dynvars_symbol())
+            .copied()
+            .unwrap_or(Value::NIL);
+
+        let dynvars_root_index = self.specpdl.len();
+        self.specpdl
+            .push(SpecBinding::GcRoot { value: old_dynvars });
+        let mut dynvars = old_dynvars;
+        // GNU eval.c walks Vinternal_interpreter_environment directly and only
+        // extends `macroexp--dynvars` for bare symbols. Dynamic specpdl
+        // bindings are not part of this macro-expansion state.
+        let mut cursor = self.lexenv;
+        while cursor.is_cons() {
+            let entry = cursor.cons_car();
+            if let Some(sym) = entry.as_symbol_id() {
+                dynvars = Value::cons(Value::from_sym_id(sym), dynvars);
+                match self.specpdl.get_mut(dynvars_root_index) {
+                    Some(SpecBinding::GcRoot { value }) => *value = dynvars,
+                    other => panic!("expected macro-expansion dynvars gc root, got {other:?}"),
+                }
+            }
+            cursor = cursor.cons_cdr();
+        }
+
+        // GNU eval.c specbinds `lexical-binding' during ordinary macro calls
+        // so the macro can know whether its expansion will be interpreted
+        // lexically.  This must be a real specpdl binding: `lexical-binding'
+        // is LOCALIZED, so writing the raw symbol default can leak across
+        // buffers and diverges from GNU's SPECPDL_LET_LOCAL/DEFAULT behavior.
+        self.specbind(
+            lexical_binding_symbol(),
+            Value::bool_val(!self.lexenv.is_nil()),
+        );
+        if !crate::emacs_core::value::eq_value(&dynvars, &old_dynvars) {
+            self.specbind(macroexp_dynvars_symbol(), dynvars);
+        }
+
+        ActiveMacroExpansionScopeState { saved_specpdl_len }
+    }
+
+    fn finish_macro_expansion_scope_frame(&mut self, state: ActiveMacroExpansionScopeState) {
+        self.unbind_to(state.saved_specpdl_len);
     }
 
     #[inline]
@@ -11230,6 +11195,7 @@ impl Context {
                         self.specpdl.push(SpecBinding::LetDefault {
                             sym_id: resolved,
                             old_value: old_default,
+                            buffer_id: buf_id_opt,
                         });
                         if self.watchers.has_watchers(resolved) {
                             let _ = self.run_variable_watchers_by_id(
@@ -11284,8 +11250,10 @@ impl Context {
                         None,
                     )
                     .unwrap_or(Value::NIL);
-                let blv_found = self.obarray.blv(resolved).map(|b| b.found).unwrap_or(false);
-                if blv_found {
+                let has_local_binding = self
+                    .obarray
+                    .has_per_buffer_binding(resolved, cur_val, alist);
+                if has_local_binding {
                     self.specpdl.push(SpecBinding::LetLocal {
                         sym_id: resolved,
                         old_value: old_val,
@@ -11295,6 +11263,7 @@ impl Context {
                     self.specpdl.push(SpecBinding::LetDefault {
                         sym_id: resolved,
                         old_value: Some(old_val),
+                        buffer_id: Some(buf_id),
                     });
                 }
                 if self.watchers.has_watchers(resolved) {
@@ -11342,16 +11311,20 @@ impl Context {
     /// binding (whichever specpdl record is on top) rather than
     /// auto-creating a brand-new per-buffer binding.
     ///
-    /// GNU walks the specpdl looking for either SPECPDL_LET_LOCAL
-    /// or SPECPDL_LET_DEFAULT records keyed to the symbol; both
-    /// trigger the shadow behavior. neomacs's Phase 7 stub used to
-    /// only check `LetDefault`, missing the LetLocal arm. Buffer-
-    /// local audit Medium 4 in
-    /// `drafts/buffer-local-variables-audit.md`.
+    /// GNU walks the specpdl looking for SPECPDL_LET_DEFAULT records
+    /// keyed to the symbol in the current buffer. SPECPDL_LET_LOCAL is
+    /// explicitly excluded (GNU bug#62419), because a let over an
+    /// existing buffer-local binding must keep writes in that local
+    /// binding instead of treating the default as shadowed.
     pub(crate) fn let_shadows_buffer_binding_p(&self, sym_id: SymId) -> bool {
+        let current = self.buffers.current_buffer_id();
         self.specpdl.iter().rev().any(|entry| match entry {
-            SpecBinding::LetDefault { sym_id: s, .. } => *s == sym_id,
-            SpecBinding::LetLocal { sym_id: s, .. } => *s == sym_id,
+            SpecBinding::LetDefault {
+                sym_id: s,
+                buffer_id,
+                ..
+            } => *s == sym_id && *buffer_id == current,
+            SpecBinding::LetLocal { .. } => false,
             SpecBinding::Let { .. }
             | SpecBinding::LexicalEnv { .. }
             | SpecBinding::GcRoot { .. }
@@ -11510,7 +11483,9 @@ impl Context {
                         self.sync_cached_runtime_binding_by_id(sym_id, old_value);
                     }
                 }
-                SpecBinding::LetDefault { sym_id, old_value } => {
+                SpecBinding::LetDefault {
+                    sym_id, old_value, ..
+                } => {
                     // Restore the default value (GNU: set_default_internal)
                     if self.watchers.has_watchers(sym_id) {
                         let restore_val = old_value.unwrap_or(Value::NIL);
@@ -11626,7 +11601,9 @@ pub(crate) fn unbind_to_in_state(
                 );
                 obarray.set_symbol_value_id(sym_id, old_value);
             }
-            SpecBinding::LetDefault { sym_id, old_value } => match old_value {
+            SpecBinding::LetDefault {
+                sym_id, old_value, ..
+            } => match old_value {
                 Some(val) => obarray.set_symbol_value_id(sym_id, val),
                 None => obarray.makunbound_id(sym_id),
             },
@@ -11732,6 +11709,7 @@ pub(crate) fn set_default_toplevel_value_in_state(
             | SpecBinding::LetDefault {
                 sym_id: binding_sym,
                 old_value,
+                ..
             } if *binding_sym == sym_id => {
                 *old_value = Some(value);
                 return true;
@@ -11767,6 +11745,31 @@ pub(crate) fn set_runtime_binding_in_state(
     )
 }
 
+fn let_shadows_buffer_binding_p_in_state(
+    specpdl: &[SpecBinding],
+    buffers: &BufferManager,
+    sym_id: SymId,
+) -> bool {
+    let current = buffers.current_buffer_id();
+    specpdl.iter().rev().any(|entry| match entry {
+        SpecBinding::LetDefault {
+            sym_id: s,
+            buffer_id,
+            ..
+        } => *s == sym_id && *buffer_id == current,
+        SpecBinding::LetLocal { .. }
+        | SpecBinding::Let { .. }
+        | SpecBinding::LexicalEnv { .. }
+        | SpecBinding::GcRoot { .. }
+        | SpecBinding::Backtrace { .. }
+        | SpecBinding::Nop
+        | SpecBinding::UnwindProtect { .. }
+        | SpecBinding::SaveExcursion { .. }
+        | SpecBinding::SaveCurrentBuffer { .. }
+        | SpecBinding::SaveRestriction { .. } => false,
+    })
+}
+
 pub(crate) fn set_runtime_binding(
     obarray: &mut Obarray,
     buffers: &mut BufferManager,
@@ -11795,13 +11798,7 @@ pub(crate) fn set_runtime_binding(
             Some(buf) => (Value::make_buffer(buf.id), buf.local_var_alist),
             None => (Value::NIL, Value::NIL),
         };
-        let let_shadows = specpdl.iter().rev().any(|entry| {
-            matches!(
-                entry,
-                SpecBinding::LetDefault { sym_id: s, .. } | SpecBinding::LetLocal { sym_id: s, .. }
-                    if *s == sym_id
-            )
-        });
+        let let_shadows = let_shadows_buffer_binding_p_in_state(specpdl, buffers, sym_id);
         let new_alist = obarray.set_internal_localized(
             sym_id,
             value,
@@ -11840,13 +11837,7 @@ pub(crate) fn set_runtime_binding(
             return Some(current_id);
         }
 
-        let let_shadows = specpdl.iter().rev().any(|entry| {
-            matches!(
-                entry,
-                SpecBinding::LetDefault { sym_id: s, .. } | SpecBinding::LetLocal { sym_id: s, .. }
-                    if *s == sym_id
-            )
-        });
+        let let_shadows = let_shadows_buffer_binding_p_in_state(specpdl, buffers, sym_id);
         if let_shadows {
             buffers.set_buffer_default_slot(info, value);
             return None;
@@ -12126,23 +12117,11 @@ impl Context {
 
     pub(crate) fn begin_macro_expansion_scope(&mut self) -> ActiveMacroExpansionScopeState {
         self.macro_expansion_scope_depth += 1;
-        begin_macro_expansion_scope_in_state(
-            &mut self.obarray,
-            &mut self.specpdl,
-            &mut self.buffers,
-            &self.custom,
-            self.lexenv,
-        )
+        self.begin_macro_expansion_scope_frame()
     }
 
     pub(crate) fn finish_macro_expansion_scope(&mut self, state: ActiveMacroExpansionScopeState) {
-        finish_macro_expansion_scope_in_state(
-            &mut self.obarray,
-            &mut self.specpdl,
-            &mut self.buffers,
-            &self.custom,
-            state,
-        );
+        self.finish_macro_expansion_scope_frame(state);
         self.macro_expansion_scope_depth = self.macro_expansion_scope_depth.saturating_sub(1);
     }
 

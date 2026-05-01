@@ -287,9 +287,6 @@ fn swap_in_blv(
     let Some(blv) = obarray.blv_mut(sym_id) else {
         return;
     };
-    if blv.where_buf == current_buffer {
-        return; // cache already loaded for this buffer
-    }
     // Find this symbol in the new buffer's alist.
     let key = Value::from_sym_id(sym_id);
     let found_cell = assq(key, local_var_alist);
@@ -964,11 +961,10 @@ impl Obarray {
         target_alist: Value,
     ) -> Option<Value> {
         let blv = self.blv(id)?;
-        // BLV cache is loaded for this buffer — return cached value.
-        if !blv.where_buf.is_nil() && super::value::eq_value(&blv.where_buf, &target_buf) {
-            return Some(blv.valcell.cons_cdr());
-        }
-        // Walk the buffer's alist for an explicit per-buffer entry.
+        // Neomacs keeps `local_var_alist` as the source of truth for
+        // LOCALIZED per-buffer bindings. The BLV cache is an acceleration
+        // structure and can be stale when an immutable read races with a
+        // later make-local-variable/set path, so prefer the alist here.
         let key = Value::from_sym_id(id);
         let cell = assq(key, target_alist);
         if !cell.is_nil() {
@@ -990,11 +986,7 @@ impl Obarray {
         let Some(blv) = self.blv(id) else {
             return false;
         };
-        // BLV cache is loaded for this buffer — trust `found`.
-        if !blv.where_buf.is_nil() && super::value::eq_value(&blv.where_buf, &target_buf) {
-            return blv.found;
-        }
-        // Walk the alist.
+        // See `read_localized`: in Neomacs the alist is authoritative.
         let key = Value::from_sym_id(id);
         !assq(key, target_alist).is_nil()
     }
@@ -1273,39 +1265,34 @@ impl Obarray {
             None => return new_alist,
         };
 
-        // Step 1: swap-in. If `where_buf` doesn't match the target
-        // buffer (or `valcell` is still pointing at the defcell),
-        // reload the cache from the target buffer's alist.
-        let need_swap =
-            blv.where_buf != target_buf || super::value::eq_value(&blv.valcell, &blv.defcell);
-        if need_swap {
-            // GNU stores the previous binding's value back into the
-            // *previous* valcell before swapping. The cons-cdr write
-            // is implicit because we hold a reference into the
-            // BLV-owned cells.
-            let key = Value::from_sym_id(sym_id);
-            let mut cell = assq(key, new_alist);
-            blv.where_buf = target_buf;
-            blv.found = true;
+        // Step 1: select the binding cell for this target buffer.
+        // GNU's BLV cache is kept coherent with `local_var_alist`, so
+        // `set_internal` can usually trust `blv->valcell` when `where`
+        // already matches. Neomacs stores `local_var_alist` as the
+        // authoritative binding list and some Lisp paths replace alist
+        // entries without touching the BLV cache, so refresh from the
+        // target alist before every LOCALIZED write.
+        let key = Value::from_sym_id(sym_id);
+        let mut cell = assq(key, new_alist);
+        blv.where_buf = target_buf;
+        blv.found = true;
 
-            if cell.is_nil() {
-                // No existing binding for this buffer.
-                let auto_create =
-                    bindflag == SetInternalBind::Set && blv.local_if_set && !let_shadows;
-                if !auto_create {
-                    // Fall through to writing the default.
-                    blv.found = false;
-                    cell = blv.defcell;
-                } else {
-                    // Cons up `(sym . current-default-cdr)` and
-                    // prepend it to the buffer's local_var_alist.
-                    let default_cdr = blv.defcell.cons_cdr();
-                    cell = Value::cons(key, default_cdr);
-                    new_alist = Value::cons(cell, new_alist);
-                }
+        if cell.is_nil() {
+            // No existing binding for this buffer.
+            let auto_create = bindflag == SetInternalBind::Set && blv.local_if_set && !let_shadows;
+            if !auto_create {
+                // Fall through to writing the default.
+                blv.found = false;
+                cell = blv.defcell;
+            } else {
+                // Cons up `(sym . current-default-cdr)` and prepend it
+                // to the buffer's local_var_alist.
+                let default_cdr = blv.defcell.cons_cdr();
+                cell = Value::cons(key, default_cdr);
+                new_alist = Value::cons(cell, new_alist);
             }
-            blv.valcell = cell;
         }
+        blv.valcell = cell;
 
         // Step 2: actually write the new value into valcell's cdr.
         // The BLV's valcell is a shared cons whose cdr lives in the

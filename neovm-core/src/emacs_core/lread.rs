@@ -411,11 +411,8 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
     let filename = eval_buffer_filename_in_state(&eval.buffers, buffer_id, args.get(2))?;
 
     let specpdl_count = eval.specpdl.len();
-    let old_lexical = eval.lexical_binding();
-    let old_lexenv = eval.lexenv;
 
     let gc_roots = eval.save_specpdl_roots();
-    eval.push_specpdl_root(old_lexenv);
 
     let result = (|| -> EvalResult {
         let buffer_value = Value::make_buffer(buffer_id);
@@ -448,25 +445,34 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             eval.specbind(intern("current-load-list"), current_load_list);
         }
 
-        let lexical_binding = if let Some(binding) = eval
+        let buffer_has_local_lexical_binding = eval
             .buffers
             .get(buffer_id)
             .and_then(|buffer| buffer.get_buffer_local_binding("lexical-binding"))
             .and_then(|binding| binding.as_value())
-        {
-            binding.is_truthy()
-        } else {
-            match super::load::source_lexical_binding_for_lisp_source(
+            .is_some();
+        if !buffer_has_local_lexical_binding {
+            let lexical_binding = match super::load::source_lexical_binding_for_lisp_source(
                 eval,
                 &source,
                 Some(buffer_value),
             ) {
                 Ok(enabled) => enabled,
                 Err(err) => return Err(map_eval_error_to_flow(err)),
-            }
-        };
-        eval.set_lexical_binding(lexical_binding);
-        eval.lexenv = if lexical_binding {
+            };
+            eval.specbind(intern("lexical-binding"), Value::bool_val(lexical_binding));
+        }
+
+        // GNU `readevalloop` derives `internal-interpreter-environment` from
+        // the current visible `lexical-binding` and unwinds it through the
+        // specpdl.  Do not restore `lexical-binding` by direct assignment here:
+        // nested source loads may have swapped the active buffer-local binding
+        // cell by the time `eval-buffer` returns.
+        let lexical_binding = eval.visible_variable_value_or_nil("lexical-binding");
+        eval.specpdl.push(super::eval::SpecBinding::LexicalEnv {
+            old_lexenv: eval.lexenv,
+        });
+        eval.lexenv = if lexical_binding.is_truthy() {
             Value::list(vec![Value::T])
         } else {
             Value::NIL
@@ -495,8 +501,6 @@ pub(crate) fn builtin_eval_buffer(eval: &mut super::eval::Context, args: Vec<Val
             result
         };
 
-        eval.set_lexical_binding(old_lexical);
-        eval.lexenv = old_lexenv;
         eval.unbind_to(specpdl_count);
 
         result

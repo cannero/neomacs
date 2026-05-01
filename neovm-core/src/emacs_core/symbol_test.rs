@@ -613,6 +613,41 @@ fn set_localized_bind_never_auto_creates() {
     assert_eq!(blv.defcell.cons_cdr(), Value::fixnum(7));
 }
 
+/// If the target buffer's `local_var_alist` entry was replaced after the BLV
+/// cache was loaded, writes must update the current alist entry, not the stale
+/// cached cons. GNU keeps the cache coherent; Neomacs reselects from the
+/// authoritative alist before mutating.
+#[test]
+fn set_localized_reselects_replaced_alist_cell() {
+    crate::test_utils::init_test_tracing();
+    let mut ob = Obarray::new();
+    let id = intern("phase5-stale-blv-x");
+    ob.make_symbol_localized(id, Value::fixnum(0));
+
+    let buf = Value::fixnum(1);
+    let old_cell = Value::cons(Value::from_sym_id(id), Value::fixnum(10));
+    let old_alist = Value::cons(old_cell, Value::NIL);
+    assert_eq!(
+        ob.find_symbol_value_in_buffer(id, None, buf, old_alist, None, 0, None),
+        Some(Value::fixnum(10))
+    );
+
+    let new_cell = Value::cons(Value::from_sym_id(id), Value::fixnum(20));
+    let new_alist = Value::cons(new_cell, Value::NIL);
+    let returned_alist = ob.set_internal_localized(
+        id,
+        Value::fixnum(99),
+        buf,
+        new_alist,
+        SetInternalBind::Bind,
+        false,
+    );
+
+    assert_eq!(returned_alist, new_alist);
+    assert_eq!(old_cell.cons_cdr(), Value::fixnum(10));
+    assert_eq!(new_cell.cons_cdr(), Value::fixnum(99));
+}
+
 // Phase 8a — FORWARDED via BUFFER_OBJFWD slot.
 
 /// `install_buffer_objfwd` flips the redirect to `Forwarded` and

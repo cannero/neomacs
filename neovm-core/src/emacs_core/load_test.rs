@@ -8012,6 +8012,60 @@ fn autoload_load_preserves_callers_dynamic_lexical_binding() {
 }
 
 #[test]
+fn nested_source_load_preserves_current_buffer_local_lexical_binding() {
+    crate::test_utils::init_test_tracing();
+    let dir = tempdir().expect("create temp nested load fixture dir");
+    let child = dir.path().join("nested-child.el");
+    fs::write(
+        &child,
+        ";;; nested-child.el --- probe -*- lexical-binding: t; -*-\n\
+         (setq vm-nested-child-saw-lb lexical-binding)\n",
+    )
+    .expect("write lexical child fixture");
+
+    let child_lisp = child
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let parent = dir.path().join("nested-parent.el");
+    fs::write(
+        &parent,
+        format!(
+            "(let ((orig (current-buffer)))\n\
+              (set-buffer (get-buffer-create \" *Compiler Input*\"))\n\
+              (set (make-local-variable 'lexical-binding) t)\n\
+              (setq vm-nested-before-load-lb lexical-binding)\n\
+              (load \"{}\" nil t)\n\
+              (setq vm-nested-after-load-lb lexical-binding)\n\
+              (setq vm-nested-after-load-local (local-variable-p 'lexical-binding))\n\
+              (setq vm-nested-load-result\n\
+                    (list vm-nested-before-load-lb\n\
+                          vm-nested-child-saw-lb\n\
+                          vm-nested-after-load-lb\n\
+                          vm-nested-after-load-local))\n\
+              (set-buffer orig)\n\
+              vm-nested-load-result)\n",
+            child_lisp
+        ),
+    )
+    .expect("write dynamic parent fixture");
+
+    let mut eval = super::super::eval::Context::new();
+    load_file(&mut eval, &parent).expect("load parent fixture");
+    let loaded = eval
+        .obarray()
+        .symbol_value("vm-nested-load-result")
+        .cloned()
+        .expect("parent should store result list");
+    let payload = list_to_vec(&loaded).expect("parent should store a list");
+    assert_eq!(
+        payload,
+        vec![Value::T, Value::T, Value::T, Value::T],
+        "loading a lexical source file must restore the caller buffer's local lexical-binding"
+    );
+}
+
+#[test]
 fn load_file_accepts_utf8_bom_prefixed_source() {
     crate::test_utils::init_test_tracing();
     let unique = SystemTime::now()
@@ -8871,6 +8925,54 @@ fn partial_bootstrap_source_load_restores_current_buffer_after_eval_buffer_switc
 
     assert_eq!(format_eval_result(&result), "OK t");
     assert_eq!(eval.buffers.current_buffer_id(), Some(caller));
+}
+
+#[test]
+fn partial_bootstrap_load_with_code_conversion_preserves_current_buffer_local_lexical_binding() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = partial_bootstrap_eval_until("emacs-lisp/macroexp", false);
+    eval.set_variable(
+        "load-source-file-function",
+        Value::symbol("load-with-code-conversion"),
+    );
+
+    let caller = eval.buffers.create_buffer(" *Compiler Input*");
+    eval.buffers.set_current(caller);
+    eval.eval_str("(set (make-local-variable 'lexical-binding) t)")
+        .expect("install caller buffer-local lexical-binding");
+    let before = eval
+        .eval_str("(list lexical-binding (local-variable-p 'lexical-binding))")
+        .expect("read caller lexical-binding before load");
+    assert_eq!(
+        list_to_vec(&before).expect("before result list"),
+        vec![Value::T, Value::T]
+    );
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let path = dir.path().join("source-load-lexical-binding.el");
+    fs::write(
+        &path,
+        ";;; source-load-lexical-binding.el --- fixture -*- lexical-binding: t; -*-\n\
+         (setq vm-source-load-child-saw-lexical-binding lexical-binding)\n",
+    )
+    .expect("write source load lexical-binding fixture");
+
+    let result = load_file(&mut eval, &path);
+    assert_eq!(format_eval_result(&result), "OK t");
+    assert_eq!(eval.buffers.current_buffer_id(), Some(caller));
+
+    let after = eval
+        .eval_str(
+            "(list lexical-binding
+                   (local-variable-p 'lexical-binding)
+                   vm-source-load-child-saw-lexical-binding)",
+        )
+        .expect("read caller lexical-binding after load");
+    assert_eq!(
+        list_to_vec(&after).expect("after result list"),
+        vec![Value::T, Value::T, Value::T],
+        "source load through eval-buffer must not overwrite the caller buffer's local lexical-binding"
+    );
 }
 
 #[test]

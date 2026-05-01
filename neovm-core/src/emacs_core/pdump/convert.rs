@@ -2127,6 +2127,7 @@ fn dynamic_default_for_dump(eval: &Context, sym_id: SymId) -> Option<Option<Valu
         | crate::emacs_core::eval::SpecBinding::LetDefault {
             sym_id: binding_sym,
             old_value,
+            ..
         } if *binding_sym == sym_id => Some(*old_value),
         _ => None,
     })
