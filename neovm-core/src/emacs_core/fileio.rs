@@ -1501,59 +1501,114 @@ fn make_temp_file_impl(
     suffix: &str,
     text: Option<&str>,
 ) -> Result<String, Flow> {
-    let base = PathBuf::from(temp_dir);
+    let absolute_prefix = temp_file_absolute_prefix(temp_dir, prefix);
+    make_temp_file_internal_impl(
+        &absolute_prefix,
+        TempCreateKind::from_dir_flag(dir_flag),
+        suffix,
+        text,
+    )
+}
 
-    for _ in 0..256 {
-        let nonce = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let candidate = base.join(format!("{prefix}{now:x}{nonce:x}{suffix}"));
-        let candidate_str = candidate.to_string_lossy().into_owned();
+fn temp_file_absolute_prefix(temp_dir: &str, prefix: &str) -> String {
+    if Path::new(prefix).is_absolute() {
+        prefix.to_string()
+    } else if prefix.is_empty() || prefix == "." || prefix == ".." {
+        format!("{}{}", file_name_as_directory(temp_dir), prefix)
+    } else {
+        PathBuf::from(temp_dir)
+            .join(prefix)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
 
+#[derive(Clone, Copy)]
+enum TempCreateKind {
+    File,
+    Directory,
+    NoCreate,
+}
+
+impl TempCreateKind {
+    fn from_dir_flag(dir_flag: bool) -> Self {
         if dir_flag {
-            match fs::create_dir(&candidate) {
+            Self::Directory
+        } else {
+            Self::File
+        }
+    }
+
+    fn error_action(self) -> &'static str {
+        match self {
+            Self::File => "Creating file with prefix",
+            Self::Directory => "Creating directory with prefix",
+            Self::NoCreate => "Creating file name with prefix",
+        }
+    }
+}
+
+fn make_temp_file_internal_impl(
+    prefix: &str,
+    kind: TempCreateKind,
+    suffix: &str,
+    text: Option<&str>,
+) -> Result<String, Flow> {
+    const TEMP_FILE_ATTEMPTS: usize = 62 * 62 * 62;
+
+    for _ in 0..TEMP_FILE_ATTEMPTS {
+        let candidate_str = format!("{prefix}{}{suffix}", make_temp_name_suffix());
+        let candidate = PathBuf::from(&candidate_str);
+
+        match kind {
+            TempCreateKind::Directory => match fs::create_dir(&candidate) {
                 Ok(()) => {
-                    if let Some(contents) = text {
-                        let mut file = fs::OpenOptions::new()
-                            .write(true)
-                            .open(&candidate)
-                            .map_err(|err| {
-                                signal_file_io_path(err, "Writing to", &candidate_str)
-                            })?;
-                        file.write_all(contents.as_bytes()).map_err(|err| {
-                            signal_file_io_path(err, "Writing to", &candidate_str)
-                        })?;
-                    }
                     return Ok(candidate_str);
                 }
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
                 Err(err) => {
                     return Err(signal_file_io_path(
                         err,
-                        "Creating directory",
+                        kind.error_action(),
                         &candidate_str,
                     ));
                 }
-            }
-        } else {
-            match fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&candidate)
-            {
-                Ok(mut file) => {
-                    if let Some(contents) = text {
-                        file.write_all(contents.as_bytes()).map_err(|err| {
-                            signal_file_io_path(err, "Writing to", &candidate_str)
-                        })?;
+            },
+            TempCreateKind::File => {
+                match fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&candidate)
+                {
+                    Ok(mut file) => {
+                        if let Some(contents) = text {
+                            file.write_all(contents.as_bytes()).map_err(|err| {
+                                signal_file_io_path(err, "Writing to", &candidate_str)
+                            })?;
+                        }
+                        return Ok(candidate_str);
                     }
-                    return Ok(candidate_str);
+                    Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
+                    Err(err) => {
+                        return Err(signal_file_io_path(
+                            err,
+                            kind.error_action(),
+                            &candidate_str,
+                        ));
+                    }
                 }
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => continue,
-                Err(err) => return Err(signal_file_io_path(err, "Creating file", &candidate_str)),
             }
+            TempCreateKind::NoCreate => match fs::symlink_metadata(&candidate) {
+                Ok(_) => continue,
+                Err(err) if err.kind() == ErrorKind::NotFound => return Ok(candidate_str),
+                Err(err) => {
+                    return Err(signal_file_io_path(
+                        err,
+                        kind.error_action(),
+                        &candidate_str,
+                    ));
+                }
+            },
         }
     }
 
@@ -1561,6 +1616,26 @@ fn make_temp_file_impl(
         "file-error",
         vec![Value::string("Cannot create temporary file")],
     ))
+}
+
+pub(crate) fn builtin_make_temp_file_internal(args: Vec<Value>) -> EvalResult {
+    expect_args("make-temp-file-internal", &args, 4)?;
+    let prefix = expect_string_strict(&args[0])?;
+    let suffix = expect_string_strict(&args[2])?;
+    let kind = if args[1].is_nil() {
+        TempCreateKind::File
+    } else if args[1].as_int() == Some(0) {
+        TempCreateKind::NoCreate
+    } else {
+        TempCreateKind::Directory
+    };
+    let text = if args[3].is_string() {
+        Some(fileio_owned_runtime_string(args[3]))
+    } else {
+        None
+    };
+    let path = make_temp_file_internal_impl(&prefix, kind, &suffix, text.as_deref())?;
+    Ok(Value::string(path))
 }
 
 fn split_nearby_temp_prefix(prefix: &str) -> Option<(String, String)> {
@@ -1580,7 +1655,7 @@ fn split_nearby_temp_prefix(prefix: &str) -> Option<(String, String)> {
 }
 
 fn make_temp_name_suffix() -> String {
-    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let nonce = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1637,10 +1712,8 @@ pub(crate) fn builtin_expand_file_name(eval: &mut Context, args: Vec<Value>) -> 
 pub(crate) fn builtin_make_temp_name(args: Vec<Value>) -> EvalResult {
     expect_args("make-temp-name", &args, 1)?;
     let prefix = expect_string_strict(&args[0])?;
-    Ok(Value::string(format!(
-        "{prefix}{}",
-        make_temp_name_suffix()
-    )))
+    let path = make_temp_file_internal_impl(&prefix, TempCreateKind::NoCreate, "", None)?;
+    Ok(Value::string(path))
 }
 
 /// (next-read-file-uses-dialog-p) -> nil

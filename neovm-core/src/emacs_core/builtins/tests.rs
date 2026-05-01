@@ -4783,7 +4783,7 @@ fn eval_dispatch_obarrayp_accepts_custom_obarrays() {
 }
 
 #[test]
-fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
+fn pure_dispatch_make_temp_file_internal_matches_gnu_core_modes() {
     crate::test_utils::init_test_tracing();
     let created = dispatch_builtin_pure(
         "make-temp-file-internal",
@@ -4791,7 +4791,7 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
             Value::string("neovm-mtfi-"),
             Value::NIL,
             Value::string(".tmp"),
-            Value::NIL,
+            Value::string("payload"),
         ],
     )
     .expect("builtin make-temp-file-internal should resolve")
@@ -4801,30 +4801,27 @@ fn pure_dispatch_make_temp_file_internal_delegates_make_temp_file() {
         .expect("make-temp-file-internal should return file path");
     assert!(path.contains("neovm-mtfi-"));
     assert!(path.ends_with(".tmp"));
+    assert_eq!(path.len(), "neovm-mtfi-".len() + 6 + ".tmp".len());
     assert!(std::path::Path::new(path).exists());
+    assert_eq!(fs::read_to_string(path).expect("read temp file"), "payload");
     std::fs::remove_file(path).expect("temp file should be removable");
 
-    let mode_err = dispatch_builtin_pure(
+    let name_only = dispatch_builtin_pure(
         "make-temp-file-internal",
         vec![
-            Value::string("neovm-mtfi-mode-"),
-            Value::NIL,
+            Value::string("neovm-mtfi-name-"),
+            Value::fixnum(0),
             Value::string(".tmp"),
-            Value::string("bad"),
+            Value::NIL,
         ],
     )
     .expect("builtin make-temp-file-internal should resolve")
-    .expect_err("make-temp-file-internal should reject non-fixnum mode");
-    match mode_err {
-        Flow::Signal(sig) => {
-            assert_eq!(sig.symbol_name(), "wrong-type-argument");
-            assert_eq!(
-                sig.data,
-                vec![Value::symbol("fixnump"), Value::string("bad")]
-            );
-        }
-        other => panic!("expected signal, got: {other:?}"),
-    }
+    .expect("make-temp-file-internal should generate a name without creating it");
+    let name_path = name_only
+        .as_utf8_str()
+        .expect("make-temp-file-internal should return file path");
+    assert_eq!(name_path.len(), "neovm-mtfi-name-".len() + 6 + ".tmp".len());
+    assert!(!std::path::Path::new(name_path).exists());
 }
 
 #[test]

@@ -1500,15 +1500,10 @@ pub(crate) fn builtin_obarray_clear(args: Vec<Value>) -> EvalResult {
 }
 
 pub(crate) fn builtin_make_temp_file_internal(
-    eval: &mut super::eval::Context,
+    _eval: &mut super::eval::Context,
     args: Vec<Value>,
 ) -> EvalResult {
-    expect_args("make-temp-file-internal", &args, 4)?;
-    if !args[3].is_nil() {
-        // MODE is currently accepted for arity and type compatibility.
-        let _ = expect_fixnum(&args[3])?;
-    }
-    super::fileio::builtin_make_temp_file(eval, vec![args[0], args[1], args[2]])
+    super::fileio::builtin_make_temp_file_internal(args)
 }
 
 pub(crate) fn builtin_minibuffer_innermost_command_loop_p(args: Vec<Value>) -> EvalResult {
