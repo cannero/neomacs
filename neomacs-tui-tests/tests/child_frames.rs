@@ -5,6 +5,8 @@
 //! rendered output. These tests exercise GNU Emacs's `(featurep
 //! 'tty-child-frames)` feature and serve as a spec for NeoMacs.
 
+mod support;
+use support::{boot_pair, eval_expression, read_both, send_both};
 use neomacs_tui_tests::*;
 use std::time::Duration;
 
@@ -33,83 +35,7 @@ fn boot_child_frame_pair() -> (TuiSession, TuiSession) {
     let init = std::env::temp_dir().join("neomacs-child-frame-init.el");
     std::fs::write(&init, CHILD_FRAME_INIT).expect("write child-frame init file");
     let extra_args = format!("-l {}", init.display());
-    let mut gnu = TuiSession::gnu_emacs(&extra_args);
-    let mut neo = TuiSession::neomacs(&extra_args);
-    let startup_ready = |grid: &[String]| {
-        grid.iter().any(|row| row.contains("*scratch*"))
-            && grid
-                .iter()
-                .any(|row| row.contains("This buffer is for text that is not saved"))
-    };
-    gnu.read_until(Duration::from_secs(10), startup_ready);
-    neo.read_until(Duration::from_secs(16), startup_ready);
-    settle_session(&mut gnu, Duration::from_secs(1), 2);
-    settle_session(&mut neo, Duration::from_secs(1), 5);
-    std::thread::sleep(Duration::from_secs(3));
-    gnu.read(Duration::from_secs(1));
-    neo.read(Duration::from_secs(1));
-    (gnu, neo)
-}
-
-fn settle_session(session: &mut TuiSession, timeout: Duration, max_rounds: usize) {
-    let mut previous = session.text_grid();
-    for _ in 0..max_rounds {
-        session.read(timeout);
-        let current = session.text_grid();
-        if current == previous {
-            return;
-        }
-        previous = current;
-    }
-}
-
-fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
-    gnu.send_keys(keys);
-    neo.send_keys(keys);
-}
-
-fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
-    gnu.read(timeout);
-    neo.read(timeout);
-}
-
-/// Evaluate an Elisp expression in both sessions via `M-:` and wait for
-/// the echo area to update.
-fn eval_both(gnu: &mut TuiSession, neo: &mut TuiSession, expr: &str) {
-    send_both(gnu, neo, "M-:");
-    read_both(gnu, neo, Duration::from_secs(2));
-    for s in [&mut *gnu, &mut *neo] {
-        s.send(expr.as_bytes());
-    }
-    send_both(gnu, neo, "RET");
-    read_both(gnu, neo, Duration::from_secs(3));
-}
-
-fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
-    diffs
-        .into_iter()
-        .filter(|d| !is_boot_info_row(&d.gnu, &d.neo))
-        .collect()
-}
-
-fn assert_pair_nearly_matches(
-    label: &str,
-    gnu: &TuiSession,
-    neo: &TuiSession,
-    allowed_rows: usize,
-) {
-    let gl = gnu.text_grid();
-    let nl = neo.text_grid();
-    let diffs = meaningful_diffs(diff_text_grids(&gl, &nl));
-    if !diffs.is_empty() {
-        eprintln!("{label}: {} rows differ", diffs.len());
-        print_row_diffs(&diffs);
-    }
-    assert!(
-        diffs.len() <= allowed_rows,
-        "{label} differs in {} rows",
-        diffs.len()
-    );
+    boot_pair(&extra_args)
 }
 
 /// Check that `text` appears somewhere in the rendered rows `[row_start, row_end)`.
@@ -136,14 +62,14 @@ fn assert_region_contains(session: &TuiSession, row_start: usize, row_end: usize
 /// Delete all child frames (all frames except the selected one).
 fn delete_all_child_frames(gnu: &mut TuiSession, neo: &mut TuiSession) {
     let expr = r#"(dolist (f (delq (selected-frame) (frame-list))) (delete-frame f))"#;
-    eval_both(gnu, neo, expr);
+    eval_expression(gnu, neo, expr);
     read_both(gnu, neo, Duration::from_secs(2));
 }
 
 #[test]
 fn tty_child_frames_feature_check() {
     let (mut gnu, mut neo) = boot_child_frame_pair();
-    eval_both(
+    eval_expression(
         &mut gnu,
         &mut neo,
         "(message \"%s\" (featurep 'tty-child-frames))",
@@ -171,7 +97,7 @@ fn create_and_delete_child_frame() {
     // Create a child frame using the helper. Default position: left=5, top=3,
     // width=30, height=5. The child frame should occupy rows 3–7 (mode-line
     // at row ~6), cols 5–34.
-    eval_both(&mut gnu, &mut neo, "(cf--make-child)");
+    eval_expression(&mut gnu, &mut neo, "(cf--make-child)");
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // The child frame is visible: the screen should differ from the original
@@ -208,7 +134,7 @@ fn child_frame_displays_buffer() {
         (sit-for 0)
         (select-frame (frame-parent cf))
         cf)"#;
-    eval_both(&mut gnu, &mut neo, expr);
+    eval_expression(&mut gnu, &mut neo, expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // GNU: the child frame region (rows 3-7) should contain our text.
@@ -224,7 +150,7 @@ fn child_frame_resize() {
     let (mut gnu, mut neo) = boot_child_frame_pair();
 
     // Create a child frame (default: width=30, height=5, left=5, top=3).
-    eval_both(&mut gnu, &mut neo, "(cf--make-child)");
+    eval_expression(&mut gnu, &mut neo, "(cf--make-child)");
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     let gnu_before = gnu.text_grid();
@@ -232,7 +158,7 @@ fn child_frame_resize() {
     // Resize the child frame to 50 wide, 8 tall.
     let resize_expr = r#"(let ((cf (car (delq (selected-frame) (frame-list)))))
         (set-frame-size cf 50 8))"#;
-    eval_both(&mut gnu, &mut neo, resize_expr);
+    eval_expression(&mut gnu, &mut neo, resize_expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
     let gnu_after_resize = gnu.text_grid();
@@ -244,7 +170,7 @@ fn child_frame_resize() {
     // Move the child frame to left=20, top=1.
     let move_expr = r#"(let ((cf (car (delq (selected-frame) (frame-list)))))
         (set-frame-position cf 20 1))"#;
-    eval_both(&mut gnu, &mut neo, move_expr);
+    eval_expression(&mut gnu, &mut neo, move_expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
     let gnu_after_move = gnu.text_grid();
@@ -271,7 +197,7 @@ fn display_buffer_in_child_frame() {
           (switch-to-buffer buf)
           (sit-for 0)
           (select-frame (frame-parent cf))))"#;
-    eval_both(&mut gnu, &mut neo, expr);
+    eval_expression(&mut gnu, &mut neo, expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // GNU: the child frame area (rows ~2-7) should show our text.
@@ -287,7 +213,7 @@ fn minibuffer_child_frame() {
     // Create a child frame that shares the parent's minibuffer (default for
     // TTY child frames when minibuffer is not explicitly set to a separate
     // frame). Then exercise M-x while the child frame is visible.
-    eval_both(&mut gnu, &mut neo, "(cf--make-child)");
+    eval_expression(&mut gnu, &mut neo, "(cf--make-child)");
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // Use M-x forward-line RET — the minibuffer should work.
@@ -318,7 +244,7 @@ fn child_frame_border_width() {
     let expr = r#"(cf--make-child '(child-frame-border-width . 1)
                                '(width . 20) '(height . 4)
                                '(left . 3) '(top . 2))"#;
-    eval_both(&mut gnu, &mut neo, expr);
+    eval_expression(&mut gnu, &mut neo, expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // With border-width=1, GNU should render border characters around the
@@ -341,11 +267,11 @@ fn delete_child_frame_restores_parent() {
     // child frame's default area (rows 3-7).
     let insert_expr = r#"(goto-char (point-max))
         (insert "\nPARENT TEXT SURVIVES\n")"#;
-    eval_both(&mut gnu, &mut neo, insert_expr);
+    eval_expression(&mut gnu, &mut neo, insert_expr);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
 
     // Create a child frame that overlaps some of the parent content area.
-    eval_both(&mut gnu, &mut neo, "(cf--make-child '(top . 5))");
+    eval_expression(&mut gnu, &mut neo, "(cf--make-child '(top . 5))");
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // Delete the child frame.
@@ -375,13 +301,13 @@ fn multiple_child_frames() {
     // Create first child frame at top-left.
     let expr1 = r#"(cf--make-child '(width . 20) '(height . 4)
                                '(left . 2) '(top . 2))"#;
-    eval_both(&mut gnu, &mut neo, expr1);
+    eval_expression(&mut gnu, &mut neo, expr1);
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     // Create second child frame at bottom-right.
     let expr2 = r#"(cf--make-child '(width . 25) '(height . 4)
                                '(left . 40) '(top . 14))"#;
-    eval_both(&mut gnu, &mut neo, expr2);
+    eval_expression(&mut gnu, &mut neo, expr2);
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
 
     let gnu_grid = gnu.text_grid();
@@ -398,7 +324,7 @@ fn multiple_child_frames() {
     // Delete first child frame.
     let delete_first = r#"(let ((frames (delq (selected-frame) (frame-list))))
         (delete-frame (car frames)))"#;
-    eval_both(&mut gnu, &mut neo, delete_first);
+    eval_expression(&mut gnu, &mut neo, delete_first);
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
     // Second child frame should still be visible — screen should still differ.

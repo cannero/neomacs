@@ -4,31 +4,15 @@
 //! documents the default key sequences GNU Emacs treats as the common
 //! day-to-day editing path.
 
+mod support;
+use support::{
+    boot_pair, eval_expression, invoke_mx_command, open_home_file, read_both, resize_both,
+    save_current_file_and_assert_contents, send_both, send_both_raw, settle_session,
+    write_home_file,
+};
 use neomacs_tui_tests::*;
 use std::fs;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
-    let mut gnu = TuiSession::gnu_emacs(extra_args);
-    let mut neo = TuiSession::neomacs(extra_args);
-    let startup_ready = |grid: &[String]| {
-        grid.iter().any(|row| row.contains("*scratch*"))
-            && grid
-                .iter()
-                .any(|row| row.contains("This buffer is for text that is not saved"))
-            && grid
-                .iter()
-                .any(|row| row.contains("For information about GNU Emacs and the GNU system"))
-    };
-    gnu.read_until(Duration::from_secs(10), startup_ready);
-    neo.read_until(Duration::from_secs(16), startup_ready);
-    settle_session(&mut gnu, Duration::from_secs(1), 2);
-    settle_session(&mut neo, Duration::from_secs(1), 5);
-    std::thread::sleep(Duration::from_secs(3));
-    gnu.read(Duration::from_secs(1));
-    neo.read(Duration::from_secs(1));
-    (gnu, neo)
-}
 
 fn boot_fido_vertical_pair() -> (TuiSession, TuiSession) {
     let init = std::env::temp_dir().join("neomacs-common-usage-fido-vertical.el");
@@ -45,31 +29,20 @@ fn boot_fido_vertical_pair() -> (TuiSession, TuiSession) {
     boot_pair(&extra_args)
 }
 
-fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
-    gnu.send_keys(keys);
-    neo.send_keys(keys);
-}
-
-fn send_both_raw(gnu: &mut TuiSession, neo: &mut TuiSession, bytes: &[u8]) {
-    gnu.send(bytes);
-    neo.send(bytes);
-}
-
-fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
-    gnu.read(timeout);
-    neo.read(timeout);
-}
-
-fn resize_both(gnu: &mut TuiSession, neo: &mut TuiSession, rows: u16, cols: u16) {
-    gnu.resize(rows, cols);
-    neo.resize(rows, cols);
-}
-
 fn scratch_ready(grid: &[String]) -> bool {
     grid.iter().any(|row| row.contains("*scratch*"))
         && grid
             .iter()
             .any(|row| row.contains("This buffer is for text that is not saved"))
+}
+
+fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
+    send_both(gnu, neo, "C-h");
+    let prefix_ready = |grid: &[String]| grid.iter().any(|row| row.contains("C-h-"));
+    gnu.read_until(Duration::from_secs(6), prefix_ready);
+    neo.read_until(Duration::from_secs(8), prefix_ready);
+    read_both(gnu, neo, Duration::from_millis(300));
+    send_both(gnu, neo, key);
 }
 
 #[test]
@@ -100,17 +73,14 @@ fn terminal_resize_updates_frame_geometry() {
     let (mut gnu, mut neo) = boot_pair("");
     resize_both(&mut gnu, &mut neo, TARGET_ROWS, TARGET_COLS);
 
-    // Let GNU's SIGWINCH path and Neomacs' TTY resize watcher enqueue the
-    // resize before the next input command reads pending events.
-    std::thread::sleep(Duration::from_millis(500));
-    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
-
-    send_both(&mut gnu, &mut neo, "M-:");
+    // Drain the resize event before sending input.
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
-    for session in [&mut gnu, &mut neo] {
-        session.send(br#"(message "resize-test %sx%s" (frame-width) (frame-height))"#);
-    }
-    send_both(&mut gnu, &mut neo, "RET");
+
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        r#"(message "resize-test %sx%s" (frame-width) (frame-height))"#,
+    );
 
     let expected_frame_height = TARGET_ROWS - 1;
     let expected = format!("resize-test {TARGET_COLS}x{expected_frame_height}");
@@ -135,39 +105,6 @@ fn terminal_resize_updates_frame_geometry() {
         "Neomacs should report resized frame geometry {expected}\n{}",
         neo_grid.join("\n")
     );
-}
-
-fn send_help_sequence(gnu: &mut TuiSession, neo: &mut TuiSession, key: &str) {
-    send_both(gnu, neo, "C-h");
-    let prefix_ready = |grid: &[String]| grid.iter().any(|row| row.contains("C-h-"));
-    gnu.read_until(Duration::from_secs(6), prefix_ready);
-    neo.read_until(Duration::from_secs(8), prefix_ready);
-    read_both(gnu, neo, Duration::from_millis(300));
-    send_both(gnu, neo, key);
-}
-
-fn invoke_mx_command(gnu: &mut TuiSession, neo: &mut TuiSession, command: &str) {
-    send_both(gnu, neo, "M-x");
-    let mx_prompt = |grid: &[String]| grid.last().is_some_and(|row| row.contains("M-x"));
-    gnu.read_until(Duration::from_secs(6), mx_prompt);
-    neo.read_until(Duration::from_secs(8), mx_prompt);
-    read_both(gnu, neo, Duration::from_millis(300));
-
-    gnu.send(command.as_bytes());
-    neo.send(command.as_bytes());
-    send_both(gnu, neo, "RET");
-}
-
-fn settle_session(session: &mut TuiSession, timeout: Duration, max_rounds: usize) {
-    let mut previous = session.text_grid();
-    for _ in 0..max_rounds {
-        session.read(timeout);
-        let current = session.text_grid();
-        if current == previous {
-            return;
-        }
-        previous = current;
-    }
 }
 
 fn meaningful_diffs(diffs: Vec<RowDiff>) -> Vec<RowDiff> {
@@ -385,72 +322,6 @@ fn abort_minibuffer_and_wait_for_scratch(gnu: &mut TuiSession, neo: &mut TuiSess
     read_both(gnu, neo, Duration::from_secs(1));
 }
 
-fn write_home_file(session: &TuiSession, name: &str, contents: &str) {
-    let path = session.home_dir().join(name);
-    fs::write(path, contents).expect("write test file in isolated HOME");
-}
-
-fn open_home_file(
-    gnu: &mut TuiSession,
-    neo: &mut TuiSession,
-    name: &str,
-    contents: &str,
-    keys: &str,
-) {
-    write_home_file(gnu, name, contents);
-    write_home_file(neo, name, contents);
-
-    send_both(gnu, neo, keys);
-    let minibuffer_path = format!("~/{name}");
-    gnu.send(minibuffer_path.as_bytes());
-    neo.send(minibuffer_path.as_bytes());
-    send_both(gnu, neo, "RET");
-
-    let ready = |grid: &[String]| {
-        grid.iter().any(|row| row.contains(name))
-            && grid.iter().any(|row| {
-                contents
-                    .lines()
-                    .next()
-                    .is_some_and(|line| row.contains(line))
-            })
-    };
-    gnu.read_until(Duration::from_secs(10), ready);
-    neo.read_until(Duration::from_secs(20), ready);
-    read_both(gnu, neo, Duration::from_secs(1));
-}
-
-fn save_current_file_and_assert_contents(
-    label: &str,
-    gnu: &mut TuiSession,
-    neo: &mut TuiSession,
-    name: &str,
-    expected: &str,
-) {
-    send_both(gnu, neo, "C-x C-s");
-
-    let gnu_path = gnu.home_dir().join(name);
-    let neo_path = neo.home_dir().join(name);
-    for _ in 0..10 {
-        read_both(gnu, neo, Duration::from_millis(300));
-        let gnu_saved = fs::read_to_string(&gnu_path).ok().as_deref() == Some(expected);
-        let neo_saved = fs::read_to_string(&neo_path).ok().as_deref() == Some(expected);
-        if gnu_saved && neo_saved {
-            break;
-        }
-    }
-
-    assert_eq!(
-        fs::read_to_string(&gnu_path).expect("read GNU saved file"),
-        expected,
-        "{label}: GNU saved file contents should match"
-    );
-    assert_eq!(
-        fs::read_to_string(&neo_path).expect("read Neo saved file"),
-        expected,
-        "{label}: Neomacs saved file contents should match"
-    );
-}
 
 fn assert_home_file_contents(gnu: &TuiSession, neo: &TuiSession, name: &str, expected: &str) {
     assert_eq!(
@@ -11607,8 +11478,8 @@ fn downcase_region_once_via_disabled_cx_cl() {
     gnu.read_until(Duration::from_secs(8), ready);
     neo.read_until(Duration::from_secs(12), ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
-    settle_session(&mut gnu, Duration::from_secs(1), 2);
-    settle_session(&mut neo, Duration::from_secs(1), 6);
+    settle_session(&mut gnu);
+    settle_session(&mut neo);
 
     assert_pair_nearly_matches("downcase_region_once_via_disabled_cx_cl", &gnu, &neo, 2);
 }
@@ -11657,8 +11528,8 @@ fn upcase_region_once_via_disabled_cx_cu() {
     gnu.read_until(Duration::from_secs(8), ready);
     neo.read_until(Duration::from_secs(12), ready);
     read_both(&mut gnu, &mut neo, Duration::from_secs(1));
-    settle_session(&mut gnu, Duration::from_secs(1), 2);
-    settle_session(&mut neo, Duration::from_secs(1), 6);
+    settle_session(&mut gnu);
+    settle_session(&mut neo);
 
     assert_pair_nearly_matches("upcase_region_once_via_disabled_cx_cu", &gnu, &neo, 2);
 }

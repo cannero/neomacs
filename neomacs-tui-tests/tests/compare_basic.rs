@@ -3,40 +3,10 @@
 //! Each test spawns GNU Emacs and Neomacs side-by-side in isolated PTYs,
 //! sends identical keystrokes, and asserts the rendered screens match.
 
+mod support;
+use support::{boot_pair, read_both, send_both};
 use neomacs_tui_tests::*;
 use std::time::Duration;
-
-/// Helper: boot both editors, wait for them to settle.
-fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
-    let mut gnu = TuiSession::gnu_emacs(extra_args);
-    let mut neo = TuiSession::neomacs(extra_args);
-    let startup_ready = |grid: &[String]| {
-        grid.iter().any(|row| row.contains("*scratch*"))
-            && grid
-                .iter()
-                .any(|row| row.contains("This buffer is for text that is not saved"))
-    };
-    gnu.read_until(Duration::from_secs(8), startup_ready);
-    neo.read_until(Duration::from_secs(12), startup_ready);
-    // Startup can legitimately produce a later burst after the initial
-    // `*scratch*` screen becomes visible. Absorb that tail so the first input
-    // keystroke does not race the end of startup under parallel load.
-    gnu.read(Duration::from_secs(1));
-    neo.read(Duration::from_secs(2));
-    (gnu, neo)
-}
-
-/// Helper: send the same keys to both sessions.
-fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
-    gnu.send_keys(keys);
-    neo.send_keys(keys);
-}
-
-/// Helper: read output from both sessions.
-fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
-    gnu.read(timeout);
-    neo.read(timeout);
-}
 
 fn grid_has_two_scratch_windows(grid: &[String]) -> bool {
     grid.iter().filter(|row| row.contains("*scratch*")).count() >= 2
@@ -257,7 +227,7 @@ fn eval_expression() {
     for s in [&mut gnu, &mut neo] {
         s.send(b"(+ 1 2)");
     }
-    std::thread::sleep(Duration::from_millis(500));
+    read_both(&mut gnu, &mut neo, Duration::from_millis(500));
     send_both(&mut gnu, &mut neo, "RET");
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
@@ -279,11 +249,7 @@ fn eval_expression() {
 #[test]
 fn universal_argument() {
     let (mut gnu, mut neo) = boot_pair("");
-    send_both(&mut gnu, &mut neo, "C-u");
-    std::thread::sleep(Duration::from_millis(200));
-    for s in [&mut gnu, &mut neo] {
-        s.send(b"8a");
-    }
+    send_both(&mut gnu, &mut neo, "C-u 8 a");
     read_both(&mut gnu, &mut neo, Duration::from_secs(2));
 
     let gl = gnu.text_grid();
@@ -423,14 +389,10 @@ fn fido_vertical_mode_completions() {
     // M-x then type to trigger completions
     send_both(&mut gnu, &mut neo, "M-x");
     read_both(&mut gnu, &mut neo, Duration::from_secs(3));
-    for ch in b"forw" {
-        for s in [&mut gnu, &mut neo] {
-            s.send(&[*ch]);
-        }
-        std::thread::sleep(Duration::from_millis(500));
-        read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    for s in [&mut gnu, &mut neo] {
+        s.send(b"forw");
     }
-    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+    read_both(&mut gnu, &mut neo, Duration::from_secs(4));
 
     let gl = gnu.text_grid();
     let nl = neo.text_grid();
