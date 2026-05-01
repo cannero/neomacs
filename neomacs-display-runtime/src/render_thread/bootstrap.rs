@@ -22,10 +22,9 @@ impl RenderApp {
         tracing::info!("Initializing wgpu for render thread");
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_descriptor.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         // Create surface from window
         let surface = match instance.create_surface(window.clone()) {

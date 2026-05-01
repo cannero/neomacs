@@ -159,10 +159,9 @@ impl WinitBackend {
         }
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_descriptor.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         // Request adapter without a surface (headless)
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -350,10 +349,9 @@ impl WinitBackend {
         self.height = size.height;
 
         // Create wgpu instance
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_descriptor.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         // Create surface - we need to use unsafe to create a surface from the window
         // SAFETY: The window is valid and will outlive the surface because we store
@@ -508,17 +506,18 @@ impl WinitBackend {
 
         // Get the current texture from the surface
         let output = match surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Lost) => {
+            wgpu::CurrentSurfaceTexture::Success(output)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 // Reconfigure the surface
                 self.handle_resize(PhysicalSize::new(self.width, self.height));
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                return Err(DisplayError::Render("Out of GPU memory".to_string()));
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
             }
-            Err(e) => {
-                tracing::warn!("Surface error: {:?}", e);
+            wgpu::CurrentSurfaceTexture::Validation => {
+                tracing::warn!("Surface validation error");
                 return Ok(());
             }
         };
@@ -771,9 +770,17 @@ impl WinitBackend {
         };
 
         let output = match state.surface.get_current_texture() {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("Failed to get surface texture: {:?}", e);
+            wgpu::CurrentSurfaceTexture::Success(output)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
+                tracing::warn!("Surface texture outdated or lost for window {}", window_id);
+                return;
+            }
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return;
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                tracing::warn!("Surface validation error for window {}", window_id);
                 return;
             }
         };

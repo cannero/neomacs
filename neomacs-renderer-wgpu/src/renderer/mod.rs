@@ -451,7 +451,7 @@ impl WgpuRenderer {
         // Create pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Rect Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
 
@@ -636,7 +636,7 @@ impl WgpuRenderer {
         let glyph_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Glyph Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout, &glyph_bind_group_layout],
+                bind_group_layouts: &[Some(&bind_group_layout), Some(&glyph_bind_group_layout)],
                 immediate_size: 0,
             });
 
@@ -742,7 +742,10 @@ impl WgpuRenderer {
         let image_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Image Pipeline Layout"),
-                bind_group_layouts: &[&bind_group_layout, image_cache.bind_group_layout()],
+                bind_group_layouts: &[
+                    Some(&bind_group_layout),
+                    Some(image_cache.bind_group_layout()),
+                ],
                 immediate_size: 0,
             });
 
@@ -833,8 +836,8 @@ impl WgpuRenderer {
         // Stencil state for content pipelines: pass only where stencil==reference
         let stencil_read_state = wgpu::DepthStencilState {
             format: wgpu::TextureFormat::Stencil8,
-            depth_write_enabled: false,
-            depth_compare: wgpu::CompareFunction::Always,
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
             stencil: wgpu::StencilState {
                 front: wgpu::StencilFaceState {
                     compare: wgpu::CompareFunction::Equal,
@@ -1125,8 +1128,8 @@ impl WgpuRenderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Stencil8,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
                     stencil: wgpu::StencilState {
                         front: wgpu::StencilFaceState {
                             compare: wgpu::CompareFunction::Always,
@@ -1292,10 +1295,9 @@ impl WgpuRenderer {
         height: u32,
     ) -> Result<Self, String> {
         // Create wgpu instance
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
+        let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+        instance_descriptor.backends = wgpu::Backends::all();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         // Request adapter
         let adapter = instance
@@ -1423,17 +1425,17 @@ impl WgpuRenderer {
         };
 
         let output = match surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Lost) => {
+            wgpu::CurrentSurfaceTexture::Success(output)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.resize(self.width, self.height);
                 return;
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                tracing::error!("Out of GPU memory");
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return;
             }
-            Err(e) => {
-                tracing::warn!("Surface error: {:?}", e);
+            wgpu::CurrentSurfaceTexture::Validation => {
+                tracing::warn!("Surface validation error");
                 return;
             }
         };

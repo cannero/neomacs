@@ -19,19 +19,19 @@ impl RenderApp {
             return;
         };
         let output = match surface.get_current_texture() {
-            Ok(output) => output,
-            Err(wgpu::SurfaceError::Lost) => {
+            wgpu::CurrentSurfaceTexture::Success(output)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(output) => output,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 // Reconfigure surface
                 let (w, h) = (self.width, self.height);
                 self.handle_resize(w, h);
                 return;
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                tracing::error!("Out of GPU memory");
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return;
             }
-            Err(e) => {
-                tracing::warn!("Surface error: {:?}", e);
+            wgpu::CurrentSurfaceTexture::Validation => {
+                tracing::warn!("Surface validation error");
                 return;
             }
         };

@@ -6,10 +6,9 @@ use tracing::warn;
 // Returns None if no GPU adapter is available (headless CI, etc.).
 // ---------------------------------------------------------------
 fn make_test_textures() -> Option<(Arc<wgpu::Texture>, Arc<wgpu::Texture>)> {
-    let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-        backends: wgpu::Backends::all(),
-        ..Default::default()
-    });
+    let mut instance_descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
+    instance_descriptor.backends = wgpu::Backends::all();
+    let instance = wgpu::Instance::new(instance_descriptor);
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::LowPower,
         compatible_surface: None,
