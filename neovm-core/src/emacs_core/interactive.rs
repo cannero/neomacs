@@ -3435,6 +3435,7 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
         .and_then(|value| value.as_symbol_name())
         .is_some_and(|name| name == "non-ascii");
     let prefer_single_binding = first_only && !first_only_non_ascii;
+    let no_menu_bindings = prefer_single_binding;
 
     let keymaps = where_is_keymaps_in_context(eval, args.get(1))?;
     if args.get(1).is_none() && keymaps.is_empty() {
@@ -3451,6 +3452,7 @@ pub(crate) fn builtin_where_is_internal(eval: &mut Context, args: Vec<Value>) ->
             &mut prefix,
             &mut sequences,
             first_only_non_ascii,
+            no_menu_bindings,
             0,
         ) && first_only_non_ascii
         {
@@ -3707,6 +3709,66 @@ fn select_where_is_preferred_sequence<'a>(
     best
 }
 
+fn where_is_prefix_starts_with_mouse_event(prefix: &[Value]) -> bool {
+    let Some(name) = prefix.first().and_then(|event| event.as_symbol_name()) else {
+        return false;
+    };
+    let base = event_symbol_base_for_mouse_event_filter(name);
+    matches!(
+        base.as_str(),
+        "menu-bar"
+            | "tab-bar"
+            | "tool-bar"
+            | "tab-line"
+            | "header-line"
+            | "mode-line"
+            | "mouse-1"
+            | "mouse-2"
+            | "mouse-3"
+            | "mouse-4"
+            | "mouse-5"
+    )
+}
+
+fn event_symbol_base_for_mouse_event_filter(mut name: &str) -> String {
+    loop {
+        let Some((prefix, rest)) = name.split_once('-') else {
+            break;
+        };
+        if matches!(
+            prefix,
+            "A" | "alt"
+                | "C"
+                | "control"
+                | "H"
+                | "hyper"
+                | "M"
+                | "meta"
+                | "S"
+                | "shift"
+                | "s"
+                | "super"
+        ) {
+            name = rest;
+        } else {
+            break;
+        }
+    }
+
+    for mouse_prefix in [
+        "down-mouse-",
+        "drag-mouse-",
+        "double-mouse-",
+        "triple-mouse-",
+    ] {
+        if let Some(button) = name.strip_prefix(mouse_prefix) {
+            return format!("mouse-{button}");
+        }
+    }
+
+    name.to_string()
+}
+
 fn collect_where_is_sequences_value(
     obarray: &Obarray,
     keymap: &Value,
@@ -3714,6 +3776,7 @@ fn collect_where_is_sequences_value(
     prefix: &mut Vec<Value>,
     out: &mut Vec<Vec<Value>>,
     first_only: bool,
+    no_menu_bindings: bool,
     depth: usize,
 ) -> bool {
     if depth > 50 {
@@ -3725,6 +3788,11 @@ fn collect_where_is_sequences_value(
 
     for (event, binding) in bindings {
         prefix.push(event);
+
+        if no_menu_bindings && where_is_prefix_starts_with_mouse_event(prefix) {
+            prefix.pop();
+            continue;
+        }
 
         if binding_matches_definition(&binding, definition) {
             out.push(prefix.clone());
@@ -3742,6 +3810,7 @@ fn collect_where_is_sequences_value(
                 prefix,
                 out,
                 first_only,
+                no_menu_bindings,
                 depth + 1,
             ) {
                 prefix.pop();
@@ -3761,6 +3830,7 @@ fn collect_where_is_sequences_value(
             prefix,
             out,
             first_only,
+            no_menu_bindings,
             depth + 1,
         ) {
             return true;

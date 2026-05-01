@@ -4515,6 +4515,27 @@ fn where_is_internal_follows_menu_bar_label_prefix_keymaps() {
 }
 
 #[test]
+fn where_is_internal_firstonly_rejects_menu_bar_bindings_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one(
+        r#"(let ((m (make-sparse-keymap))
+                 (file-menu (make-sparse-keymap)))
+             (defun test-where-is-menu-command ())
+             (define-key file-menu [new-file]
+                         '(menu-item "Visit New File..." test-where-is-menu-command))
+             (define-key m [menu-bar file]
+                         (list 'menu-item "File" file-menu))
+             (list (where-is-internal 'test-where-is-menu-command m t)
+                   (where-is-internal 'test-where-is-menu-command m)
+                   (where-is-internal 'test-where-is-menu-command m 'non-ascii)))"#,
+    );
+    assert_eq!(
+        result,
+        "OK (nil ([menu-bar file new-file]) [menu-bar file new-file])"
+    );
+}
+
+#[test]
 fn where_is_internal_returns_prefix_key_for_prefix_command_symbol() {
     crate::test_utils::init_test_tracing();
     let result = eval_one(
