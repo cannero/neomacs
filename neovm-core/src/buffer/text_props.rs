@@ -1,11 +1,10 @@
 //! GNU-style text interval storage for buffers and strings.
 //!
-//! GNU Emacs represents text properties as an `INTERVAL` tree rooted from the
-//! owning string or buffer.  Each interval node stores an augmented subtree
-//! length, cached position, left/right tree links, parent/object metadata,
-//! property cache bits, and a Lisp plist.  Neomacs keeps the existing Rust API
-//! name (`TextPropertyTable`) for callers, but the backing storage below follows
-//! that interval-tree model instead of the older boundary-indexed map.
+//! GNU Emacs represents text properties as an interval tree rooted from the
+//! owning string or buffer.  Neomacs keeps the existing Rust API name
+//! (`TextPropertyTable`) for callers, and follows GNU's mutation shape: split
+//! at the edit range, change the affected interval plists, then merge adjacent
+//! intervals with equal plists.
 
 use std::collections::HashMap;
 
@@ -18,9 +17,10 @@ use crate::gc_trace::GcTrace;
 
 /// Public snapshot of one text-property interval.
 ///
-/// Runtime storage is `IntervalNode` below.  This type remains the serialization
-/// and inspection shape used by pdump/tests.  Bounds are character positions,
-/// matching GNU intervals; buffer owners convert byte positions at the boundary.
+/// Runtime storage uses the same start/end/plist shape.  This type remains the
+/// serialization and inspection shape used by pdump/tests.  Bounds are character
+/// positions, matching GNU intervals; buffer owners convert byte positions at
+/// the boundary.
 #[derive(Clone, Debug)]
 pub struct PropertyInterval {
     /// Character position where this interval starts (inclusive).
@@ -97,69 +97,7 @@ impl PropertyInterval {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GNU-style interval node
-// ---------------------------------------------------------------------------
-
 type IntervalPlist = Vec<(Value, Value)>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum IntervalParent {
-    Null,
-    Object,
-    Interval(usize),
-}
-
-#[derive(Clone, Debug)]
-struct IntervalNode {
-    /// Length of this interval and both children.
-    total_length: usize,
-    /// Cached character position of this interval.
-    position: usize,
-    left: Option<usize>,
-    right: Option<usize>,
-    /// Parent interval, object owner, or null.
-    up: IntervalParent,
-    up_obj: bool,
-    gcmarkbit: bool,
-    write_protect: bool,
-    visible: bool,
-    front_sticky: bool,
-    rear_sticky: bool,
-    plist: IntervalPlist,
-}
-
-impl IntervalNode {
-    fn new(position: usize, length: usize, plist: IntervalPlist, up: IntervalParent) -> Self {
-        let mut node = Self {
-            total_length: length,
-            position,
-            left: None,
-            right: None,
-            up,
-            up_obj: matches!(up, IntervalParent::Object),
-            gcmarkbit: false,
-            write_protect: false,
-            visible: false,
-            front_sticky: false,
-            rear_sticky: false,
-            plist,
-        };
-        node.refresh_property_cache();
-        node
-    }
-
-    fn refresh_property_cache(&mut self) {
-        self.write_protect =
-            plist_get(&self.plist, Value::symbol("read-only")).is_some_and(|v| v.is_truthy());
-        self.visible =
-            plist_get(&self.plist, Value::symbol("invisible")).is_none_or(|v| v.is_nil());
-        self.front_sticky =
-            plist_get(&self.plist, Value::symbol("front-sticky")).is_some_and(|v| v.is_truthy());
-        self.rear_sticky =
-            plist_get(&self.plist, Value::symbol("rear-nonsticky")).is_none_or(|v| v.is_nil());
-    }
-}
 
 #[derive(Clone, Debug)]
 struct IntervalRun {
@@ -175,10 +113,6 @@ impl IntervalRun {
 
     fn default(start: usize, end: usize) -> Self {
         Self::new(start, end, Vec::new())
-    }
-
-    fn len(&self) -> usize {
-        self.end.saturating_sub(self.start)
     }
 
     fn is_empty_plist(&self) -> bool {
@@ -227,19 +161,15 @@ fn plists_equal_eq(left: &[(Value, Value)], right: &[(Value, Value)]) -> bool {
 // TextPropertyTable
 // ---------------------------------------------------------------------------
 
-/// GNU-style interval tree for text properties.
+/// GNU-style text-property intervals.
 #[derive(Clone)]
 pub struct TextPropertyTable {
-    nodes: Vec<IntervalNode>,
-    root: Option<usize>,
+    runs: Vec<IntervalRun>,
 }
 
 impl TextPropertyTable {
     pub fn new() -> Self {
-        Self {
-            nodes: Vec::new(),
-            root: None,
-        }
+        Self { runs: Vec::new() }
     }
 
     pub fn put_property(&mut self, start: usize, end: usize, name: Value, value: Value) -> bool {
@@ -247,7 +177,7 @@ impl TextPropertyTable {
             return false;
         }
 
-        let mut runs = self.all_runs();
+        let mut runs = self.runs.clone();
         runs = split_runs_at(runs, &[start, end]);
         runs = cover_range_with_default_intervals(runs, start, end);
 
@@ -259,13 +189,13 @@ impl TextPropertyTable {
             }
         }
 
-        self.rebuild_from_runs(runs);
+        self.replace_runs(runs);
         changed
     }
 
     pub(crate) fn from_plist_runs(runs: Vec<(usize, usize, Vec<(Value, Value)>)>) -> Self {
         let mut table = Self::new();
-        table.rebuild_from_runs(
+        table.replace_runs(
             runs.into_iter()
                 .map(|(start, end, plist)| IntervalRun::new(start, end, plist))
                 .collect(),
@@ -275,21 +205,21 @@ impl TextPropertyTable {
 
     pub fn get_property(&self, pos: usize, name: Value) -> Option<&Value> {
         let idx = self.interval_containing_index(pos)?;
-        plist_get(&self.nodes[idx].plist, name)
+        plist_get(&self.runs[idx].plist, name)
     }
 
     pub fn get_properties(&self, pos: usize) -> HashMap<Value, Value> {
         let Some(idx) = self.interval_containing_index(pos) else {
             return HashMap::new();
         };
-        PropertyInterval::from_plist(pos, pos + 1, &self.nodes[idx].plist).properties
+        PropertyInterval::from_plist(pos, pos + 1, &self.runs[idx].plist).properties
     }
 
     pub fn get_properties_ordered(&self, pos: usize) -> Vec<(Value, Value)> {
         let Some(idx) = self.interval_containing_index(pos) else {
             return Vec::new();
         };
-        self.nodes[idx].plist.clone()
+        self.runs[idx].plist.clone()
     }
 
     pub fn remove_property(&mut self, start: usize, end: usize, name: Value) -> bool {
@@ -297,14 +227,14 @@ impl TextPropertyTable {
             return false;
         }
 
-        let mut runs = split_runs_at(self.all_runs(), &[start, end]);
+        let mut runs = split_runs_at(self.runs.clone(), &[start, end]);
         let mut changed = false;
         for run in &mut runs {
             if run.start < end && run.end > start && plist_remove(&mut run.plist, name) {
                 changed = true;
             }
         }
-        self.rebuild_from_runs(runs);
+        self.replace_runs(runs);
         changed
     }
 
@@ -313,17 +243,17 @@ impl TextPropertyTable {
             return;
         }
 
-        let mut runs = split_runs_at(self.all_runs(), &[start, end]);
+        let mut runs = split_runs_at(self.runs.clone(), &[start, end]);
         for run in &mut runs {
             if run.start < end && run.end > start {
                 run.plist.clear();
             }
         }
-        self.rebuild_from_runs(runs);
+        self.replace_runs(runs);
     }
 
     pub fn next_property_change(&self, pos: usize) -> Option<usize> {
-        let runs = self.all_runs();
+        let runs = &self.runs;
         if runs.is_empty() {
             return None;
         }
@@ -348,7 +278,7 @@ impl TextPropertyTable {
         if pos == 0 {
             return None;
         }
-        let runs = self.all_runs();
+        let runs = &self.runs;
         if runs.is_empty() {
             return None;
         }
@@ -380,7 +310,7 @@ impl TextPropertyTable {
         }
 
         let mut shifted = Vec::new();
-        for run in self.all_runs() {
+        for run in self.runs.clone() {
             if run.end <= pos {
                 shifted.push(run);
             } else if run.start >= pos {
@@ -391,7 +321,7 @@ impl TextPropertyTable {
                 shifted.push(IntervalRun::new(pos + len, run.end + len, run.plist));
             }
         }
-        self.rebuild_from_runs(shifted);
+        self.replace_runs(shifted);
     }
 
     pub fn adjust_for_delete(&mut self, start: usize, end: usize) {
@@ -401,7 +331,7 @@ impl TextPropertyTable {
 
         let len = end - start;
         let mut shifted = Vec::new();
-        for mut run in self.all_runs() {
+        for mut run in self.runs.clone() {
             if run.end <= start {
                 shifted.push(run);
             } else if run.start >= end {
@@ -420,19 +350,40 @@ impl TextPropertyTable {
                 shifted.push(run);
             }
         }
-        self.rebuild_from_runs(shifted);
+        self.replace_runs(shifted);
     }
 
     pub fn intervals_snapshot(&self) -> Vec<PropertyInterval> {
-        self.all_runs()
-            .into_iter()
+        self.runs
+            .iter()
             .filter(|run| !run.plist.is_empty())
             .map(|run| PropertyInterval::from_plist(run.start, run.end, &run.plist))
             .collect()
     }
 
+    pub(crate) fn try_for_each_interval_in_range<E>(
+        &self,
+        start: usize,
+        end: usize,
+        mut f: impl FnMut(usize, usize, &[(Value, Value)]) -> Result<(), E>,
+    ) -> Result<(), E> {
+        if start >= end {
+            return Ok(());
+        }
+        for run in &self.runs {
+            if run.end <= start {
+                continue;
+            }
+            if run.start >= end {
+                break;
+            }
+            f(run.start, run.end, &run.plist)?;
+        }
+        Ok(())
+    }
+
     pub fn is_empty(&self) -> bool {
-        self.nodes.iter().all(|node| node.plist.is_empty())
+        self.runs.is_empty()
     }
 
     pub fn slice(&self, start: usize, end: usize) -> TextPropertyTable {
@@ -461,7 +412,7 @@ impl TextPropertyTable {
     }
 
     pub fn append_shifted(&mut self, other: &TextPropertyTable, offset: usize) {
-        let mut runs = self.all_runs();
+        let mut runs = self.runs.clone();
         runs.extend(other.intervals_snapshot().into_iter().map(|interval| {
             IntervalRun::new(
                 interval.start + offset,
@@ -469,7 +420,7 @@ impl TextPropertyTable {
                 interval.into_plist(),
             )
         }));
-        self.rebuild_from_runs(runs);
+        self.replace_runs(runs);
     }
 
     pub fn merge_missing_shifted(&mut self, other: &TextPropertyTable, offset: usize) {
@@ -488,7 +439,7 @@ impl TextPropertyTable {
             return;
         }
 
-        let mut runs = self.all_runs();
+        let mut runs = self.runs.clone();
         for source in source_runs {
             if source.is_empty_plist() {
                 continue;
@@ -506,7 +457,7 @@ impl TextPropertyTable {
                 }
             }
         }
-        self.rebuild_from_runs(runs);
+        self.replace_runs(runs);
     }
 
     pub(crate) fn dump_intervals(&self) -> Vec<PropertyInterval> {
@@ -515,7 +466,7 @@ impl TextPropertyTable {
 
     pub(crate) fn from_dump(intervals: Vec<PropertyInterval>) -> Self {
         let mut table = Self::new();
-        table.rebuild_from_runs(
+        table.replace_runs(
             intervals
                 .into_iter()
                 .map(|interval| {
@@ -527,97 +478,27 @@ impl TextPropertyTable {
     }
 
     pub(crate) fn for_each_root(&self, mut f: impl FnMut(Value)) {
-        for node in &self.nodes {
-            for (key, value) in &node.plist {
+        for run in &self.runs {
+            for (key, value) in &run.plist {
                 f(*key);
                 f(*value);
             }
         }
     }
 
-    fn all_runs(&self) -> Vec<IntervalRun> {
-        let mut runs = Vec::new();
-        if let Some(root) = self.root {
-            self.collect_runs(root, &mut runs);
-        }
-        runs
-    }
-
-    fn collect_runs(&self, idx: usize, out: &mut Vec<IntervalRun>) {
-        let node = &self.nodes[idx];
-        if let Some(left) = node.left {
-            self.collect_runs(left, out);
-        }
-        let len = self.node_length(idx);
-        if len > 0 {
-            out.push(IntervalRun::new(
-                node.position,
-                node.position + len,
-                node.plist.clone(),
-            ));
-        }
-        if let Some(right) = node.right {
-            self.collect_runs(right, out);
-        }
-    }
-
-    fn rebuild_from_runs(&mut self, runs: Vec<IntervalRun>) {
-        let runs = normalize_runs(runs);
-        self.nodes.clear();
-        self.nodes.reserve(runs.len());
-        self.root = self.build_subtree(&runs, IntervalParent::Object);
-    }
-
-    fn build_subtree(&mut self, runs: &[IntervalRun], up: IntervalParent) -> Option<usize> {
-        if runs.is_empty() {
-            return None;
-        }
-
-        let mid = runs.len() / 2;
-        let idx = self.nodes.len();
-        self.nodes.push(IntervalNode::new(
-            runs[mid].start,
-            runs[mid].len(),
-            runs[mid].plist.clone(),
-            up,
-        ));
-
-        let left = self.build_subtree(&runs[..mid], IntervalParent::Interval(idx));
-        let right = self.build_subtree(&runs[mid + 1..], IntervalParent::Interval(idx));
-        let left_total = left.map_or(0, |child| self.nodes[child].total_length);
-        let right_total = right.map_or(0, |child| self.nodes[child].total_length);
-
-        let node = &mut self.nodes[idx];
-        node.left = left;
-        node.right = right;
-        node.total_length = runs[mid].len() + left_total + right_total;
-        node.up_obj = matches!(node.up, IntervalParent::Object);
-        Some(idx)
-    }
-
-    fn node_length(&self, idx: usize) -> usize {
-        let node = &self.nodes[idx];
-        node.total_length
-            .saturating_sub(node.left.map_or(0, |left| self.nodes[left].total_length))
-            .saturating_sub(node.right.map_or(0, |right| self.nodes[right].total_length))
+    fn replace_runs(&mut self, runs: Vec<IntervalRun>) {
+        self.runs = normalize_runs(runs);
     }
 
     fn interval_containing_index(&self, pos: usize) -> Option<usize> {
-        let mut cursor = self.root?;
-        loop {
-            let node = &self.nodes[cursor];
-            if pos < node.position {
-                cursor = node.left?;
-                continue;
+        let idx = self.runs.partition_point(|run| run.end <= pos);
+        if idx < self.runs.len() {
+            let run = &self.runs[idx];
+            if run.start <= pos && pos < run.end {
+                return Some(idx);
             }
-
-            let end = node.position + self.node_length(cursor);
-            if pos < end {
-                return Some(cursor);
-            }
-
-            cursor = node.right?;
         }
+        None
     }
 }
 

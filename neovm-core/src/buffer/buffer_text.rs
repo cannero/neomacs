@@ -585,6 +585,20 @@ impl BufferText {
         self.storage.borrow().text_props.intervals_snapshot()
     }
 
+    pub(crate) fn text_props_try_for_each_interval_in_range<E>(
+        &self,
+        start: usize,
+        end: usize,
+        f: impl FnMut(usize, usize, &[(Value, Value)]) -> Result<(), E>,
+    ) -> Result<(), E> {
+        let start = self.buf_bytepos_to_charpos(start);
+        let end = self.buf_bytepos_to_charpos(end);
+        self.storage
+            .borrow()
+            .text_props
+            .try_for_each_interval_in_range(start, end, f)
+    }
+
     pub fn adjust_text_props_for_insert(&self, pos: usize, len: usize) {
         self.storage
             .borrow_mut()

@@ -200,6 +200,12 @@ fn plist_get_value(plist: Value, prop: Value) -> Option<Value> {
     }
 }
 
+fn plist_slice_get_value(plist: &[(Value, Value)], prop: Value) -> Option<Value> {
+    plist
+        .iter()
+        .find_map(|(key, value)| eq_value(key, &prop).then_some(*value))
+}
+
 fn assq_rest(list: Value, prop: Value) -> Option<Value> {
     let mut cursor = list;
     while cursor.is_cons() {
@@ -561,40 +567,27 @@ fn verify_text_read_only_in_state(
     }
     let read_only_sym = Value::symbol("read-only");
     let inhibit_sym = Value::symbol("inhibit-read-only");
-    for iv in buf.text.text_props_intervals_snapshot() {
-        if iv.end <= byte_start {
-            continue;
-        }
-        if iv.start >= byte_end {
-            break;
-        }
-        let read_only = iv
-            .properties
-            .get(&read_only_sym)
-            .copied()
-            .unwrap_or(Value::NIL);
-        if read_only.is_nil() {
-            continue;
-        }
-        // INTERVAL_EXPRESSLY_WRITABLE_P (intervals.h:217).
-        let express_inhibit = iv
-            .properties
-            .get(&inhibit_sym)
-            .copied()
-            .unwrap_or(Value::NIL);
-        if !express_inhibit.is_nil() {
-            continue;
-        }
-        if inhibit.is_cons() && value_in_list(read_only, inhibit) {
-            continue;
-        }
-        let args = if read_only.is_string() {
-            vec![read_only]
-        } else {
-            vec![]
-        };
-        return Err(signal("text-read-only", args));
-    }
+    buf.text
+        .text_props_try_for_each_interval_in_range(byte_start, byte_end, |_, _, plist| {
+            let read_only = plist_slice_get_value(plist, read_only_sym).unwrap_or(Value::NIL);
+            if read_only.is_nil() {
+                return Ok::<(), Flow>(());
+            }
+            // INTERVAL_EXPRESSLY_WRITABLE_P (intervals.h:217).
+            let express_inhibit = plist_slice_get_value(plist, inhibit_sym).unwrap_or(Value::NIL);
+            if !express_inhibit.is_nil() {
+                return Ok(());
+            }
+            if inhibit.is_cons() && value_in_list(read_only, inhibit) {
+                return Ok(());
+            }
+            let args = if read_only.is_string() {
+                vec![read_only]
+            } else {
+                vec![]
+            };
+            Err(signal("text-read-only", args))
+        })?;
     Ok(())
 }
 
@@ -684,25 +677,22 @@ fn run_interval_modification_hooks(
         let mod_sym = Value::symbol("modification-hooks");
         let mut prev: Option<Value> = None;
         let mut hooks: Vec<Value> = Vec::new();
-        for iv in buf.text.text_props_intervals_snapshot() {
-            if iv.end <= a {
-                continue;
-            }
-            if iv.start >= b {
-                break;
-            }
-            let mh = iv.properties.get(&mod_sym).copied().unwrap_or(Value::NIL);
-            if mh.is_nil() {
-                continue;
-            }
-            if let Some(p) = prev
-                && eq_value(&p, &mh)
-            {
-                continue;
-            }
-            prev = Some(mh);
-            hooks.push(mh);
-        }
+        let _ = buf
+            .text
+            .text_props_try_for_each_interval_in_range(a, b, |_, _, plist| {
+                let mh = plist_slice_get_value(plist, mod_sym).unwrap_or(Value::NIL);
+                if mh.is_nil() {
+                    return Ok::<(), ()>(());
+                }
+                if let Some(p) = prev
+                    && eq_value(&p, &mh)
+                {
+                    return Ok(());
+                }
+                prev = Some(mh);
+                hooks.push(mh);
+                Ok(())
+            });
         (a, b, lisp_a, lisp_b, hooks)
     };
     let _ = (byte_start, byte_end);
