@@ -2248,7 +2248,13 @@ fn bootstrap_source_fingerprint(runtime_root: &Path) -> String {
     }
 
     let digest = hasher.finalize();
-    format!("{:x}", digest)[..16].to_string()
+    digest[..16]
+        .iter()
+        .fold(String::with_capacity(32), |mut s, b| {
+            use std::fmt::Write;
+            let _ = write!(s, "{b:02x}");
+            s
+        })
 }
 
 fn bootstrap_dump_path(runtime_root: &Path, extra_features: &[&str]) -> PathBuf {

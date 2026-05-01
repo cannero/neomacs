@@ -107,3 +107,91 @@ fn tty_resize_event_tracks_signal_and_dimension_changes() {
     assert!(tty_resize_event_for_size(&mut last_size, None, true).is_none());
     assert!(tty_resize_event_for_size(&mut last_size, Some((0, 30)), true).is_none());
 }
+
+fn drain_unread_buffer() -> Vec<u8> {
+    let mut out = Vec::new();
+    STDIN_UNREAD.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        while let Some(b) = buf.pop() {
+            out.push(b);
+        }
+    });
+    out
+}
+
+#[test]
+fn unrecognized_csi_sequence_emits_esc_and_unreads_remainder() {
+    // Ensure clean state
+    drain_unread_buffer();
+
+    // Terminal DA response \e[?1;2c — final byte 'c' is not in the
+    // recognized set (A-H, Z, ~), so map_csi_sequence returns None.
+    let result = parse_key_bytes(&[0x1B, b'[', b'?', b'1', b';', b'2', b'c']);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(unread, vec![b'[', b'?', b'1', b';', b'2', b'c']);
+}
+
+#[test]
+fn unrecognized_csi_with_modifier_params_emits_esc_and_unreads_remainder() {
+    drain_unread_buffer();
+
+    // DA2 response with version: \e[>1;2c
+    let result = parse_key_bytes(&[0x1B, b'[', b'>', b'1', b';', b'2', b'c']);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(unread, vec![b'[', b'>', b'1', b';', b'2', b'c']);
+}
+
+#[test]
+fn osc_sequence_emits_esc_and_unreads_payload() {
+    drain_unread_buffer();
+
+    // OSC color query: \e]11;?\a
+    let result = parse_key_bytes(&[0x1B, b']', b'1', b'1', b';', b'?', 0x07]);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(unread, vec![b']', b'1', b'1', b';', b'?', 0x07]);
+}
+
+#[test]
+fn osc_sequence_st_terminator_emits_esc_and_unreads_payload() {
+    drain_unread_buffer();
+
+    // OSC with ST terminator: \e]0;test\e\\
+    let result = parse_key_bytes(&[0x1B, b']', b'0', b';', b't', b'e', b's', b't', 0x1B, 0x5C]);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(
+        unread,
+        vec![b']', b'0', b';', b't', b'e', b's', b't', 0x1B, 0x5C]
+    );
+}
+
+#[test]
+fn unrecognized_ss3_sequence_emits_esc_and_unreads_remainder() {
+    drain_unread_buffer();
+
+    // \eO followed by unrecognized final byte
+    let result = parse_key_bytes(&[0x1B, b'O', b'X']);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(unread, vec![b'O', b'X']);
+}
+
+#[test]
+fn unrecognized_csi_empty_body_emits_esc_and_unreads() {
+    drain_unread_buffer();
+
+    // CSI with final byte that's not in the recognized set (e.g. \e[c with no params)
+    let result = parse_key_bytes(&[0x1B, b'[', b'c']);
+    assert_eq!(result, Some((0x1B, 0)));
+
+    let unread = drain_unread_buffer();
+    assert_eq!(unread, vec![b'[', b'c']);
+}

@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +12,15 @@ use neovm_core::keyboard::{
     XK_END, XK_F1, XK_HOME, XK_INSERT, XK_LEFT, XK_PAGE_DOWN, XK_PAGE_UP, XK_RETURN, XK_RIGHT,
     XK_TAB, XK_UP,
 };
+
+thread_local! {
+    /// Buffer of bytes that were consumed from stdin but need to be re-emitted
+    /// as individual byte events. Used when an escape sequence is not recognized
+    /// by the parser — the raw bytes are pushed here (in reverse order so that
+    /// pop() yields the correct forward sequence) and the parser emits ESC.
+    /// Subsequent `read_stdin_byte` calls drain this buffer before polling stdin.
+    static STDIN_UNREAD: RefCell<Vec<u8>> = RefCell::new(Vec::new());
+}
 
 const ESC_SEQUENCE_TIMEOUT_MS: i32 = 25;
 const INPUT_POLL_INTERVAL_MS: i32 = 100;
@@ -175,6 +185,12 @@ fn read_stdin_byte_blocking(stop: &AtomicBool) -> io::Result<Option<u8>> {
 }
 
 fn read_stdin_byte(timeout_ms: i32) -> io::Result<Option<u8>> {
+    // Drain the unread buffer first — bytes pushed back from unrecognized
+    // escape sequences are re-emitted before polling stdin again.
+    if let Some(byte) = STDIN_UNREAD.with(|buf| buf.borrow_mut().pop()) {
+        return Ok(Some(byte));
+    }
+
     if !poll_stdin(timeout_ms)? {
         return Ok(None);
     }
@@ -236,6 +252,7 @@ where
     match second {
         b'[' => parse_csi_sequence(next_byte),
         b'O' => parse_ss3_sequence(next_byte),
+        b']' => parse_osc_sequence(next_byte),
         0x7F => Ok(Some((0x7F, RENDER_META_MASK))),
         _ => Ok(parse_simple_key(second, next_byte)?
             .map(|(keysym, modifiers)| (keysym, modifiers | RENDER_META_MASK))),
@@ -304,7 +321,7 @@ where
         return Ok(Some((0x1B, 0)));
     };
 
-    Ok(match final_byte {
+    let result = match final_byte {
         b'A' => Some((XK_UP, 0)),
         b'B' => Some((XK_DOWN, 0)),
         b'C' => Some((XK_RIGHT, 0)),
@@ -316,7 +333,15 @@ where
         b'R' => Some((XK_F1 + 2, 0)),
         b'S' => Some((XK_F1 + 3, 0)),
         _ => None,
-    })
+    };
+
+    if result.is_some() {
+        return Ok(result);
+    }
+
+    // Unrecognized SS3 sequence: push O + final_byte back, emit ESC.
+    push_esc_seq_unread(b'O', &[final_byte]);
+    Ok(Some((0x1B, 0)))
 }
 
 fn parse_csi_sequence<F>(next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
@@ -326,6 +351,9 @@ where
     let mut bytes = Vec::new();
     loop {
         let Some(byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
+            // Timeout mid-sequence: push consumed bytes back so they
+            // aren't lost, then emit ESC.
+            push_esc_seq_unread(b'[', &bytes);
             return Ok(Some((0x1B, 0)));
         };
         bytes.push(byte);
@@ -334,7 +362,62 @@ where
         }
     }
 
-    Ok(map_csi_sequence(&bytes))
+    if let Some(result) = map_csi_sequence(&bytes) {
+        return Ok(Some(result));
+    }
+
+    // Unrecognized CSI sequence (e.g. terminal DA response \e[?1;2c).
+    // Push raw bytes back so they surface as individual byte events that
+    // Lisp handlers in input-decode-map can match against.
+    push_esc_seq_unread(b'[', &bytes);
+    Ok(Some((0x1B, 0)))
+}
+
+/// Push the leader byte and body bytes to the unread buffer in reverse order
+/// so that subsequent `read_stdin_byte` calls pop them in the correct forward
+/// order. The caller emits ESC as the current key event.
+fn push_esc_seq_unread(leader: u8, body: &[u8]) {
+    STDIN_UNREAD.with(|buf| {
+        let mut buf = buf.borrow_mut();
+        buf.reserve(body.len() + 1);
+        for &b in body.iter().rev() {
+            buf.push(b);
+        }
+        buf.push(leader);
+    });
+}
+
+fn parse_osc_sequence<F>(next_byte: &mut F) -> io::Result<Option<(u32, u32)>>
+where
+    F: FnMut(i32) -> io::Result<Option<u8>>,
+{
+    let mut bytes = vec![b']'];
+    loop {
+        let Some(byte) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? else {
+            push_esc_seq_unread(b']', &bytes[1..]);
+            return Ok(Some((0x1B, 0)));
+        };
+        bytes.push(byte);
+        // BEL terminator
+        if byte == 0x07 {
+            break;
+        }
+        // ST terminator (ESC backslash)
+        if byte == 0x1B {
+            if let Some(0x5C) = next_byte(ESC_SEQUENCE_TIMEOUT_MS)? {
+                bytes.push(0x5C);
+                break;
+            }
+        }
+        if bytes.len() >= 256 {
+            break;
+        }
+    }
+
+    // Push the complete OSC payload to the unread buffer so it surfaces as
+    // individual byte events, then emit ESC.
+    push_esc_seq_unread(b']', &bytes[1..]);
+    Ok(Some((0x1B, 0)))
 }
 
 fn map_csi_sequence(bytes: &[u8]) -> Option<(u32, u32)> {
