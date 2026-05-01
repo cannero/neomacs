@@ -18,7 +18,7 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::intern::{SymId, intern, resolve_sym};
-use crate::buffer::text_props::TextPropertyTable;
+use crate::buffer::text_props::{PropertyInterval, TextPropertyTable};
 use crate::gc_trace::GcTrace;
 use crate::heap_types::LispString;
 use crate::tagged::gc::with_tagged_heap;
@@ -294,16 +294,30 @@ pub fn set_string_text_properties_for_value(value: Value, runs: Vec<StringTextPr
         return;
     }
 
-    let mut table = TextPropertyTable::new();
-    for run in &runs {
+    let mut intervals = Vec::with_capacity(runs.len());
+    for run in runs {
         if let Some(items) = list_to_vec(&run.plist) {
+            let mut properties = HashMap::new();
+            let mut key_order = Vec::new();
             for chunk in items.chunks(2) {
                 if chunk.len() == 2 {
-                    table.put_property(run.start, run.end, chunk[0], chunk[1]);
+                    if !key_order.iter().any(|seen| eq_value(seen, &chunk[0])) {
+                        key_order.push(chunk[0]);
+                    }
+                    properties.insert(chunk[0], chunk[1]);
                 }
+            }
+            if !properties.is_empty() {
+                intervals.push(PropertyInterval {
+                    start: run.start,
+                    end: run.end,
+                    properties,
+                    key_order,
+                });
             }
         }
     }
+    let table = TextPropertyTable::from_dump(intervals);
     set_string_text_properties_table_for_value(value, table);
 }
 

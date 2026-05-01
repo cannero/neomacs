@@ -1050,13 +1050,11 @@ fn is_unsupported_compiled_path(path: &Path) -> bool {
 }
 
 /// Check if eager macro expansion is available.
-/// Requires both `internal-macroexpand-for-load` and the pcase backquote
-/// macroexpander (`--pcase-macroexpander`) to be defined, since
-/// `macroexpand-all` uses pcase backquote patterns internally.
 ///
-/// This mirrors GNU `loadup.el`, which loads `macroexp`, then loads `pcase`
-/// under `(let ((macroexp--pending-eager-loads '(skip))) ...)`, then reloads
-/// `macroexp` once the pcase backquote macroexpander exists.
+/// GNU `readevalloop` only checks whether
+/// `internal-macroexpand-for-load` is fbound, and skips eager expansion for
+/// `.elc` files.  The Lisp helper itself handles cycles and expansion
+/// failures by returning the original form.
 #[tracing::instrument(level = "debug", skip(eval))]
 pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Value> {
     // Respect the Elisp `macroexp--pending-eager-loads` variable.
@@ -1069,8 +1067,6 @@ pub(crate) fn get_eager_macroexpand_fn(eval: &super::eval::Context) -> Option<Va
             }
         }
     }
-    // Guard: pcase ` macroexpander must be available
-    eval.obarray().symbol_function("`--pcase-macroexpander")?;
     let f = eval
         .obarray()
         .symbol_function("internal-macroexpand-for-load")?;

@@ -1524,287 +1524,290 @@ fn interactive_args_from_string_code_in_vm_runtime(
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
 ) -> Result<Option<Vec<Value>>, Flow> {
-    let parsed = parse_interactive_code_entries(code);
-    interactive_apply_prefix_flags(shared, &parsed.prefix_flags, context)?;
-    if parsed.entries.is_empty() {
-        return Ok(Some(Vec::new()));
-    }
+    let roots = shared.save_specpdl_roots();
+    let result = (|| -> Result<Option<Vec<Value>>, Flow> {
+        let parsed = parse_interactive_code_entries(code);
+        interactive_apply_prefix_flags(shared, &parsed.prefix_flags, context)?;
+        if parsed.entries.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
 
-    let mut args = Vec::new();
-    let mut visible_args = Vec::new();
-    for (letter, prompt) in parsed.entries {
-        let prompt = interactive_prompt_with_visible_args(shared, &prompt, &visible_args)?;
-        let args_before = args.len();
-        match letter {
-            'a' | 'C' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                super::minibuffer::builtin_read_command_in_runtime(shared, &letter_args)?;
-                args.push(super::minibuffer::finish_read_command_with_minibuffer(
-                    &letter_args,
-                    |minibuffer_args| {
-                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-                            shared,
-                            minibuffer_args,
-                        )
-                    },
-                )?);
-            }
-            'b' => {
-                let default = interactive_current_buffer_default(&shared.buffers);
-                let letter_args = [Value::heap_string(prompt.clone()), default, Value::T];
-                super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
-                let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(
-                        &shared.obarray,
-                        &shared.buffers,
+        let mut args = Vec::new();
+        let mut visible_args = Vec::new();
+        for (letter, prompt) in parsed.entries {
+            let prompt = interactive_prompt_with_visible_args(shared, &prompt, &visible_args)?;
+            let args_before = args.len();
+            match letter {
+                'a' | 'C' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    super::minibuffer::builtin_read_command_in_runtime(shared, &letter_args)?;
+                    args.push(super::minibuffer::finish_read_command_with_minibuffer(
                         &letter_args,
-                    )
-                };
-                args.push(super::reader::finish_completing_read_in_vm_runtime(
-                    shared,
-                    &completing_args,
-                )?);
-            }
-            'B' => {
-                let default = interactive_other_buffer_default(&mut shared.buffers);
-                let letter_args = [Value::heap_string(prompt.clone()), default, Value::NIL];
-                super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
-                let completing_args = {
-                    super::minibuffer::read_buffer_completing_args(
-                        &shared.obarray,
-                        &shared.buffers,
-                        &letter_args,
-                    )
-                };
-                args.push(super::reader::finish_completing_read_in_vm_runtime(
-                    shared,
-                    &completing_args,
-                )?);
-            }
-            'c' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                let arg = if let Some(arg) =
-                    super::reader::builtin_read_char_in_runtime(shared, &letter_args)?
-                {
-                    arg
-                } else {
-                    super::reader::finish_read_char_interactive_in_runtime(shared, &letter_args)?
-                };
-                args.push(arg);
-            }
-            'd' => args.push(interactive_point_arg_in_buffers(&shared.buffers)?),
-            'D' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                args.push(super::minibuffer::finish_read_directory_name_in_vm_runtime(
-                    shared,
-                    &letter_args,
-                )?);
-            }
-            'e' => {
-                if let Some(event) = interactive_next_event_with_parameters_in_state(
-                    &mut shared.obarray,
-                    &[],
-                    context,
-                ) {
-                    args.push(event);
-                } else {
-                    return Err(signal(
-                        "error",
-                        vec![Value::string(
-                            "command must be bound to an event with parameters",
-                        )],
-                    ));
+                        |minibuffer_args| {
+                            super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                                shared,
+                                minibuffer_args,
+                            )
+                        },
+                    )?);
                 }
-            }
-            'f' => {
-                let letter_args = [
-                    Value::heap_string(prompt.clone()),
-                    Value::NIL,
-                    Value::NIL,
-                    Value::T,
-                ];
-                args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
-                    shared,
-                    &letter_args,
-                )?);
-            }
-            'F' | 'G' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
-                    shared,
-                    &letter_args,
-                )?);
-            }
-            'i' => args.push(Value::NIL),
-            'k' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                let arg = if let Some(arg) =
-                    super::reader::builtin_read_key_sequence_in_runtime(shared, &letter_args)?
-                {
-                    arg
-                } else {
-                    super::reader::finish_read_key_sequence_interactive_in_runtime(
+                'b' => {
+                    let default = interactive_current_buffer_default(&shared.buffers);
+                    let letter_args = [Value::heap_string(prompt.clone()), default, Value::T];
+                    super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
+                    let completing_args = {
+                        super::minibuffer::read_buffer_completing_args(
+                            &shared.obarray,
+                            &shared.buffers,
+                            &letter_args,
+                        )
+                    };
+                    args.push(super::reader::finish_completing_read_in_vm_runtime(
                         shared,
-                        super::reader::read_key_sequence_options_from_args(&letter_args),
-                    )?
-                };
-                interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
-                args.push(arg);
-            }
-            'K' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                let arg = if let Some(arg) =
-                    super::reader::builtin_read_key_sequence_vector_in_runtime(
+                        &completing_args,
+                    )?);
+                }
+                'B' => {
+                    let default = interactive_other_buffer_default(&mut shared.buffers);
+                    let letter_args = [Value::heap_string(prompt.clone()), default, Value::NIL];
+                    super::minibuffer::builtin_read_buffer_in_runtime(shared, &letter_args)?;
+                    let completing_args = {
+                        super::minibuffer::read_buffer_completing_args(
+                            &shared.obarray,
+                            &shared.buffers,
+                            &letter_args,
+                        )
+                    };
+                    args.push(super::reader::finish_completing_read_in_vm_runtime(
+                        shared,
+                        &completing_args,
+                    )?);
+                }
+                'c' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    let arg = if let Some(arg) =
+                        super::reader::builtin_read_char_in_runtime(shared, &letter_args)?
+                    {
+                        arg
+                    } else {
+                        super::reader::finish_read_char_interactive_in_runtime(
+                            shared,
+                            &letter_args,
+                        )?
+                    };
+                    args.push(arg);
+                }
+                'd' => args.push(interactive_point_arg_in_buffers(&shared.buffers)?),
+                'D' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    args.push(super::minibuffer::finish_read_directory_name_in_vm_runtime(
                         shared,
                         &letter_args,
-                    )? {
-                    arg
-                } else {
-                    super::reader::finish_read_key_sequence_vector_interactive_in_runtime(
+                    )?);
+                }
+                'e' => {
+                    if let Some(event) = interactive_next_event_with_parameters_in_state(
+                        &mut shared.obarray,
+                        &[],
+                        context,
+                    ) {
+                        args.push(event);
+                    } else {
+                        return Err(signal(
+                            "error",
+                            vec![Value::string(
+                                "command must be bound to an event with parameters",
+                            )],
+                        ));
+                    }
+                }
+                'f' => {
+                    let letter_args = [
+                        Value::heap_string(prompt.clone()),
+                        Value::NIL,
+                        Value::NIL,
+                        Value::T,
+                    ];
+                    args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
                         shared,
-                        super::reader::read_key_sequence_options_from_args(&letter_args),
-                    )?
-                };
-                interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
-                args.push(arg);
-            }
-            'M' => {
-                let letter_args = [
-                    Value::heap_string(prompt.clone()),
-                    Value::NIL,
-                    Value::NIL,
-                    Value::NIL,
-                    Value::T,
-                ];
-                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
-                args.push(super::reader::finish_read_string_with_minibuffer(
-                    &letter_args,
-                    |minibuffer_args| {
-                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                        &letter_args,
+                    )?);
+                }
+                'F' | 'G' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    args.push(super::minibuffer::finish_read_file_name_in_vm_runtime(
+                        shared,
+                        &letter_args,
+                    )?);
+                }
+                'i' => args.push(Value::NIL),
+                'k' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    let arg = if let Some(arg) =
+                        super::reader::builtin_read_key_sequence_in_runtime(shared, &letter_args)?
+                    {
+                        arg
+                    } else {
+                        super::reader::finish_read_key_sequence_interactive_in_runtime(
                             shared,
-                            minibuffer_args,
-                        )
-                    },
-                )?);
-            }
-            'm' => args.push(interactive_mark_arg_in_buffers(&shared.buffers)?),
-            'N' => {
-                let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
-                if raw.is_nil() {
+                            super::reader::read_key_sequence_options_from_args(&letter_args),
+                        )?
+                    };
+                    interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
+                    args.push(arg);
+                }
+                'K' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    let arg = if let Some(arg) =
+                        super::reader::builtin_read_key_sequence_vector_in_runtime(
+                            shared,
+                            &letter_args,
+                        )? {
+                        arg
+                    } else {
+                        super::reader::finish_read_key_sequence_vector_interactive_in_runtime(
+                            shared,
+                            super::reader::read_key_sequence_options_from_args(&letter_args),
+                        )?
+                    };
+                    interactive_capture_up_event_in_vm_batch_runtime(shared, &arg, context)?;
+                    args.push(arg);
+                }
+                'M' => {
+                    let letter_args = [
+                        Value::heap_string(prompt.clone()),
+                        Value::NIL,
+                        Value::NIL,
+                        Value::NIL,
+                        Value::T,
+                    ];
+                    super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                    args.push(super::reader::finish_read_string_with_minibuffer(
+                        &letter_args,
+                        |minibuffer_args| {
+                            super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                                shared,
+                                minibuffer_args,
+                            )
+                        },
+                    )?);
+                }
+                'm' => args.push(interactive_mark_arg_in_buffers(&shared.buffers)?),
+                'N' => {
+                    let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
+                    if raw.is_nil() {
+                        let letter_args = [Value::heap_string(prompt.clone())];
+                        args.push(super::reader::finish_read_number_in_vm_runtime(
+                            shared,
+                            &letter_args,
+                        )?);
+                    } else {
+                        args.push(Value::fixnum(prefix_numeric_value(&raw)));
+                    }
+                }
+                'p' => args.push(interactive_prefix_numeric_arg_in_state(
+                    &shared.obarray,
+                    &[],
+                    kind,
+                )),
+                'P' => args.push(interactive_prefix_raw_arg_in_state(
+                    &shared.obarray,
+                    &[],
+                    kind,
+                )),
+                'r' => args.extend(interactive_region_args_in_buffers(
+                    &shared.buffers,
+                    "error",
+                )?),
+                'R' => {
+                    if interactive_use_region_p_in_vm_runtime(shared)? {
+                        args.extend(interactive_region_args_in_buffers(
+                            &shared.buffers,
+                            "error",
+                        )?);
+                    } else {
+                        args.push(Value::NIL);
+                        args.push(Value::NIL);
+                    }
+                }
+                'n' => {
                     let letter_args = [Value::heap_string(prompt.clone())];
                     args.push(super::reader::finish_read_number_in_vm_runtime(
                         shared,
                         &letter_args,
                     )?);
-                } else {
-                    args.push(Value::fixnum(prefix_numeric_value(&raw)));
                 }
-            }
-            'p' => args.push(interactive_prefix_numeric_arg_in_state(
-                &shared.obarray,
-                &[],
-                kind,
-            )),
-            'P' => args.push(interactive_prefix_raw_arg_in_state(
-                &shared.obarray,
-                &[],
-                kind,
-            )),
-            'r' => args.extend(interactive_region_args_in_buffers(
-                &shared.buffers,
-                "error",
-            )?),
-            'R' => {
-                if interactive_use_region_p_in_vm_runtime(shared)? {
-                    args.extend(interactive_region_args_in_buffers(
-                        &shared.buffers,
-                        "error",
+                's' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                    args.push(super::reader::finish_read_string_with_minibuffer(
+                        &letter_args,
+                        |minibuffer_args| {
+                            super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                                shared,
+                                minibuffer_args,
+                            )
+                        },
                     )?);
-                } else {
-                    args.push(Value::NIL);
-                    args.push(Value::NIL);
                 }
-            }
-            'n' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                args.push(super::reader::finish_read_number_in_vm_runtime(
-                    shared,
-                    &letter_args,
-                )?);
-            }
-            's' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
-                args.push(super::reader::finish_read_string_with_minibuffer(
-                    &letter_args,
-                    |minibuffer_args| {
-                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-                            shared,
-                            minibuffer_args,
-                        )
-                    },
-                )?);
-            }
-            'S' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
-                let sym_name = super::reader::finish_read_string_with_minibuffer(
-                    &letter_args,
-                    |minibuffer_args| {
-                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-                            shared,
-                            minibuffer_args,
-                        )
-                    },
-                )?;
-                if let Some(name) = sym_name.as_utf8_str() {
-                    args.push(Value::symbol(name));
-                } else {
-                    return Ok(None);
+                'S' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    super::reader::builtin_read_string_in_runtime(shared, &letter_args)?;
+                    let sym_name = super::reader::finish_read_string_with_minibuffer(
+                        &letter_args,
+                        |minibuffer_args| {
+                            super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                                shared,
+                                minibuffer_args,
+                            )
+                        },
+                    )?;
+                    if let Some(name) = sym_name.as_utf8_str() {
+                        args.push(Value::symbol(name));
+                    } else {
+                        return Ok(None);
+                    }
                 }
-            }
-            'x' => args.push(interactive_read_expression_arg_in_vm_runtime(
-                shared, prompt,
-            )?),
-            'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(
-                shared, prompt,
-            )?),
-            'U' => args.push(interactive_u_arg(context)),
-            'v' => {
-                let letter_args = [Value::heap_string(prompt.clone())];
-                super::minibuffer::builtin_read_variable_in_runtime(shared, &letter_args)?;
-                args.push(super::minibuffer::finish_read_variable_with_minibuffer(
-                    &letter_args,
-                    |minibuffer_args| {
-                        super::reader::finish_read_from_minibuffer_in_vm_runtime(
-                            shared,
-                            minibuffer_args,
-                        )
-                    },
-                )?);
-            }
-            'z' => args.push(super::lread::builtin_read_coding_system(vec![
-                Value::heap_string(prompt.clone()),
-            ])?),
-            'Z' => {
-                let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
-                if raw.is_nil() {
-                    args.push(Value::NIL);
-                } else {
-                    args.push(interactive_read_coding_system_optional_arg(prompt)?);
+                'x' => args.push(interactive_read_expression_arg_in_vm_runtime(
+                    shared, prompt,
+                )?),
+                'X' => args.push(interactive_eval_expression_arg_in_vm_runtime(
+                    shared, prompt,
+                )?),
+                'U' => args.push(interactive_u_arg(context)),
+                'v' => {
+                    let letter_args = [Value::heap_string(prompt.clone())];
+                    super::minibuffer::builtin_read_variable_in_runtime(shared, &letter_args)?;
+                    args.push(super::minibuffer::finish_read_variable_with_minibuffer(
+                        &letter_args,
+                        |minibuffer_args| {
+                            super::reader::finish_read_from_minibuffer_in_vm_runtime(
+                                shared,
+                                minibuffer_args,
+                            )
+                        },
+                    )?);
                 }
+                'z' => args.push(super::lread::builtin_read_coding_system(vec![
+                    Value::heap_string(prompt.clone()),
+                ])?),
+                'Z' => {
+                    let raw = interactive_prefix_raw_arg_in_state(&shared.obarray, &[], kind);
+                    if raw.is_nil() {
+                        args.push(Value::NIL);
+                    } else {
+                        args.push(interactive_read_coding_system_optional_arg(prompt)?);
+                    }
+                }
+                _ => return Ok(None),
             }
-            _ => return Ok(None),
+            root_new_interactive_args(shared, &args, &mut visible_args, args_before);
         }
-        visible_args.extend(
-            args[args_before..]
-                .iter()
-                .copied()
-                .map(interactive_visible_arg),
-        );
-    }
 
-    Ok(Some(args))
+        Ok(Some(args))
+    })();
+    shared.restore_specpdl_roots(roots);
+    result
 }
 
 fn default_command_execute_args_in_state(
@@ -2349,8 +2352,14 @@ fn interactive_prompt_with_visible_args(
     let mut format_args = Vec::with_capacity(visible_args.len() + 1);
     format_args.push(Value::heap_string(prompt.clone()));
     format_args.extend_from_slice(visible_args);
+    let roots = eval.save_specpdl_roots();
+    for value in &format_args {
+        eval.push_specpdl_root(*value);
+    }
     let formatted = super::builtins::dispatch_builtin(eval, "format-message", format_args)
-        .expect("format-message builtin should be registered")?;
+        .expect("format-message builtin should be registered");
+    eval.restore_specpdl_roots(roots);
+    let formatted = formatted?;
     formatted.as_lisp_string().cloned().ok_or_else(|| {
         signal(
             "wrong-type-argument",
@@ -2371,6 +2380,22 @@ fn interactive_visible_arg(value: Value) -> Value {
     }
 }
 
+fn root_new_interactive_args(
+    eval: &mut Context,
+    args: &[Value],
+    visible_args: &mut Vec<Value>,
+    args_before: usize,
+) {
+    for value in &args[args_before..] {
+        eval.push_specpdl_root(*value);
+    }
+    for value in &args[args_before..] {
+        let visible = interactive_visible_arg(*value);
+        eval.push_specpdl_root(visible);
+        visible_args.push(visible);
+    }
+}
+
 fn invalid_interactive_control_letter_error(letter: char) -> Flow {
     let codepoint = letter as u32;
     signal(
@@ -2387,170 +2412,170 @@ fn interactive_args_from_string_code(
     kind: CommandInvocationKind,
     context: &mut InteractiveInvocationContext,
 ) -> Result<Option<Vec<Value>>, Flow> {
-    let parsed = parse_interactive_code_entries(code);
-    interactive_apply_prefix_flags(eval, &parsed.prefix_flags, context)?;
-    if parsed.entries.is_empty() {
-        return Ok(Some(Vec::new()));
-    }
+    let roots = eval.save_specpdl_roots();
+    let result = (|| -> Result<Option<Vec<Value>>, Flow> {
+        let parsed = parse_interactive_code_entries(code);
+        interactive_apply_prefix_flags(eval, &parsed.prefix_flags, context)?;
+        if parsed.entries.is_empty() {
+            return Ok(Some(Vec::new()));
+        }
 
-    let mut args = Vec::new();
-    let mut visible_args = Vec::new();
-    for (letter, prompt) in parsed.entries {
-        let prompt = interactive_prompt_with_visible_args(eval, &prompt, &visible_args)?;
-        let args_before = args.len();
-        match letter {
-            'a' => args.push(super::minibuffer::builtin_read_command(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'b' => args.push(super::minibuffer::builtin_read_buffer(
-                eval,
-                vec![
-                    Value::heap_string(prompt),
-                    interactive_current_buffer_default(&eval.buffers),
-                    Value::T,
-                ],
-            )?),
-            'B' => {
-                let default = interactive_other_buffer_default(&mut eval.buffers);
-                args.push(super::minibuffer::builtin_read_buffer(
+        let mut args = Vec::new();
+        let mut visible_args = Vec::new();
+        for (letter, prompt) in parsed.entries {
+            let prompt = interactive_prompt_with_visible_args(eval, &prompt, &visible_args)?;
+            let args_before = args.len();
+            match letter {
+                'a' => args.push(super::minibuffer::builtin_read_command(
                     eval,
-                    vec![Value::heap_string(prompt), default, Value::NIL],
-                )?)
-            }
-            'c' => args.push(super::reader::builtin_read_char(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'C' => args.push(super::minibuffer::builtin_read_command(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'd' => args.push(interactive_point_arg(eval)?),
-            'D' => args.push(super::minibuffer::builtin_read_directory_name(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'e' => {
-                if let Some(event) = interactive_next_event_with_parameters(eval, context) {
-                    args.push(event);
-                } else {
-                    return Err(signal(
-                        "error",
-                        vec![Value::string(
-                            "command must be bound to an event with parameters",
-                        )],
-                    ));
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'b' => args.push(super::minibuffer::builtin_read_buffer(
+                    eval,
+                    vec![
+                        Value::heap_string(prompt),
+                        interactive_current_buffer_default(&eval.buffers),
+                        Value::T,
+                    ],
+                )?),
+                'B' => {
+                    let default = interactive_other_buffer_default(&mut eval.buffers);
+                    args.push(super::minibuffer::builtin_read_buffer(
+                        eval,
+                        vec![Value::heap_string(prompt), default, Value::NIL],
+                    )?)
                 }
-            }
-            'f' => args.push(super::minibuffer::builtin_read_file_name(
-                eval,
-                vec![Value::heap_string(prompt), Value::NIL, Value::NIL, Value::T],
-            )?),
-            'F' => args.push(super::minibuffer::builtin_read_file_name(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'G' => args.push(super::minibuffer::builtin_read_file_name(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'i' => args.push(Value::NIL),
-            'k' => {
-                let arg = super::reader::builtin_read_key_sequence(
+                'c' => args.push(super::reader::builtin_read_char(
                     eval,
                     vec![Value::heap_string(prompt)],
-                )?;
-                interactive_capture_up_event_in_eval(eval, &arg, context)?;
-                args.push(arg);
-            }
-            'K' => {
-                let arg = super::reader::builtin_read_key_sequence_vector(
+                )?),
+                'C' => args.push(super::minibuffer::builtin_read_command(
                     eval,
                     vec![Value::heap_string(prompt)],
-                )?;
-                interactive_capture_up_event_in_eval(eval, &arg, context)?;
-                args.push(arg);
-            }
-            'M' => args.push(super::reader::builtin_read_string(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'm' => args.push(interactive_mark_arg(eval)?),
-            'N' => {
-                let raw = interactive_prefix_raw_arg(eval, kind);
-                if raw.is_nil() {
-                    args.push(super::reader::builtin_read_number(
+                )?),
+                'd' => args.push(interactive_point_arg(eval)?),
+                'D' => args.push(super::minibuffer::builtin_read_directory_name(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'e' => {
+                    if let Some(event) = interactive_next_event_with_parameters(eval, context) {
+                        args.push(event);
+                    } else {
+                        return Err(signal(
+                            "error",
+                            vec![Value::string(
+                                "command must be bound to an event with parameters",
+                            )],
+                        ));
+                    }
+                }
+                'f' => args.push(super::minibuffer::builtin_read_file_name(
+                    eval,
+                    vec![Value::heap_string(prompt), Value::NIL, Value::NIL, Value::T],
+                )?),
+                'F' => args.push(super::minibuffer::builtin_read_file_name(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'G' => args.push(super::minibuffer::builtin_read_file_name(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'i' => args.push(Value::NIL),
+                'k' => {
+                    let arg = super::reader::builtin_read_key_sequence(
                         eval,
                         vec![Value::heap_string(prompt)],
-                    )?);
-                } else {
-                    args.push(Value::fixnum(prefix_numeric_value(&raw)));
+                    )?;
+                    interactive_capture_up_event_in_eval(eval, &arg, context)?;
+                    args.push(arg);
                 }
-            }
-            'p' => args.push(interactive_prefix_numeric_arg(eval, kind)),
-            'P' => args.push(interactive_prefix_raw_arg(eval, kind)),
-            'r' => args.extend(interactive_region_args(eval, "error")?),
-            'R' => {
-                let use_region = eval
-                    .apply(Value::symbol("use-region-p"), vec![])?
-                    .is_truthy();
-                if use_region {
-                    args.extend(interactive_region_args(eval, "error")?);
-                } else {
-                    args.push(Value::NIL);
-                    args.push(Value::NIL);
+                'K' => {
+                    let arg = super::reader::builtin_read_key_sequence_vector(
+                        eval,
+                        vec![Value::heap_string(prompt)],
+                    )?;
+                    interactive_capture_up_event_in_eval(eval, &arg, context)?;
+                    args.push(arg);
                 }
-            }
-            'S' => {
-                let sym_name =
-                    super::reader::builtin_read_string(eval, vec![Value::heap_string(prompt)])?;
-                if let Some(name) = sym_name.as_utf8_str() {
-                    args.push(Value::symbol(name));
-                } else {
-                    return Ok(None);
+                'M' => args.push(super::reader::builtin_read_string(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'm' => args.push(interactive_mark_arg(eval)?),
+                'N' => {
+                    let raw = interactive_prefix_raw_arg(eval, kind);
+                    if raw.is_nil() {
+                        args.push(super::reader::builtin_read_number(
+                            eval,
+                            vec![Value::heap_string(prompt)],
+                        )?);
+                    } else {
+                        args.push(Value::fixnum(prefix_numeric_value(&raw)));
+                    }
                 }
-            }
-            's' => args.push(super::reader::builtin_read_string(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'n' => args.push(super::reader::builtin_read_number(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'x' => args.push(interactive_read_expression_arg(eval, prompt)?),
-            'X' => {
-                let expr_value = interactive_read_expression_arg(eval, prompt)?;
-                args.push(eval.eval_value(&expr_value)?);
-            }
-            'U' => args.push(interactive_u_arg(context)),
-            'v' => args.push(super::minibuffer::builtin_read_variable(
-                eval,
-                vec![Value::heap_string(prompt)],
-            )?),
-            'z' => args.push(super::lread::builtin_read_coding_system(vec![
-                Value::heap_string(prompt),
-            ])?),
-            'Z' => {
-                let raw = interactive_prefix_raw_arg(eval, kind);
-                if raw.is_nil() {
-                    args.push(Value::NIL);
-                } else {
-                    args.push(interactive_read_coding_system_optional_arg(prompt)?);
+                'p' => args.push(interactive_prefix_numeric_arg(eval, kind)),
+                'P' => args.push(interactive_prefix_raw_arg(eval, kind)),
+                'r' => args.extend(interactive_region_args(eval, "error")?),
+                'R' => {
+                    let use_region = eval
+                        .apply(Value::symbol("use-region-p"), vec![])?
+                        .is_truthy();
+                    if use_region {
+                        args.extend(interactive_region_args(eval, "error")?);
+                    } else {
+                        args.push(Value::NIL);
+                        args.push(Value::NIL);
+                    }
                 }
+                'S' => {
+                    let sym_name =
+                        super::reader::builtin_read_string(eval, vec![Value::heap_string(prompt)])?;
+                    if let Some(name) = sym_name.as_utf8_str() {
+                        args.push(Value::symbol(name));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+                's' => args.push(super::reader::builtin_read_string(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'n' => args.push(super::reader::builtin_read_number(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'x' => args.push(interactive_read_expression_arg(eval, prompt)?),
+                'X' => {
+                    let expr_value = interactive_read_expression_arg(eval, prompt)?;
+                    args.push(eval.eval_value(&expr_value)?);
+                }
+                'U' => args.push(interactive_u_arg(context)),
+                'v' => args.push(super::minibuffer::builtin_read_variable(
+                    eval,
+                    vec![Value::heap_string(prompt)],
+                )?),
+                'z' => args.push(super::lread::builtin_read_coding_system(vec![
+                    Value::heap_string(prompt),
+                ])?),
+                'Z' => {
+                    let raw = interactive_prefix_raw_arg(eval, kind);
+                    if raw.is_nil() {
+                        args.push(Value::NIL);
+                    } else {
+                        args.push(interactive_read_coding_system_optional_arg(prompt)?);
+                    }
+                }
+                _ => return Err(invalid_interactive_control_letter_error(letter)),
             }
-            _ => return Err(invalid_interactive_control_letter_error(letter)),
+            root_new_interactive_args(eval, &args, &mut visible_args, args_before);
         }
-        visible_args.extend(
-            args[args_before..]
-                .iter()
-                .copied()
-                .map(interactive_visible_arg),
-        );
-    }
 
-    Ok(Some(args))
+        Ok(Some(args))
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 fn resolve_interactive_invocation_args(
@@ -2861,13 +2886,22 @@ pub(crate) fn finish_call_interactively_in_eval(
     let (_, call_args) = resolve_call_interactively_target_and_args_in_eval(eval, &mut plan)?;
     let should_record =
         plan.record_flag || eval.interactive_minibuffer_read_count() != minibuffer_reads_before;
-    if should_record {
-        record_call_interactively_command_history(eval, plan.invocation_function, &call_args)?;
+    let roots = eval.save_specpdl_roots();
+    eval.push_specpdl_root(plan.invocation_function);
+    for value in &call_args {
+        eval.push_specpdl_root(*value);
     }
-    let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
-    funcall_args.push(plan.invocation_function);
-    funcall_args.extend(call_args);
-    eval.apply(Value::symbol("funcall-interactively"), funcall_args)
+    let result = (|| -> EvalResult {
+        if should_record {
+            record_call_interactively_command_history(eval, plan.invocation_function, &call_args)?;
+        }
+        let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
+        funcall_args.push(plan.invocation_function);
+        funcall_args.extend(call_args.iter().copied());
+        eval.apply(Value::symbol("funcall-interactively"), funcall_args)
+    })();
+    eval.restore_specpdl_roots(roots);
+    result
 }
 
 pub(crate) fn resolve_call_interactively_target_and_args_in_eval(

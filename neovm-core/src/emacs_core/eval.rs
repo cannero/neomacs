@@ -3448,11 +3448,6 @@ impl Context {
             completion_in_region_mode_map,
         );
         obarray.set_symbol_value("completion-list-mode-map", completion_list_mode_map);
-        obarray.set_symbol_value("completion-list-mode-syntax-table", standard_syntax_table);
-        obarray.set_symbol_value(
-            "completion-list-mode-abbrev-table",
-            Value::symbol("completion-list-mode-abbrev-table"),
-        );
         obarray.set_symbol_value("completion-list-mode-hook", Value::NIL);
         obarray.set_symbol_value(
             "completion-ignored-extensions",
@@ -3632,19 +3627,7 @@ impl Context {
                 Value::cons(Value::symbol("height"), Value::fixnum(2)),
             ]),
         );
-        obarray.set_symbol_value(
-            "minibuffer-inactive-mode-abbrev-table",
-            Value::symbol("minibuffer-inactive-mode-abbrev-table"),
-        );
         obarray.set_symbol_value("minibuffer-inactive-mode-hook", Value::NIL);
-        obarray.set_symbol_value(
-            "minibuffer-inactive-mode-syntax-table",
-            standard_syntax_table,
-        );
-        obarray.set_symbol_value(
-            "minibuffer-mode-abbrev-table",
-            Value::symbol("minibuffer-mode-abbrev-table"),
-        );
         obarray.set_symbol_value("minibuffer-mode-hook", Value::NIL);
         obarray.set_symbol_value("minibuffer-local-map", minibuffer_local_map);
         obarray.set_symbol_value("minibuffer-local-filename-syntax", standard_syntax_table);
@@ -3971,7 +3954,8 @@ impl Context {
         for name in &[
             "debug-on-error",
             "debugger",
-            // "lexical-binding" — now registered via defvar_per_buffer!
+            // "lexical-binding" is registered below like GNU lread.c:
+            // DEFVAR_LISP plus make-variable-buffer-local.
             "load-prefer-newer",
             "load-path",
             "load-history",
@@ -4096,10 +4080,6 @@ impl Context {
             defvar_per_buffer!("overwrite-mode", Value::NIL);
             defvar_per_buffer!("auto-fill-function", Value::NIL);
 
-            // Lexical binding (GNU buffer.c DEFVAR_PER_BUFFER).
-            // Default is nil; each file sets it from -*- cookie.
-            defvar_per_buffer!("lexical-binding", Value::NIL);
-
             // Search (GNU buffer.c DEFVAR_PER_BUFFER)
             defvar_per_buffer!("case-fold-search", Value::T);
             defvar_per_buffer!("indent-tabs-mode", Value::T);
@@ -4197,6 +4177,18 @@ impl Context {
                     obarray.install_buffer_objfwd(id, fwd);
                 }
             }
+        }
+
+        // GNU lread.c registers `lexical-binding` with DEFVAR_LISP and
+        // then calls Fmake_variable_buffer_local. It is not a BVAR
+        // BUFFER_OBJFWD slot, but ordinary `set` in a buffer must
+        // auto-create a buffer-local binding.
+        {
+            let id = crate::emacs_core::intern::intern("lexical-binding");
+            obarray.set_symbol_value("lexical-binding", Value::NIL);
+            obarray.make_special("lexical-binding");
+            obarray.make_symbol_localized(id, Value::NIL);
+            obarray.set_blv_local_if_set(id, true);
         }
 
         // -----------------------------------------------------------------
@@ -11006,17 +10998,17 @@ impl Context {
         }
     }
 
-    fn apply_macro_callable_with_dynamic_scope(
+    fn apply_macro_callable_for_macroexpand(
         &mut self,
         callable: Value,
         args: Vec<Value>,
     ) -> Result<Value, Flow> {
         let perf_start = self.macro_perf_enabled.then(std::time::Instant::now);
-        // GNU macroexpansion runs the expander through the normal apply/call
-        // path with live call-frame state holding the argument list. Mirror
-        // that here so macroexpander args stay rooted in an active call frame
-        // instead of an explicit eval-root adapter vector.
-        let result = self.with_macro_expansion_scope(|eval| eval.apply(callable, args));
+        // GNU Fmacroexpand applies the macro expander directly.  The
+        // eval.c macro-call path specbinds `lexical-binding`, but the
+        // Fmacroexpand path does not; bytecomp relies on the current
+        // buffer's visible `lexical-binding` while macroexpanding source.
+        let result = self.apply(callable, args);
         if let Some(start) = perf_start {
             self.macro_perf_stats
                 .macro_apply
@@ -11052,13 +11044,13 @@ impl Context {
 
         let result = (|| {
             let expanded = if definition.is_macro() {
-                self.apply_macro_callable_with_dynamic_scope(definition, args)?
+                self.apply_macro_callable_for_macroexpand(definition, args)?
             } else if cons_head_symbol_id(&definition) == Some(macro_symbol()) {
-                self.apply_macro_callable_with_dynamic_scope(definition.cons_cdr(), args)?
+                self.apply_macro_callable_for_macroexpand(definition.cons_cdr(), args)?
             } else if self.function_value_is_callable(&definition) {
                 // GNU `macroexpand` ENVIRONMENT entries store the macro
                 // expander itself, not the full `(macro . fn)` function cell.
-                self.apply_macro_callable_with_dynamic_scope(definition, args)?
+                self.apply_macro_callable_for_macroexpand(definition, args)?
             } else {
                 return Err(signal("invalid-function", vec![definition]));
             };
@@ -11803,9 +11795,13 @@ pub(crate) fn set_runtime_binding(
             Some(buf) => (Value::make_buffer(buf.id), buf.local_var_alist),
             None => (Value::NIL, Value::NIL),
         };
-        let let_shadows = specpdl.iter().rev().any(
-            |entry| matches!(entry, SpecBinding::LetDefault { sym_id: s, .. } if *s == sym_id),
-        );
+        let let_shadows = specpdl.iter().rev().any(|entry| {
+            matches!(
+                entry,
+                SpecBinding::LetDefault { sym_id: s, .. } | SpecBinding::LetLocal { sym_id: s, .. }
+                    if *s == sym_id
+            )
+        });
         let new_alist = obarray.set_internal_localized(
             sym_id,
             value,

@@ -387,6 +387,9 @@ fn print_preprocess(value: &Value, state: &mut PrintCircleState, options: PrintO
                 if let Some(body) = obj.closure_body_value() {
                     stack.push(body);
                 }
+                if let Some(params) = obj.closure_params() {
+                    stack.push(crate::emacs_core::builtins::lambda_params_to_value(params));
+                }
             }
             ValueKind::Veclike(VecLikeType::ByteCode) => {
                 let _ = with_bytecode_literal_slots(&obj, |slots| {
@@ -450,6 +453,27 @@ fn print_preprocess_external(value: &Value, table_value: Value, options: PrintOp
                         stack.push(key_val);
                     }
                 }
+            }
+            ValueKind::Veclike(VecLikeType::Lambda) | ValueKind::Veclike(VecLikeType::Macro) => {
+                if let Some(doc) = obj.closure_doc_value() {
+                    stack.push(doc);
+                }
+                if let Some(env) = obj.closure_env().flatten() {
+                    stack.push(env);
+                }
+                if let Some(body) = obj.closure_body_value() {
+                    stack.push(body);
+                }
+                if let Some(params) = obj.closure_params() {
+                    stack.push(crate::emacs_core::builtins::lambda_params_to_value(params));
+                }
+            }
+            ValueKind::Veclike(VecLikeType::ByteCode) => {
+                let _ = with_bytecode_literal_slots(&obj, |slots| {
+                    for item in slots.iter().rev() {
+                        stack.push(*item);
+                    }
+                });
             }
             _ => {}
         }
@@ -946,11 +970,7 @@ fn write_closure_body_forms_stateful(body: Value, out: &mut String, state: &mut 
 
 fn write_interpreted_closure_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
     out.push_str("#[");
-    out.push_str(
-        &value
-            .closure_params()
-            .map_or_else(|| "nil".to_string(), format_params),
-    );
+    write_params_stateful(value.closure_params(), out, state);
     out.push(' ');
     if let Some(body) = value.closure_body_value() {
         write_value_stateful(&body, out, state);
@@ -987,10 +1007,9 @@ fn write_lambda_stateful(value: &Value, out: &mut String, state: &mut PrintState
             {
                 write_value_stateful(&list_form, out, state);
             } else {
-                let params = value
-                    .closure_params()
-                    .map_or_else(|| "nil".to_string(), format_params);
-                write!(out, "(lambda {} ", params).unwrap();
+                out.push_str("(lambda ");
+                write_params_stateful(value.closure_params(), out, state);
+                out.push(' ');
                 if let Some(body) = value.closure_body_value() {
                     write_closure_body_forms_stateful(body, out, state);
                 } else {
@@ -1004,10 +1023,9 @@ fn write_lambda_stateful(value: &Value, out: &mut String, state: &mut PrintState
 
 fn write_macro_stateful(value: &Value, out: &mut String, state: &mut PrintState) {
     with_default_cycle_guard(value, out, state, |out, state| {
-        let params = value
-            .closure_params()
-            .map_or_else(|| "nil".to_string(), format_params);
-        write!(out, "(macro {} ", params).unwrap();
+        out.push_str("(macro ");
+        write_params_stateful(value.closure_params(), out, state);
+        out.push(' ');
         if let Some(body) = value.closure_body_value() {
             write_closure_body_forms_stateful(body, out, state);
         } else {
@@ -1676,9 +1694,10 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                         {
                             return print_value_with_options(&list_form, options);
                         }
-                        let params = value
-                            .closure_params()
-                            .map_or_else(|| "nil".to_string(), format_params);
+                        let params = value.closure_params().map_or_else(
+                            || "nil".to_string(),
+                            |params| format_params(params, options),
+                        );
                         let body = value
                             .closure_body_value()
                             .map(|body| format_closure_body_forms(body, options))
@@ -1695,9 +1714,10 @@ fn append_print_value_bytes(value: &Value, out: &mut Vec<u8>, options: PrintOpti
                 return;
             }
             let pushed = push_bytes_cycle_object(value);
-            let params = value
-                .closure_params()
-                .map_or_else(|| "nil".to_string(), format_params);
+            let params = value.closure_params().map_or_else(
+                || "nil".to_string(),
+                |params| format_params(params, options),
+            );
             let body = value
                 .closure_body_value()
                 .map(|body| format_closure_body_forms(body, options))
@@ -2040,26 +2060,24 @@ fn ensure_decimal_point(mut s: String) -> String {
     s
 }
 
-fn format_params(params: &super::value::LambdaParams) -> String {
-    let mut parts = Vec::new();
-    for p in &params.required {
-        parts.push(resolve_sym(*p).to_string());
-    }
-    if !params.optional.is_empty() {
-        parts.push("&optional".to_string());
-        for p in &params.optional {
-            parts.push(resolve_sym(*p).to_string());
-        }
-    }
-    if let Some(rest) = params.rest {
-        parts.push("&rest".to_string());
-        parts.push(resolve_sym(rest).to_string());
-    }
-    if parts.is_empty() {
-        "nil".to_string()
-    } else {
-        format!("({})", parts.join(" "))
-    }
+fn params_value(params: Option<&super::value::LambdaParams>) -> Value {
+    params
+        .map(crate::emacs_core::builtins::lambda_params_to_value)
+        .unwrap_or(Value::NIL)
+}
+
+fn write_params_stateful(
+    params: Option<&super::value::LambdaParams>,
+    out: &mut String,
+    state: &mut PrintState,
+) {
+    let value = params_value(params);
+    write_value_stateful(&value, out, state);
+}
+
+fn format_params(params: &super::value::LambdaParams, options: PrintOptions) -> String {
+    let value = crate::emacs_core::builtins::lambda_params_to_value(params);
+    print_value_with_options(&value, options)
 }
 
 fn format_closure_body_forms(body: Value, options: PrintOptions) -> String {
@@ -2079,11 +2097,10 @@ fn format_closure_body_forms(body: Value, options: PrintOptions) -> String {
 
 fn format_interpreted_closure(value: &Value, options: PrintOptions) -> String {
     let mut slots = Vec::with_capacity(5);
-    slots.push(
-        value
-            .closure_params()
-            .map_or_else(|| "nil".to_string(), format_params),
-    );
+    slots.push(value.closure_params().map_or_else(
+        || "nil".to_string(),
+        |params| format_params(params, options),
+    ));
     slots.push(
         value
             .closure_body_value()

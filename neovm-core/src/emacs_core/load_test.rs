@@ -1513,6 +1513,29 @@ fn minimal_eager_macroexpand_eval() -> Context {
 }
 
 #[test]
+fn eager_macroexpand_gate_matches_gnu_without_pcase_backquote_expander() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    eval.eval_str(
+        "(defalias 'internal-macroexpand-for-load
+           (lambda (form _full-p) form))",
+    )
+    .expect("install eager load helper");
+
+    assert!(
+        eval.obarray()
+            .symbol_function("`--pcase-macroexpander")
+            .is_none(),
+        "test must cover the GNU case where only internal-macroexpand-for-load is fbound"
+    );
+
+    assert_eq!(
+        get_eager_macroexpand_fn(&eval),
+        Some(Value::symbol("internal-macroexpand-for-load"))
+    );
+}
+
+#[test]
 fn bootstrap_lambda_parameters_bind_special_symbols_like_gnu_emacs() {
     crate::test_utils::init_test_tracing();
     let mut eval = create_bootstrap_evaluator_cached().expect("bootstrap");
@@ -11223,9 +11246,8 @@ fn macroexpand_all_pcase_terminates() {
     ] {
         load_and_report(&mut eval, name, &load_path);
     }
-    // macroexp + pcase: loaded without eager expansion since
-    // get_eager_macroexpand_fn requires both internal-macroexpand-for-load
-    // AND `--pcase-macroexpander to be defined.
+    // Load macroexp and pcase while eager expansion is still suppressed by
+    // macroexp--pending-eager-loads, matching GNU's bootstrap sequencing.
     load_and_report(&mut eval, "emacs-lisp/macroexp", &load_path);
     load_and_report(&mut eval, "emacs-lisp/pcase", &load_path);
 

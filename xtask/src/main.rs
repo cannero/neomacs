@@ -517,6 +517,12 @@ fn run_fresh_build(options: &FreshBuildOptions) -> Result<()> {
     // dump sees the completed generated-source set.
     run_custom_finder_generation(options, &paths, &envs)?;
 
+    // GNU src/Makefile.in generates src/lisp.mk from loadup.el, then makes
+    // the final emacs target depend on that preloaded Lisp set.  That means
+    // loadup's libraries are byte-compiled by bootstrap-emacs before the final
+    // pdump, while the broad lisp/compile-main pass still runs later.
+    run_preloaded_lisp_byte_compile(options, &paths, &envs)?;
+
     run_command(
         options,
         &options.repo_root,
@@ -2584,17 +2590,10 @@ fn run_compile_main(
 
     if !main_first.is_empty() {
         println!(
-            "  INFO  byte-compiling {} MAIN_FIRST .el files with {jobs} parallel jobs",
+            "  INFO  byte-compiling {} MAIN_FIRST .el files sequentially",
             main_first.len(),
         );
-        errors.extend(run_compile_main_parallel(
-            options,
-            paths,
-            envs,
-            main_first,
-            &BTreeMap::new(),
-            jobs,
-        )?);
+        errors.extend(run_compile_main_serial(options, paths, envs, main_first));
     }
 
     if !general.is_empty() {
@@ -2629,6 +2628,35 @@ fn compile_main_failure_summary(errors: &[String]) -> String {
         errors.len(),
         if errors.len() == 1 { "" } else { "s" }
     )
+}
+
+fn run_preloaded_lisp_byte_compile(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+) -> Result<()> {
+    print_synthetic_step("byte-compile loadup preloaded Lisp (GNU src/lisp.mk)");
+    let sources =
+        parse_preloaded_lisp_sources(&paths.lisp_root.join("loadup.el"), &paths.lisp_root)?;
+    let sources = sources
+        .into_iter()
+        .filter(|source| options.dry_run || bytecode_needs_rebuild(source))
+        .collect::<Vec<_>>();
+
+    if sources.is_empty() {
+        println!("  INFO  loadup preloaded .elc files are up to date");
+        return Ok(());
+    }
+
+    println!(
+        "  INFO  byte-compiling {} loadup preloaded .el files",
+        sources.len()
+    );
+    for source in &sources {
+        run_preloaded_lisp_byte_compile_source(options, paths, envs, source)?;
+    }
+
+    Ok(())
 }
 
 fn compile_main_jobs() -> usize {
@@ -2675,6 +2703,22 @@ fn run_compile_main_parallel(
     }
 
     Ok(errors)
+}
+
+fn run_compile_main_serial(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    sources: Vec<PathBuf>,
+) -> Vec<String> {
+    sources
+        .iter()
+        .filter_map(|source| {
+            run_final_compile_main_source(options, paths, envs, source)
+                .err()
+                .map(|err| format!("{} ({err})", source.display()))
+        })
+        .collect()
 }
 
 fn compile_main_dependency_waves(
@@ -2792,6 +2836,22 @@ fn run_bootstrap_byte_compile_source(
     source: &Path,
 ) -> Result<()> {
     run_byte_compile_source_with(options, bootstrap_byte_compile_emacs(paths), envs, source)
+}
+
+fn run_preloaded_lisp_byte_compile_source(
+    options: &FreshBuildOptions,
+    paths: &PipelinePaths,
+    envs: &[(OsString, OsString)],
+    source: &Path,
+) -> Result<()> {
+    let args = preloaded_lisp_args_for_source(options.native_comp, source);
+    run_command(
+        options,
+        &options.repo_root,
+        bootstrap_byte_compile_emacs(paths),
+        &args,
+        envs,
+    )
 }
 
 fn run_final_compile_main_source(
@@ -3047,6 +3107,35 @@ fn compile_main_args_for_source(native_comp: bool, source: &Path) -> Vec<OsStrin
     args
 }
 
+fn preloaded_lisp_args_for_source(native_comp: bool, source: &Path) -> Vec<OsString> {
+    let mut args = vec![
+        OsString::from("--batch"),
+        OsString::from("--no-site-file"),
+        OsString::from("--no-site-lisp"),
+        OsString::from("--eval"),
+        OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+        OsString::from("--eval"),
+        OsString::from("(setq org--inhibit-version-check t)"),
+    ];
+    if native_comp {
+        args.push(OsString::from("-l"));
+        args.push(OsString::from("comp"));
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("byte-compile-refresh-preloaded"));
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("batch-byte+native-compile"));
+    } else {
+        args.push(OsString::from("-l"));
+        args.push(OsString::from("bytecomp"));
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("byte-compile-refresh-preloaded"));
+        args.push(OsString::from("-f"));
+        args.push(OsString::from("batch-byte-compile"));
+    }
+    args.push(source.as_os_str().to_os_string());
+    args
+}
+
 fn parse_compile_first_sources(
     makefile_in: &Path,
     lisp_root: &Path,
@@ -3058,6 +3147,59 @@ fn parse_compile_first_sources(
         lisp_root,
         native_comp,
     ))
+}
+
+fn parse_preloaded_lisp_sources(loadup: &Path, lisp_root: &Path) -> Result<Vec<PathBuf>> {
+    let contents = fs::read_to_string(loadup)?;
+    Ok(parse_preloaded_lisp_sources_from_str(&contents, lisp_root))
+}
+
+fn parse_preloaded_lisp_sources_from_str(contents: &str, lisp_root: &Path) -> Vec<PathBuf> {
+    let mut targets = BTreeSet::new();
+
+    // GNU src/Makefile.in generates src/lisp.mk with:
+    //   sed -n 's/^[ \t]*(load "\([^"]*\)".*/\1/p' loadup.el |
+    //     sed -e 's/$/.elc \\/' -e 's/\.el\.elc/.el/'
+    for line in contents.lines() {
+        let trimmed = line.trim_start_matches([' ', '\t']);
+        let Some(rest) = trimmed.strip_prefix("(load \"") else {
+            continue;
+        };
+        let Some((library, _)) = rest.split_once('"') else {
+            continue;
+        };
+        let target = if library.ends_with(".el") {
+            library.to_string()
+        } else {
+            format!("{library}.elc")
+        };
+        targets.insert(target);
+    }
+
+    targets.remove("leim/leim-list.el");
+    targets.remove("site-load.elc");
+    targets.remove("site-init.elc");
+    targets.insert("loaddefs.elc".to_string());
+
+    let mut sources = Vec::new();
+    push_preloaded_lisp_source("loaddefs.elc", lisp_root, &mut sources);
+    for target in targets {
+        if target == "loaddefs.elc" {
+            continue;
+        }
+        push_preloaded_lisp_source(&target, lisp_root, &mut sources);
+    }
+    sources
+}
+
+fn push_preloaded_lisp_source(target: &str, lisp_root: &Path, out: &mut Vec<PathBuf>) {
+    let Some(source) = target.strip_suffix(".elc") else {
+        return;
+    };
+    let source = lisp_root.join(format!("{source}.el"));
+    if source.is_file() && !source_has_no_byte_compile_marker(&source).unwrap_or(false) {
+        out.push(source);
+    }
 }
 
 fn parse_compile_first_sources_from_str(
@@ -3272,8 +3414,9 @@ Build the GNU-shaped Neomacs runtime pipeline:
   6. bootstrap-neomacs generates GNU Unicode Lisp data
   7. bootstrap-neomacs runs GNU gen-lisp generators for leim and semantic
   8. bootstrap-neomacs generates loaddefs / ldefs-boot
-  9. neomacs-temacs --temacs=pdump
- 10. neomacs byte-compiles the GNU compile-main Lisp set into .elc files
+  9. bootstrap-neomacs byte-compiles the GNU src/lisp.mk preloaded Lisp set
+ 10. neomacs-temacs --temacs=pdump
+ 11. neomacs byte-compiles the GNU compile-main Lisp set into .elc files
 
 Options:
   --bin-dir DIR       Directory containing neomacs and generated role copies

@@ -55,6 +55,47 @@ fn concat_preserves_multibyte_text_properties_as_char_intervals() {
 }
 
 #[test]
+fn concat_promotes_unibyte_high_bytes_when_result_is_multibyte_like_gnu() {
+    crate::test_utils::init_test_tracing();
+
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xff]));
+    let result = builtin_concat(vec![Value::string("é"), raw])
+        .expect("concat should promote raw unibyte bytes");
+    let string = result.as_lisp_string().expect("concat returns a string");
+
+    assert!(string.is_multibyte());
+    assert_eq!(string.schars(), 2);
+    assert_eq!(string.sbytes(), 4);
+    assert_eq!(string.as_bytes(), &[0xc3, 0xa9, 0xc1, 0xbf]);
+}
+
+#[test]
+fn concat_all_unibyte_strings_with_properties_stays_unibyte_like_gnu() {
+    crate::test_utils::init_test_tracing();
+
+    let raw = Value::heap_string(LispString::from_unibyte(vec![0xff]));
+    let suffix = Value::heap_string(LispString::from_unibyte(vec![b'a']));
+    let mut table = crate::buffer::text_props::TextPropertyTable::new();
+    table.put_property(0, 1, Value::symbol("face"), Value::symbol("bold"));
+    crate::emacs_core::value::set_string_text_properties_table_for_value(raw, table);
+
+    let result = builtin_concat(vec![raw, suffix]).expect("concat should preserve unibyte storage");
+    let string = result.as_lisp_string().expect("concat returns a string");
+    let props = crate::emacs_core::value::get_string_text_properties_table_for_value(result)
+        .expect("result should carry text properties");
+    let intervals = props.intervals_snapshot();
+
+    assert!(!string.is_multibyte());
+    assert_eq!(string.as_bytes(), &[0xff, b'a']);
+    assert_eq!(intervals.len(), 1);
+    assert_eq!((intervals[0].start, intervals[0].end), (0, 1));
+    assert_eq!(
+        intervals[0].properties.get(&Value::symbol("face")),
+        Some(&Value::symbol("bold"))
+    );
+}
+
+#[test]
 fn format_preserves_multibyte_text_properties_as_char_intervals() {
     crate::test_utils::init_test_tracing();
 

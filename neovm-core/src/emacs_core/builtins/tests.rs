@@ -4,7 +4,9 @@ use crate::emacs_core::editfns::{
 };
 use crate::emacs_core::textprop::builtin_make_overlay;
 use crate::emacs_core::treesit as runtime_treesit;
-use crate::emacs_core::value::{LambdaData, LambdaParams, Value, ValueKind, VecLikeType};
+use crate::emacs_core::value::{
+    HashTableTest, LambdaData, LambdaParams, Value, ValueKind, VecLikeType,
+};
 use crate::emacs_core::{Context, format_eval_result};
 use crate::test_utils::{
     load_minimal_gnu_backquote_runtime, runtime_startup_context, runtime_startup_eval_all,
@@ -6644,6 +6646,10 @@ fn make_byte_code_preserves_gnu_arg_slot_zero() {
         .get_bytecode_data()
         .expect("make-byte-code should produce bytecode data");
     assert_eq!(lexical_bc.arglist, lexical_arg_descriptor);
+    assert!(
+        lexical_bc.lexical,
+        "GNU integer arg descriptors are lexical byte-code frames"
+    );
 
     let dynamic_arglist = Value::list(vec![
         Value::symbol("arg0"),
@@ -6664,6 +6670,10 @@ fn make_byte_code_preserves_gnu_arg_slot_zero() {
     let dynamic_bc = dynamic
         .get_bytecode_data()
         .expect("make-byte-code should produce bytecode data");
+    assert!(
+        !dynamic_bc.lexical,
+        "GNU list arglists are old dynamically-bound byte-code frames"
+    );
     assert_eq!(
         crate::emacs_core::value::list_to_vec(&dynamic_bc.arglist)
             .expect("arg slot should stay a proper list"),
@@ -9747,6 +9757,32 @@ fn prin1_to_string_continuous_gensym_gets_print_number_label() {
         .expect("GNU labels continuous print-gensym symbols even when seen once");
 
     assert_eq!(result, Value::string("#1=#:g"));
+}
+
+#[test]
+fn prin1_to_string_preserves_gensym_lambda_parameter_identity_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::eval::Context::new();
+    let sym = crate::emacs_core::intern::intern_uninterned("stack");
+    let lambda = Value::make_lambda(LambdaData {
+        params: LambdaParams::simple(vec![sym]),
+        body: vec![Value::from_sym_id(sym)],
+        env: Some(Value::NIL),
+        docstring: None,
+        doc_form: None,
+        interactive: None,
+    });
+
+    eval.set_variable("print-gensym", Value::T);
+    eval.set_variable("print-circle", Value::T);
+    eval.set_variable("print-continuous-numbering", Value::T);
+    eval.set_variable("print-number-table", Value::hash_table(HashTableTest::Eq));
+
+    let result = dispatch_builtin(&mut eval, "prin1-to-string", vec![lambda])
+        .expect("prin1-to-string should resolve")
+        .expect("prin1-to-string should evaluate");
+
+    assert_eq!(result, Value::string("#[(#1=#:stack) (#1#) (t)]"));
 }
 
 #[test]

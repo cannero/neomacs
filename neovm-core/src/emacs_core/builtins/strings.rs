@@ -256,7 +256,47 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
     crate::emacs_core::perf_trace::time_op(crate::emacs_core::perf_trace::HotpathOp::Concat, || {
         use crate::emacs_core::emacs_char;
 
-        fn push_concat_int(result: &mut Vec<u8>, n: i64) -> Result<(), Flow> {
+        fn concat_arg_makes_multibyte(value: Value) -> bool {
+            match value.kind() {
+                ValueKind::String => value
+                    .as_lisp_string()
+                    .is_some_and(|string| string.is_multibyte()),
+                ValueKind::Veclike(VecLikeType::Vector) => value
+                    .as_vector_data()
+                    .is_some_and(|items| items.iter().copied().any(concat_arg_makes_multibyte)),
+                ValueKind::Cons => {
+                    let mut cursor = value;
+                    while cursor.is_cons() {
+                        let car = cursor.cons_car();
+                        if concat_arg_makes_multibyte(car) {
+                            return true;
+                        }
+                        cursor = cursor.cons_cdr();
+                    }
+                    false
+                }
+                ValueKind::Fixnum(c) => {
+                    c >= 0x80
+                        && (c as u32) <= emacs_char::MAX_CHAR
+                        && !emacs_char::char_byte8_p(c as u32)
+                }
+                _ => false,
+            }
+        }
+
+        fn append_lisp_string_bytes(
+            result: &mut Vec<u8>,
+            string: &crate::heap_types::LispString,
+            dest_multibyte: bool,
+        ) {
+            if dest_multibyte && !string.is_multibyte() {
+                result.extend_from_slice(&emacs_char::str_to_multibyte(string.as_bytes()));
+            } else {
+                result.extend_from_slice(string.as_bytes());
+            }
+        }
+
+        fn push_concat_int(result: &mut Vec<u8>, n: i64, dest_multibyte: bool) -> Result<(), Flow> {
             if !(0..=0x3FFFFF).contains(&n) {
                 return Err(signal(
                     "wrong-type-argument",
@@ -265,16 +305,28 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
             }
 
             let cp = n as u32;
-            let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
-            let len = emacs_char::char_string(cp, &mut buf);
-            result.extend_from_slice(&buf[..len]);
+            if dest_multibyte {
+                let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                let len = emacs_char::char_string(cp, &mut buf);
+                result.extend_from_slice(&buf[..len]);
+            } else if let Some(byte) = emacs_char::char_to_byte_safe(cp) {
+                result.push(byte);
+            } else {
+                let mut buf = [0u8; emacs_char::MAX_MULTIBYTE_LENGTH];
+                let len = emacs_char::char_string(cp, &mut buf);
+                result.extend_from_slice(&buf[..len]);
+            }
             Ok(())
         }
 
-        fn push_concat_element(result: &mut Vec<u8>, value: &Value) -> Result<usize, Flow> {
+        fn push_concat_element(
+            result: &mut Vec<u8>,
+            value: &Value,
+            dest_multibyte: bool,
+        ) -> Result<usize, Flow> {
             match value.kind() {
                 ValueKind::Fixnum(c) => {
-                    push_concat_int(result, c)?;
+                    push_concat_int(result, c, dest_multibyte)?;
                     Ok(1)
                 }
                 _ => Err(signal(
@@ -284,27 +336,39 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
             }
         }
 
+        let dest_multibyte = args.iter().copied().any(concat_arg_makes_multibyte);
         if args.iter().all(|arg| arg.is_string()) {
-            let has_text_props = args.iter().any(|arg| {
-                get_string_text_properties_table_for_value(*arg)
-                    .is_some_and(|table| !table.is_empty())
+            let mut combined = Vec::new();
+            let mut string_sources: Vec<(Value, usize)> = Vec::new();
+            let mut result_chars = 0usize;
+            for arg in args {
+                if let Some(string) = arg.as_lisp_string() {
+                    string_sources.push((*arg, result_chars));
+                    result_chars += string.schars();
+                    append_lisp_string_bytes(&mut combined, string, dest_multibyte);
+                }
+            }
+
+            let new_val = Value::heap_string(if dest_multibyte {
+                crate::heap_types::LispString::from_emacs_bytes(combined)
+            } else {
+                crate::heap_types::LispString::from_unibyte(combined)
             });
-            if !has_text_props {
-                let mut combined = Vec::new();
-                let mut multibyte = false;
-                for arg in args {
-                    if let Some(string) = arg.as_lisp_string() {
-                        combined.extend_from_slice(string.as_bytes());
-                        multibyte |= string.is_multibyte();
+
+            let mut combined_table = crate::buffer::text_props::TextPropertyTable::new();
+            let mut has_props = false;
+            for (src_val, offset) in &string_sources {
+                if let Some(src_table) = get_string_text_properties_table_for_value(*src_val) {
+                    if !src_table.is_empty() {
+                        combined_table.append_shifted(&src_table, *offset);
+                        has_props = true;
                     }
                 }
-                let result = if multibyte {
-                    crate::heap_types::LispString::from_emacs_bytes(combined)
-                } else {
-                    crate::heap_types::LispString::from_unibyte(combined)
-                };
-                return Ok(Value::heap_string(result));
             }
+            if has_props {
+                set_string_text_properties_table_for_value(new_val, combined_table);
+            }
+            return Ok(new_val);
         }
 
         let preallocated_len = args.iter().fold(0usize, |acc, arg| match arg.kind() {
@@ -321,7 +385,7 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
                 ValueKind::String => {
                     let offset = result_chars;
                     if let Some(ls) = arg.as_lisp_string() {
-                        result.extend_from_slice(ls.as_bytes());
+                        append_lisp_string_bytes(&mut result, ls, dest_multibyte);
                         result_chars += ls.schars();
                     }
                     string_sources.push((*arg, offset));
@@ -335,7 +399,8 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
                             ValueKind::Cons => {
                                 let pair_car = cursor.cons_car();
                                 let pair_cdr = cursor.cons_cdr();
-                                result_chars += push_concat_element(&mut result, &pair_car)?;
+                                result_chars +=
+                                    push_concat_element(&mut result, &pair_car, dest_multibyte)?;
                                 cursor = pair_cdr;
                             }
                             _tail => {
@@ -350,7 +415,7 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
                 ValueKind::Veclike(VecLikeType::Vector) => {
                     let items = arg.as_vector_data().unwrap().clone();
                     for item in items.iter() {
-                        result_chars += push_concat_element(&mut result, item)?;
+                        result_chars += push_concat_element(&mut result, item, dest_multibyte)?;
                     }
                 }
                 _ => {
@@ -362,7 +427,11 @@ pub(crate) fn builtin_concat_slice(args: &[Value]) -> EvalResult {
             }
         }
 
-        let new_val = Value::heap_string(crate::heap_types::LispString::from_emacs_bytes(result));
+        let new_val = Value::heap_string(if dest_multibyte {
+            crate::heap_types::LispString::from_emacs_bytes(result)
+        } else {
+            crate::heap_types::LispString::from_unibyte(result)
+        });
 
         // Preserve text properties from string sources
         if new_val.is_string() {

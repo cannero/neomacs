@@ -61,14 +61,53 @@ fn gen_lisp_bootstrap_byte_compile_uses_bootstrap_emacs() {
 }
 
 #[test]
-fn usage_places_final_pdump_before_compile_main() {
+fn usage_places_preloaded_lisp_compile_before_final_pdump() {
     let usage = usage_text();
+    let preloaded = usage
+        .find("bootstrap-neomacs byte-compiles the GNU src/lisp.mk preloaded Lisp set")
+        .unwrap();
     let pdump = usage.find("neomacs-temacs --temacs=pdump").unwrap();
     let compile_main = usage
         .find("neomacs byte-compiles the GNU compile-main")
         .unwrap();
 
+    assert!(preloaded < pdump);
     assert!(pdump < compile_main);
+}
+
+#[test]
+fn parse_preloaded_lisp_sources_matches_gnu_lisp_mk_shape() {
+    let tempdir = tempdir();
+    let lisp_root = tempdir.join("lisp");
+    fs::create_dir_all(lisp_root.join("progmodes")).unwrap();
+    fs::create_dir_all(lisp_root.join("leim")).unwrap();
+    fs::write(lisp_root.join("files.el"), "").unwrap();
+    fs::write(lisp_root.join("progmodes/elisp-mode.el"), "").unwrap();
+    fs::write(lisp_root.join("site-load.el"), "").unwrap();
+    fs::write(lisp_root.join("leim/leim-list.el"), "").unwrap();
+    fs::write(
+        lisp_root.join("no-byte.el"),
+        ";; Local Variables:\n;; no-byte-compile: t\n;; End:\n",
+    )
+    .unwrap();
+
+    let contents = r#"
+      (load "files")
+(load "progmodes/elisp-mode")
+(load "leim/leim-list.el" t)
+(load "site-load" t)
+(load "no-byte")
+"#;
+
+    let parsed = parse_preloaded_lisp_sources_from_str(contents, &lisp_root);
+
+    assert_eq!(
+        parsed,
+        vec![
+            lisp_root.join("files.el"),
+            lisp_root.join("progmodes/elisp-mode.el"),
+        ]
+    );
 }
 
 #[test]
@@ -740,6 +779,54 @@ fn compile_main_args_match_gnu_native_shape() {
             OsString::from("-f"),
             OsString::from("batch-byte+native-compile"),
             OsString::from("/tmp/simple.el"),
+        ]
+    );
+}
+
+#[test]
+fn preloaded_lisp_args_match_gnu_non_native_shape() {
+    let args = preloaded_lisp_args_for_source(false, Path::new("/tmp/elisp-mode.el"));
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("--eval"),
+            OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+            OsString::from("--eval"),
+            OsString::from("(setq org--inhibit-version-check t)"),
+            OsString::from("-l"),
+            OsString::from("bytecomp"),
+            OsString::from("-f"),
+            OsString::from("byte-compile-refresh-preloaded"),
+            OsString::from("-f"),
+            OsString::from("batch-byte-compile"),
+            OsString::from("/tmp/elisp-mode.el"),
+        ]
+    );
+}
+
+#[test]
+fn preloaded_lisp_args_match_gnu_native_shape() {
+    let args = preloaded_lisp_args_for_source(true, Path::new("/tmp/elisp-mode.el"));
+    assert_eq!(
+        args,
+        vec![
+            OsString::from("--batch"),
+            OsString::from("--no-site-file"),
+            OsString::from("--no-site-lisp"),
+            OsString::from("--eval"),
+            OsString::from("(setq load-prefer-newer t byte-compile-warnings 'all)"),
+            OsString::from("--eval"),
+            OsString::from("(setq org--inhibit-version-check t)"),
+            OsString::from("-l"),
+            OsString::from("comp"),
+            OsString::from("-f"),
+            OsString::from("byte-compile-refresh-preloaded"),
+            OsString::from("-f"),
+            OsString::from("batch-byte+native-compile"),
+            OsString::from("/tmp/elisp-mode.el"),
         ]
     );
 }

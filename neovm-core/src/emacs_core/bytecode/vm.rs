@@ -1936,28 +1936,16 @@ impl<'a> Vm<'a> {
         }
     }
 
-    /// Variable reference by SymId — used by `Op::VarRef` to skip the
-    /// `intern(name)` and `as_symbol_name() -> resolve_sym` round-trips
-    /// that show up as the dominant cost in debug-build profiles.
-    /// The bytecode constant is already a `Value::Symbol(SymId)`, so
-    /// the SymId is available for free at the call site.
+    /// GNU bytecode `Bvarref` by SymId.
+    ///
+    /// GNU `src/bytecode.c` reads bytecode variables with `Fsymbol_value`;
+    /// it does not consult the interpreter lexical environment.  Lexical
+    /// bytecode variables are compiled as stack/closure accesses instead.
     fn lookup_var_id(&mut self, name_id: SymId) -> EvalResult {
-        // Match GNU eval_sub: lexical environment lookup happens before
-        // alias resolution fallback and does not rescan declared-special
-        // flags.
-        if let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, name_id) {
-            return Ok(val);
-        }
-
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
             &self.ctx.obarray,
             name_id,
         )?;
-        if resolved != name_id
-            && let Some(val) = self.ctx.lexenv_lookup_cached_in(self.ctx.lexenv, resolved)
-        {
-            return Ok(val);
-        }
 
         // Phase 9 of the symbol-redirect refactor: if the symbol's
         // redirect tag is LOCALIZED or FORWARDED, the new redirect
@@ -2034,22 +2022,15 @@ impl<'a> Vm<'a> {
         Err(signal("void-variable", vec![Value::from_sym_id(name_id)]))
     }
 
-    /// Variable assignment by SymId — counterpart to `lookup_var_id`.
+    /// GNU bytecode `Bvarset` by SymId.
+    ///
+    /// Like `Bvarref`, bytecode assignment is dynamic.  Lexical bytecode
+    /// locals are stack slots, not `varset` targets.
     fn assign_var_id(&mut self, name_id: SymId, value: Value) -> Result<(), Flow> {
         let resolved = crate::emacs_core::builtins::symbols::resolve_variable_alias_id_in_obarray(
             &self.ctx.obarray,
             name_id,
         )?;
-        if let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, name_id) {
-            lexenv_set(cell_id, value);
-            return Ok(());
-        }
-        if resolved != name_id
-            && let Some(cell_id) = self.ctx.lexenv_assq_cached_in(self.ctx.lexenv, resolved)
-        {
-            lexenv_set(cell_id, value);
-            return Ok(());
-        }
 
         if self.ctx.obarray.is_constant_id(resolved) {
             return Err(signal(
@@ -3817,6 +3798,9 @@ impl<'a> Vm<'a> {
                     &mut vm.ctx,
                     &mut plan,
                 )?;
+            for value in call_args.iter().copied() {
+                vm.push_dynamic_vm_root(value);
+            }
             let mut funcall_args = Vec::with_capacity(call_args.len() + 1);
             funcall_args.push(plan.invocation_function);
             funcall_args.extend(call_args);

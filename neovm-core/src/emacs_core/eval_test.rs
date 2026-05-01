@@ -811,6 +811,22 @@ fn set_lexical_binding_updates_visible_dynamic_binding() {
 }
 
 #[test]
+fn lexical_binding_is_local_if_set_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let result = eval_one_with_frame(
+        "(list (local-variable-if-set-p 'lexical-binding)
+               (local-variable-p 'lexical-binding)
+               (progn
+                 (set 'lexical-binding t)
+                 (list lexical-binding
+                       (local-variable-p 'lexical-binding)
+                       (default-value 'lexical-binding))))",
+    );
+
+    assert_eq!(result, "OK (t nil (t t nil))");
+}
+
+#[test]
 fn clear_top_level_eval_state_restores_top_level_lexenv_mode() {
     crate::test_utils::init_test_tracing();
     let mut ev = Context::new();
@@ -4701,6 +4717,26 @@ fn defvar_only_sets_if_unbound() {
     crate::test_utils::init_test_tracing();
     let results = eval_all("(defvar x 42) x (defvar x 99) x");
     assert_eq!(results, vec!["OK x", "OK 42", "OK x", "OK 42"]);
+}
+
+#[test]
+fn bootstrap_does_not_prebind_lisp_derived_mode_tables() {
+    crate::test_utils::init_test_tracing();
+    let ev = Context::new();
+
+    for name in [
+        "completion-list-mode-abbrev-table",
+        "completion-list-mode-syntax-table",
+        "minibuffer-inactive-mode-abbrev-table",
+        "minibuffer-inactive-mode-syntax-table",
+        "minibuffer-mode-abbrev-table",
+    ] {
+        assert_eq!(
+            ev.obarray.symbol_value(name),
+            None,
+            "{name} must remain void until Lisp define-derived-mode creates it"
+        );
+    }
 }
 
 #[test]

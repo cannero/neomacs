@@ -4756,7 +4756,9 @@ fn make_byte_code_from_parts_with_slots(
         max_stack,
         params,
         arglist: *arglist,
-        lexical: false,
+        // GNU byte-code functions use an integer arg descriptor for lexical
+        // bytecode and a list arglist for old dynamically-bound bytecode.
+        lexical: matches!(arglist.kind(), ValueKind::Fixnum(_)),
         env: None,
         gnu_byte_offset_map: Some(gnu_byte_offset_map),
         // Preserve original GNU-format bytes so `(aref FN 1)` returns the

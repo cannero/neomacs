@@ -143,6 +143,17 @@ fn vm_invalid_constant_reference_signals_instead_of_panicking() {
 }
 
 #[test]
+fn vm_integer_arg_descriptor_does_not_dynamic_bind_dummy_args_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let rendered = vm_eval_str(
+        "(condition-case err
+             (funcall (make-byte-code 257 \"\\10\\207\" [arg0] 2) 42)
+           (error (list (car err) (car (cdr err)))))",
+    );
+    assert_eq!(rendered, "OK (void-variable arg0)");
+}
+
+#[test]
 fn vm_handler_bind_1_leaves_shared_condition_stack_balanced() {
     crate::test_utils::init_test_tracing();
     with_vm_eval_full_context_state(
@@ -1398,6 +1409,56 @@ fn vm_unbind_counts_unwind_protect_entries_like_gnu() {
         (func, ())
     });
     assert_eq!(result, Value::fixnum(9));
+}
+
+#[test]
+fn vm_bytecode_varref_and_varset_ignore_interpreter_lexenv_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = Context::new();
+    let sym = crate::emacs_core::intern::intern("vm-bytecode-dynamic-x");
+    let lexical_value = Value::symbol("lexical-value");
+    let dynamic_value = Value::symbol("dynamic-value");
+    let updated_value = Value::symbol("updated-dynamic-value");
+
+    let lexical_binding = Value::make_cons(
+        crate::emacs_core::value::lexenv_binding_symbol_value(sym),
+        lexical_value,
+    );
+    eval.lexenv = Value::make_cons(lexical_binding, Value::NIL);
+    eval.obarray.set_symbol_value_id(sym, dynamic_value);
+
+    let mut func = ByteCodeFunction::new(LambdaParams {
+        required: vec![],
+        optional: vec![],
+        rest: None,
+    });
+    let sym_idx = func.add_symbol("vm-bytecode-dynamic-x");
+    let updated_idx = func.add_constant(updated_value);
+    func.ops = vec![
+        Op::VarRef(sym_idx),
+        Op::Constant(updated_idx),
+        Op::VarSet(sym_idx),
+        Op::VarRef(sym_idx),
+        Op::List(2),
+        Op::Return,
+    ];
+    func.max_stack = 3;
+
+    let result = {
+        let mut vm = new_vm(&mut eval);
+        vm.execute(&func, vec![])
+            .expect("manual bytecode should execute")
+    };
+
+    assert_eq!(
+        result,
+        Value::list_from_slice(&[dynamic_value, updated_value])
+    );
+    assert_eq!(
+        eval.obarray.symbol_value_id(sym).copied(),
+        Some(updated_value)
+    );
+    assert_eq!(lexical_binding.cons_cdr(), lexical_value);
 }
 
 #[test]
@@ -3225,6 +3286,34 @@ fn vm_macroexpand_environment_lambda_uses_localized_shared_callbacks() {
                (macroexpand '(vm-env t) env))"
         ),
         "OK (vm-result t 1)"
+    );
+}
+
+#[test]
+fn vm_macroexpand_preserves_visible_lexical_binding_like_gnu() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::test_utils::runtime_startup_context();
+    eval.eval_str(
+        "(progn
+           (require 'bytecomp)
+           (defalias 'vm-lb-macro
+             (cons 'macro
+                   (byte-compile
+                    (lambda (&rest _)
+                      lexical-binding)))))",
+    )
+    .expect("install compiled macro expander");
+
+    eval.set_runtime_binding_by_id(
+        crate::emacs_core::intern::intern("lexical-binding"),
+        Value::T,
+    );
+    eval.lexenv = Value::NIL;
+
+    let result = eval.eval_str("(list (macroexpand '(vm-lb-macro)) lexical-binding)");
+    assert_eq!(
+        crate::emacs_core::error::format_eval_result(&result),
+        "OK (t t)"
     );
 }
 
