@@ -6263,27 +6263,27 @@ fn pure_dispatch_coding_placeholder_cluster_matches_compat_contracts() {
         "decode-coding-region",
         vec![
             Value::fixnum(1),
-            Value::fixnum(2),
+            Value::fixnum(1),
             Value::symbol("utf-8"),
             Value::NIL,
         ],
     )
     .expect("builtin decode-coding-region should resolve")
     .expect("builtin decode-coding-region should evaluate");
-    assert!(decode_region.is_nil());
+    assert_eq!(decode_region, Value::fixnum(0));
 
     let encode_region = dispatch_builtin_pure(
         "encode-coding-region",
         vec![
             Value::fixnum(1),
-            Value::fixnum(2),
+            Value::fixnum(1),
             Value::symbol("utf-8"),
             Value::NIL,
         ],
     )
     .expect("builtin encode-coding-region should resolve")
     .expect("builtin encode-coding-region should evaluate");
-    assert!(encode_region.is_nil());
+    assert_eq!(encode_region, Value::fixnum(0));
 
     let find_operation =
         dispatch_builtin_pure("find-operation-coding-system", vec![Value::symbol("write")])

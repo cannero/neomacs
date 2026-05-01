@@ -718,7 +718,7 @@ fn expect_integer_or_marker_in_buffers(
     }
 }
 
-fn current_buffer_accessible_char_region_in_buffers(
+pub(crate) fn current_buffer_accessible_char_region_in_buffers(
     buffers: &BufferManager,
     start_arg: &Value,
     end_arg: &Value,

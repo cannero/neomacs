@@ -1241,6 +1241,22 @@ fn expect_args(name: &str, args: &[Value], n: usize) -> Result<(), crate::emacs_
     }
 }
 
+fn expect_range_args(
+    name: &str,
+    args: &[Value],
+    min: usize,
+    max: usize,
+) -> Result<(), crate::emacs_core::error::Flow> {
+    if args.len() < min || args.len() > max {
+        Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
+        ))
+    } else {
+        Ok(())
+    }
+}
+
 fn expect_min_args(
     name: &str,
     args: &[Value],
@@ -1296,6 +1312,216 @@ fn validate_coding_system(
     } else {
         Err(signal("coding-system-error", vec![arg]))
     }
+}
+
+fn region_coding_name(
+    ctx: &crate::emacs_core::eval::Context,
+    coding_arg: Value,
+) -> Result<String, crate::emacs_core::error::Flow> {
+    let name = match coding_arg.kind() {
+        ValueKind::Nil => "no-conversion".to_owned(),
+        ValueKind::Symbol(id) => resolve_sym(id).to_owned(),
+        _ => {
+            return Err(signal(
+                "wrong-type-argument",
+                vec![Value::symbol("symbolp"), coding_arg],
+            ));
+        }
+    };
+    validate_coding_system(&name, coding_arg, |candidate| {
+        ctx.coding_systems.is_known_or_derived(candidate)
+    })?;
+    Ok(name)
+}
+
+fn canonical_region_coding_name(ctx: &crate::emacs_core::eval::Context, name: &str) -> String {
+    ctx.coding_systems
+        .canonical_runtime_name(name)
+        .unwrap_or_else(|| name.to_owned())
+}
+
+fn coding_region_destination(
+    arg: Option<Value>,
+) -> Result<Option<Option<crate::buffer::BufferId>>, crate::emacs_core::error::Flow> {
+    let Some(value) = arg else {
+        return Ok(Some(None));
+    };
+    if value.is_nil() {
+        return Ok(Some(None));
+    }
+    if value.is_t() {
+        return Ok(None);
+    }
+    if let Some(buffer_id) = value.as_buffer_id() {
+        Ok(Some(Some(buffer_id)))
+    } else {
+        Err(signal(
+            "wrong-type-argument",
+            vec![Value::symbol("bufferp"), value],
+        ))
+    }
+}
+
+fn transformed_region_string(
+    source: crate::heap_types::LispString,
+    coding: &str,
+    encode: bool,
+) -> Result<Value, crate::emacs_core::error::Flow> {
+    if encode {
+        let bytes = encode_lisp_string(&source, coding);
+        Ok(Value::heap_string(
+            crate::heap_types::LispString::from_unibyte(bytes),
+        ))
+    } else {
+        builtin_decode_coding_string_with_known(
+            vec![
+                Value::heap_string(source),
+                Value::symbol(coding),
+                Value::NIL,
+                Value::NIL,
+            ],
+            |_| true,
+        )
+    }
+}
+
+fn insert_coding_region_result(
+    ctx: &mut crate::emacs_core::eval::Context,
+    buffer_id: crate::buffer::BufferId,
+    text: &crate::heap_types::LispString,
+    restore_point: Option<(usize, usize)>,
+) -> Result<(), crate::emacs_core::error::Flow> {
+    ctx.buffers
+        .insert_lisp_string_into_buffer(buffer_id, text)
+        .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    if let Some(table) = (!text.intervals().is_empty()).then(|| text.intervals()) {
+        let byte_offset = restore_point
+            .map(|(pt_byte, _)| pt_byte)
+            .unwrap_or_else(|| {
+                ctx.buffers
+                    .get(buffer_id)
+                    .map(|buf| buf.pt_byte.saturating_sub(text.sbytes()))
+                    .unwrap_or(0)
+            });
+        ctx.buffers
+            .append_buffer_text_properties(buffer_id, table, byte_offset)
+            .ok_or_else(|| signal("error", vec![Value::string("Selecting deleted buffer")]))?;
+    }
+    if let Some((pt_byte, pt)) = restore_point
+        && let Some(buf) = ctx.buffers.get_mut(buffer_id)
+    {
+        buf.pt_byte = pt_byte;
+        buf.pt = pt;
+    }
+    Ok(())
+}
+
+fn builtin_coding_region(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+    encode: bool,
+) -> EvalResult {
+    let name = if encode {
+        "encode-coding-region"
+    } else {
+        "decode-coding-region"
+    };
+    expect_range_args(name, &args, 3, 4)?;
+
+    let coding = region_coding_name(ctx, args[2])?;
+    let destination = coding_region_destination(args.get(3).copied())?;
+    let Some((start_byte, end_byte)) =
+        crate::emacs_core::editfns::current_buffer_accessible_char_region_in_buffers(
+            &ctx.buffers,
+            &args[0],
+            &args[1],
+        )?
+    else {
+        return Ok(Value::NIL);
+    };
+
+    let Some(current_id) = ctx.buffers.current_buffer_id() else {
+        return Ok(Value::NIL);
+    };
+    let source = ctx
+        .buffers
+        .get(current_id)
+        .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?
+        .buffer_substring_lisp_string(start_byte, end_byte);
+    let result = transformed_region_string(source, &coding, encode)?;
+    let result_text = result
+        .as_lisp_string()
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), result],
+            )
+        })?
+        .clone();
+    let produced_chars = result_text.schars();
+
+    match destination {
+        None => {
+            ctx.set_variable(
+                "last-coding-system-used",
+                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+            );
+            Ok(result)
+        }
+        Some(None) => {
+            crate::emacs_core::editfns::ensure_current_buffer_writable_in_state(
+                &ctx.obarray,
+                &[],
+                &ctx.buffers,
+            )?;
+            crate::emacs_core::fns::replace_buffer_region_lisp_string(
+                ctx,
+                current_id,
+                start_byte,
+                end_byte,
+                &result_text,
+            )?;
+            if !result_text.intervals().is_empty() {
+                ctx.buffers
+                    .append_buffer_text_properties(current_id, result_text.intervals(), start_byte)
+                    .ok_or_else(|| signal("error", vec![Value::string("No current buffer")]))?;
+            }
+            ctx.set_variable(
+                "last-coding-system-used",
+                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+            );
+            Ok(Value::fixnum(produced_chars as i64))
+        }
+        Some(Some(buffer_id)) => {
+            let restore_point = ctx.buffers.get(buffer_id).map(|buf| (buf.pt_byte, buf.pt));
+            if restore_point.is_none() {
+                return Err(signal(
+                    "error",
+                    vec![Value::string("Selecting deleted buffer")],
+                ));
+            }
+            insert_coding_region_result(ctx, buffer_id, &result_text, restore_point)?;
+            ctx.set_variable(
+                "last-coding-system-used",
+                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+            );
+            Ok(Value::fixnum(produced_chars as i64))
+        }
+    }
+}
+
+pub(crate) fn builtin_encode_coding_region(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_coding_region(ctx, args, true)
+}
+
+pub(crate) fn builtin_decode_coding_region(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_coding_region(ctx, args, false)
 }
 
 /// `(char-width CHAR)` -> integer

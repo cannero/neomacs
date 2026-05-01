@@ -515,6 +515,75 @@ fn raw_text_dos_preserves_bytes_but_converts_eol() {
 }
 
 #[test]
+fn encode_coding_region_destination_t_returns_encoded_string() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .insert_lisp_string_into_buffer(current, &crate::heap_types::LispString::from_utf8("é"))
+        .expect("insert source text");
+
+    let encoded = builtin_encode_coding_region(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(2),
+            Value::symbol("utf-8"),
+            Value::T,
+        ],
+    )
+    .expect("encode-coding-region should return a string destination");
+    let encoded = encoded.as_lisp_string().expect("encoded string");
+    assert!(!encoded.is_multibyte());
+    assert_eq!(encoded.as_bytes(), &[0xC3, 0xA9]);
+    assert_eq!(
+        eval.visible_variable_value_or_nil("last-coding-system-used"),
+        Value::symbol("utf-8")
+    );
+
+    let buffer_text = eval
+        .buffers
+        .get(current)
+        .expect("current buffer")
+        .buffer_string();
+    assert_eq!(buffer_text, "é");
+}
+
+#[test]
+fn decode_coding_region_replaces_current_region() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let current = eval.buffers.current_buffer_id().expect("current buffer");
+    eval.buffers
+        .insert_lisp_string_into_buffer(
+            current,
+            &crate::heap_types::LispString::from_utf8("a\r\nb"),
+        )
+        .expect("insert encoded bytes");
+
+    let produced = builtin_decode_coding_region(
+        &mut eval,
+        vec![
+            Value::fixnum(1),
+            Value::fixnum(5),
+            Value::symbol("utf-8-dos"),
+            Value::NIL,
+        ],
+    )
+    .expect("decode-coding-region should replace the region");
+    assert_eq!(produced, Value::fixnum(3));
+    assert_eq!(
+        eval.visible_variable_value_or_nil("last-coding-system-used"),
+        Value::symbol("utf-8-dos")
+    );
+
+    let buffer = eval.buffers.get(current).expect("current buffer");
+    assert_eq!(buffer.buffer_string(), "a\nb");
+    assert_eq!(buffer.point_min_char(), 0);
+    assert_eq!(buffer.point_max_char(), 3);
+}
+
+#[test]
 fn undecided_write_encoding_preserves_bytes_and_converts_eol() {
     crate::test_utils::init_test_tracing();
 

@@ -5077,7 +5077,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "decode-coding-region",
-        |_ctx, args| builtin_decode_coding_region(args),
+        crate::encoding::builtin_decode_coding_region,
         3,
         Some(4),
     );
@@ -5119,7 +5119,7 @@ pub(crate) fn init_builtins(ctx: &mut super::eval::Context) {
     );
     ctx.defsubr(
         "encode-coding-region",
-        |_ctx, args| builtin_encode_coding_region(args),
+        crate::encoding::builtin_encode_coding_region,
         3,
         Some(4),
     );
