@@ -22,40 +22,37 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system dependencies
+      - name: Install system dependencies (pacman)
         run: |
-          sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-            build-essential \
-            pkg-config \
+          sudo pacman -Syu --noconfirm --needed \
+            base-devel \
+            git \
+            pkgconf \
             cmake \
             m4 \
-            libgmp-dev \
-            libssl-dev \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libharfbuzz-dev \
-            libxkbcommon-dev \
-            libxkbcommon-x11-dev \
-            libwayland-dev \
+            gmp \
+            openssl \
+            fontconfig \
+            freetype2 \
+            harfbuzz \
+            libxkbcommon \
+            libxkbcommon-x11 \
+            wayland \
             wayland-protocols \
-            libxcb1-dev \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libgl1-mesa-dev \
-            libegl1-mesa-dev \
-            libvulkan-dev \
-            libdbus-1-dev \
-            libudev-dev \
-            libsqlite3-dev \
-            libxml2-dev \
-            zlib1g-dev \
-            libgnutls28-dev
+            libxcb \
+            libxrandr \
+            libxinerama \
+            libxi \
+            libxcursor \
+            mesa \
+            vulkan-headers \
+            vulkan-icd-loader \
+            dbus \
+            systemd-libs \
+            sqlite \
+            libxml2 \
+            zlib \
+            gnutls
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
