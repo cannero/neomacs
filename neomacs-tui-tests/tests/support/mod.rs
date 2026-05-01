@@ -64,9 +64,8 @@ pub fn boot_pair(extra_args: &str) -> (TuiSession, TuiSession) {
         }
     }
 
-    // Phase 2 — uncapped settle (absorbs late-render bursts)
-    settle_session(&mut gnu);
-    settle_session(&mut neo);
+    // Phase 2 — interleaved uncapped settle (absorbs late-render bursts)
+    settle_both(&mut gnu, &mut neo);
 
     (gnu, neo)
 }
@@ -84,11 +83,37 @@ pub fn settle_session(session: &mut TuiSession) {
     }
 }
 
+/// Interleaved settle: keep reading both sessions until both grids stop
+/// changing. Used by `boot_pair` so the slower editor doesn't stretch the
+/// settle phase.
+fn settle_both(gnu: &mut TuiSession, neo: &mut TuiSession) {
+    let mut prev_gnu = gnu.text_grid();
+    let mut prev_neo = neo.text_grid();
+    loop {
+        gnu.read(SETTLE_IDLE);
+        neo.read(SETTLE_IDLE);
+        let cur_gnu = gnu.text_grid();
+        let cur_neo = neo.text_grid();
+        if cur_gnu == prev_gnu && cur_neo == prev_neo {
+            return;
+        }
+        prev_gnu = cur_gnu;
+        prev_neo = cur_neo;
+    }
+}
+
 // ── Shared helpers ─────────────────────────────────────────────────────
 
+/// Send the same key sequence to both sessions, interleaving each key so
+/// both editors receive it at roughly the same time. Only one 50 ms delay
+/// per key instead of two (one per session).
 pub fn send_both(gnu: &mut TuiSession, neo: &mut TuiSession, keys: &str) {
-    gnu.send_keys(keys);
-    neo.send_keys(keys);
+    for part in keys.split_whitespace() {
+        let bytes = emacs_key(part);
+        gnu.send(&bytes);
+        neo.send(&bytes);
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 pub fn send_both_raw(gnu: &mut TuiSession, neo: &mut TuiSession, bytes: &[u8]) {
@@ -96,9 +121,20 @@ pub fn send_both_raw(gnu: &mut TuiSession, neo: &mut TuiSession, bytes: &[u8]) {
     neo.send(bytes);
 }
 
+/// Drain PTY output from both sessions concurrently in short interleaved
+/// slices. Each slice polls whichever PTY has data, so the faster editor
+/// never waits for the slower one.
 pub fn read_both(gnu: &mut TuiSession, neo: &mut TuiSession, timeout: Duration) {
-    gnu.read(timeout);
-    neo.read(timeout);
+    let deadline = Instant::now() + timeout;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            break;
+        }
+        let cap = deadline.saturating_duration_since(now).min(POLL_SLICE);
+        gnu.read(cap);
+        neo.read(cap);
+    }
 }
 
 pub fn resize_both(gnu: &mut TuiSession, neo: &mut TuiSession, rows: u16, cols: u16) {
