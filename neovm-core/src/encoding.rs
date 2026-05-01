@@ -1314,7 +1314,7 @@ fn validate_coding_system(
     }
 }
 
-fn region_coding_name(
+fn context_coding_name(
     ctx: &crate::emacs_core::eval::Context,
     coding_arg: Value,
 ) -> Result<String, crate::emacs_core::error::Flow> {
@@ -1334,7 +1334,7 @@ fn region_coding_name(
     Ok(name)
 }
 
-fn canonical_region_coding_name(ctx: &crate::emacs_core::eval::Context, name: &str) -> String {
+fn canonical_context_coding_name(ctx: &crate::emacs_core::eval::Context, name: &str) -> String {
     ctx.coding_systems
         .canonical_runtime_name(name)
         .unwrap_or_else(|| name.to_owned())
@@ -1385,7 +1385,7 @@ fn transformed_region_string(
     }
 }
 
-fn insert_coding_region_result(
+fn insert_coding_result(
     ctx: &mut crate::emacs_core::eval::Context,
     buffer_id: crate::buffer::BufferId,
     text: &crate::heap_types::LispString,
@@ -1416,6 +1416,93 @@ fn insert_coding_region_result(
     Ok(())
 }
 
+fn coding_string_destination(
+    arg: Option<Value>,
+) -> Result<Option<crate::buffer::BufferId>, crate::emacs_core::error::Flow> {
+    let Some(value) = arg else {
+        return Ok(None);
+    };
+    if value.is_nil() || value.is_t() {
+        return Ok(None);
+    }
+    value
+        .as_buffer_id()
+        .map(Some)
+        .ok_or_else(|| signal("wrong-type-argument", vec![Value::symbol("bufferp"), value]))
+}
+
+fn builtin_coding_string_in_context(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+    encode: bool,
+) -> EvalResult {
+    let name = if encode {
+        "encode-coding-string"
+    } else {
+        "decode-coding-string"
+    };
+    expect_min_args(name, &args, 2)?;
+    if args.len() > 4 {
+        return Err(signal(
+            "wrong-number-of-arguments",
+            vec![Value::symbol(name), Value::fixnum(args.len() as i64)],
+        ));
+    }
+    let _ = args[0].as_lisp_string().ok_or_else(|| {
+        signal(
+            "wrong-type-argument",
+            vec![Value::symbol("stringp"), args[0]],
+        )
+    })?;
+    let coding = context_coding_name(ctx, args[1])?;
+    let destination = coding_string_destination(args.get(3).copied())?;
+    let result = if encode {
+        builtin_encode_coding_string_with_known(args, |_| true)?
+    } else {
+        builtin_decode_coding_string_with_known(args, |_| true)?
+    };
+    let result_text = result
+        .as_lisp_string()
+        .ok_or_else(|| {
+            signal(
+                "wrong-type-argument",
+                vec![Value::symbol("stringp"), result],
+            )
+        })?
+        .clone();
+    ctx.set_variable(
+        "last-coding-system-used",
+        Value::symbol(&canonical_context_coding_name(ctx, &coding)),
+    );
+
+    let Some(buffer_id) = destination else {
+        return Ok(result);
+    };
+    let restore_point = ctx.buffers.get(buffer_id).map(|buf| (buf.pt_byte, buf.pt));
+    if restore_point.is_none() {
+        return Err(signal(
+            "error",
+            vec![Value::string("Selecting deleted buffer")],
+        ));
+    }
+    insert_coding_result(ctx, buffer_id, &result_text, restore_point)?;
+    Ok(Value::fixnum(result_text.schars() as i64))
+}
+
+pub(crate) fn builtin_encode_coding_string_in_context(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_coding_string_in_context(ctx, args, true)
+}
+
+pub(crate) fn builtin_decode_coding_string_in_context(
+    ctx: &mut crate::emacs_core::eval::Context,
+    args: Vec<Value>,
+) -> EvalResult {
+    builtin_coding_string_in_context(ctx, args, false)
+}
+
 fn builtin_coding_region(
     ctx: &mut crate::emacs_core::eval::Context,
     args: Vec<Value>,
@@ -1428,7 +1515,7 @@ fn builtin_coding_region(
     };
     expect_range_args(name, &args, 3, 4)?;
 
-    let coding = region_coding_name(ctx, args[2])?;
+    let coding = context_coding_name(ctx, args[2])?;
     let destination = coding_region_destination(args.get(3).copied())?;
     let Some((start_byte, end_byte)) =
         crate::emacs_core::editfns::current_buffer_accessible_char_region_in_buffers(
@@ -1464,7 +1551,7 @@ fn builtin_coding_region(
         None => {
             ctx.set_variable(
                 "last-coding-system-used",
-                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+                Value::symbol(&canonical_context_coding_name(ctx, &coding)),
             );
             Ok(result)
         }
@@ -1488,7 +1575,7 @@ fn builtin_coding_region(
             }
             ctx.set_variable(
                 "last-coding-system-used",
-                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+                Value::symbol(&canonical_context_coding_name(ctx, &coding)),
             );
             Ok(Value::fixnum(produced_chars as i64))
         }
@@ -1500,10 +1587,10 @@ fn builtin_coding_region(
                     vec![Value::string("Selecting deleted buffer")],
                 ));
             }
-            insert_coding_region_result(ctx, buffer_id, &result_text, restore_point)?;
+            insert_coding_result(ctx, buffer_id, &result_text, restore_point)?;
             ctx.set_variable(
                 "last-coding-system-used",
-                Value::symbol(&canonical_region_coding_name(ctx, &coding)),
+                Value::symbol(&canonical_context_coding_name(ctx, &coding)),
             );
             Ok(Value::fixnum(produced_chars as i64))
         }

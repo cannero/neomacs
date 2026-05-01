@@ -319,6 +319,69 @@ fn builtin_coding_string_helpers_runtime_match_oracle_core_cases() {
 }
 
 #[test]
+fn encode_coding_string_buffer_destination_inserts_without_moving_point() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let dest = eval.buffers.create_buffer("*encode-coding-string-dest*");
+    eval.buffers
+        .insert_lisp_string_into_buffer(dest, &crate::heap_types::LispString::from_utf8("XY"))
+        .expect("insert destination seed");
+    eval.buffers
+        .goto_buffer_byte(dest, 1)
+        .expect("move destination point");
+
+    let produced = builtin_encode_coding_string_in_context(
+        &mut eval,
+        vec![
+            Value::string("a\n"),
+            Value::symbol("utf-8-dos"),
+            Value::NIL,
+            Value::make_buffer(dest),
+        ],
+    )
+    .expect("encode-coding-string should insert in destination buffer");
+
+    assert_eq!(produced, Value::fixnum(3));
+    assert_eq!(
+        eval.visible_variable_value_or_nil("last-coding-system-used"),
+        Value::symbol("utf-8-dos")
+    );
+    let buf = eval.buffers.get(dest).expect("destination buffer");
+    assert_eq!(buf.buffer_string(), "Xa\r\nY");
+    assert_eq!(buf.point_byte(), 1);
+}
+
+#[test]
+fn decode_coding_string_buffer_destination_inserts_without_moving_point() {
+    crate::test_utils::init_test_tracing();
+    let mut eval = crate::emacs_core::Context::new();
+    let dest = eval.buffers.create_buffer("*decode-coding-string-dest*");
+    let encoded = Value::heap_string(crate::heap_types::LispString::from_unibyte(
+        b"a\r\nb".to_vec(),
+    ));
+
+    let produced = builtin_decode_coding_string_in_context(
+        &mut eval,
+        vec![
+            encoded,
+            Value::symbol("utf-8-dos"),
+            Value::NIL,
+            Value::make_buffer(dest),
+        ],
+    )
+    .expect("decode-coding-string should insert in destination buffer");
+
+    assert_eq!(produced, Value::fixnum(3));
+    assert_eq!(
+        eval.visible_variable_value_or_nil("last-coding-system-used"),
+        Value::symbol("utf-8-dos")
+    );
+    let buf = eval.buffers.get(dest).expect("destination buffer");
+    assert_eq!(buf.buffer_string(), "a\nb");
+    assert_eq!(buf.point_byte(), 0);
+}
+
+#[test]
 fn builtin_coding_string_helpers_accept_iso_8859_15_alias() {
     crate::test_utils::init_test_tracing();
     let encoded =
