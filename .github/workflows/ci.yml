@@ -51,7 +51,6 @@ jobs:
             systemd-libs \
             sqlite \
             libxml2 \
-            zlib \
             gnutls
 
       - name: Install Rust toolchain (from rust-toolchain.toml)
