@@ -871,7 +871,7 @@ impl ProcessManager {
         match stdout.read(&mut buf) {
             Ok(0) => None, // EOF
             Ok(n) => {
-                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                let s = crate::encoding::decode_bytes(&buf[..n], "utf-8-unix");
                 proc.stdout.push_str(&s);
                 Some(s)
             }
@@ -891,7 +891,7 @@ impl ProcessManager {
         match reader.read(&mut buf) {
             Ok(0) => None, // EOF — slave closed
             Ok(n) => {
-                let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                let s = crate::encoding::decode_bytes(&buf[..n], "utf-8-unix");
                 proc.stdout.push_str(&s);
                 Some(s)
             }
@@ -1152,7 +1152,7 @@ impl ProcessManager {
                 match tls.read(&mut buf) {
                     Ok(0) => return None,
                     Ok(n) => {
-                        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let s = crate::encoding::decode_bytes(&buf[..n], "utf-8-unix");
                         proc.stdout.push_str(&s);
                         return Some(s);
                     }
@@ -1169,7 +1169,7 @@ impl ProcessManager {
                 match socket.read(&mut buf) {
                     Ok(0) => return None,
                     Ok(n) => {
-                        let s = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let s = crate::encoding::decode_bytes(&buf[..n], "utf-8-unix");
                         proc.stdout.push_str(&s);
                         return Some(s);
                     }

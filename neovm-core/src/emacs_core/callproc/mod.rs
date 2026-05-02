@@ -274,7 +274,7 @@ fn write_output_target_in_state(
     match target {
         OutputTarget::Discard => Ok(()),
         OutputTarget::Buffer(destination) => {
-            let text = String::from_utf8_lossy(output).into_owned();
+            let text = crate::encoding::decode_bytes(output, "utf-8-unix");
             insert_process_output_in_state(buffers, destination, &text)
         }
         OutputTarget::File(path) => {
