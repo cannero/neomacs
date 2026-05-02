@@ -677,22 +677,34 @@ fn build_faces() -> HashMap<u32, Face> {
     let mut f = HashMap::new();
     f.insert(0, mk(0, 0.87, 0.87, 0.87, 0.0, 0.0, 0.0, 400, false, None));
 
-    // Face 1: Mode-line with linear gradient (red to blue, top to bottom)
-    let mode_line_gradient = Some(Box::new(Gradient::Linear {
-        angle: 90.0,
+    // Face 1: Mode-line with conic gradient (rainbow around center)
+    let mode_line_gradient = Some(Box::new(Gradient::Conic {
+        center_x: 0.5,
+        center_y: 0.5,
+        angle_offset: 0.0,
         stops: vec![
-            ColorStop::new(0.0, Color::new(1.0, 0.42, 0.62, 1.0)), // #FF6B9D
-            ColorStop::new(0.5, Color::new(0.77, 0.27, 0.41, 1.0)), // #C44569
-            ColorStop::new(1.0, Color::new(0.29, 0.06, 0.31, 1.0)), // #4A0E4E
+            ColorStop::new(0.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red
+            ColorStop::new(0.08, Color::new(1.0, 0.5, 0.0, 1.0)), // Orange
+            ColorStop::new(0.17, Color::new(1.0, 1.0, 0.0, 1.0)), // Yellow
+            ColorStop::new(0.25, Color::new(0.5, 1.0, 0.0, 1.0)), // Chartreuse
+            ColorStop::new(0.33, Color::new(0.0, 1.0, 0.0, 1.0)), // Green
+            ColorStop::new(0.42, Color::new(0.0, 1.0, 0.5, 1.0)), // Spring green
+            ColorStop::new(0.50, Color::new(0.0, 0.8, 1.0, 1.0)), // Cyan
+            ColorStop::new(0.58, Color::new(0.0, 0.4, 1.0, 1.0)), // Azure
+            ColorStop::new(0.67, Color::new(0.0, 0.0, 1.0, 1.0)), // Blue
+            ColorStop::new(0.75, Color::new(0.3, 0.0, 0.8, 1.0)), // Indigo
+            ColorStop::new(0.83, Color::new(0.6, 0.0, 1.0, 1.0)), // Violet
+            ColorStop::new(0.92, Color::new(1.0, 0.0, 1.0, 1.0)), // Magenta
+            ColorStop::new(1.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red (wrap)
         ],
     }));
     f.insert(
         1,
         mk(
             1,
-            1.0,
-            1.0,
-            1.0,
+            0.0,
+            0.0,
+            0.0, // black foreground on gradient
             0.0,
             0.0,
             0.0,
