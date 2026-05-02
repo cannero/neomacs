@@ -394,17 +394,11 @@ pub(crate) fn replace_buffer_region_lisp_string(
         end_byte,
         replacement,
     )?;
-    // Match GNU adjust_intervals_for_insertion: apply sticky-aware
-    // property inheritance from the surrounding intervals to the newly
-    // inserted text.  See builtins/buffers.rs::apply_inherited_text_properties.
-    super::builtins::apply_inherited_text_properties(
-        &eval.obarray,
-        &[],
-        &mut eval.buffers,
-        buffer_id,
-        start_byte,
-        new_len,
-    );
+    // Don't inherit text properties from neighbors here.
+    // GNU's replace path (del_range + insert_from_gap in decode_coding)
+    // also skips adjust_intervals_for_insertion.  Property inheritance
+    // belongs to insert-and-inherit (insert_pieces_in_state with
+    // inherit=true), not general-purpose replace operations.
     super::editfns::signal_after_change(eval, start_byte, start_byte + new_len, old_len)?;
     Ok(())
 }
