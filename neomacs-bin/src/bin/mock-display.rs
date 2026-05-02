@@ -119,12 +119,20 @@ fn run_gui(demo: &str) {
 
     let _logging_guard = neovm_core::logging::init(neovm_core::logging::LogTarget::Stdout);
 
-    let char_w = 8.0f32;
-    let char_h = 16.0f32;
+    // Measure actual font metrics instead of hardcoding pixel sizes.
     let cols = 130u16;
     let rows = 50u16;
-    let width = (cols as f32 * char_w) as u32;
-    let height = (rows as f32 * char_h) as u32;
+    let (char_w, char_h) = {
+        use neomacs_layout_engine::font_metrics::FontMetricsService;
+        let mut fm = FontMetricsService::new();
+        let family = neomacs_layout_engine::fontconfig::resolve_family("monospace");
+        let size = 12.0f32;
+        let m = fm.font_metrics(family, 400, false, size);
+        let cw = fm.char_width('m', family, 400, false, size);
+        (cw.max(1.0), m.line_height.max(1.0))
+    };
+    let pixel_w = (cols as f32 * char_w) as u32;
+    let pixel_h = (rows as f32 * char_h) as u32;
 
     let comms = ThreadComms::new().expect("failed to create comms");
     let (emacs_comms, render_comms) = comms.split();
@@ -136,8 +144,8 @@ fn run_gui(demo: &str) {
 
     let render_thread = RenderThread::spawn(
         render_comms,
-        width,
-        height,
+        pixel_w,
+        pixel_h,
         format!("Neomacs Mock — {}", demo),
         Arc::clone(&image_dims),
         Arc::clone(&shared_monitors),
@@ -148,8 +156,8 @@ fn run_gui(demo: &str) {
     });
 
     eprintln!(
-        "GUI mock: {}x{} px, {}x{} cells, demo={}",
-        width, height, cols, rows, demo
+        "GUI mock: {}x{} px ({}x{} cells @ {}x{} font), demo={}",
+        pixel_w, pixel_h, cols, rows, char_w, char_h, demo
     );
 
     let scene = build_demo(
@@ -158,8 +166,8 @@ fn run_gui(demo: &str) {
         rows,
         char_w,
         char_h,
-        width as f32,
-        height as f32,
+        pixel_w as f32,
+        pixel_h as f32,
     );
     for s in scene.iter() {
         let _ = emacs_comms.frame_tx.send(s.clone());
