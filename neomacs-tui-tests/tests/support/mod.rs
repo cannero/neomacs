@@ -2,7 +2,7 @@
 
 use neomacs_tui_tests::*;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// Maximum total time for GNU Emacs to reach the startup predicate.
@@ -365,4 +365,34 @@ pub fn assert_home_file_contents(gnu: &TuiSession, neo: &TuiSession, name: &str,
 pub fn write_home_file(session: &TuiSession, name: &str, contents: &str) {
     let path = session.home_dir().join(name);
     fs::write(path, contents).expect("write test file in isolated HOME");
+}
+
+/// Write a file to a shared temp location and return its absolute path.
+/// Both GNU and Neo can open this same path, so diff headers etc. match.
+/// Uses a short directory name to avoid line-wrapping differences.
+pub fn write_shared_temp_file(name: &str, contents: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("nts-{}", std::process::id()));
+    fs::create_dir_all(&dir).expect("create shared temp dir for tui tests");
+    let path = dir.join(name);
+    fs::write(&path, contents).expect("write shared test file");
+    path
+}
+
+/// Open a file at an absolute path in both sessions.
+pub fn open_shared_file(gnu: &mut TuiSession, neo: &mut TuiSession, path: &Path, keys: &str) {
+    send_both(gnu, neo, keys);
+    let path_str = path.to_string_lossy();
+    gnu.send(path_str.as_bytes());
+    neo.send(path_str.as_bytes());
+    send_both(gnu, neo, "RET");
+
+    let name = path.file_name().unwrap().to_string_lossy();
+    let contents = fs::read_to_string(path).expect("read shared test file");
+    let first_line = contents.lines().next().unwrap_or("");
+    let ready = |grid: &[String]| {
+        grid.iter().any(|row| row.contains(name.as_ref()))
+            && grid.iter().any(|row| row.contains(first_line))
+    };
+    wait_for_both(gnu, neo, Duration::from_secs(20), ready);
+    read_both(gnu, neo, Duration::from_secs(1));
 }

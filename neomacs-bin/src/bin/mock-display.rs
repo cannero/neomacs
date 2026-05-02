@@ -37,11 +37,15 @@ impl Scene {
 }
 
 impl From<FrameDisplayState> for Scene {
-    fn from(s: FrameDisplayState) -> Self { Scene(vec![s]) }
+    fn from(s: FrameDisplayState) -> Self {
+        Scene(vec![s])
+    }
 }
 
 impl From<Vec<FrameDisplayState>> for Scene {
-    fn from(v: Vec<FrameDisplayState>) -> Self { Scene(v) }
+    fn from(v: Vec<FrameDisplayState>) -> Self {
+        Scene(v)
+    }
 }
 
 fn main() {
@@ -676,7 +680,15 @@ fn build_default(
     let left_cols = c / 2;
     let right_cols = c - left_cols - 1;
     let top_text = top_half - 1;
-    let mut state = new_state(cols, rows, char_w, char_h, pixel_w, r as f32 * char_h, faces);
+    let mut state = new_state(
+        cols,
+        rows,
+        char_w,
+        char_h,
+        pixel_w,
+        r as f32 * char_h,
+        faces,
+    );
 
     // --- Top-left: *scratch* with rounded-box face (face 8) ---
     let scratch_lines: Vec<(&str, u32)> = scratch_buffer_lines()
@@ -687,14 +699,24 @@ fn build_default(
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 1,
         matrix: tl,
-        pixel_bounds: Rect::new(0.0, 0.0, left_cols as f32 * char_w, top_text as f32 * char_h),
+        pixel_bounds: Rect::new(
+            0.0,
+            0.0,
+            left_cols as f32 * char_w,
+            top_text as f32 * char_h,
+        ),
         selected: true,
     });
     let tl_ml = build_mode_line_width(left_cols, " -:**-  *scratch*      (Lisp Interaction)");
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 10,
         matrix: tl_ml,
-        pixel_bounds: Rect::new(0.0, top_text as f32 * char_h, left_cols as f32 * char_w, char_h),
+        pixel_bounds: Rect::new(
+            0.0,
+            top_text as f32 * char_h,
+            left_cols as f32 * char_w,
+            char_h,
+        ),
         selected: true,
     });
 
@@ -709,8 +731,10 @@ fn build_default(
         window_id: 30,
         matrix: vdiv,
         pixel_bounds: Rect::new(
-            left_cols as f32 * char_w, 0.0,
-            char_w, top_half as f32 * char_h,
+            left_cols as f32 * char_w,
+            0.0,
+            char_w,
+            top_half as f32 * char_h,
         ),
         selected: false,
     });
@@ -723,8 +747,10 @@ fn build_default(
         window_id: 2,
         matrix: tr,
         pixel_bounds: Rect::new(
-            rx, 0.0,
-            right_cols as f32 * char_w, top_text as f32 * char_h,
+            rx,
+            0.0,
+            right_cols as f32 * char_w,
+            top_text as f32 * char_h,
         ),
         selected: false,
     });
@@ -733,8 +759,10 @@ fn build_default(
         window_id: 11,
         matrix: tr_ml,
         pixel_bounds: Rect::new(
-            rx, top_text as f32 * char_h,
-            right_cols as f32 * char_w, char_h,
+            rx,
+            top_text as f32 * char_h,
+            right_cols as f32 * char_w,
+            char_h,
         ),
         selected: true,
     });
@@ -775,10 +803,7 @@ fn build_default(
     let cf_pixel_h = (cf_rows as f32 + 2.0) * char_h; // border + title + items
     let cf_pixel_y = (top_text as f32 - (cf_rows as f32 + 2.0)) * 0.5 * char_h;
 
-    let mut cf = FrameDisplayState::new(
-        cf_cols, cf_rows as usize + 2,
-        char_w, char_h,
-    );
+    let mut cf = FrameDisplayState::new(cf_cols, cf_rows as usize + 2, char_w, char_h);
     cf.frame_id = 100;
     cf.parent_id = 1;
     cf.parent_x = cf_pixel_x;
@@ -793,10 +818,16 @@ fn build_default(
     // Border row (face 9)
     let mut border = GlyphMatrix::new(1, cf_cols);
     border.rows[0].enabled = true;
-    for _ in 0..cf_cols { border.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', 9, 0)); }
+    for _ in 0..cf_cols {
+        border.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', 9, 0));
+    }
     border.ensure_hashes();
-    cf.window_matrices.push(WindowMatrixEntry { window_id: 1, matrix: border,
-        pixel_bounds: Rect::new(0.0, 0.0, cf_pixel_w, char_h), selected: false });
+    cf.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix: border,
+        pixel_bounds: Rect::new(0.0, 0.0, cf_pixel_w, char_h),
+        selected: false,
+    });
 
     // Title row (face 11: navy bg)
     let mut title = GlyphMatrix::new(1, cf_cols);
@@ -805,8 +836,12 @@ fn build_default(
         title.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 11, 0));
     }
     title.ensure_hashes();
-    cf.window_matrices.push(WindowMatrixEntry { window_id: 2, matrix: title,
-        pixel_bounds: Rect::new(0.0, 1.0 * char_h, cf_pixel_w, char_h), selected: false });
+    cf.window_matrices.push(WindowMatrixEntry {
+        window_id: 2,
+        matrix: title,
+        pixel_bounds: Rect::new(0.0, 1.0 * char_h, cf_pixel_w, char_h),
+        selected: false,
+    });
 
     let items: &[(&str, u32)] = &[
         ("  describe-function     ", 9),
@@ -828,7 +863,8 @@ fn build_default(
         }
         row.ensure_hashes();
         cf.window_matrices.push(WindowMatrixEntry {
-            window_id: (3 + row_i) as u64, matrix: row,
+            window_id: (3 + row_i) as u64,
+            matrix: row,
             pixel_bounds: Rect::new(0.0, (2 + row_i) as f32 * char_h, cf_pixel_w, char_h),
             selected: false,
         });
@@ -1009,10 +1045,16 @@ fn build_faces() -> HashMap<u32, Face> {
     f.insert(9, mk(9, 0.9, 0.9, 0.95, 0.08, 0.08, 0.14, 400, false, None));
 
     // Face 10: Child-frame selected item (white on highlight blue)
-    f.insert(10, mk(10, 0.9, 0.9, 0.95, 0.18, 0.22, 0.38, 400, false, None));
+    f.insert(
+        10,
+        mk(10, 0.9, 0.9, 0.95, 0.18, 0.22, 0.38, 400, false, None),
+    );
 
     // Face 11: Child-frame title (white on navy)
-    f.insert(11, mk(11, 0.9, 0.9, 0.95, 0.15, 0.20, 0.35, 400, false, None));
+    f.insert(
+        11,
+        mk(11, 0.9, 0.9, 0.95, 0.15, 0.20, 0.35, 400, false, None),
+    );
 
     f
 }

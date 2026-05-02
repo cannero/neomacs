@@ -455,13 +455,8 @@ fn grep_via_mx_lists_matching_file_lines() {
 #[test]
 fn diff_buffer_with_file_via_mx_shows_unsaved_changes() {
     let (mut gnu, mut neo) = boot_pair("");
-    open_home_file(
-        &mut gnu,
-        &mut neo,
-        "diff-buffer-file.txt",
-        "alpha\nbeta\n",
-        "C-x C-f",
-    );
+    let shared_path = write_shared_temp_file("diff-buffer-file.txt", "alpha\nbeta\n");
+    open_shared_file(&mut gnu, &mut neo, &shared_path, "C-x C-f");
 
     send_both_raw(&mut gnu, &mut neo, b"changed\n");
     let edited = |grid: &[String]| grid.iter().any(|row| row.contains("changed"));
