@@ -11,7 +11,9 @@ use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
 use super::child_frames::ChildFrameManager;
-use super::state::{effective_window_scale_factor, guess_initial_scale_factor, window_size_from_emacs_pixels};
+use super::state::{
+    effective_window_scale_factor, guess_initial_scale_factor, window_size_from_emacs_pixels,
+};
 use super::x11_hints::apply_window_geometry_hints;
 use crate::core::frame_glyphs::FrameGlyphBuffer;
 use neovm_core::window::GuiFrameGeometryHints;

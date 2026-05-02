@@ -584,14 +584,46 @@ fn dired_decode_loop_property_survival() {
 
     // Verify initial next_property_change works for all ranges
     assert_eq!(table.next_property_change(0), Some(58), "should find file1");
-    assert_eq!(table.next_property_change(58), Some(64), "should find end of file1");
-    assert_eq!(table.next_property_change(64), Some(80), "should find file2 from gap");
-    assert_eq!(table.next_property_change(80), Some(86), "should find end of file2");
-    assert_eq!(table.next_property_change(86), Some(102), "should find file3 from gap");
-    assert_eq!(table.next_property_change(102), Some(108), "should find end of file3");
-    assert_eq!(table.next_property_change(108), Some(124), "should find file4 from gap");
-    assert_eq!(table.next_property_change(124), Some(130), "should find end of file4");
-    assert_eq!(table.next_property_change(130), None, "should be done after file4");
+    assert_eq!(
+        table.next_property_change(58),
+        Some(64),
+        "should find end of file1"
+    );
+    assert_eq!(
+        table.next_property_change(64),
+        Some(80),
+        "should find file2 from gap"
+    );
+    assert_eq!(
+        table.next_property_change(80),
+        Some(86),
+        "should find end of file2"
+    );
+    assert_eq!(
+        table.next_property_change(86),
+        Some(102),
+        "should find file3 from gap"
+    );
+    assert_eq!(
+        table.next_property_change(102),
+        Some(108),
+        "should find end of file3"
+    );
+    assert_eq!(
+        table.next_property_change(108),
+        Some(124),
+        "should find file4 from gap"
+    );
+    assert_eq!(
+        table.next_property_change(124),
+        Some(130),
+        "should find end of file4"
+    );
+    assert_eq!(
+        table.next_property_change(130),
+        None,
+        "should be done after file4"
+    );
 
     // Now simulate the decode loop. In insert-directory, the decode loop:
     // 1. Starts at point-min (char position 0)
@@ -613,7 +645,11 @@ fn dired_decode_loop_property_survival() {
     // file2 was at [80,86), now at [78,84)
     // etc.
 
-    assert_eq!(table.next_property_change(0), Some(56), "file1 should shift by -2 after first decode");
+    assert_eq!(
+        table.next_property_change(0),
+        Some(56),
+        "file1 should shift by -2 after first decode"
+    );
     assert_eq!(table.next_property_change(56), Some(62), "end of file1");
 
     // Now simulate second chunk: pos=56 to 62 (file1, has dired-filename)
@@ -628,15 +664,31 @@ fn dired_decode_loop_property_survival() {
     table.put_property(56, 60, prop, val);
 
     assert_eq!(table.next_property_change(0), Some(56), "file1 still at 56");
-    assert_eq!(table.next_property_change(56), Some(60), "end of decoded file1");
-    assert_eq!(table.next_property_change(60), Some(76), "file2 shifted correctly");
+    assert_eq!(
+        table.next_property_change(56),
+        Some(60),
+        "end of decoded file1"
+    );
+    assert_eq!(
+        table.next_property_change(60),
+        Some(76),
+        "file2 shifted correctly"
+    );
     assert_eq!(table.next_property_change(76), Some(82), "end of file2");
 
     // Third chunk: gaps between file2 and file3
     // This tests that iterate-through-gaps correctly finds the next property
-    assert_eq!(table.next_property_change(82), Some(98), "file3 should be after gap");
+    assert_eq!(
+        table.next_property_change(82),
+        Some(98),
+        "file3 should be after gap"
+    );
     assert_eq!(table.next_property_change(98), Some(104), "end of file3");
-    assert_eq!(table.next_property_change(104), Some(120), "file4 should be after gap");
+    assert_eq!(
+        table.next_property_change(104),
+        Some(120),
+        "file4 should be after gap"
+    );
     assert_eq!(table.next_property_change(120), Some(126), "end of file4");
     assert_eq!(table.next_property_change(126), None, "no more properties");
 }
@@ -676,11 +728,23 @@ fn insert_directory_clean_then_delete_lines() {
     table.adjust_for_insert(0, 55); // decoded text is shorter
 
     // All properties should shift by -3
-    assert_eq!(table.next_property_change(0), Some(55), "file1 shifted to 55");
+    assert_eq!(
+        table.next_property_change(0),
+        Some(55),
+        "file1 shifted to 55"
+    );
     assert_eq!(table.next_property_change(55), Some(61));
-    assert_eq!(table.next_property_change(61), Some(77), "file2 shifted to 77");
+    assert_eq!(
+        table.next_property_change(61),
+        Some(77),
+        "file2 shifted to 77"
+    );
     assert_eq!(table.next_property_change(77), Some(83));
-    assert_eq!(table.next_property_change(83), Some(99), "file3 shifted to 99");
+    assert_eq!(
+        table.next_property_change(83),
+        Some(99),
+        "file3 shifted to 99"
+    );
     assert_eq!(table.next_property_change(99), Some(105));
     assert_eq!(table.next_property_change(105), None);
 }
@@ -703,17 +767,34 @@ fn adjust_delete_produces_no_negative_len_runs() {
 
     // First interval should be truncated to [10, 15)
     assert_eq!(table.next_property_change(0), Some(10));
-    assert_eq!(table.next_property_change(10), Some(15), "first interval truncated at 15");
+    assert_eq!(
+        table.next_property_change(10),
+        Some(15),
+        "first interval truncated at 15"
+    );
 
     // Second interval should shift left by 10 (25-15=10)
     // Was [30, 40), now [20, 30)
-    assert_eq!(table.next_property_change(15), Some(20), "second interval at 20");
-    assert_eq!(table.next_property_change(20), Some(30), "second interval ends at 30");
+    assert_eq!(
+        table.next_property_change(15),
+        Some(20),
+        "second interval at 20"
+    );
+    assert_eq!(
+        table.next_property_change(20),
+        Some(30),
+        "second interval ends at 30"
+    );
     assert_eq!(table.next_property_change(30), None);
 
     // Verify no runs have start >= end
     for run in &table.runs {
-        assert!(run.start < run.end, "run [{},{}) has start >= end", run.start, run.end);
+        assert!(
+            run.start < run.end,
+            "run [{},{}) has start >= end",
+            run.start,
+            run.end
+        );
     }
     // There should be exactly 2 non-empty runs (no empty gap runs needed
     // since adjust_for_delete doesn't create them; next_property_change
@@ -737,15 +818,21 @@ fn decode_loop_get_property_at_gap_boundaries() {
 
     // Initial state: 4 filename properties at non-contiguous ranges.
     // These match the pattern from the trace: [57..58), [105..107), etc.
-    table.put_property(57, 58, prop, val);   // file1: 1 char
+    table.put_property(57, 58, prop, val); // file1: 1 char
     table.put_property(105, 107, prop, val); // file2: 2 chars
     table.put_property(154, 163, prop, val); // file3: 9 chars
     table.put_property(210, 218, prop, val); // file4: 8 chars
 
     // Verify initial state
     assert_eq!(table.next_property_change(0), Some(57));
-    assert!(table.get_property(57, prop).is_some(), "pos 57 should have df");
-    assert!(table.get_property(58, prop).is_none(), "pos 58 should NOT have df (end of file1)");
+    assert!(
+        table.get_property(57, prop).is_some(),
+        "pos 57 should have df"
+    );
+    assert!(
+        table.get_property(58, prop).is_none(),
+        "pos 58 should NOT have df (end of file1)"
+    );
 
     // === Iteration 1: decode header [0, 57) ===
     // val = get_property(0) = nil → do NOT re-put
@@ -758,7 +845,10 @@ fn decode_loop_get_property_at_gap_boundaries() {
     // Verify: positions unchanged (same length insert)
     assert_eq!(table.next_property_change(0), Some(57));
     assert!(table.get_property(57, prop).is_some());
-    assert!(table.get_property(58, prop).is_none(), "pos 58 should still NOT have df after iter1");
+    assert!(
+        table.get_property(58, prop).is_none(),
+        "pos 58 should still NOT have df after iter1"
+    );
 
     // === Iteration 2: decode file1 [57, 58) ===
     // val = get_property(57) = t → re-put after decode
@@ -766,21 +856,28 @@ fn decode_loop_get_property_at_gap_boundaries() {
     new_len = 1; // decoded text same length
     table.adjust_for_delete(57, 57 + old_len);
     table.adjust_for_insert(57, new_len);
-    table.put_property(57, 58, prop, val);  // re-put (val was t)
+    table.put_property(57, 58, prop, val); // re-put (val was t)
 
     // Verify: file1 property preserved, pos 58 still gap
     assert!(table.get_property(57, prop).is_some());
-    assert!(table.get_property(58, prop).is_none(),
-            "CRITICAL: pos 58 must be nil - next iteration captures val here");
-    assert_eq!(table.next_property_change(58), Some(105),
-               "next change from pos 58 should be file2 at 105");
+    assert!(
+        table.get_property(58, prop).is_none(),
+        "CRITICAL: pos 58 must be nil - next iteration captures val here"
+    );
+    assert_eq!(
+        table.next_property_change(58),
+        Some(105),
+        "next change from pos 58 should be file2 at 105"
+    );
 
     // === Iteration 3: decode GAP [58, 105) ===
     // val = get_property(58) = nil → should NOT re-put
     // BUT the trace shows put [58..105) IS happening!
     // This test checks whether get_property(58) correctly returns nil.
-    assert!(table.get_property(58, prop).is_none(),
-            "BUG CONFIRMATION: if this fails, get_property returns non-nil at pos 58");
+    assert!(
+        table.get_property(58, prop).is_none(),
+        "BUG CONFIRMATION: if this fails, get_property returns non-nil at pos 58"
+    );
 
     old_len = 47; // 105 - 58
     new_len = 47; // same length decode
@@ -791,8 +888,10 @@ fn decode_loop_get_property_at_gap_boundaries() {
     table.adjust_for_insert(58, new_len);
 
     // After insert, file2 shifts back. Check that pos 58 is still nil.
-    assert!(table.get_property(58, prop).is_none(),
-            "CRITICAL: pos 58 must be nil after decode of gap - put should NOT be called");
+    assert!(
+        table.get_property(58, prop).is_none(),
+        "CRITICAL: pos 58 must be nil after decode of gap - put should NOT be called"
+    );
 
     // Now simulate what the BUG does: put dired-filename on [58, 105) even though val was nil
     // (this is what we observe in the trace)
@@ -800,8 +899,11 @@ fn decode_loop_get_property_at_gap_boundaries() {
     table.put_property(58, 58 + new_len, prop, val);
     // After this erroneous put, [57..58) and [58..105) merge → [57..107)
     // This is the cascading merge bug!
-    assert_eq!(table.next_property_change(58), Some(107),
-               "after erroneous put on gap, file1 and file2 merge: next change at 107");
+    assert_eq!(
+        table.next_property_change(58),
+        Some(107),
+        "after erroneous put on gap, file1 and file2 merge: next change at 107"
+    );
 
     // Verify that the merge happened
     let snapshot = table.intervals_snapshot();

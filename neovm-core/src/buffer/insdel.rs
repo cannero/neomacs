@@ -46,18 +46,19 @@ fn convert_lisp_string_for_buffer_mode(text: &LispString, target_multibyte: bool
         return text.clone();
     }
 
+    if !target_multibyte {
+        // GNU: insert_from_gap for unibyte buffers sets nchars=nbytes,
+        // storing each byte of the multibyte internal representation as
+        // a separate character.  Do NOT mask character codes with 0xFF
+        // — that would truncate non-ASCII chars (e.g., decode-coding-region
+        // of BIG5 data would lose the decoded characters).
+        return lisp_string_from_buffer_bytes(text.as_bytes().to_vec(), false);
+    }
+
     let mut codes = crate::emacs_core::builtins::lisp_string_char_codes(text);
-    if target_multibyte {
-        if !text.is_multibyte() {
-            for code in &mut codes {
-                if *code > 0x7F {
-                    *code = crate::emacs_core::emacs_char::unibyte_to_char(*code as u8);
-                }
-            }
-        }
-    } else {
-        for code in &mut codes {
-            *code &= 0xFF;
+    for code in &mut codes {
+        if *code > 0x7F {
+            *code = crate::emacs_core::emacs_char::unibyte_to_char(*code as u8);
         }
     }
 

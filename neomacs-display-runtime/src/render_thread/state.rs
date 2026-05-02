@@ -76,11 +76,7 @@ pub(super) fn effective_window_scale_factor(raw_scale_factor: f64) -> f64 {
     raw_scale_factor
 }
 
-pub(super) fn window_size_from_emacs_pixels(
-    width: u32,
-    height: u32,
-    guessed_scale: f64,
-) -> Size {
+pub(super) fn window_size_from_emacs_pixels(width: u32, height: u32, guessed_scale: f64) -> Size {
     if backend_uses_winit_logical_pixels() {
         Size::Logical(LogicalSize::new(width as f64, height as f64))
     } else {

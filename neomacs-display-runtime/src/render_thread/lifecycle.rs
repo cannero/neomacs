@@ -1,5 +1,7 @@
 use super::RenderApp;
-use super::state::{effective_window_scale_factor, guess_initial_scale_factor, window_size_from_emacs_pixels};
+use super::state::{
+    effective_window_scale_factor, guess_initial_scale_factor, window_size_from_emacs_pixels,
+};
 use super::x11_hints::apply_window_geometry_hints;
 use crate::thread_comm::InputEvent;
 use std::sync::Arc;
