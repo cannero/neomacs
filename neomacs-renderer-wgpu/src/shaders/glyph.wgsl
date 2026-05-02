@@ -38,5 +38,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let alpha = textureSample(glyph_texture, glyph_sampler, in.tex_coords).r;
-    return vec4<f32>(in.color.rgb, in.color.a * alpha);
+    let a = in.color.a * alpha;
+    return vec4<f32>(in.color.rgb * a, a);
 }

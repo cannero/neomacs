@@ -336,7 +336,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Filled mode (no inner cutout)
     if (border_width <= 0.0) {
-        return vec4<f32>(in.color.rgb, in.color.a * outer_alpha);
+        let a = in.color.a * outer_alpha;
+        return vec4<f32>(in.color.rgb * a, a);
     }
 
     // Standard inner SDF for border mask
