@@ -73,7 +73,14 @@ pub(super) fn guess_initial_scale_factor(
 }
 
 pub(super) fn effective_window_scale_factor(raw_scale_factor: f64) -> f64 {
-    raw_scale_factor
+    // On X11 fontconfig already handles DPI — the font metrics returned are
+    // already scaled for the display.  Only Wayland needs us to apply the
+    // compositor scale factor to rendering.
+    if backend_uses_winit_logical_pixels() {
+        raw_scale_factor
+    } else {
+        1.0
+    }
 }
 
 pub(super) fn window_size_from_emacs_pixels(width: u32, height: u32, guessed_scale: f64) -> Size {
@@ -94,12 +101,15 @@ pub(super) fn emacs_pixels_from_window_size(
     height: u32,
     scale_factor: f64,
 ) -> (u32, u32) {
-    if scale_factor > 0.0 {
+    if backend_uses_winit_logical_pixels() {
         (
             (width as f64 / scale_factor).round() as u32,
             (height as f64 / scale_factor).round() as u32,
         )
     } else {
+        // X11: fontconfig handles DPI.  Return physical pixels as-is
+        // so Emacs computes the correct character grid with the already-
+        // scaled font metrics.
         (width, height)
     }
 }
