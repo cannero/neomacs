@@ -344,3 +344,259 @@ fn multiple_child_frames() {
         "GNU should restore *scratch* after deleting all child frames"
     );
 }
+
+// ── Position movement tests ──────────────────────────────────────────────
+
+/// Create a child frame with content, return its inner expression for later
+/// position queries.  Returns the expression string that evaluates to the
+/// youngest child frame.
+const CF_FIND_EXPR: &str = r#"(car (delq (selected-frame) (frame-list)))"#;
+
+#[test]
+fn child_frame_move_right() {
+    let (mut gnu, mut neo) = boot_child_frame_pair();
+
+    // Create child frame with content at default position (left=5, top=3).
+    let make_expr = r#"(let* ((cf (cf--make-child '(width . 20) '(height . 4)))
+             (buf (get-buffer-create "*cf-move*")))
+        (select-frame cf)
+        (switch-to-buffer buf)
+        (insert "MOVE-RIGHT-TEST")
+        (sit-for 0)
+        (select-frame (frame-parent cf))
+        cf)"#;
+    eval_expression(&mut gnu, &mut neo, make_expr);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // Verify initial position is visible in default area.
+    assert_region_contains(&gnu, 3, 7, "MOVE-RIGHT-TEST");
+
+    // Move child frame right by 20 columns.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 25 3)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // Content should have moved right — original area should no longer show it.
+    // Verify that the frame position parameter updated.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(message \"POS: %S\" (frame-position {CF_FIND_EXPR}))"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_echo = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_echo.contains("25") && gnu_echo.contains("3"),
+        "GNU frame-position should be (25 3) after move right: {gnu_echo:?}"
+    );
+
+    delete_all_child_frames(&mut gnu, &mut neo);
+}
+
+#[test]
+fn child_frame_move_down() {
+    let (mut gnu, mut neo) = boot_child_frame_pair();
+
+    // Create child frame with content.
+    let make_expr = r#"(let* ((cf (cf--make-child '(width . 20) '(height . 4) '(left . 5) '(top . 3)))
+             (buf (get-buffer-create "*cf-move-down*")))
+        (select-frame cf)
+        (switch-to-buffer buf)
+        (insert "MOVE-DOWN-TEST")
+        (sit-for 0)
+        (select-frame (frame-parent cf))
+        cf)"#;
+    eval_expression(&mut gnu, &mut neo, make_expr);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    assert_region_contains(&gnu, 3, 7, "MOVE-DOWN-TEST");
+
+    // Move child frame down by 10 rows.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 5 13)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // Content should now appear in rows 13-16, not rows 3-6.
+    assert_region_contains(&gnu, 13, 17, "MOVE-DOWN-TEST");
+
+    // Verify frame-position.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(message \"POS: %S\" (frame-position {CF_FIND_EXPR}))"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_echo = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_echo.contains("5") && gnu_echo.contains("13"),
+        "GNU frame-position should be (5 13) after move down: {gnu_echo:?}"
+    );
+
+    delete_all_child_frames(&mut gnu, &mut neo);
+}
+
+#[test]
+fn child_frame_move_multiple_steps() {
+    let (mut gnu, mut neo) = boot_child_frame_pair();
+
+    // Create child frame with content at (left=5, top=3).
+    let make_expr = r#"(let* ((cf (cf--make-child '(width . 20) '(height . 4) '(left . 5) '(top . 3)))
+             (buf (get-buffer-create "*cf-move-steps*")))
+        (select-frame cf)
+        (switch-to-buffer buf)
+        (insert "STEP-TEST")
+        (sit-for 0)
+        (select-frame (frame-parent cf))
+        cf)"#;
+    eval_expression(&mut gnu, &mut neo, make_expr);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    assert_region_contains(&gnu, 3, 7, "STEP-TEST");
+
+    // Step 1: move right.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 35 3)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    // Step 2: move down.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 35 13)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    // Step 3: move left.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 5 13)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(2));
+    // Step 4: move back up to original.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(set-frame-position {CF_FIND_EXPR} 5 3)"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // Content should be back at original position.
+    assert_region_contains(&gnu, 3, 7, "STEP-TEST");
+
+    // Verify final position.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(message \"POS: %S\" (frame-position {CF_FIND_EXPR}))"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_echo = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_echo.contains("5") && gnu_echo.contains("3"),
+        "GNU frame-position should return to (5 3): {gnu_echo:?}"
+    );
+
+    delete_all_child_frames(&mut gnu, &mut neo);
+}
+
+#[test]
+fn child_frame_move_after_resize() {
+    let (mut gnu, mut neo) = boot_child_frame_pair();
+
+    // Create a wide child frame.
+    let make_expr = r#"(let* ((cf (cf--make-child '(width . 30) '(height . 6) '(left . 5) '(top . 2)))
+             (buf (get-buffer-create "*cf-resize-move*")))
+        (select-frame cf)
+        (switch-to-buffer buf)
+        (insert "RESIZE-MOVE-TEST")
+        (sit-for 0)
+        (select-frame (frame-parent cf))
+        cf)"#;
+    eval_expression(&mut gnu, &mut neo, make_expr);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    assert_region_contains(&gnu, 2, 8, "RESIZE-MOVE-TEST");
+
+    // Resize smaller and reposition in one sequence.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!(
+            "(let ((cf {CF_FIND_EXPR})) (set-frame-size cf 15 4) (set-frame-position cf 50 2))"
+        ),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // Verify position updated.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!(
+            "(message \"POS: %S SIZE: %S\" (frame-position {CF_FIND_EXPR}) (cons (frame-width {CF_FIND_EXPR}) (frame-height {CF_FIND_EXPR})))"
+        ),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_echo = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_echo.contains("50") && gnu_echo.contains("2"),
+        "GNU frame-position should be (50 2) after resize+move: {gnu_echo:?}"
+    );
+    assert!(
+        gnu_echo.contains("15") && gnu_echo.contains("4"),
+        "GNU frame-size should be (15 . 4): {gnu_echo:?}"
+    );
+
+    delete_all_child_frames(&mut gnu, &mut neo);
+}
+
+#[test]
+fn child_frame_position_consistency() {
+    let (mut gnu, mut neo) = boot_child_frame_pair();
+
+    // Create child frame and verify position API returns correct values.
+    let make_expr = r#"(cf--make-child '(left . 12) '(top . 7) '(width . 18) '(height . 5))"#;
+    eval_expression(&mut gnu, &mut neo, make_expr);
+    read_both(&mut gnu, &mut neo, Duration::from_secs(3));
+
+    // frame-parameter should return the set values.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!(
+            "(message \"PARAMS: left=%S top=%S width=%S height=%S\" (frame-parameter {CF_FIND_EXPR} 'left) (frame-parameter {CF_FIND_EXPR} 'top) (frame-parameter {CF_FIND_EXPR} 'width) (frame-parameter {CF_FIND_EXPR} 'height))"
+        ),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_echo = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_echo.contains("left=12") && gnu_echo.contains("top=7"),
+        "GNU frame-parameter left/top should be 12/7: {gnu_echo:?}"
+    );
+    assert!(
+        gnu_echo.contains("width=18") && gnu_echo.contains("height=5"),
+        "GNU frame-parameter width/height should be 18/5: {gnu_echo:?}"
+    );
+
+    // frame-position should match.
+    eval_expression(
+        &mut gnu,
+        &mut neo,
+        &format!("(message \"FRAME-POS: %S\" (frame-position {CF_FIND_EXPR}))"),
+    );
+    read_both(&mut gnu, &mut neo, Duration::from_secs(1));
+    let gnu_pos = gnu.text_grid().last().cloned().unwrap_or_default();
+    assert!(
+        gnu_pos.contains("12") && gnu_pos.contains("7"),
+        "GNU frame-position should be (12 7): {gnu_pos:?}"
+    );
+
+    delete_all_child_frames(&mut gnu, &mut neo);
+}
