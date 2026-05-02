@@ -24,6 +24,26 @@ use neomacs_display_protocol::types::{Color, Rect};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
+/// A demo scene: main frame + zero or more child frames.
+/// The first element is always the main frame (parent_id == 0);
+/// subsequent elements are child frames with parent_id set.
+#[derive(Clone)]
+struct Scene(Vec<FrameDisplayState>);
+
+impl Scene {
+    fn iter(&self) -> impl Iterator<Item = &FrameDisplayState> {
+        self.0.iter()
+    }
+}
+
+impl From<FrameDisplayState> for Scene {
+    fn from(s: FrameDisplayState) -> Self { Scene(vec![s]) }
+}
+
+impl From<Vec<FrameDisplayState>> for Scene {
+    fn from(v: Vec<FrameDisplayState>) -> Self { Scene(v) }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let gui = args.iter().any(|a| a == "--gui");
@@ -32,7 +52,7 @@ fn main() {
         .iter()
         .find(|a| !a.starts_with('-'))
         .map(|s| s.as_str())
-        .unwrap_or("single");
+        .unwrap_or("default");
 
     if gui {
         run_gui(demo);
@@ -49,13 +69,15 @@ fn main() {
 
 fn run_tty(demo: &str) {
     let (cols, rows) = query_terminal_size().unwrap_or((80, 24));
-    let state = build_demo(demo, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+    let scene = build_demo(demo, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+    let state = scene_for_tty(scene);
 
     setup_terminal();
 
     if demo == "all" {
-        for name in &["single", "hsplit", "vsplit", "triple"] {
-            let s = build_demo(name, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+        for name in &["default", "single", "hsplit", "vsplit", "triple"] {
+            let ss = build_demo(name, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+            let s = scene_for_tty(ss);
             let mut tty = TtyRif::new(cols as usize, rows as usize);
             tty.rasterize(&s);
             tty.diff_and_render();
@@ -86,7 +108,8 @@ fn run_tty(demo: &str) {
 
 fn run_dump(demo: &str) {
     let (cols, rows) = query_terminal_size().unwrap_or((80, 24));
-    let state = build_demo(demo, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+    let scene = build_demo(demo, cols, rows, 1.0, 1.0, cols as f32, rows as f32);
+    let state = scene_for_tty(scene);
     let mut tty = TtyRif::new(cols as usize, rows as usize);
     tty.rasterize(&state);
     for (i, line) in tty.dump_desired().iter().enumerate() {
@@ -112,8 +135,8 @@ fn run_gui(demo: &str) {
     // The render thread's scale_factor from winit converts logical → physical.
     let char_w = 8.0f32;
     let char_h = 16.0f32;
-    let cols = 100u16;
-    let rows = 37u16;
+    let cols = 130u16;
+    let rows = 50u16;
     let width = (cols as f32 * char_w) as u32;
     let height = (rows as f32 * char_h) as u32;
 
@@ -143,7 +166,7 @@ fn run_gui(demo: &str) {
         width, height, cols, rows, demo
     );
 
-    let state = build_demo(
+    let scene = build_demo(
         demo,
         cols,
         rows,
@@ -152,9 +175,11 @@ fn run_gui(demo: &str) {
         width as f32,
         height as f32,
     );
-    let _ = emacs_comms.frame_tx.send(state.clone());
+    for s in scene.iter() {
+        let _ = emacs_comms.frame_tx.send(s.clone());
+    }
 
-    // Event loop: re-send frame, drain input, quit on 'q'/Escape
+    // Event loop: re-send frames, drain input, quit on 'q'/Escape
     loop {
         std::thread::sleep(Duration::from_millis(100));
         while let Ok(event) = emacs_comms.input_rx.try_recv() {
@@ -166,8 +191,40 @@ fn run_gui(demo: &str) {
                 }
             }
         }
-        let _ = emacs_comms.frame_tx.try_send(state.clone());
+        for s in scene.iter() {
+            let _ = emacs_comms.frame_tx.try_send(s.clone());
+        }
     }
+}
+
+/// Flatten a Scene into a single FrameDisplayState for TTY rasterization.
+/// Child frames are merged into the main frame at their parent_x/parent_y offset.
+fn scene_for_tty(scene: Scene) -> FrameDisplayState {
+    let mut iter = scene.0.into_iter();
+    let mut main = iter.next().expect("Scene must have a main frame");
+    for child in iter {
+        let ox = child.parent_x;
+        let oy = child.parent_y;
+        for mut entry in child.window_matrices {
+            entry.pixel_bounds.x += ox;
+            entry.pixel_bounds.y += oy;
+            main.window_matrices.push(entry);
+        }
+        for mut bg in child.backgrounds {
+            bg.bounds.x += ox;
+            bg.bounds.y += oy;
+            main.backgrounds.push(bg);
+        }
+        for mut border in child.borders {
+            border.x += ox;
+            border.y += oy;
+            main.borders.push(border);
+        }
+        for (id, face) in &child.faces {
+            main.faces.entry(*id).or_insert_with(|| face.clone());
+        }
+    }
+    main
 }
 
 // ===================================================================
@@ -182,13 +239,14 @@ fn build_demo(
     char_h: f32,
     pixel_w: f32,
     pixel_h: f32,
-) -> FrameDisplayState {
+) -> Scene {
     let faces = build_faces();
     match name {
-        "hsplit" => build_hsplit(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces),
-        "vsplit" => build_vsplit(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces),
-        "triple" => build_triple(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces),
-        _ => build_single(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces),
+        "default" => build_default(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces).into(),
+        "hsplit" => build_hsplit(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces).into(),
+        "vsplit" => build_vsplit(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces).into(),
+        "triple" => build_triple(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces).into(),
+        _ => build_single(cols, rows, char_w, char_h, pixel_w, pixel_h, &faces).into(),
     }
 }
 
@@ -602,6 +660,194 @@ fn build_triple(
     state
 }
 
+fn build_default(
+    cols: u16,
+    rows: u16,
+    char_w: f32,
+    char_h: f32,
+    pixel_w: f32,
+    _pixel_h: f32,
+    faces: &HashMap<u32, Face>,
+) -> Vec<FrameDisplayState> {
+    let c = cols as usize;
+    let r = rows as usize;
+    let top_half = (r - 1) / 2;
+    let bot_text = r - 1 - top_half - 1;
+    let left_cols = c / 2;
+    let right_cols = c - left_cols - 1;
+    let top_text = top_half - 1;
+    let mut state = new_state(cols, rows, char_w, char_h, pixel_w, r as f32 * char_h, faces);
+
+    // --- Top-left: *scratch* with rounded-box face (face 8) ---
+    let scratch_lines: Vec<(&str, u32)> = scratch_buffer_lines()
+        .into_iter()
+        .map(|(line, _)| (line, 8u32))
+        .collect();
+    let tl = build_text_matrix(top_text, left_cols, &scratch_lines, 0, true);
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 1,
+        matrix: tl,
+        pixel_bounds: Rect::new(0.0, 0.0, left_cols as f32 * char_w, top_text as f32 * char_h),
+        selected: true,
+    });
+    let tl_ml = build_mode_line_width(left_cols, " -:**-  *scratch*      (Lisp Interaction)");
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 10,
+        matrix: tl_ml,
+        pixel_bounds: Rect::new(0.0, top_text as f32 * char_h, left_cols as f32 * char_w, char_h),
+        selected: true,
+    });
+
+    // Vertical divider between left and right
+    let mut vdiv = GlyphMatrix::new(top_half, 1);
+    for row in &mut vdiv.rows {
+        row.enabled = true;
+        row.glyphs[GlyphArea::Text as usize].push(Glyph::char('|', 7, 0));
+    }
+    vdiv.ensure_hashes();
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 30,
+        matrix: vdiv,
+        pixel_bounds: Rect::new(
+            left_cols as f32 * char_w, 0.0,
+            char_w, top_half as f32 * char_h,
+        ),
+        selected: false,
+    });
+
+    // --- Top-right: *Messages* buffer (child-frame goes on top later) ---
+    let rx = (left_cols + 1) as f32 * char_w;
+    let messages = messages_buffer_lines();
+    let tr = build_text_matrix(top_text, right_cols, &messages, 0, false);
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 2,
+        matrix: tr,
+        pixel_bounds: Rect::new(
+            rx, 0.0,
+            right_cols as f32 * char_w, top_text as f32 * char_h,
+        ),
+        selected: false,
+    });
+    let tr_ml = build_mode_line_width(right_cols, " -:---  *Messages*     (Messages)");
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 11,
+        matrix: tr_ml,
+        pixel_bounds: Rect::new(
+            rx, top_text as f32 * char_h,
+            right_cols as f32 * char_w, char_h,
+        ),
+        selected: true,
+    });
+
+    // Horizontal divider (full width mode-line between top and bottom halves)
+    let top_ml_y = top_half as f32 * char_h;
+    let mut hdiv = GlyphMatrix::new(1, c);
+    hdiv.rows[0].enabled = true;
+    for i in 0..c {
+        hdiv.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('-', 1, 0));
+    }
+    hdiv.ensure_hashes();
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 31,
+        matrix: hdiv,
+        pixel_bounds: Rect::new(0.0, top_ml_y, pixel_w, char_h),
+        selected: false,
+    });
+
+    // --- Bottom: *Help* buffer ---
+    let help = help_buffer_lines();
+    let bot_y = (top_half + 1) as f32 * char_h;
+    let bot = build_text_matrix(bot_text, c, &help, 0, false);
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 3,
+        matrix: bot,
+        pixel_bounds: Rect::new(0.0, bot_y, pixel_w, bot_text as f32 * char_h),
+        selected: false,
+    });
+    let bot_ml = build_mode_line_width(c, " -:---  *Help*         (Help)");
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 12,
+        matrix: bot_ml,
+        pixel_bounds: Rect::new(0.0, (r - 2) as f32 * char_h, pixel_w, char_h),
+        selected: true,
+    });
+
+    // Minibuffer
+    let mini = build_minibuffer(c, "C-x 2 C-x 3 — split-window-below + split-window-right");
+    state.window_matrices.push(WindowMatrixEntry {
+        window_id: 20,
+        matrix: mini,
+        pixel_bounds: Rect::new(0.0, (r - 1) as f32 * char_h, pixel_w, char_h),
+        selected: false,
+    });
+    state.frame_id = 1;
+
+    // --- Child frame: completion popup floating over top-right window ---
+    let cf_cols = right_cols.saturating_sub(4);
+    let cf_pixel_w = cf_cols as f32 * char_w;
+    let cf_pixel_x = rx + 2.0 * char_w;
+    let cf_rows = (top_text - 3).min(8);
+    let cf_pixel_h = (cf_rows as f32 + 2.0) * char_h; // border + title + items
+    let cf_pixel_y = 0.0;
+
+    let mut cf = FrameDisplayState::new(
+        cf_cols, cf_rows as usize + 2,
+        char_w, char_h,
+    );
+    cf.frame_id = 100;
+    cf.parent_id = 1;
+    cf.parent_x = cf_pixel_x;
+    cf.parent_y = cf_pixel_y;
+    cf.z_order = 1;
+    cf.undecorated = true;
+    cf.faces = faces.clone();
+    cf.frame_pixel_width = cf_pixel_w;
+    cf.frame_pixel_height = cf_pixel_h;
+    cf.background = Color::new(0.0, 0.0, 0.0, 0.0); // transparent
+
+    // Border row (face 9)
+    let mut border = GlyphMatrix::new(1, cf_cols);
+    border.rows[0].enabled = true;
+    for _ in 0..cf_cols { border.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(' ', 9, 0)); }
+    border.ensure_hashes();
+    cf.window_matrices.push(WindowMatrixEntry { window_id: 1, matrix: border,
+        pixel_bounds: Rect::new(0.0, 0.0, cf_pixel_w, char_h), selected: false });
+
+    // Title row (face 11: navy bg)
+    let mut title = GlyphMatrix::new(1, cf_cols);
+    title.rows[0].enabled = true;
+    for ch in format!(" {:-<w$}", "Completions ", w = cf_cols - 1).chars() {
+        title.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, 11, 0));
+    }
+    title.ensure_hashes();
+    cf.window_matrices.push(WindowMatrixEntry { window_id: 2, matrix: title,
+        pixel_bounds: Rect::new(0.0, 1.0 * char_h, cf_pixel_w, char_h), selected: false });
+
+    let items: &[(&str, u32)] = &[
+        ("  describe-function     ", 9),
+        ("  describe-variable     ", 9),
+        ("▸ describe-symbol        ", 10),
+        ("  describe-key          ", 9),
+        ("  describe-mode         ", 9),
+        ("  describe-char         ", 9),
+    ];
+    for (row_i, (label, face_id)) in items.iter().enumerate() {
+        let mut row = GlyphMatrix::new(1, cf_cols);
+        row.rows[0].enabled = true;
+        for ch in label.chars().take(cf_cols) {
+            row.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char(ch, *face_id, 0));
+        }
+        row.ensure_hashes();
+        cf.window_matrices.push(WindowMatrixEntry {
+            window_id: (3 + row_i) as u64, matrix: row,
+            pixel_bounds: Rect::new(0.0, (2 + row_i) as f32 * char_h, cf_pixel_w, char_h),
+            selected: false,
+        });
+    }
+
+    vec![state, cf]
+}
+
 // -------------------------------------------------------------------
 // GlyphMatrix helpers
 // -------------------------------------------------------------------
@@ -677,26 +923,12 @@ fn build_faces() -> HashMap<u32, Face> {
     let mut f = HashMap::new();
     f.insert(0, mk(0, 0.87, 0.87, 0.87, 0.0, 0.0, 0.0, 400, false, None));
 
-    // Face 1: Mode-line with conic gradient (rainbow around center)
-    let mode_line_gradient = Some(Box::new(Gradient::Conic {
-        center_x: 0.5,
-        center_y: 0.5,
-        angle_offset: 0.0,
-        stops: vec![
-            ColorStop::new(0.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red
-            ColorStop::new(0.08, Color::new(1.0, 0.5, 0.0, 1.0)), // Orange
-            ColorStop::new(0.17, Color::new(1.0, 1.0, 0.0, 1.0)), // Yellow
-            ColorStop::new(0.25, Color::new(0.5, 1.0, 0.0, 1.0)), // Chartreuse
-            ColorStop::new(0.33, Color::new(0.0, 1.0, 0.0, 1.0)), // Green
-            ColorStop::new(0.42, Color::new(0.0, 1.0, 0.5, 1.0)), // Spring green
-            ColorStop::new(0.50, Color::new(0.0, 0.8, 1.0, 1.0)), // Cyan
-            ColorStop::new(0.58, Color::new(0.0, 0.4, 1.0, 1.0)), // Azure
-            ColorStop::new(0.67, Color::new(0.0, 0.0, 1.0, 1.0)), // Blue
-            ColorStop::new(0.75, Color::new(0.3, 0.0, 0.8, 1.0)), // Indigo
-            ColorStop::new(0.83, Color::new(0.6, 0.0, 1.0, 1.0)), // Violet
-            ColorStop::new(0.92, Color::new(1.0, 0.0, 1.0, 1.0)), // Magenta
-            ColorStop::new(1.00, Color::new(1.0, 0.0, 0.0, 1.0)), // Red (wrap)
-        ],
+    // Face 1: Mode-line with noise gradient (high contrast pink)
+    let mode_line_gradient = Some(Box::new(Gradient::Noise {
+        scale: 4.0,
+        octaves: 4,
+        color1: Color::new(1.0, 0.42, 0.62, 1.0), // #FF6B9D hot pink
+        color2: Color::new(1.0, 0.95, 0.97, 1.0), // #FFF2F7 near-white pink
     }));
     f.insert(
         1,
@@ -768,6 +1000,31 @@ fn build_faces() -> HashMap<u32, Face> {
         mk(6, 0.87, 0.87, 0.87, 0.15, 0.15, 0.15, 400, false, None),
     );
     f.insert(7, mk(7, 0.4, 0.4, 0.4, 0.0, 0.0, 0.0, 400, false, None));
+
+    // Face 8: Rounded box border face (for top-left window text)
+    {
+        let mut box_face = Face::new(8);
+        box_face.foreground = Color::new(0.87, 0.87, 0.87, 1.0);
+        box_face.background = Color::new(0.05, 0.05, 0.08, 1.0);
+        box_face.font_weight = 400;
+        box_face.box_type = neomacs_display_protocol::face::BoxType::Line;
+        box_face.box_line_width = 2;
+        box_face.box_corner_radius = 8;
+        box_face.box_color = Some(Color::new(0.2, 0.8, 0.4, 1.0)); // green border
+        box_face.box_border_style = 1; // gradient style
+        box_face.box_border_speed = 0.5;
+        f.insert(8, box_face);
+    }
+
+    // Face 9: Child-frame text (white on dark blue-gray)
+    f.insert(9, mk(9, 0.9, 0.9, 0.95, 0.08, 0.08, 0.14, 400, false, None));
+
+    // Face 10: Child-frame selected item (white on highlight blue)
+    f.insert(10, mk(10, 0.9, 0.9, 0.95, 0.18, 0.22, 0.38, 400, false, None));
+
+    // Face 11: Child-frame title (white on navy)
+    f.insert(11, mk(11, 0.9, 0.9, 0.95, 0.15, 0.20, 0.35, 400, false, None));
+
     f
 }
 

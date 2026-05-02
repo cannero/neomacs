@@ -1169,7 +1169,10 @@ impl WgpuRenderer {
                     let has_gradient = face
                         .and_then(|resolved| resolved.background_gradient.as_deref())
                         .is_some();
-                    if (bg.is_some() || has_gradient)
+                    let has_solid_bg = face
+                        .map(|f| f.background.a > f32::EPSILON)
+                        .unwrap_or(false);
+                    if (bg.is_some() || has_gradient || has_solid_bg)
                         && !Self::overlaps_rounded_box_span(
                             *x, *y, false, &box_spans, faces, box_margin,
                         )
@@ -1465,7 +1468,10 @@ impl WgpuRenderer {
                     let has_gradient = face
                         .and_then(|resolved| resolved.background_gradient.as_deref())
                         .is_some();
-                    if (bg.is_some() || has_gradient)
+                    let has_solid_bg = face
+                        .map(|f| f.background.a > f32::EPSILON)
+                        .unwrap_or(false);
+                    if (bg.is_some() || has_gradient || has_solid_bg)
                         && !Self::overlaps_rounded_box_span(
                             *x, *y, true, &box_spans, faces, box_margin,
                         )
