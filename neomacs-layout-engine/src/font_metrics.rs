@@ -83,6 +83,9 @@ pub struct FontMetricsService {
     ascii_cache: HashMap<MetricsCacheKey, [f32; 128]>,
     /// Cache: face attrs → single char width (for non-ASCII)
     char_cache: HashMap<(MetricsCacheKey, char), f32>,
+    /// Cache: Unicode script range → resolved font key for that script.
+    /// Avoids per-character fontconfig queries for same-script characters.
+    script_cache: HashMap<unicode_script::Script, ResolvedCharFont>,
     /// Cache: face attrs → font metrics (ascent, descent, etc.)
     metrics_cache: HashMap<MetricsCacheKey, FontMetrics>,
     /// Interned font family strings for cosmic-text Attrs (requires 'static)
@@ -104,6 +107,7 @@ impl FontMetricsService {
             font_system,
             ascii_cache: HashMap::new(),
             char_cache: HashMap::new(),
+            script_cache: HashMap::new(),
             metrics_cache: HashMap::new(),
             interned_families: HashMap::new(),
             font_file_cache: FontFileCache::new(),
@@ -440,13 +444,25 @@ impl FontMetricsService {
             return w;
         }
 
-        // Non-ASCII: check char cache
-        let char_key = (key.clone(), ch);
+        // Non-ASCII: resolve the actual covering font for this character's
+        // script first (cached per script range), then measure with that font.
+        let script = unicode_script::Script::from(ch);
+        let resolved = if let Some(r) = self.script_cache.get(&script) {
+            r.clone()
+        } else {
+            let r = self.resolve_font_for_char(ch, family, weight, italic);
+            self.script_cache.insert(script, r.clone());
+            r
+        };
+        let resolved_italic = resolved.slant.is_italic();
+        let resolved_key = MetricsCacheKey::new(&resolved.family, resolved.weight, resolved_italic, font_size);
+
+        let char_key = (resolved_key, ch);
         if let Some(&w) = self.char_cache.get(&char_key) {
             return w;
         }
 
-        let w = self.measure_char(ch, family, weight, italic, font_size);
+        let w = self.measure_char(ch, &resolved.family, resolved.weight, resolved_italic, font_size);
         self.char_cache.insert(char_key, w);
         w
     }

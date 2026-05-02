@@ -2319,6 +2319,7 @@ dependencies = [
  "once_cell",
  "tracing",
  "ttf-parser 0.25.1",
+ "unicode-script",
  "x11-dl",
  "yeslogic-fontconfig-sys",
 ]
