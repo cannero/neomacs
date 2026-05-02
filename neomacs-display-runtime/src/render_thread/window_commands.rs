@@ -112,7 +112,7 @@ impl RenderApp {
             RenderCommand::SetWindowSize { width, height } => {
                 tracing::debug!("RenderCommand::SetWindowSize {}x{}", width, height);
                 if let Some(ref window) = self.window {
-                    let size = window_size_from_emacs_pixels(width, height);
+                    let size = window_size_from_emacs_pixels(width, height, self.scale_factor);
                     let _ = window.request_inner_size(size);
                 }
                 Ok(())
@@ -129,7 +129,7 @@ impl RenderApp {
                     width,
                     height
                 );
-                let size = window_size_from_emacs_pixels(width, height);
+                let size = window_size_from_emacs_pixels(width, height, self.scale_factor);
                 if emacs_frame_id == 0 {
                     self.primary_geometry_hints = Some(geometry_hints);
                     if let Some(ref window) = self.window {

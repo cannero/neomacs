@@ -1,5 +1,5 @@
 use super::RenderApp;
-use super::state::{effective_window_scale_factor, window_size_from_emacs_pixels};
+use super::state::{effective_window_scale_factor, guess_initial_scale_factor, window_size_from_emacs_pixels};
 use super::x11_hints::apply_window_geometry_hints;
 use crate::thread_comm::InputEvent;
 use std::sync::Arc;
@@ -94,7 +94,11 @@ impl RenderApp {
         if self.window.is_none() {
             let attrs = Window::default_attributes()
                 .with_title(&self.title)
-                .with_inner_size(window_size_from_emacs_pixels(self.width, self.height))
+                .with_inner_size(window_size_from_emacs_pixels(
+                    self.width,
+                    self.height,
+                    guess_initial_scale_factor(Some(event_loop)),
+                ))
                 .with_transparent(true);
 
             tracing::info!(

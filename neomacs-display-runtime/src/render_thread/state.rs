@@ -39,19 +39,57 @@ pub(super) fn backend_uses_winit_logical_pixels() -> bool {
     }
 }
 
-pub(super) fn effective_window_scale_factor(raw_scale_factor: f64) -> f64 {
-    if backend_uses_winit_logical_pixels() {
-        raw_scale_factor
-    } else {
-        1.0
+/// Guess the desktop scale factor before a window is created.
+///
+/// On X11 we need to pre-scale the window because winit uses physical
+/// pixels and won't scale it for us (unlike Wayland where the compositor
+/// tells the app the logical size).  Ask the hardware first (XRandR via
+/// winit's available_monitors), then fall back to desktop env vars.
+pub(super) fn guess_initial_scale_factor(
+    event_loop: Option<&winit::event_loop::ActiveEventLoop>,
+) -> f64 {
+    if !backend_uses_winit_logical_pixels() {
+        // Primary source: XRandR via winit (reads monitor EDID physical mm)
+        if let Some(eloop) = event_loop {
+            if let Some(monitor) = eloop.available_monitors().next() {
+                let s = monitor.scale_factor();
+                if s > 1.0 {
+                    return s;
+                }
+            }
+        }
+        // Fallbacks: desktop environment scale vars
+        for var in &["GDK_SCALE", "QT_SCALE_FACTOR"] {
+            if let Ok(val) = std::env::var(var) {
+                if let Ok(s) = val.parse::<f64>() {
+                    if s > 0.0 {
+                        return s;
+                    }
+                }
+            }
+        }
     }
+    1.0
 }
 
-pub(super) fn window_size_from_emacs_pixels(width: u32, height: u32) -> Size {
+pub(super) fn effective_window_scale_factor(raw_scale_factor: f64) -> f64 {
+    raw_scale_factor
+}
+
+pub(super) fn window_size_from_emacs_pixels(
+    width: u32,
+    height: u32,
+    guessed_scale: f64,
+) -> Size {
     if backend_uses_winit_logical_pixels() {
         Size::Logical(LogicalSize::new(width as f64, height as f64))
     } else {
-        Size::Physical(PhysicalSize::new(width, height))
+        // X11: winit uses physical pixels.  Pre-scale so the window
+        // looks normal-sized on HiDPI displays.
+        Size::Physical(PhysicalSize::new(
+            (width as f64 * guessed_scale).round() as u32,
+            (height as f64 * guessed_scale).round() as u32,
+        ))
     }
 }
 
@@ -60,10 +98,10 @@ pub(super) fn emacs_pixels_from_window_size(
     height: u32,
     scale_factor: f64,
 ) -> (u32, u32) {
-    if backend_uses_winit_logical_pixels() {
+    if scale_factor > 0.0 {
         (
-            (width as f64 / scale_factor) as u32,
-            (height as f64 / scale_factor) as u32,
+            (width as f64 / scale_factor).round() as u32,
+            (height as f64 / scale_factor).round() as u32,
         )
     } else {
         (width, height)
