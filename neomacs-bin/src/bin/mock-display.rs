@@ -672,7 +672,7 @@ fn build_default(
     let c = cols as usize;
     let r = rows as usize;
     let top_half = (r - 1) / 2;
-    let bot_text = r - 1 - top_half - 1;
+    let bot_text = r - 1 - top_half;
     let left_cols = c / 2;
     let right_cols = c - left_cols - 1;
     let top_text = top_half - 1;
@@ -739,24 +739,9 @@ fn build_default(
         selected: true,
     });
 
-    // Horizontal divider (full width mode-line between top and bottom halves)
-    let top_ml_y = top_half as f32 * char_h;
-    let mut hdiv = GlyphMatrix::new(1, c);
-    hdiv.rows[0].enabled = true;
-    for i in 0..c {
-        hdiv.rows[0].glyphs[GlyphArea::Text as usize].push(Glyph::char('-', 1, 0));
-    }
-    hdiv.ensure_hashes();
-    state.window_matrices.push(WindowMatrixEntry {
-        window_id: 31,
-        matrix: hdiv,
-        pixel_bounds: Rect::new(0.0, top_ml_y, pixel_w, char_h),
-        selected: false,
-    });
-
     // --- Bottom: *Help* buffer ---
     let help = help_buffer_lines();
-    let bot_y = (top_half + 1) as f32 * char_h;
+    let bot_y = top_half as f32 * char_h;
     let bot = build_text_matrix(bot_text, c, &help, 0, false);
     state.window_matrices.push(WindowMatrixEntry {
         window_id: 3,
@@ -782,13 +767,13 @@ fn build_default(
     });
     state.frame_id = 1;
 
-    // --- Child frame: completion popup floating over top-right window ---
-    let cf_cols = right_cols.saturating_sub(4);
+    // --- Child frame: 60% of top-right window, centered ---
+    let cf_cols = ((right_cols as f32 * 0.6) as usize).max(20);
     let cf_pixel_w = cf_cols as f32 * char_w;
-    let cf_pixel_x = rx + 2.0 * char_w;
-    let cf_rows = (top_text - 3).min(8);
+    let cf_pixel_x = rx + (right_cols as f32 - cf_cols as f32) * 0.5 * char_w;
+    let cf_rows = ((top_text as f32 * 0.6) as usize).max(6);
     let cf_pixel_h = (cf_rows as f32 + 2.0) * char_h; // border + title + items
-    let cf_pixel_y = 0.0;
+    let cf_pixel_y = (top_text as f32 - (cf_rows as f32 + 2.0)) * 0.5 * char_h;
 
     let mut cf = FrameDisplayState::new(
         cf_cols, cf_rows as usize + 2,
@@ -830,6 +815,10 @@ fn build_default(
         ("  describe-key          ", 9),
         ("  describe-mode         ", 9),
         ("  describe-char         ", 9),
+        ("  describe-face         ", 9),
+        ("  describe-coding-system", 9),
+        ("  describe-bindings     ", 9),
+        ("  describe-package      ", 9),
     ];
     for (row_i, (label, face_id)) in items.iter().enumerate() {
         let mut row = GlyphMatrix::new(1, cf_cols);
