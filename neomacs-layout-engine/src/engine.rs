@@ -5652,6 +5652,170 @@ impl LayoutEngine {
             height: tab_bar_height,
         });
     }
+
+    /// Layout evaluator-free FrameContent into Scene (Vec<FrameDisplayState>).
+    ///
+    /// Shared entry point for real neomacs (via evaluator bridge) and mock-display.
+    /// Computes font metrics, builds glyph matrices, zero evaluator access.
+    pub fn layout_frame_content(
+        &mut self,
+        content: &neomacs_display_protocol::frame_content::FrameContent,
+    ) -> Vec<neomacs_display_protocol::glyph_matrix::FrameDisplayState> {
+        use super::matrix_builder::GlyphMatrixBuilder;
+        use neomacs_display_protocol::face::FaceAttributes;
+        use neomacs_display_protocol::frame_content::DisplayProperty;
+        use neomacs_display_protocol::glyph_matrix::Glyph;
+        use neomacs_display_protocol::types::Color;
+
+        let font_metrics = self.font_metrics.as_mut();
+        let mut builder = GlyphMatrixBuilder::new();
+
+        builder.set_frame_identity(content.frame_id, 0, 0.0, 0.0, 0, false);
+        builder.set_background_color(content.background);
+
+        let mut face_map = std::collections::HashMap::new();
+        for face in &content.faces {
+            face_map.insert(face.id, face.clone());
+        }
+        builder.set_faces(face_map);
+
+        let default_face = content.faces.first();
+        let default_size = default_face.map(|f| f.font_size).unwrap_or(12.0);
+        let default_family = default_face
+            .map(|f| f.font_family.as_str())
+            .unwrap_or("monospace");
+        let default_weight = default_face.map(|f| f.font_weight).unwrap_or(400);
+        let default_italic = default_face
+            .map(|f| f.attributes.contains(FaceAttributes::ITALIC))
+            .unwrap_or(false);
+
+        let (char_w, char_h, _ascent) = if let Some(fm) = font_metrics {
+            let m = fm.font_metrics(default_family, default_weight, default_italic, default_size);
+            let cw = fm.char_width(
+                'm',
+                default_family,
+                default_weight,
+                default_italic,
+                default_size,
+            );
+            (cw, m.line_height, m.ascent)
+        } else {
+            (content.frame_pixel_width / 80.0, 16.0, 14.0)
+        };
+
+        // Per-window layout
+        for window in &content.windows {
+            let nrows = window.lines.len() + 1; // +1 for mode-line
+            let ncols = (window.pixel_bounds.width / char_w.max(1.0)) as usize;
+            builder.begin_window(
+                window.window_id,
+                nrows,
+                ncols,
+                window.pixel_bounds,
+                window.selected,
+            );
+            for (row_idx, line) in window.lines.iter().enumerate() {
+                builder.begin_row(row_idx, GlyphRowRole::Text);
+                let lnum = format!("{:>3} ", row_idx + 1);
+                for ch in lnum.chars() {
+                    builder.push_left_margin_char(ch, 2);
+                }
+                let mut cp = 0usize;
+                for glyph in &line.glyphs {
+                    match &glyph.display {
+                        Some(DisplayProperty::Invisible) => {
+                            cp += 1;
+                            continue;
+                        }
+                        Some(DisplayProperty::Replace(text, fid)) => {
+                            for ch in text.chars() {
+                                builder.push_char(ch, *fid, cp);
+                                cp += 1;
+                            }
+                            continue;
+                        }
+                        Some(DisplayProperty::Composition(composed)) => {
+                            for cg in composed {
+                                builder.push_char(cg.ch, cg.face_id, cp);
+                                cp += 1;
+                            }
+                            continue;
+                        }
+                        _ => {}
+                    }
+                    builder.push_char(glyph.ch, glyph.face_id, cp);
+                    cp += 1;
+                }
+                builder.end_row();
+            }
+            // Mode-line
+            builder.begin_status_line_row(GlyphRowRole::ModeLine);
+            let ml: Vec<Glyph> = window
+                .mode_line_text
+                .chars()
+                .map(|ch| Glyph::char(ch, 1, 0))
+                .collect();
+            builder.install_current_row_glyphs(ml);
+            builder.end_row();
+            builder.end_window();
+        }
+
+        let main_state = builder.finish(
+            (content.frame_pixel_width / char_w.max(1.0)) as usize,
+            (content.frame_pixel_height / char_h.max(1.0)) as usize,
+            char_w,
+            char_h,
+        );
+
+        let mut child_frames = Vec::new();
+        for cf in &content.child_frames {
+            let mut cb = GlyphMatrixBuilder::new();
+            cb.set_frame_identity(
+                cf.frame_id,
+                content.frame_id,
+                cf.parent_x,
+                cf.parent_y,
+                cf.z_order,
+                true,
+            );
+            cb.set_background_color(Color::new(0.0, 0.0, 0.0, 0.0));
+            let mut cfm = std::collections::HashMap::new();
+            for face in &content.faces {
+                cfm.insert(face.id, face.clone());
+            }
+            cb.set_faces(cfm);
+            let nrows = cf.window.lines.len();
+            let ncols = (cf.window.pixel_bounds.width / char_w.max(1.0)) as usize;
+            cb.begin_window(
+                cf.window.window_id,
+                nrows,
+                ncols,
+                cf.window.pixel_bounds,
+                false,
+            );
+            for (ri, line) in cf.window.lines.iter().enumerate() {
+                cb.begin_row(ri, GlyphRowRole::Text);
+                let mut cp = 0usize;
+                for g in &line.glyphs {
+                    cb.push_char(g.ch, g.face_id, cp);
+                    cp += 1;
+                }
+                cb.end_row();
+            }
+            cb.end_window();
+            let cs = cb.finish(
+                (cf.window.pixel_bounds.width / char_w.max(1.0)) as usize,
+                cf.window.lines.len().max(1),
+                char_w,
+                char_h,
+            );
+            child_frames.push(cs);
+        }
+
+        let mut all = vec![main_state];
+        all.extend(child_frames);
+        all
+    }
 }
 
 /// Get the advance width for a character in a specific face.
