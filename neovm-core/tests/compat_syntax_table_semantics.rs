@@ -1,5 +1,6 @@
 mod common;
 
+use neovm_core::test_utils;
 use common::{oracle_enabled, run_neovm_eval, run_oracle_eval};
 
 struct SyntaxCase {
@@ -9,6 +10,7 @@ struct SyntaxCase {
 
 #[test]
 fn compat_syntax_table_semantics_matches_gnu_emacs() {
+    test_utils::init_test_tracing();
     if !oracle_enabled() {
         eprintln!(
             "skipping syntax-table audit: set NEOVM_FORCE_ORACLE_PATH or place GNU Emacs mirror alongside the repo"
@@ -80,7 +82,7 @@ fn compat_syntax_table_semantics_matches_gnu_emacs() {
     ];
 
     for case in cases {
-        eprintln!("syntax-table case: {}", case.name);
+        println!("syntax-table case: {}", case.name);
         let gnu = run_oracle_eval(case.form).expect("GNU Emacs evaluation");
         let neovm = run_neovm_eval(case.form).expect("NeoVM evaluation");
         assert_eq!(
